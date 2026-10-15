@@ -1,0 +1,294 @@
+/* ==========================================================================
+   SEVANEST ADMIN PORTAL - OFFICIAL DESIGN SYSTEM & GLOBAL STYLES
+   Reference: SevaNest_UI_Color_Typography_Design_System_v1.docx
+   ========================================================================== */
+
+:root {
+  /* 1. Official 12-Token Color System */
+  --color-primary: #0F766E;            /* Primary Teal: Primary actions, active nav, focus rings */
+  --color-primary-hover: #0D655E;      /* Teal Darker: Hover states */
+  --color-primary-subtle: #F0FDFA;     /* Teal-50: Active nav bg, subtle indicator chips */
+  --color-primary-foreground: #FFFFFF;
+
+  --color-navy: #1E3A5F;               /* Deep Navy: Strong visual hierarchy, major headings, brand */
+  --color-navy-hover: #152B47;
+
+  --color-amber: #F59E0B;              /* Amber Accent: Highlights & emphasis (always dark text) */
+  --color-amber-subtle: #FEF3C7;
+
+  --color-success: #16A34A;            /* Success */
+  --color-warning: #D97706;            /* Warning */
+  --color-error: #DC2626;              /* Error */
+
+  --color-bg-app: #F8FAFC;             /* Page Background: Soft neutral page canvas */
+  --color-bg-surface: #FFFFFF;         /* Surface: Cards, tables, forms, dialogs, drawers */
+  --color-surface: #FFFFFF;
+  --color-bg-surface-elevated: #F8FAFC;
+  --color-bg-surface-subtle: #F8FAFC;
+  --color-bg-subtle: #F8FAFC;
+
+  --color-text-primary: #0F172A;       /* Primary Text: High contrast, dark readable text */
+  --color-text-secondary: #64748B;     /* Secondary Text: Subtitles, metadata, secondary labels */
+  --color-text-tertiary: #64748B;
+  --color-text-muted: #64748B;
+  --color-text-disabled: #94A3B8;      /* Legible disabled text */
+  --color-text-inverse: #FFFFFF;       /* Pure white on dark/primary surfaces */
+
+  --color-border: #E2E8F0;             /* Border / Divider: Subtle neutral borders */
+  --color-border-subtle: #E2E8F0;
+  --color-border-muted: #CBD5E1;
+  --color-border-focus: #0F766E;
+
+  --color-bg-disabled: #F1F5F9;        /* Disabled Surface */
+
+  /* Legacy brand/accent aliases mapped strictly to official tokens */
+  --color-accent: #0F766E;
+  --color-accent-subtle: #F0FDFA;
+  --color-brand-50: #F0FDFA;
+  --color-brand-100: #CCFBF1;
+  --color-brand-500: #0F766E;
+  --color-brand-600: #0F766E;
+  --color-brand-700: #0D655E;
+  --color-brand-800: #1E3A5F;
+
+  /* Accessible Status Colors (High contrast text on soft tinted backgrounds) */
+  --color-status-success-bg: #F0FDF4;
+  --color-status-success-border: #BBF7D0;
+  --color-status-success-text: #166534;
+  --color-success-bg: #F0FDF4;
+  --color-success-border: #BBF7D0;
+  --color-success-dark: #166534;
+
+  --color-status-warning-bg: #FFFBEB;
+  --color-status-warning-border: #FDE68A;
+  --color-status-warning-text: #92400E;
+  --color-warning-bg: #FFFBEB;
+  --color-warning-dark: #92400E;
+
+  --color-status-danger-bg: #FEF2F2;
+  --color-status-danger-border: #FECACA;
+  --color-status-danger-text: #991B1B;
+  --color-danger-bg: #FEF2F2;
+  --color-danger-border: #FECACA;
+  --color-danger-dark: #991B1B;
+  --color-error-bg: #FEF2F2;
+  --color-error-border: #FECACA;
+  --color-error-dark: #991B1B;
+
+  --color-status-info-bg: #F0FDFA;
+  --color-status-info-border: #CCFBF1;
+  --color-status-info-text: #0F766E;
+
+  --color-status-neutral-bg: #F1F5F9;
+  --color-status-neutral-border: #E2E8F0;
+  --color-status-neutral-text: #64748B;
+
+  /* Layout Dimensions */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 72px;
+  --header-height: 64px;
+
+  /* 2. Official Typography Scale (Font: Inter) */
+  --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-size-xs: 0.75rem;     /* 12px - Caption and metadata: minimum 12px */
+  --font-size-sm: 0.875rem;    /* 14px - Body text, Input labels */
+  --font-size-base: 1rem;      /* 16px - Body text, Button labels, Card titles */
+  --font-size-md: 1rem;        /* 16px */
+  --font-size-lg: 1.125rem;    /* 18px - Card titles: 16-18px */
+  --font-size-xl: 1.25rem;     /* 20px - Subsection / H3: 20px, weight 600 */
+  --font-size-2xl: 1.5rem;     /* 24px - Section title / H2: 24px, weight 700 */
+  --font-size-3xl: 2rem;       /* 32px - Web page title / H1: 32px, weight 700 */
+  --font-size-kpi: 1.875rem;   /* 30px - Dashboard KPI values: 28-36px, weight 700 */
+
+  /* 3. Official Spacing Grid: 4, 8, 16, 24, 32, 40, 48, 64px */
+  --space-1: 0.25rem;  /* 4px */
+  --space-2: 0.5rem;   /* 8px */
+  --space-3: 0.75rem;  /* 12px */
+  --space-4: 1rem;     /* 16px */
+  --space-5: 1.25rem;  /* 20px */
+  --space-6: 1.5rem;   /* 24px */
+  --space-8: 2rem;     /* 32px */
+  --space-10: 2.5rem;  /* 40px */
+  --space-12: 3rem;    /* 48px */
+  --space-16: 4rem;    /* 64px */
+
+  /* 4. Official Corner Radii: ~8px inputs/buttons, ~12px cards, ~16px dialogs */
+  --radius-sm: 4px;      /* Small indicators & tags */
+  --radius-md: 8px;      /* Inputs and Buttons: 8px */
+  --radius-lg: 12px;     /* Cards: 12px */
+  --radius-xl: 16px;     /* Dialogs, sheets, modals: 16px */
+  --radius-full: 9999px; /* Status pills */
+
+  /* Shadows - Subtle, clean light administrative shadows */
+  --shadow-sm: 0 1px 2px 0 rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.06), 0 2px 4px -2px rgba(15, 23, 42, 0.03);
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.06), 0 4px 6px -4px rgba(15, 23, 42, 0.02);
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.03);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* CSS Reset & Box Sizing */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  background-color: var(--color-bg-app);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-base);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--color-bg-app);
+}
+
+/* Typography Hierarchy Standards */
+h1 {
+  font-size: var(--font-size-3xl); /* 32px */
+  font-weight: 700;
+  color: var(--color-navy);        /* Deep Navy for page titles */
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: var(--font-size-2xl); /* 24px */
+  font-weight: 700;
+  color: var(--color-navy);        /* Deep Navy for section titles */
+  line-height: 1.3;
+}
+
+h3 {
+  font-size: var(--font-size-xl);  /* 20px */
+  font-weight: 600;
+  color: var(--color-navy);        /* Deep Navy for subsections */
+  line-height: 1.4;
+}
+
+/* Links & Interactive Elements */
+a {
+  color: var(--color-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--color-primary-hover);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  outline: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Nav Item Hover State */
+nav a:hover:not([class*="active"]) {
+  background-color: var(--color-bg-app) !important;
+  color: var(--color-text-primary) !important;
+}
+
+/* Form Controls & Inputs */
+input, select, textarea {
+  font-family: inherit;
+  color: var(--color-text-primary);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+select option {
+  background-color: #ffffff;
+  color: var(--color-text-primary);
+}
+
+/* Accessible Focus States */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+div:has(> input:focus) {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+/* Global Tables Styling */
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background-color: var(--color-bg-app);
+  border-bottom: 1px solid var(--color-border);
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+}
+
+td {
+  padding: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+tbody tr:hover {
+  background-color: rgba(248, 250, 252, 0.8);
+}
+
+/* Utility Layout Classes */
+.flex { display: flex; }
+.flex-col { display: flex; flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-1 { gap: var(--space-1); }
+.gap-2 { gap: var(--space-2); }
+.gap-3 { gap: var(--space-3); }
+.gap-4 { gap: var(--space-4); }
+.gap-6 { gap: var(--space-6); }
+.flex-1 { flex: 1 1 0%; }
+
+/* Scrollbar Customization */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-muted);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-disabled);
+}

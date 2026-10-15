@@ -1,0 +1,42 @@
+services:
+  sevanest-admin-portal:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+      args:
+        VITE_API_BASE_URL: /api/v1
+        VITE_APP_ENV: production
+        VITE_USE_MOCK_AUTH: "false"
+        VITE_API_TIMEOUT_MS: "15000"
+        VITE_ENABLE_TELEMETRY: "false"
+    image: sevanest-admin-portal:latest
+    container_name: sevanest-admin-portal
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    environment:
+      - NODE_ENV=production
+
+  # Development service with hot module reloading
+  # To run: docker compose --profile dev up --build
+  sevanest-admin-portal-dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    image: sevanest-admin-portal:dev
+    container_name: sevanest-admin-portal-dev
+    ports:
+      - "3001:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development

@@ -1,0 +1,470 @@
+SevaNest PRD | Confidential — Product Planning Document 
+SEVANEST 
+PRODUCT REQUIREMENTS DOCUMENT (PRD) 
+Verified Help. Trusted Homes. 
+ 
+Household Workforce Marketplace for Maids, Drivers & Home Staff 
+Customer App + Worker App + Web Admin Portal 
+ 
+Proposed Development Partner: VPD Technologies Pvt Ltd 
+Primary Launch Market: Hyderabad 
+Project Duration: 4 Months / 16 Weeks 
+Platforms: Android, iOS & Web Admin 
+Project Type: Marketplace + Workforce Management Platform 
+Document Status: Product Requirements / Development Brief 
+ 
+ 
+Source basis: SevaNest | VPD Technologies – 4-Month Project Report. All source requirements, scope, workflows, delivery details, risks and 
+roadmap items have been retained in this PRD. 
+  
+SevaNest PRD | Confidential — Product Planning Document 
+1. Product Overview & Executive Summary 
+SevaNest is a proposed simple, trusted and scalable household workforce platform connecting customers with verified 
+maids, drivers, cooks, babysitters, elderly-care helpers and house-cleaning workers. The platform supports recurring 
+household employment as well as short-term service requirements. 
+The product consists of a Customer Mobile App, Worker Mobile App and Web-based Admin Panel. The first production 
+release is planned within four months (16 weeks), with parallel work across product design, mobile applications, 
+backend, admin portal, integrations, testing and deployment. 
+The core product principle is simplicity: customers should be able to find a suitable worker in a few steps, while workers 
+should be able to register, verify identity, specify availability and receive job opportunities without navigating a complex 
+interface. 
+Item Requirement 
+Product Name SevaNest 
+Tagline Verified Help. Trusted Homes. 
+Brand Positioning Verified household workforce platform 
+Launch City Hyderabad 
+Expansion Model City-by-city rollout 
+Version 1 Focus Maids, Drivers, Cooks, Babysitters, Elderly Care, Cleaning Helpers 
+ 
+1.1 Product Name Rationale 
+"Seva" represents service/help, while "Nest" represents the home. The name is broad enough to include maids, drivers, 
+cooks, caregivers and future home-service categories without restricting the brand to one role. 
+Working product name: SevaNest. Trademark, company-name and domain availability must be verified before public 
+launch. 
+1.2 Product Goals 
+ Make household staff discovery and hiring simple and structured. 
+ Create a trusted worker-verification and customer-verification process. 
+ Support recurring monthly employment as well as daily/hourly requirements. 
+ Provide interview, booking, payment, attendance, rating and replacement workflows. 
+ Give operations teams complete control through an admin dashboard. 
+ Build a scalable technology base for multi-city expansion. 
+2. Product Scope 
+The four-month implementation focuses on a production-ready Version 1. Features that are not essential to launch will 
+be moved to later phases so that quality, usability and operational readiness are not compromised. 
+2.1 In Scope — Version 1 
+ Customer Android/iOS application 
+ Worker Android/iOS application 
+ Web Admin Panel 
+ OTP-based authentication 
+ Customer and worker profiles 
+ Service-category selection 
+ Location and availability filtering 
+ Worker KYC/document upload and verification status 
+ Search and matching 
+ Interview/trial request 
+ Booking and confirmation 
+ Payment gateway integration 
+SevaNest PRD | Confidential — Product Planning Document 
+ Attendance/status tracking 
+ Ratings and reviews 
+ Replacement request workflow 
+ Support/complaint tickets 
+ Push, SMS and optional WhatsApp notifications 
+ Basic dashboards and reports 
+ Role-based admin access 
+ Cloud deployment, monitoring and backups 
+2.2 Out of Scope for Initial 4-Month Release 
+ Automated payroll and statutory payroll compliance 
+ Worker loans/credit products 
+ Insurance marketplace 
+ Facial-recognition attendance 
+ Complex AI recommendation engine 
+ Full apartment-society ERP 
+ Advanced corporate workforce module 
+ Multi-country operations 
+3. Users, Roles & Personas 
+User Type Primary Purpose Key Actions 
+Customer Hire/manage household staff Search, shortlist, interview, book, pay, rate, replace 
+Worker Find and manage job opportunities Register, verify, set skills, availability, accept jobs, attendance 
+Operations Admin Run day-to-day marketplace Verify, match, assign, support, replace, monitor 
+Super Admin Platform control Roles, policies, reports, configuration, audit access 
+Verification Executive KYC/background workflow Review documents, status, remarks, re-verification 
+Support Executive Customer/worker support Tickets, disputes, escalations, resolution tracking 
+ 
+4. Service Categories 
+Category Typical Engagement Example Requirement 
+House Maid Part-time / Full-time / Live-in Cleaning, utensils, basic household support 
+Driver Hourly / Daily / Monthly Personal/family driver, temporary driver 
+Cook Part-time / Monthly Breakfast/lunch/dinner preparation 
+Babysitter Hourly / Full-time Child supervision and basic care 
+Elderly Care Helper Shift / Full-time Non-clinical assistance and companionship 
+Cleaning Helper One-time / Hourly Deep/basic cleaning assistance 
+ 
+Version 1 should avoid excessive categories. New services should be enabled later through configurable admin 
+masters rather than requiring a separate app redesign. 
+5. Customer Application — Functional Requirements 
+5.1 Registration & Profile 
+ Mobile OTP login 
+ Name, email, address and preferred language 
+ Saved addresses 
+ Basic customer verification 
+SevaNest PRD | Confidential — Product Planning Document 
+5.2 Service Discovery 
+ Select service category 
+ Choose full-time, part-time, daily, hourly or live-in 
+ Enter location, preferred timings and start date 
+ Specify salary/budget range where applicable 
+5.3 Worker Discovery 
+ View worker cards 
+ Profile photo, experience, skills, language, area, availability 
+ Verification badges 
+ Rating and review summary 
+ Shortlist/favourite workers 
+5.4 Booking 
+ Request interview or trial 
+ Select preferred date/time 
+ Confirm worker 
+ Pay booking/platform fee 
+ View booking status timeline 
+5.5 Ongoing Service 
+ Attendance/status visibility 
+ Service history 
+ Support request 
+ Worker rating 
+ Replacement request 
+5.6 Payments 
+ UPI/cards/net banking through gateway 
+ Payment receipts 
+ Transaction history 
+ Refund status where applicable 
+6. Worker Application — Functional Requirements 
+6.1 Onboarding 
+ Mobile OTP registration 
+ Profile photo 
+ Aadhaar/KYC document upload 
+ Address and emergency contact 
+ Previous employer/reference details 
+6.2 Work Profile 
+ Select role(s) 
+ Experience 
+ Languages 
+ Preferred work locations 
+ Expected salary 
+ Available timings 
+ Full-time/part-time/live-in preference 
+SevaNest PRD | Confidential — Product Planning Document 
+6.3 Job Workflow 
+ Receive job opportunities 
+ View customer requirement summary 
+ Accept/decline opportunity 
+ Interview/trial schedule 
+ Job confirmation and start date 
+6.4 Ongoing Work 
+ Attendance/status 
+ Current job details 
+ Earnings/payment reference where applicable 
+ Ratings 
+ Support and complaint request 
+Worker-app usability requirement: the worker app must use large buttons, limited text, simple status labels and local-
+language readiness. Complex forms should be split into short steps. 
+7. Admin & Operations Portal 
+Module Capabilities 
+Dashboard Bookings, active workers, pending KYC, complaints, replacements, collections 
+Customer Management Profiles, status, bookings, history, complaints, notes 
+Worker Management Profiles, documents, availability, skills, rating, blacklist/status 
+Verification Document review, verification status, expiry/recheck, remarks 
+Booking Management New request, match, interview, trial, confirm, cancel, replace 
+Payments Transaction status, fee records, refunds, invoice/reference exports 
+Support Ticket creation, assignment, escalation, resolution SLA 
+Reports Bookings, conversion, category demand, location demand, worker utilization 
+Configuration Categories, areas, fees, plans, notification templates, roles 
+ 
+8. Core User Journeys 
+8.1 Customer Journey 
+1. Login with OTP 
+2. Select service 
+3. Choose engagement type and timing 
+4. Enter location 
+5. View verified workers 
+6. Shortlist / request interview 
+7. Confirm worker 
+8. Pay applicable platform fee 
+9. Worker starts service 
+10. Track / rate / request replacement if required 
+8.2 Worker Journey 
+11. Register using OTP 
+12. Complete profile 
+13. Upload KYC and documents 
+14. Choose skills, areas and availability 
+15. Admin verification 
+16. Receive job match 
+17. Accept opportunity 
+18. Attend interview/trial 
+19. Job confirmation 
+SevaNest PRD | Confidential — Product Planning Document 
+20. Start service and maintain status/attendance 
+8.3 Replacement Journey 
+21. Customer selects Request Replacement 
+22. Reason and supporting notes captured 
+23. Support/Admin reviews eligibility 
+24. Current engagement status is updated 
+25. Alternative workers are matched 
+26. Customer selects replacement 
+27. New worker is confirmed and history remains auditable 
+9. Trust, Verification & Safety Framework 
+Trust is the highest-risk area in this business model. The platform should never present a worker as fully verified until 
+the configured checks have been completed and approved by an authorized operations user. 
+Verification Version 1 Handling 
+Mobile OTP verification 
+Identity Government ID upload and manual/partner verification 
+Address Document/reference verification 
+Emergency Contact Captured and verified where operationally feasible 
+Previous Employment Reference details and status 
+Police Verification Status/document tracking; external process as applicable 
+Customer Verification Mobile, address and basic profile checks 
+Audit Trail Admin action, status and timestamps retained 
+ 
+9.1 Safety Controls 
+ Report/Block functionality 
+ Support escalation 
+ Complaint history 
+ Worker/customer suspension 
+ Emergency contact visibility based on policy 
+ Sensitive-document access limited by role 
+ No public exposure of full identity documents 
+ Audit logs for critical administrative actions 
+10. Commercial / Revenue Model Requirements 
+The software should support multiple revenue models so the business can test the market without rebuilding payment 
+logic. 
+Revenue Stream Example Model 
+Booking Fee One-time fee for a confirmed booking 
+Placement Fee Fee for successful monthly staff placement 
+Customer Subscription Monthly/quarterly premium support plan 
+Verification Fee Optional background/verification service 
+Replacement Plan Extended replacement coverage 
+Apartment Partnership B2B plan for communities 
+Employer Services Bulk domestic-staff sourcing for organizations where applicable 
+ 
+Actual pricing should be finalized through market testing. The application should keep fee values configurable from the 
+admin portal. 
+SevaNest PRD | Confidential — Product Planning Document 
+11. Recommended Technology Architecture 
+Layer Recommendation Reason 
+Mobile Apps Flutter Single codebase for Android and iOS 
+Admin Web React Fast, responsive operations portal 
+Backend/API Node.js/NestJS or Java Spring Boot Scalable service layer 
+Database PostgreSQL Transactional and relational data 
+Cache/Queue Redis / managed queue OTP, notifications, async jobs 
+Cloud AWS / Azure Scalable managed infrastructure 
+Storage Object storage KYC documents and profile media 
+Authentication OTP + token-based sessions Simple login with secure sessions 
+Push Notifications Firebase Cloud Messaging Android/iOS notifications 
+Payments Razorpay/Cashfree/PayU India payment methods 
+Maps Google Maps / Map provider Location, distance and service areas 
+Monitoring Cloud logs + alerts Production issue visibility 
+ 
+11.1 High-Level Components 
+ Mobile API Gateway 
+ Authentication Service 
+ User/Profile Service 
+ Worker Verification Service 
+ Service/Category & Availability Service 
+ Matching/Search Service 
+ Booking Service 
+ Payment Service 
+ Notification Service 
+ Support/Complaint Service 
+ Reporting & Admin Service 
+ Audit & Security Layer 
+12. Core Data Entities 
+Entity Examples of Data 
+Customer Profile, addresses, bookings, payments, ratings 
+Worker Profile, skills, availability, verification, jobs, ratings 
+Service Category Maid, driver, cook, etc. 
+Booking Requirement, dates, status, selected worker 
+Interview/Trial Schedule, status, outcome 
+Verification Document type, status, reviewer, notes 
+Payment Amount, gateway reference, status, refund 
+Attendance Date, check/status, exceptions 
+Replacement Reason, approval, replacement booking 
+Support Ticket Category, priority, owner, resolution 
+Notification Channel, template, delivery status 
+Audit Log Actor, action, timestamp, record 
+ 
+13. Security, Privacy & Non-Functional Requirements 
+ HTTPS for all application traffic 
+ Encryption of sensitive data at rest where appropriate 
+ Role-based access control for admin users 
+ Restricted access to KYC documents 
+ Masked sensitive information in routine screens 
+ Secure password/secret storage for admin accounts and integrations 
+ Audit logs for verification, payment and user-status changes 
+ Automated database backups 
+ Production monitoring and error alerts 
+SevaNest PRD | Confidential — Product Planning Document 
+ Rate limiting and abuse protection on OTP/API endpoints 
+ Data retention/deletion policy to be defined before launch 
+ Terms, privacy policy and consent flows to be legally reviewed before production release 
+13.1 Performance / Reliability Targets 
+Area Target 
+Common App Screens Responsive under normal mobile network conditions 
+Search Results returned quickly with pagination 
+Availability Configured for production scalability 
+Backups Automated scheduled backups 
+Admin Role-based concurrent operations 
+Reliability Graceful failure and retry for external integrations 
+ 
+14. Reports & Business Analytics 
+ New customers by day/week/month 
+ Worker registrations and verification conversion 
+ Booking requests vs confirmed bookings 
+ Category-wise demand 
+ Area-wise demand 
+ Worker utilization 
+ Interview-to-confirmation conversion 
+ Cancellation rate 
+ Replacement rate 
+ Payment collections 
+ Support ticket volume and resolution time 
+ Top-rated workers and repeat customers 
+15. Four-Month / 16-Week Delivery Plan 
+The 4-month schedule is achievable only with parallel workstreams and controlled Version 1 scope. Major requirement 
+changes after design sign-off should be handled through a formal change-request process because they can affect the 
+release date. 
+Phase Period Focus Expected Output 
+Month 1 Weeks 1-4 Discovery, UX/UI, architecture, project setup Signed requirements, wireframes, UI design, database/API foundation 
+Month 2 Weeks 5-8 Core backend + Customer App + Worker App + Admin modules Login, profiles, categories, worker onboarding, search, admin basics 
+Month 3 Weeks 9-12 Booking, verification, payments, notifications, support, integrations End-to-end booking flow, KYC workflow, payment sandbox, replacement/support 
+Month 4 Weeks 13-16 QA, security hardening, UAT, production deployment, store submission Release candidate, UAT closure, production deployment, handover 
+ 
+15.1 Week-by-Week Plan 
+Week Primary Activities 
+1 Kick-off, requirements workshops, user roles, service model, success criteria 
+2 User journeys, wireframes, data model, architecture, backlog 
+3 UI design system, customer screens, worker screens, admin screen design 
+4 Design sign-off, project environments, authentication/API foundation 
+5 Customer profile, addresses, service catalogue, worker onboarding 
+6 Worker skills/availability, admin customer/worker management, KYC upload 
+7 Search/filter/matching, worker cards, shortlist, interview request 
+8 Booking state machine, interview/trial workflow, admin assignment 
+9 Payment integration, receipts, booking confirmation, notification engine 
+10 Replacement, complaints/support, ratings/reviews, attendance/status 
+11 Admin reports, configuration masters, role permissions, audit logs 
+SevaNest PRD | Confidential — Product Planning Document 
+12 Integration completion, internal system testing, bug fixing 
+13 Full regression QA, device testing, performance/security checks 
+14 UAT with business team, operational training, critical fixes 
+15 Production configuration, deployment, app store/play store submission 
+16 Go-live support, handover, documentation, release stabilization 
+ 
+16. Key Milestones & Acceptance Gates 
+Milestone Target Acceptance Gate 
+M1 - Requirements Freeze End Week 2 Approved scope and workflows 
+M2 - UI/UX Sign-off End Week 4 Approved clickable screen designs 
+M3 - Core Alpha End Week 8 Customer/worker/admin core flows working 
+M4 - Feature Complete Beta End Week 12 All V1 features integrated 
+M5 - UAT Ready End Week 13 Regression passed; known issues documented 
+M6 - UAT Sign-off End Week 14 Business acceptance of release candidate 
+M7 - Production Release Weeks 15-16 Deployment + store submission + handover 
+ 
+17. Recommended Delivery Team 
+Role Suggested Count Responsibility 
+Project Manager 1 Plan, dependencies, client communication, delivery control 
+Business Analyst / Product Owner 1 Requirements, workflows, acceptance criteria 
+UI/UX Designer 1 Design system, app/admin UX 
+Flutter Developers 2 Customer and worker apps 
+Backend Developers 2 APIs, database, integrations, security 
+React/Web Developer 1 Admin portal 
+QA Engineers 2 Functional, regression, device and UAT support 
+DevOps/Cloud Engineer 1 part/full-time CI/CD, environments, deployment, monitoring 
+ 
+A smaller team can build the product, but a four-month production commitment becomes higher risk if critical roles are 
+shared across too many other projects. 
+18. Final Project Deliverables 
+ Customer mobile application source code 
+ Worker mobile application source code 
+ Web admin portal source code 
+ Backend/API source code 
+ Database schema and migration scripts 
+ Cloud deployment configuration 
+ API/integration documentation 
+ Admin user guide 
+ Operational workflow document 
+ Test summary and UAT closure report 
+ Production build packages 
+ Store submission assets/content support 
+ Basic handover/knowledge-transfer sessions 
+19. Sample Product Acceptance Criteria 
+ A new customer can register via OTP and create a valid profile. 
+ A worker can register, upload required documents and define service preferences. 
+ Admin can approve/reject verification items with remarks. 
+ Customer can search/filter suitable workers and view profiles. 
+SevaNest PRD | Confidential — Product Planning Document 
+ Customer can request interview/trial and complete a booking. 
+ Payment success/failure is correctly reflected against the booking. 
+ Admin can track and change permitted booking states. 
+ Customer can raise replacement/support requests. 
+ Ratings are tied to completed/eligible engagements. 
+ Role restrictions prevent unauthorized admin access to sensitive screens. 
+ Critical workflows pass UAT on agreed Android/iOS test devices and supported browsers. 
+20. Key Project Risks & Controls 
+Risk Impact Control 
+Frequent scope changes Timeline slippage Freeze V1 scope and use change requests 
+Verification partner dependency Onboarding delay Support manual status workflow as fallback 
+App-store review time Launch uncertainty Submit before final week where possible 
+Payment/map/OTP vendor 
+issues Blocked integration Use sandbox early and keep provider abstraction 
+Low worker digital literacy Poor adoption Very simple UI, assisted onboarding, local-language readiness 
+Trust/safety incidents Brand/legal risk Strong verification, support, audit and suspension workflows 
+Insufficient test devices Production defects Defined device/browser matrix and regression plan 
+ 
+21. Phase 2 & Future Roadmap 
+ Multi-language UI (Telugu, Hindi and others) 
+ AI-assisted worker matching 
+ GPS/geofenced attendance 
+ Facial verification/attendance subject to legal review 
+ Worker training and certification 
+ Salary/payroll assistance 
+ Insurance/benefit partnerships 
+ Apartment/community dashboard 
+ Corporate/bulk workforce requests 
+ Referral and loyalty programs 
+ In-app chat/call masking 
+ Advanced fraud/risk analytics 
+ Multi-city operations dashboard 
+22. Suggested Hyderabad Launch Plan 
+The product should launch in a limited service area before city-wide expansion. Operations quality matters more than 
+listing a very large number of unverified workers. 
+Stage Suggested Target 
+Pilot Areas HITEC City, Madhapur, Kondapur, Gachibowli, Kukatpally 
+Initial Worker Pool 100+ verified/verification-in-progress workers 
+Priority Mix Maids, drivers and cooks first 
+Customer Acquisition Apartments, referrals, digital campaigns, local partnerships 
+Operations Dedicated verification, matching and support team 
+Pilot Review Track booking conversion, replacements, complaints and worker retention 
+ 
+SevaNest PRD | Confidential — Product Planning Document 
+23. Product Recommendation / North Star 
+SevaNest should be treated as a four-month flagship VPD project with a disciplined Version 1 scope. The 
+recommended contractual duration is 16 weeks, covering requirements, design, development, integration, testing, UAT, 
+deployment and initial stabilization. 
+The product should be built around trust and operational simplicity rather than excessive features. The strongest launch 
+proposition is: verified household staff, simple booking, transparent status and dependable replacement support. 
+Project Attribute Value 
+Proposed Project SevaNest - Verified Household Workforce Platform 
+Proposed Development Partner VPD Technologies Pvt Ltd 
+Planned Duration 4 Months / 16 Weeks 
+Primary Launch Market Hyderabad 
+Platforms Android, iOS & Web Admin 
+Document Status Product Requirements / Development Brief 
+ 
+Appendix A — Source Preservation / Traceability 
+This PRD is a structured conversion of the supplied SevaNest | VPD Technologies – Project Report. The original 
+report's 23 numbered sections, functional scope, role definitions, category definitions, user journeys, verification 
+controls, commercial options, architecture, entities, security requirements, analytics, 16-week plan, milestones, delivery 
+team, deliverables, acceptance criteria, risks, future roadmap, Hyderabad launch plan and final recommendation have 
+been retained. Wording has been reorganized into PRD form without intentionally removing source requirements. 
+Where the source explicitly says an item is to be finalized or defined later (for example actual pricing, data 
+retention/deletion policy, legal review, trademark/domain availability, or applicable external verification processes), this 
+PRD retains that status rather than inventing a value. 
+Source file: SevaNest_VPD_4_Month_Project_Report.pdf (14 pages). 

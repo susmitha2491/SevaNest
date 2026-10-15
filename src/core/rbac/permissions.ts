@@ -1,0 +1,132 @@
+/**
+ * Canonical Permission Keys for SevaNest Admin Portal.
+ * All UI gates evaluate server-issued permission strings.
+ */
+
+export const PERMISSIONS = {
+  DASHBOARD_VIEW: 'dashboard.view',
+  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMERS_MANAGE: 'customers.manage',
+  CUSTOMERS_REVEAL_PII: 'customers.reveal_pii',
+  CUSTOMERS_MANAGE_STATUS: 'customers.manage_status',
+  WORKER_VIEW: 'worker.view',
+  WORKERS_VIEW: 'worker.view', // Canonical singular backend code
+  WORKERS_MANAGE: 'workers.manage',
+  WORKERS_MANAGE_STATUS: 'workers.manage_status',
+  VERIFICATION_REVIEW: 'verification.review',
+  VERIFICATION_DECIDE: 'verification.decide',
+  VERIFICATION_DOCUMENT_VIEW: 'verification.document.view',
+  DOCUMENTS_VIEW_RESTRICTED: 'verification.document.view', // Aliased to canonical verification.document.view
+  BOOKINGS_VIEW: 'bookings.view',
+  BOOKINGS_MANAGE: 'bookings.manage',
+  PAYMENTS_VIEW: 'payments.view',
+  REFUNDS_MANAGE: 'refunds.manage',
+  SUPPORT_VIEW: 'support.view',
+  SUPPORT_MANAGE: 'support.manage',
+  REPORTS_VIEW: 'reports.view',
+  EXPORTS_GENERATE: 'exports.generate',
+  CONFIGURATION_MANAGE: 'configuration.manage',
+  ROLES_MANAGE: 'roles.manage',
+  AUDIT_VIEW: 'audit.view',
+} as const;
+
+export type PermissionKey = typeof PERMISSIONS[keyof typeof PERMISSIONS] | string;
+
+export function hasPermission(userPermissions: string[] | undefined, required: PermissionKey): boolean {
+  if (!userPermissions || !Array.isArray(userPermissions)) return false;
+  if (userPermissions.includes('*')) return true;
+  if (userPermissions.includes(required)) return true;
+  // Support legacy documents.view_restricted string when checking VERIFICATION_DOCUMENT_VIEW
+  if (required === PERMISSIONS.VERIFICATION_DOCUMENT_VIEW && userPermissions.includes('documents.view_restricted')) {
+    return true;
+  }
+  return false;
+}
+
+export function hasAllPermissions(userPermissions: string[] | undefined, required: PermissionKey[]): boolean {
+  if (!required.length) return true;
+  return required.every((key) => hasPermission(userPermissions, key));
+}
+
+export function hasAnyPermission(userPermissions: string[] | undefined, required: PermissionKey[]): boolean {
+  if (!required.length) return true;
+  return required.some((key) => hasPermission(userPermissions, key));
+}
+
+/**
+ * Derives the canonical operational landing route for an administrative user
+ * based on their server-issued granular permissions.
+ * Ensures specialized personas (e.g., Verification Executive) land directly on their
+ * authorized workstation without triggering 403 / Access Restricted guards.
+ */
+export function getDefaultLandingRoute(user: { permissions?: string[]; role?: string } | null | undefined): string {
+  if (!user || !user.permissions || !Array.isArray(user.permissions)) {
+    return '/auth/login';
+  }
+  const permissions = user.permissions;
+
+  // 1. Role-specific primary operational workstations when authorized
+  if (
+    user.role === 'VERIFICATION_EXECUTIVE' &&
+    hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
+  ) {
+    return '/verification';
+  }
+
+  if (
+    user.role === 'SUPPORT_EXECUTIVE' &&
+    (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) || hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE))
+  ) {
+    return '/support';
+  }
+
+  // 2. Command center for Super Admin, Operations Admin, and users authorized for dashboard.view
+  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
+    return '/dashboard';
+  }
+
+  // 3. Granular fallbacks to authorized operational workstations
+  if (hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)) {
+    return '/verification';
+  }
+  if (
+    hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) ||
+    hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE)
+  ) {
+    return '/support';
+  }
+  if (
+    hasPermission(permissions, PERMISSIONS.BOOKINGS_VIEW) ||
+    hasPermission(permissions, PERMISSIONS.BOOKINGS_MANAGE)
+  ) {
+    return '/bookings';
+  }
+  if (
+    hasPermission(permissions, PERMISSIONS.WORKER_VIEW) ||
+    hasPermission(permissions, PERMISSIONS.WORKERS_MANAGE)
+  ) {
+    return '/workers';
+  }
+  if (
+    hasPermission(permissions, PERMISSIONS.CUSTOMERS_VIEW) ||
+    hasPermission(permissions, PERMISSIONS.CUSTOMERS_MANAGE)
+  ) {
+    return '/customers';
+  }
+  if (hasPermission(permissions, PERMISSIONS.PAYMENTS_VIEW) || hasPermission(permissions, PERMISSIONS.REFUNDS_MANAGE)) {
+    return '/payments';
+  }
+  if (hasPermission(permissions, PERMISSIONS.REPORTS_VIEW) || hasPermission(permissions, PERMISSIONS.EXPORTS_GENERATE)) {
+    return '/reports';
+  }
+  if (hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE) || hasPermission(permissions, PERMISSIONS.ROLES_MANAGE)) {
+    return '/configuration';
+  }
+  if (hasPermission(permissions, PERMISSIONS.AUDIT_VIEW)) {
+    return '/audit';
+  }
+
+  return '/auth/login';
+}
+
+export { getRoleLabel, ROLE_LABELS } from './roleLabels';

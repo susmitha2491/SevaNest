@@ -1,0 +1,596 @@
+01 Executive Architecture Overview SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+SEVANEST — ADMIN PORTAL FRONTEND ARCHITECTURE
+React Architecture for the Web Admin & Operations Portal (desktop-ﬁrst, responsive)
+ADMIN PORTAL  |  React  |  TypeScript  |  single-page web app
+PRESENTATION LAYER
+Dashboard, work queues and detail screens | forms and dialogs
+state holders (TanStack Query) | routing (React Router)
+DOMAIN LAYER
+Entities | use cases | permission policies | repository interfaces
+pure TypeScript: no React, no HTTP
+DATA LAYER
+Repository implementations | API calls | DTO mappers
+session handling | query cache | saved view preferences
+CORE / SHARED
+API client | auth & RBAC | design system | i18n | error handling
+logging | used by every layer
+Feature modules
+auth | dashboard | customers | workers | veriﬁcation | bookings | payments | support | reports | conﬁguration
+| audit
+Admin API Gateway
+HTTPS | token sessions
+Backend REST API
+Reporting & Admin Service, see backend document
+Object storage (signed links)
+KYC documents and proﬁle media
+Maps provider
+service-area and location display
+Error monitoring
+browser errors and alerts
+THE ARCHITECTURE IN SIMPLE TERMS
+DECISION STATUS
+Decision Status
+React web admin Speciﬁed by the PRD
+Role-based access control Speciﬁed by the PRD
+Audit logs for critical actions Speciﬁed by the PRD
+TypeScript, Vite, TanStack Query Proposed
+UI component library Open item
+Admin MFA Open item
+Supported browser matrix Open item
+Numeric performance budgets Open item
+Presentation. Queues, detail screens and forms with plain status
+labels. No API calls and no business rules here.
+Domain. The rules: entities and use cases such as
+ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+permission policies.
+Data. Talks to the backend and to signed document links; turns API
+errors into domain failures.
+Core / Shared. API client, session, RBAC helpers, design system
+and logging used by every feature.
+Backend. The server is the source of truth for status, permissions,
+payments and the audit trail.
+Calls ﬂow downward. The Data layer implements Domain interfaces; the Domain layer never depends on React or HTTP.
+One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+are reached directly from the browser.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 1 of 13
+02 Architectural Drivers & Technology Stack SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+ARCHITECTURAL DRIVERS
+Goal How the architecture addresses it
+Run daily operations fast Work queues (pending KYC, new requests, open tickets) with ﬁlters and
+one primary action per row
+Trust before "veriﬁed" Badge shown only when the server reports every conﬁgured check
+approved; per-check status stays visible
+Role-based control Menus, routes and buttons follow server-issued permissions; the server
+enforces every call
+Protect sensitive data Masked values in routine screens; documents through short-lived signed
+links; reveals are logged
+Safe state changes Admins see only the booking transitions the server permits; remarks and
+conﬁrmation before irreversible actions
+Concurrent operations Version check on every edit; a clear conﬂict message instead of a silent
+overwrite
+Auditability Critical actions carry a reason and appear in the audit trail
+Conﬁgurable business
+rules
+Categories, areas, fees, plans, templates and roles are data edited in
+Conﬁguration, not code
+Data-heavy screens stay
+fast
+Server-side paging, sorting and ﬁltering; lazy-loaded charts and viewers
+Maintainable by a small
+team
+Layered, feature-ﬁrst modules and typed API contracts (PRD team has one
+React developer)
+PROPOSED Items marked Proposed are architectural choices or assumptions not ﬁxed by the PRD.They are conﬁrmed during the architecture phase.
+TECHNOLOGY STACK
+Area Choice Notes
+Framework / language React, TypeScript React per PRD; TypeScript proposed
+Build tool (Proposed) Vite Fast builds, code splitting
+Routing (Proposed) React Router Nested routes, guards, deep links
+Server state (Proposed) TanStack Query Caching, paging, refetch, retry
+UI state (Proposed) Zustand (small stores) Session, drawers, preferences
+Forms (Proposed) React Hook Form + Zod Schema validation, ﬁeld errors
+HTTP client (Proposed) axios with interceptors Token, retry, error mapping
+Data tables (Proposed) TanStack Table Server-side sort and ﬁlter
+Charts (Proposed) Recharts or ECharts Dashboard and reports
+UI components (Proposed) Accessible library + tokens Library to be conﬁrmed
+Session (Proposed) In-memory access token + httpOnly cookie No tokens in localStorage
+Documents Signed URLs, object storage PRD: object storage for KYC
+Maps / location Google Maps or equivalent PRD; service-area display
+Localization (Proposed) react-i18next English in V1; ready for more
+Monitoring Cloud logs + alerts; browser error tracking PRD; tool to be conﬁrmed
+Testing (Proposed) Vitest, Testing Library, MSW, Playwright Unit to end-to-end
+CI/CD and hosting Pipeline; static hosting + CDN on AWS or Azure Environments by DevOps
+Why this stack. React is speciﬁed by the PRD for the admin web. The other entries are proposed. API contract types and design tokens are shared with the Customer and Worker Apps so status labels and colours read the same in all
+three products.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 2 of 13
+03 Layered Architecture & Request Flow SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+LAYER RESPONSIBILITIES
+Layer Responsibility Rules
+Presentation Pages, queues, detail screens, forms, route guards and state holders (hooks) No API calls or business rules
+Domain Entities, use cases (ReviewVeriﬁcation, ChangeBookingStatus, IssueRefund, AssignTicket),
+permission policies, repository interfaces
+Pure TypeScript
+Data Repository implementations, API calls, DTOs, mappers, query keys Implements domain interfaces; maps API errors to
+domain failures
+Core / Shared API client, session, RBAC helpers, design system, i18n, error and logging utilities No feature-speciﬁc logic
+DEPENDENCY RULE
+Presentation
+screens + state
+uses Domain
+rules + contracts
+implements Data
+implements contracts
+COMMUNICATION WITH THE BACKEND
+EXAMPLE: APPROVE A VERIFICATION ITEM
+Executive clicks Approve
+remarks ﬁeld, one primary action
+Conﬁrm dialog
+worker, document and remarks shown
+State holder
+mutation sets pending state
+Use case: ReviewVeriﬁcation
+checks permission and remarks rule
+VeriﬁcationRepository (interface)
+domain contract
+Repository implementation
+DTO mapping
+API client (axios)
+token, request ID, idempotency key
+Admin API Gateway > backend
+veriﬁcation service writes audit entry
+Result ﬂows back
+DTO > entity or failure > plain message; queue refreshes
+All calls go through the Admin API Gateway over HTTPS with token-based sessions.
+Each feature talks to its matching backend service area: Authentication, User/Proﬁle, Worker Veriﬁcation, Service/Category & Availability, Matching/Search, Booking, Payment,
+Notiﬁcation, Support/Complaint, Reporting & Admin, and Audit & Security.
+Only signed document links, map tiles and browser error reports are reached directly from the browser.
+Error handling. Failures return as domain errors (network, unauthorized, forbidden, validation, not found, conﬂict, server, unknown) and are shown as one short sentence with one next step. Technical detail goes to logs only.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 3 of 13
+04 Project Structure, Feature Modules & Code Sharing SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+FEATURE-FIRST FOLDER LAYOUT PROPOSED
+admin_portal/
+  src/
+    main.tsx            entry; environment config loaded first
+    app/                providers, router, layout shell, theme
+    core/               api, auth, rbac, storage, errors, logging
+    shared/             design system, status labels, i18n
+    features/
+      auth/             login, session, password reset
+      dashboard/        KPI cards, queue summaries
+      customers/        list, profile, history, notes
+      workers/          list, profile, documents, status
+      verification/     queue, review, re-check
+      bookings/         list, detail, match, transitions
+      payments/         transactions, refunds, exports
+      support/          tickets, assignment, SLA
+      reports/          report views, exports
+      configuration/    masters, fees, templates, roles
+      audit/            audit trail viewer
+      <feature>/{presentation, domain, data}
+  tests/   e2e/
+FEATURE MODULES AND MAIN SCREENS
+Feature module Main screens
+auth Login, Password reset, Session expired
+dashboard KPI cards (bookings, active workers, pending KYC, complaints, replacements, collections), queue
+summaries
+customers List, Proﬁle and status, Saved addresses, Booking history, Complaints, Internal notes
+workers List, Proﬁle (skills, availability, rating), Documents, Status: active / suspended / blacklisted
+veriﬁcation Queue, Document review with remarks, Check status per type, Expiry and re-check list
+bookings New requests, Match workers, Interview / trial, Conﬁrm / cancel, Replacement review, Timeline
+payments Transactions, Fee records, Refund requests and status, Invoice / reference export
+support Ticket list, Create ticket, Assign / escalate, Resolution SLA, Ticket timeline
+reports Demand, conversion, utilization and collection reports with export
+conﬁguration Categories, Areas, Fees and plans, Notiﬁcation templates, Roles and permissions
+audit Audit trail search by actor, action, record and date
+SHARING WITH THE CUSTOMER AND WORKER APPS PROPOSED
+Admin Portal
+React | veriﬁcation, bookings, payments, support, conﬁguration
+Customer App and Worker App
+Flutter | own features, own architecture documents
+Shared contracts (not shared code)
+API contract types (OpenAPI) | design tokens (colour, spacing, status colours) | status label vocabulary | notiﬁcation template variable names
+Rule. Flutter and React cannot share code, so they share contracts. Admin-speciﬁc code (queues, review, refunds, conﬁguration) stays inside the Admin Portal; the apps and the portal agree on the same API types, status names and
+design tokens.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 4 of 13
+05 Navigation Architecture SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+APP FLOW
+Login
+email + password
+Session check
+token; MFA step is an open item
+Landing page
+ﬁrst module the role may use
+Main shell
+sidebar navigation
+MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+Operations
+Dashboard and queues
+Veriﬁcation review
+Booking pipeline
+Support tickets
+People
+Customer list and proﬁle
+Worker list and proﬁle
+Documents (role-limited)
+Suspend / blacklist
+Money & insight
+Transactions
+Refund requests
+Reports
+Exports
+Control
+Categories and areas
+Fees, plans, templates
+Roles and permissions
+Audit trail
+REDIRECT RULES
+After sign-in the user returns to the page they asked for. A user without permission sees a plain No access page with a way back.
+NAVIGATION RULES
+App start Session valid? Permission forroute? Page opens
+Login No access page
+no no
+yes yes Router is declarative; routes are named and typed.
+Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+Sidebar shows only the modules the user has permission for; a direct link to a hidden route
+shows a plain No access page.
+Records (booking, worker, ticket) have stable links so staﬀ can share them.
+Filters, sort and page are kept in the URL, so a view survives refresh and can be
+bookmarked.
+Breadcrumbs and a visible back option on every detail screen.
+Global search ﬁnds customers, workers, bookings and tickets by ID, name or phone
+(Proposed).
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 5 of 13
+06 Roles, Permissions & Sensitive Data Access SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+ROLE AND MODULE ACCESS (STARTING POINT) PROPOSED
+Module Super Admin Operations Admin Veriﬁcation Exec. Support Exec.
+Dashboard Manage Manage View View
+Customers Manage Manage No access View
+Workers Manage Manage View View
+Veriﬁcation Manage Manage Manage No access
+Sensitive documents View View Manage No access
+Bookings Manage Manage No access View
+Payments and refunds Manage Manage No access View
+Support tickets Manage Manage No access Manage
+Reports Manage View No access View
+Conﬁguration Manage No access No access No access
+Audit trail View No access No access No access
+Roles come from the PRD: Super Admin, Operations Admin, Veriﬁcation Executive, Support Executive. The ﬁnal matrix is set by the Super Admin
+in Conﬁguration > Roles. The UI checks permission keys (for example veriﬁcation.review), never role names.
+HOW PERMISSIONS REACH THE SCREEN
+Login Server returnspermission keys Permission storein memory Route guard,menu, buttons
+Server re-checks every call
+a hidden button is convenience, not security
+SENSITIVE DATA HANDLING
+Data Routine screens When needed
+Government ID / Aadhaar Masked, last 4 only Document viewer; role-limited; each view audited
+KYC documents Never in lists Short-lived signed link; no public URL
+Phone / address Masked in lists Reveal action with permission; logged (Proposed)
+Emergency contact Hidden Visible based on policy and role
+Payment reference Masked reference Full reference on payment detail for permitted roles
+Internal notes Latest note Author and time on every note
+Two checks, always. The UI hides what a user may not use, and the server refuses what the user may not do. The PRD requires role restrictions on sensitive screens, restricted KYC access, masked values in routine screens and no
+public exposure of full identity documents.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 6 of 13
+07 Veriﬁcation, Booking & Replacement Operations SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+VERIFICATION JOURNEY: A FEW STEPS, ONE PURPOSE EACH
+1 Worker submits
+from Worker App
+2 Queue
+oldest ﬁrst, by type
+3 Review
+documents beside details
+4 Decide
+approve / reject + remarks
+5 Server records
+status, reviewer, time
+6 Badge
+shown only when all checks approved
+Checks follow the PRD: mobile, identity, address, emergency contact, previous employment, police veriﬁcation status. Customers see a badge only after an authorised user approves the conﬁgured checks.
+Expiry / re-check due
+from server list
+Re-veriﬁcation requested
+worker notiﬁed
+External partner delay
+manual status entry with reference and attachment
+BOOKING PIPELINE (ADMIN SIDE)
+New request Match workersops selects Interview / trialscheduled Conﬁrm Active Completed
+Cancel and Replace branch from the statuses the server allows. Each booking shows only the actions the server permits for its status and the user's role; the portal never decides transitions itself.
+REPLACEMENT JOURNEY
+Request received
+from customer
+Eligibility review
+support / admin
+Status updated
+current engagement
+Alternatives matched
+by operations
+Customer selects
+new worker
+New worker conﬁrmed
+history auditable
+RULES IN THE PORTAL
+Why this design. The PRD says a worker is never presented as fully veriﬁed until
+checks are approved by an authorised user, and that every change stays auditable.
+Server-driven actions and mandatory remarks keep both true.
+A worker shows as Veriﬁed only when the server reports all conﬁgured checks approved; per-check status stays visible.
+Reject, cancel, suspend and blacklist need remarks; remarks are saved with actor and time.
+Booking changes are limited to permitted states; invalid actions are not oﬀered.
+Previous engagements stay visible in booking history after a replacement.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 7 of 13
+08 Payments, Support, Reports & Conﬁguration SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+PAYMENTS AND REFUNDS
+Transactions
+ﬁlter, search
+Payment
+detail
+status, fee,
+reference
+Refund
+request
+amount, reason
+Server
+processes
+via gateway
+Status shown
+Initiated Processing Paid Failed Refund pending Refunded
+SUPPORT TICKETS
+Created Assignedowner In progress Escalatednote required Resolved
+REPORTS
+New customers Worker veriﬁcation conversion Requests vs conﬁrmed Category demand
+Area demand Worker utilization Interview-to-conﬁrm Cancellations Replacements
+Collections Ticket SLA Top-rated / repeat
+Request export Job queuedserver Ready Downloadaudited
+CONFIGURATION MASTERS
+Edit draft Preview anddiﬀ Conﬁrm +reason Saved andaudited Apps readnew values
+Categories Areas Fees Plans Notiﬁcation templates Roles
+No gateway SDK or secret in the portal; payment state comes from the server.
+Refunds are server actions with an idempotency key, remarks and conﬁrmation.
+Invoice and reference exports are generated by the server, masked, and audited.
+Resolution SLA timer and breach ﬂag come from the server.
+Complaint history shown on the customer and worker proﬁle. Fee values are conﬁgurable here, as the PRD requires; new categories need no app redesign.
+Templates cover push, SMS and optional WhatsApp, with variable checks.
+Role edits take eﬀect at the next permission refresh.
+Same rule on both sides. The server owns payment, refund, ticket and conﬁguration state, veriﬁes results and keeps the audit record. The portal collects the decision, shows the status the server reports, and never calculates it.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 8 of 13
+09 Simple UI Standards SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+DESIGN RULES (VALUES SUBJECT TO DESIGN REVIEW)
+Rule Standard (Proposed)
+Queue ﬁrst Each module opens on a ﬁltered list with counts; one dominant action per row or detail
+Dense but readable Compact tables, clear row actions; usable at 100% zoom on a 1366 x 768 laptop
+Targets At least 32 px on desktop, 44 px on touch tablets
+Icons with labels Every icon has text or a tooltip and an accessible name
+Contrast and colour Status never relies on colour alone: text and icon accompany colour
+Keyboard Full keyboard use, visible focus, dialogs trap focus
+Forgiving input Conﬁrm irreversible actions; warn on unsaved changes; remarks on reject, cancel and
+suspend
+Tables Server-side sort, ﬁlter and paging; ﬁlters kept in the URL
+Trust cues Veriﬁcation badge and rating summary on every worker row and proﬁle
+Responsive Desktop-ﬁrst; tablet supported; phone shows dashboard and tickets read-only
+Shared look Same design tokens as the Customer and Worker Apps
+STATUS LABEL MAPPING PROPOSED
+Area Backend status (examples) Admin label
+Veriﬁcation Pending Pending review
+Veriﬁcation In review In review
+Veriﬁcation Approved / Rejected Approved / Rejected
+Veriﬁcation Expiry due Re-check due
+Worker Suspended / Blacklisted Suspended / Blacklisted
+Booking Requested New request
+Booking Interview / trial scheduled Interview set
+Booking Conﬁrmed Worker conﬁrmed
+Booking Active Service active
+Booking Replacement requested Replacement review
+Payment Success / Failed Paid / Payment failed
+Payment Refund pending Refund pending
+Ticket Escalated / SLA breached Escalated / SLA breached
+One mapping class converts a backend status into a short label, an icon, a colour and the next permitted action. Unknown statuses fall back to
+a generic label instead of failing.
+REUSABLE COMPONENTS (STATELESS, DRIVEN BY DATA)
+Data table Filter bar Status badge Veriﬁcation badge Detail drawer
+Conﬁrm dialog with remarks Document viewer Status timeline KPI card
+Permission gate Date range picker Audit entry Empty and error views
+HOW LABELS LOOK ON SCREEN
+Pending review Approved Rejected Interview set Paid Payment failed
+Escalated SLA at risk
+Why stateless. Stateless components keep the UI testable and consistent with the apps. They support the PRD aims of simple, structured operations and plain status labels, and they let each module reuse the same table, ﬁlter and
+dialog behaviour.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 9 of 13
+10 State Management & Data Layer SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+STATE BY FEATURE (REACT QUERY + ZUSTAND, PROPOSED)
+Feature State held Lifetime
+Session (global) User, permission keys, idle timer, language App lifetime
+Dashboard KPI summaries, queue counts Cached; periodic refetch
+Customers / Workers List ﬁlters, selected record, notes URL + cache
+Veriﬁcation Queue ﬁlters, open review, draft remarks Feature
+Bookings Filters, selected booking, allowed actions Feature
+Payments Transaction ﬁlters, refund draft Feature
+Support Ticket ﬁlters, assignment, SLA view Feature
+Reports Date range, ﬁlters, export job Feature
+Conﬁguration Draft changes before save Until saved or discarded
+HOW A SCREEN RENDERS
+Screen State holderhook Server statequery cache Screen renders
+Every async screen has: loading data empty error no access
+API CLIENT: EVERY CALL PASSES THE SAME PIPELINE
+Repository
+domain contract implemented in the Data layer
+Auth interceptor
+attach token, refresh once on expiry
+Correlation ID
+request identiﬁer on every call
+Idempotency key (Proposed)
+refunds, status changes, approvals, publishes
+Version check (Proposed)
+edits carry record version; stale save is refused
+Retry with backoﬀ
+safe reads only; user-triggered retry for writes
+PII-free logging
+no personal data in logs
+Admin API Gateway
+HTTPS, base URL per environment
+FAILURES MAP TO DOMAIN ERRORS
+Network Unauthorized Forbidden Validation Not found
+Conﬂict Server Unknown
+Repository interfaces live in the Domain layer; implementations live in the Data layer. API responses
+are mapped from DTOs to domain entities, so screens never see raw API shapes.
+Server data lives in the query cache; local UI state stays small.
+Filters, sort and page live in the URL.
+After a change, related queries are refetched so lists never show stale status.
+The server is the source of truth for status, permissions and payments.
+Why version checks. Several admins work at once (the PRD calls for role-based concurrent operations). A version check on every edit means a stale save is refused with a clear message, instead of silently overwriting a colleague's
+change.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 10 of 13
+11 Resilience, Localization & Performance SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+WEAK NETWORK BEHAVIOUR PROPOSED
+Data / action Behaviour
+Lists and queues Show last loaded data with a "last updated"
+time; refresh on focus and on demand
+Approvals, status
+changes, refunds
+Require network; clear message and retry;
+never silently dropped or repeated
+Reference data
+(categories, areas)
+Cached in memory and refreshed on load
+Forms in progress Draft kept if the session expires; restored after
+sign-in
+Session token Short-lived; refreshed quietly; idle timeout
+signs out
+Scope. V1 requires graceful failure on slow or unstable oﬃce networks. A
+full oﬄine mode is not required.
+LOCALIZATION READINESS
+Resource ﬁles (JSON)
+no hard-coded text in components
+react-i18next
+locale-aware dates, times, currency (Intl)
+Components use keys
+layouts tolerate longer text
+PERFORMANCE APPROACH
+Area Approach
+First load Route-level code splitting; charts and document
+viewer loaded on demand
+Tables Server-side paging, sort and ﬁlter; virtual rows for long
+lists
+Search Debounced input; stale requests cancelled
+Documents and
+images
+Thumbnails in lists; full ﬁle only when opened
+Caching Query cache with refresh in the background
+Bundle size Tree shaking; size check in the pipeline
+Devices Standard oﬃce laptops and tablets; agreed browser
+matrix
+Memory Release viewers and listeners when screens close
+Open item. The PRD sets qualitative targets only. Numeric performance
+budgets are to be agreed before performance testing.
+WHAT AN ADMIN SEES WHEN THE SESSION EXPIRES MID-FORM
+Editing a form Token expiresquiet refresh fails Sign-in promptdraft kept Signed inback on the same page Draft restored Saved onceidempotency key
+Admin UI ships in English in V1 (assumption: the PRD Phase 2 multi-
+language plan targets the apps).
+Dates in IST; money in INR with standard formatting.
+Notiﬁcation templates are data and can hold per-language text.
+Worker names, areas and skills appear as provided by the server.
+Principle. Writes are never dropped silently: the admin always sees success or a plain message with a next step. Reads fall back to the last loaded data with a "last updated" indicator.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 11 of 13
+12 Security, Integrations & Observability SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+SECURITY ARCHITECTURE
+Concern Approach
+Transport HTTPS for all traﬃc; certiﬁcate validation; HSTS (Proposed)
+Authentication Password sign-in with token-based session; MFA is an open item
+Authorization Server-issued permissions; route guards and gates in the UI; server re-checks
+Sensitive data Masked in routine screens; documents by short-lived signed links; reveals logged
+Session Tokens in memory plus httpOnly cookie, none in localStorage; idle timeout (Proposed)
+Browser hardening Content Security Policy, no inline scripts, frame protection, dependency audit in CI (Proposed)
+Secrets No API secrets in the bundle; only public settings injected per environment
+Audit Reason captured for critical actions; server audit log for veriﬁcation, payment and user-status changes; Super Admin
+viewer
+Input and ﬁles Schema validation; output escaped; attachment type and size checked before upload
+Exports Respect masking and permissions; every export audited
+Account state Suspended admin accounts are signed out with a clear message
+Privacy and consent Terms, privacy and consent content follows legal review; data retention is an open item
+WHERE DATA LIVES IN THE BROWSER
+Memory
+access token, permissions, drafts
+httpOnly cookie
+refresh credential only
+Local storage
+UI preferences only, no personal
+data
+Logs / error reports
+no personal data
+INTEGRATIONS
+Integration Frontend approach
+Object storage
+(documents)
+Signed link requested per view; expires quickly; inline viewer
+with no public URL
+Maps / location Service-area display and area entry in Conﬁguration; manual
+entry if the map is unavailable
+Notiﬁcations Edit push, SMS and optional WhatsApp templates; view
+delivery status from server records
+Payment gateway No SDK in the portal; status and refunds through the backend
+Error monitoring Browser errors captured with release version; no personal data
+OBSERVABILITY AND ERROR HANDLING
+Browser error capture and non-fatal error reporting in production, with source maps kept
+private.
+Structured logging without personal data; correlation ID links a screen error to the backend
+call.
+Analytics events (Proposed): queue opened, veriﬁcation decided, booking status changed,
+refund issued, ticket resolved, report exported.
+Error messages are short, plain and give one next step; technical detail goes to logs only.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 12 of 13
+13 Quality, Release & Architecture Summary SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+TESTING STRATEGY
+Level Scope Tooling
+Unit Use cases, permission policies, mappers, validators, status mapping Vitest
+Component Design-system components and key screens in loading, empty, error and no-access states Testing Library
+Integration Login, veriﬁcation decision, booking transition, refund and conﬁguration edit against a
+mocked API
+MSW + Vitest
+End-to-end Role restrictions, verify, booking state change, payment status, refund, replacement, ticket Playwright
+Accessibility Keyboard and screen-reader checks on key screens axe + manual
+Browser Agreed supported browser matrix Cross-browser runs
+Non-functional Performance, security headers, dependency checks Proﬁling, audit tools
+UAT Critical workﬂows per acceptance criteria with the business team Manual
+ENVIRONMENTS
+Environment Backend Purpose
+dev Development Daily development
+stage Staging QA and UAT
+prod Production Live operations
+Environment settings are injected at deploy time; no secrets live in the bundle.
+CI/CD AND RELEASE
+Merge Lint + types Test Build (env) Security scan Deploy stageQA / UAT Deploy prodwith approval
+Versioned builds with a changelog; static ﬁles served from storage behind a CDN. Production monitoring and error alerts are active at release; a previous build can be restored quickly.
+ARCHITECTURE SUMMARY
+Item Summary
+Framework React + TypeScript single-page app (PRD: React admin web)
+Architecture Layered, feature-ﬁrst modules; contracts shared with the apps
+State / navigation TanStack Query + Zustand | React Router with permission guards (Proposed)
+Access Server-issued permissions; masked data; signed document links
+Operations UI Queues, remarks, server-permitted actions, plain status labels
+Localization i18n-ready; English in V1
+OPEN OR PROPOSED ITEMS
+Numeric performance budgets
+Admin MFA
+Supported browser matrix
+UI component library
+Cookie vs token session design with the backend
+Data retention rules
+Reveal-sensitive-data policy
+Final role and permission matrix
+Export formats and size limits
+Error monitoring tool
+The SevaNest Admin Portal is designed as a layered, feature-ﬁrst React application: operations staﬀ can verify workers, manage bookings, payments and support, and conﬁgure the platform with plain status labels, while the
+server remains the source of truth and every critical action stays auditable.
+Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 13 of 13

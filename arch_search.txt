@@ -1,0 +1,80 @@
+=== Keyword: auth (14 matches) ===
+   API client | auth & RBAC | design system | i18n | error handling
+   auth | dashboard | customers | workers | veriﬁcation | bookings | payments | support | reports | conﬁguration
+   Each feature talks to its matching backend service area: Authentication, User/Proﬁle, Worker Veriﬁcation, Service/Category & Availability, Matching/Search, Booking, Payment,
+   Error handling. Failures return as domain errors (network, unauthorized, forbidden, validation, not found, conﬂict, server, unknown) and are shown as one short sentence with one next step. Technical detail goes to logs only.
+   core/               api, auth, rbac, storage, errors, logging
+   auth/             login, session, password reset
+   auth Login, Password reset, Session expired
+   Internal notes Latest note Author and time on every note
+   Checks follow the PRD: mobile, identity, address, emergency contact, previous employment, police veriﬁcation status. Customers see a badge only after an authorised user approves the conﬁgured checks.
+   checks are approved by an authorised user, and that every change stays auditable.
+=== Keyword: login (7 matches) ===
+   auth/             login, session, password reset
+   auth Login, Password reset, Session expired
+   Login
+   Login No access page
+   Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+   Login Server returnspermission keys Permission storein memory Route guard,menu, buttons
+   Integration Login, veriﬁcation decision, booking transition, refund and conﬁguration edit against a
+=== Keyword: token (19 matches) ===
+   HTTPS | token sessions
+   One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+   HTTP client (Proposed) axios with interceptors Token, retry, error mapping
+   UI components (Proposed) Accessible library + tokens Library to be conﬁrmed
+   Session (Proposed) In-memory access token + httpOnly cookie No tokens in localStorage
+   Why this stack. React is speciﬁed by the PRD for the admin web. The other entries are proposed. API contract types and design tokens are shared with the Customer and Worker Apps so status labels and colours read the same in all
+   token, request ID, idempotency key
+   All calls go through the Admin API Gateway over HTTPS with token-based sessions.
+   API contract types (OpenAPI) | design tokens (colour, spacing, status colours) | status label vocabulary | notiﬁcation template variable names
+   design tokens.
+=== Keyword: refresh (10 matches) ===
+   DTO > entity or failure > plain message; queue refreshes
+   Filters, sort and page are kept in the URL, so a view survives refresh and can be
+   Role edits take eﬀect at the next permission refresh.
+   attach token, refresh once on expiry
+   time; refresh on focus and on demand
+   Cached in memory and refreshed on load
+   Session token Short-lived; refreshed quietly; idle timeout
+   Caching Query cache with refresh in the background
+   Editing a form Token expiresquiet refresh fails Sign-in promptdraft kept Signed inback on the same page Draft restored Saved onceidempotency key
+   refresh credential only
+=== Keyword: landing (1 matches) ===
+   Landing page
+=== Keyword: redirect (1 matches) ===
+   REDIRECT RULES
+=== Keyword: session (19 matches) ===
+   session handling | query cache | saved view preferences
+   HTTPS | token sessions
+   Core / Shared. API client, session, RBAC helpers, design system
+   One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+   UI state (Proposed) Zustand (small stores) Session, drawers, preferences
+   Session (Proposed) In-memory access token + httpOnly cookie No tokens in localStorage
+   Core / Shared API client, session, RBAC helpers, design system, i18n, error and logging utilities No feature-speciﬁc logic
+   All calls go through the Admin API Gateway over HTTPS with token-based sessions.
+   auth/             login, session, password reset
+   auth Login, Password reset, Session expired
+=== Keyword: role (25 matches) ===
+   Role-based access control Speciﬁed by the PRD
+   One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+   a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+   Role-based control Menus, routes and buttons follow server-issued permissions; the server
+   Categories, areas, fees, plans, templates and roles are data edited in
+   configuration/    masters, fees, templates, roles
+   conﬁguration Categories, Areas, Fees and plans, Notiﬁcation templates, Roles and permissions
+   ﬁrst module the role may use
+   MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+   Documents (role-limited)
+=== Keyword: SV-7 (0 matches) ===
+=== Keyword: logout (0 matches) ===
+=== Keyword: me (138 matches) ===
+   Repository implementations | API calls | DTO mappers
+   auth | dashboard | customers | workers | veriﬁcation | bookings | payments | support | reports | conﬁguration
+   Reporting & Admin Service, see backend document
+   KYC documents and proﬁle media
+   Numeric performance budgets Open item
+   Data. Talks to the backend and to signed document links; turns API
+   payments and the audit trail.
+   Calls ﬂow downward. The Data layer implements Domain interfaces; the Domain layer never depends on React or HTTP.
+   a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+   Role-based control Menus, routes and buttons follow server-issued permissions; the server

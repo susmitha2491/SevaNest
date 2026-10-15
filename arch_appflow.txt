@@ -1,0 +1,685 @@
+--- Line 8 ---
+4: PRESENTATION LAYER
+5: Dashboard, work queues and detail screens | forms and dialogs
+6: state holders (TanStack Query) | routing (React Router)
+7: DOMAIN LAYER
+8: Entities | use cases | permission policies | repository interfaces
+9: pure TypeScript: no React, no HTTP
+10: DATA LAYER
+11: Repository implementations | API calls | DTO mappers
+12: session handling | query cache | saved view preferences
+13: CORE / SHARED
+14: API client | auth & RBAC | design system | i18n | error handling
+15: logging | used by every layer
+16: Feature modules
+17: auth | dashboard | customers | workers | veriﬁcation | bookings | payments | support | reports | conﬁguration
+========================================
+--- Line 36 ---
+32: React web admin Speciﬁed by the PRD
+33: Role-based access control Speciﬁed by the PRD
+34: Audit logs for critical actions Speciﬁed by the PRD
+35: TypeScript, Vite, TanStack Query Proposed
+36: UI component library Open item
+37: Admin MFA Open item
+38: Supported browser matrix Open item
+39: Numeric performance budgets Open item
+40: Presentation. Queues, detail screens and forms with plain status
+41: labels. No API calls and no business rules here.
+42: Domain. The rules: entities and use cases such as
+43: ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+44: permission policies.
+45: Data. Talks to the backend and to signed document links; turns API
+========================================
+--- Line 37 ---
+33: Role-based access control Speciﬁed by the PRD
+34: Audit logs for critical actions Speciﬁed by the PRD
+35: TypeScript, Vite, TanStack Query Proposed
+36: UI component library Open item
+37: Admin MFA Open item
+38: Supported browser matrix Open item
+39: Numeric performance budgets Open item
+40: Presentation. Queues, detail screens and forms with plain status
+41: labels. No API calls and no business rules here.
+42: Domain. The rules: entities and use cases such as
+43: ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+44: permission policies.
+45: Data. Talks to the backend and to signed document links; turns API
+46: errors into domain failures.
+========================================
+--- Line 38 ---
+34: Audit logs for critical actions Speciﬁed by the PRD
+35: TypeScript, Vite, TanStack Query Proposed
+36: UI component library Open item
+37: Admin MFA Open item
+38: Supported browser matrix Open item
+39: Numeric performance budgets Open item
+40: Presentation. Queues, detail screens and forms with plain status
+41: labels. No API calls and no business rules here.
+42: Domain. The rules: entities and use cases such as
+43: ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+44: permission policies.
+45: Data. Talks to the backend and to signed document links; turns API
+46: errors into domain failures.
+47: Core / Shared. API client, session, RBAC helpers, design system
+========================================
+--- Line 39 ---
+35: TypeScript, Vite, TanStack Query Proposed
+36: UI component library Open item
+37: Admin MFA Open item
+38: Supported browser matrix Open item
+39: Numeric performance budgets Open item
+40: Presentation. Queues, detail screens and forms with plain status
+41: labels. No API calls and no business rules here.
+42: Domain. The rules: entities and use cases such as
+43: ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+44: permission policies.
+45: Data. Talks to the backend and to signed document links; turns API
+46: errors into domain failures.
+47: Core / Shared. API client, session, RBAC helpers, design system
+48: and logging used by every feature.
+========================================
+--- Line 44 ---
+40: Presentation. Queues, detail screens and forms with plain status
+41: labels. No API calls and no business rules here.
+42: Domain. The rules: entities and use cases such as
+43: ReviewVeriﬁcation, ChangeBookingStatus and IssueRefund, plus
+44: permission policies.
+45: Data. Talks to the backend and to signed document links; turns API
+46: errors into domain failures.
+47: Core / Shared. API client, session, RBAC helpers, design system
+48: and logging used by every feature.
+49: Backend. The server is the source of truth for status, permissions,
+50: payments and the audit trail.
+51: Calls ﬂow downward. The Data layer implements Domain interfaces; the Domain layer never depends on React or HTTP.
+52: One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+53: a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+========================================
+--- Line 49 ---
+45: Data. Talks to the backend and to signed document links; turns API
+46: errors into domain failures.
+47: Core / Shared. API client, session, RBAC helpers, design system
+48: and logging used by every feature.
+49: Backend. The server is the source of truth for status, permissions,
+50: payments and the audit trail.
+51: Calls ﬂow downward. The Data layer implements Domain interfaces; the Domain layer never depends on React or HTTP.
+52: One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+53: a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+54: are reached directly from the browser.
+55: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+56: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 1 of 13
+57: 02 Architectural Drivers & Technology Stack SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+58: ARCHITECTURAL DRIVERS
+========================================
+--- Line 53 ---
+49: Backend. The server is the source of truth for status, permissions,
+50: payments and the audit trail.
+51: Calls ﬂow downward. The Data layer implements Domain interfaces; the Domain layer never depends on React or HTTP.
+52: One React codebase serves every admin role. Every backend call goes through the Admin API Gateway over HTTPS with token-based sessions. What
+53: a user can see is decided by permissions issued by the server, not by role names hard-coded in the UI. Only signed document links, map tiles and error reports
+54: are reached directly from the browser.
+55: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+56: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 1 of 13
+57: 02 Architectural Drivers & Technology Stack SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+58: ARCHITECTURAL DRIVERS
+59: Goal How the architecture addresses it
+60: Run daily operations fast Work queues (pending KYC, new requests, open tickets) with ﬁlters and
+61: one primary action per row
+62: Trust before "veriﬁed" Badge shown only when the server reports every conﬁgured check
+========================================
+--- Line 64 ---
+60: Run daily operations fast Work queues (pending KYC, new requests, open tickets) with ﬁlters and
+61: one primary action per row
+62: Trust before "veriﬁed" Badge shown only when the server reports every conﬁgured check
+63: approved; per-check status stays visible
+64: Role-based control Menus, routes and buttons follow server-issued permissions; the server
+65: enforces every call
+66: Protect sensitive data Masked values in routine screens; documents through short-lived signed
+67: links; reveals are logged
+68: Safe state changes Admins see only the booking transitions the server permits; remarks and
+69: conﬁrmation before irreversible actions
+70: Concurrent operations Version check on every edit; a clear conﬂict message instead of a silent
+71: overwrite
+72: Auditability Critical actions carry a reason and appear in the audit trail
+73: Conﬁgurable business
+========================================
+--- Line 113 ---
+109: LAYER RESPONSIBILITIES
+110: Layer Responsibility Rules
+111: Presentation Pages, queues, detail screens, forms, route guards and state holders (hooks) No API calls or business rules
+112: Domain Entities, use cases (ReviewVeriﬁcation, ChangeBookingStatus, IssueRefund, AssignTicket),
+113: permission policies, repository interfaces
+114: Pure TypeScript
+115: Data Repository implementations, API calls, DTOs, mappers, query keys Implements domain interfaces; maps API errors to
+116: domain failures
+117: Core / Shared API client, session, RBAC helpers, design system, i18n, error and logging utilities No feature-speciﬁc logic
+118: DEPENDENCY RULE
+119: Presentation
+120: screens + state
+121: uses Domain
+122: rules + contracts
+========================================
+--- Line 134 ---
+130: worker, document and remarks shown
+131: State holder
+132: mutation sets pending state
+133: Use case: ReviewVeriﬁcation
+134: checks permission and remarks rule
+135: VeriﬁcationRepository (interface)
+136: domain contract
+137: Repository implementation
+138: DTO mapping
+139: API client (axios)
+140: token, request ID, idempotency key
+141: Admin API Gateway > backend
+142: veriﬁcation service writes audit entry
+143: Result ﬂows back
+========================================
+--- Line 161 ---
+157: app/                providers, router, layout shell, theme
+158: core/               api, auth, rbac, storage, errors, logging
+159: shared/             design system, status labels, i18n
+160: features/
+161: auth/             login, session, password reset
+162: dashboard/        KPI cards, queue summaries
+163: customers/        list, profile, history, notes
+164: workers/          list, profile, documents, status
+165: verification/     queue, review, re-check
+166: bookings/         list, detail, match, transitions
+167: payments/         transactions, refunds, exports
+168: support/          tickets, assignment, SLA
+169: reports/          report views, exports
+170: configuration/    masters, fees, templates, roles
+========================================
+--- Line 176 ---
+172: <feature>/{presentation, domain, data}
+173: tests/   e2e/
+174: FEATURE MODULES AND MAIN SCREENS
+175: Feature module Main screens
+176: auth Login, Password reset, Session expired
+177: dashboard KPI cards (bookings, active workers, pending KYC, complaints, replacements, collections), queue
+178: summaries
+179: customers List, Proﬁle and status, Saved addresses, Booking history, Complaints, Internal notes
+180: workers List, Proﬁle (skills, availability, rating), Documents, Status: active / suspended / blacklisted
+181: veriﬁcation Queue, Document review with remarks, Check status per type, Expiry and re-check list
+182: bookings New requests, Match workers, Interview / trial, Conﬁrm / cancel, Replacement review, Timeline
+183: payments Transactions, Fee records, Refund requests and status, Invoice / reference export
+184: support Ticket list, Create ticket, Assign / escalate, Resolution SLA, Ticket timeline
+185: reports Demand, conversion, utilization and collection reports with export
+========================================
+--- Line 186 ---
+182: bookings New requests, Match workers, Interview / trial, Conﬁrm / cancel, Replacement review, Timeline
+183: payments Transactions, Fee records, Refund requests and status, Invoice / reference export
+184: support Ticket list, Create ticket, Assign / escalate, Resolution SLA, Ticket timeline
+185: reports Demand, conversion, utilization and collection reports with export
+186: conﬁguration Categories, Areas, Fees and plans, Notiﬁcation templates, Roles and permissions
+187: audit Audit trail search by actor, action, record and date
+188: SHARING WITH THE CUSTOMER AND WORKER APPS PROPOSED
+189: Admin Portal
+190: React | veriﬁcation, bookings, payments, support, conﬁguration
+191: Customer App and Worker App
+192: Flutter | own features, own architecture documents
+193: Shared contracts (not shared code)
+194: API contract types (OpenAPI) | design tokens (colour, spacing, status colours) | status label vocabulary | notiﬁcation template variable names
+195: Rule. Flutter and React cannot share code, so they share contracts. Admin-speciﬁc code (queues, review, refunds, conﬁguration) stays inside the Admin Portal; the apps and the portal agree on the same API types, status names and
+========================================
+--- Line 200 ---
+196: design tokens.
+197: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+198: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 4 of 13
+199: 05 Navigation Architecture SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+200: APP FLOW
+201: Login
+202: email + password
+203: Session check
+204: token; MFA step is an open item
+205: Landing page
+206: ﬁrst module the role may use
+207: Main shell
+208: sidebar navigation
+209: MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+========================================
+--- Line 203 ---
+199: 05 Navigation Architecture SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+200: APP FLOW
+201: Login
+202: email + password
+203: Session check
+204: token; MFA step is an open item
+205: Landing page
+206: ﬁrst module the role may use
+207: Main shell
+208: sidebar navigation
+209: MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+210: Operations
+211: Dashboard and queues
+212: Veriﬁcation review
+========================================
+--- Line 204 ---
+200: APP FLOW
+201: Login
+202: email + password
+203: Session check
+204: token; MFA step is an open item
+205: Landing page
+206: ﬁrst module the role may use
+207: Main shell
+208: sidebar navigation
+209: MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+210: Operations
+211: Dashboard and queues
+212: Veriﬁcation review
+213: Booking pipeline
+========================================
+--- Line 205 ---
+201: Login
+202: email + password
+203: Session check
+204: token; MFA step is an open item
+205: Landing page
+206: ﬁrst module the role may use
+207: Main shell
+208: sidebar navigation
+209: MAIN SHELL: SIDEBAR MODULES (VISIBILITY DEPENDS ON ROLE)
+210: Operations
+211: Dashboard and queues
+212: Veriﬁcation review
+213: Booking pipeline
+214: Support tickets
+========================================
+--- Line 228 ---
+224: Exports
+225: Control
+226: Categories and areas
+227: Fees, plans, templates
+228: Roles and permissions
+229: Audit trail
+230: REDIRECT RULES
+231: After sign-in the user returns to the page they asked for. A user without permission sees a plain No access page with a way back.
+232: NAVIGATION RULES
+233: App start Session valid? Permission forroute? Page opens
+234: Login No access page
+235: no no
+236: yes yes Router is declarative; routes are named and typed.
+237: Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+========================================
+--- Line 230 ---
+226: Categories and areas
+227: Fees, plans, templates
+228: Roles and permissions
+229: Audit trail
+230: REDIRECT RULES
+231: After sign-in the user returns to the page they asked for. A user without permission sees a plain No access page with a way back.
+232: NAVIGATION RULES
+233: App start Session valid? Permission forroute? Page opens
+234: Login No access page
+235: no no
+236: yes yes Router is declarative; routes are named and typed.
+237: Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+238: Sidebar shows only the modules the user has permission for; a direct link to a hidden route
+239: shows a plain No access page.
+========================================
+--- Line 231 ---
+227: Fees, plans, templates
+228: Roles and permissions
+229: Audit trail
+230: REDIRECT RULES
+231: After sign-in the user returns to the page they asked for. A user without permission sees a plain No access page with a way back.
+232: NAVIGATION RULES
+233: App start Session valid? Permission forroute? Page opens
+234: Login No access page
+235: no no
+236: yes yes Router is declarative; routes are named and typed.
+237: Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+238: Sidebar shows only the modules the user has permission for; a direct link to a hidden route
+239: shows a plain No access page.
+240: Records (booking, worker, ticket) have stable links so staﬀ can share them.
+========================================
+--- Line 233 ---
+229: Audit trail
+230: REDIRECT RULES
+231: After sign-in the user returns to the page they asked for. A user without permission sees a plain No access page with a way back.
+232: NAVIGATION RULES
+233: App start Session valid? Permission forroute? Page opens
+234: Login No access page
+235: no no
+236: yes yes Router is declarative; routes are named and typed.
+237: Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+238: Sidebar shows only the modules the user has permission for; a direct link to a hidden route
+239: shows a plain No access page.
+240: Records (booking, worker, ticket) have stable links so staﬀ can share them.
+241: Filters, sort and page are kept in the URL, so a view survives refresh and can be
+242: bookmarked.
+========================================
+--- Line 238 ---
+234: Login No access page
+235: no no
+236: yes yes Router is declarative; routes are named and typed.
+237: Not logged in goes to Login; after sign-in the user returns to the page they asked for.
+238: Sidebar shows only the modules the user has permission for; a direct link to a hidden route
+239: shows a plain No access page.
+240: Records (booking, worker, ticket) have stable links so staﬀ can share them.
+241: Filters, sort and page are kept in the URL, so a view survives refresh and can be
+242: bookmarked.
+243: Breadcrumbs and a visible back option on every detail screen.
+244: Global search ﬁnds customers, workers, bookings and tickets by ID, name or phone
+245: (Proposed).
+246: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+247: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 5 of 13
+========================================
+--- Line 248 ---
+244: Global search ﬁnds customers, workers, bookings and tickets by ID, name or phone
+245: (Proposed).
+246: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+247: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 5 of 13
+248: 06 Roles, Permissions & Sensitive Data Access SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+249: ROLE AND MODULE ACCESS (STARTING POINT) PROPOSED
+250: Module Super Admin Operations Admin Veriﬁcation Exec. Support Exec.
+251: Dashboard Manage Manage View View
+252: Customers Manage Manage No access View
+253: Workers Manage Manage View View
+254: Veriﬁcation Manage Manage Manage No access
+255: Sensitive documents View View Manage No access
+256: Bookings Manage Manage No access View
+257: Payments and refunds Manage Manage No access View
+========================================
+--- Line 263 ---
+259: Reports Manage View No access View
+260: Conﬁguration Manage No access No access No access
+261: Audit trail View No access No access No access
+262: Roles come from the PRD: Super Admin, Operations Admin, Veriﬁcation Executive, Support Executive. The ﬁnal matrix is set by the Super Admin
+263: in Conﬁguration > Roles. The UI checks permission keys (for example veriﬁcation.review), never role names.
+264: HOW PERMISSIONS REACH THE SCREEN
+265: Login Server returnspermission keys Permission storein memory Route guard,menu, buttons
+266: Server re-checks every call
+267: a hidden button is convenience, not security
+268: SENSITIVE DATA HANDLING
+269: Data Routine screens When needed
+270: Government ID / Aadhaar Masked, last 4 only Document viewer; role-limited; each view audited
+271: KYC documents Never in lists Short-lived signed link; no public URL
+272: Phone / address Masked in lists Reveal action with permission; logged (Proposed)
+========================================
+--- Line 264 ---
+260: Conﬁguration Manage No access No access No access
+261: Audit trail View No access No access No access
+262: Roles come from the PRD: Super Admin, Operations Admin, Veriﬁcation Executive, Support Executive. The ﬁnal matrix is set by the Super Admin
+263: in Conﬁguration > Roles. The UI checks permission keys (for example veriﬁcation.review), never role names.
+264: HOW PERMISSIONS REACH THE SCREEN
+265: Login Server returnspermission keys Permission storein memory Route guard,menu, buttons
+266: Server re-checks every call
+267: a hidden button is convenience, not security
+268: SENSITIVE DATA HANDLING
+269: Data Routine screens When needed
+270: Government ID / Aadhaar Masked, last 4 only Document viewer; role-limited; each view audited
+271: KYC documents Never in lists Short-lived signed link; no public URL
+272: Phone / address Masked in lists Reveal action with permission; logged (Proposed)
+273: Emergency contact Hidden Visible based on policy and role
+========================================
+--- Line 265 ---
+261: Audit trail View No access No access No access
+262: Roles come from the PRD: Super Admin, Operations Admin, Veriﬁcation Executive, Support Executive. The ﬁnal matrix is set by the Super Admin
+263: in Conﬁguration > Roles. The UI checks permission keys (for example veriﬁcation.review), never role names.
+264: HOW PERMISSIONS REACH THE SCREEN
+265: Login Server returnspermission keys Permission storein memory Route guard,menu, buttons
+266: Server re-checks every call
+267: a hidden button is convenience, not security
+268: SENSITIVE DATA HANDLING
+269: Data Routine screens When needed
+270: Government ID / Aadhaar Masked, last 4 only Document viewer; role-limited; each view audited
+271: KYC documents Never in lists Short-lived signed link; no public URL
+272: Phone / address Masked in lists Reveal action with permission; logged (Proposed)
+273: Emergency contact Hidden Visible based on policy and role
+274: Payment reference Masked reference Full reference on payment detail for permitted roles
+========================================
+--- Line 272 ---
+268: SENSITIVE DATA HANDLING
+269: Data Routine screens When needed
+270: Government ID / Aadhaar Masked, last 4 only Document viewer; role-limited; each view audited
+271: KYC documents Never in lists Short-lived signed link; no public URL
+272: Phone / address Masked in lists Reveal action with permission; logged (Proposed)
+273: Emergency contact Hidden Visible based on policy and role
+274: Payment reference Masked reference Full reference on payment detail for permitted roles
+275: Internal notes Latest note Author and time on every note
+276: Two checks, always. The UI hides what a user may not use, and the server refuses what the user may not do. The PRD requires role restrictions on sensitive screens, restricted KYC access, masked values in routine screens and no
+277: public exposure of full identity documents.
+278: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+279: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 6 of 13
+280: 07 Veriﬁcation, Booking & Replacement Operations SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+281: VERIFICATION JOURNEY: A FEW STEPS, ONE PURPOSE EACH
+========================================
+--- Line 359 ---
+355: Invoice and reference exports are generated by the server, masked, and audited.
+356: Resolution SLA timer and breach ﬂag come from the server.
+357: Complaint history shown on the customer and worker proﬁle. Fee values are conﬁgurable here, as the PRD requires; new categories need no app redesign.
+358: Templates cover push, SMS and optional WhatsApp, with variable checks.
+359: Role edits take eﬀect at the next permission refresh.
+360: Same rule on both sides. The server owns payment, refund, ticket and conﬁguration state, veriﬁes results and keeps the audit record. The portal collects the decision, shows the status the server reports, and never calculates it.
+361: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+362: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 8 of 13
+363: 09 Simple UI Standards SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+364: DESIGN RULES (VALUES SUBJECT TO DESIGN REVIEW)
+365: Rule Standard (Proposed)
+366: Queue ﬁrst Each module opens on a ﬁltered list with counts; one dominant action per row or detail
+367: Dense but readable Compact tables, clear row actions; usable at 100% zoom on a 1366 x 768 laptop
+368: Targets At least 32 px on desktop, 44 px on touch tablets
+========================================
+--- Line 398 ---
+394: a generic label instead of failing.
+395: REUSABLE COMPONENTS (STATELESS, DRIVEN BY DATA)
+396: Data table Filter bar Status badge Veriﬁcation badge Detail drawer
+397: Conﬁrm dialog with remarks Document viewer Status timeline KPI card
+398: Permission gate Date range picker Audit entry Empty and error views
+399: HOW LABELS LOOK ON SCREEN
+400: Pending review Approved Rejected Interview set Paid Payment failed
+401: Escalated SLA at risk
+402: Why stateless. Stateless components keep the UI testable and consistent with the apps. They support the PRD aims of simple, structured operations and plain status labels, and they let each module reuse the same table, ﬁlter and
+403: dialog behaviour.
+404: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+405: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 9 of 13
+406: 10 State Management & Data Layer SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+407: STATE BY FEATURE (REACT QUERY + ZUSTAND, PROPOSED)
+========================================
+--- Line 409 ---
+405: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 9 of 13
+406: 10 State Management & Data Layer SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+407: STATE BY FEATURE (REACT QUERY + ZUSTAND, PROPOSED)
+408: Feature State held Lifetime
+409: Session (global) User, permission keys, idle timer, language App lifetime
+410: Dashboard KPI summaries, queue counts Cached; periodic refetch
+411: Customers / Workers List ﬁlters, selected record, notes URL + cache
+412: Veriﬁcation Queue ﬁlters, open review, draft remarks Feature
+413: Bookings Filters, selected booking, allowed actions Feature
+414: Payments Transaction ﬁlters, refund draft Feature
+415: Support Ticket ﬁlters, assignment, SLA view Feature
+416: Reports Date range, ﬁlters, export job Feature
+417: Conﬁguration Draft changes before save Until saved or discarded
+418: HOW A SCREEN RENDERS
+========================================
+--- Line 446 ---
+442: are mapped from DTOs to domain entities, so screens never see raw API shapes.
+443: Server data lives in the query cache; local UI state stays small.
+444: Filters, sort and page live in the URL.
+445: After a change, related queries are refetched so lists never show stale status.
+446: The server is the source of truth for status, permissions and payments.
+447: Why version checks. Several admins work at once (the PRD calls for role-based concurrent operations). A version check on every edit means a stale save is refused with a clear message, instead of silently overwriting a colleague's
+448: change.
+449: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+450: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 10 of 13
+451: 11 Resilience, Localization & Performance SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+452: WEAK NETWORK BEHAVIOUR PROPOSED
+453: Data / action Behaviour
+454: Lists and queues Show last loaded data with a "last updated"
+455: time; refresh on focus and on demand
+========================================
+--- Line 491 ---
+487: Bundle size Tree shaking; size check in the pipeline
+488: Devices Standard oﬃce laptops and tablets; agreed browser
+489: matrix
+490: Memory Release viewers and listeners when screens close
+491: Open item. The PRD sets qualitative targets only. Numeric performance
+492: budgets are to be agreed before performance testing.
+493: WHAT AN ADMIN SEES WHEN THE SESSION EXPIRES MID-FORM
+494: Editing a form Token expiresquiet refresh fails Sign-in promptdraft kept Signed inback on the same page Draft restored Saved onceidempotency key
+495: Admin UI ships in English in V1 (assumption: the PRD Phase 2 multi-
+496: language plan targets the apps).
+497: Dates in IST; money in INR with standard formatting.
+498: Notiﬁcation templates are data and can hold per-language text.
+499: Worker names, areas and skills appear as provided by the server.
+500: Principle. Writes are never dropped silently: the admin always sees success or a plain message with a next step. Reads fall back to the last loaded data with a "last updated" indicator.
+========================================
+--- Line 507 ---
+503: 12 Security, Integrations & Observability SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+504: SECURITY ARCHITECTURE
+505: Concern Approach
+506: Transport HTTPS for all traﬃc; certiﬁcate validation; HSTS (Proposed)
+507: Authentication Password sign-in with token-based session; MFA is an open item
+508: Authorization Server-issued permissions; route guards and gates in the UI; server re-checks
+509: Sensitive data Masked in routine screens; documents by short-lived signed links; reveals logged
+510: Session Tokens in memory plus httpOnly cookie, none in localStorage; idle timeout (Proposed)
+511: Browser hardening Content Security Policy, no inline scripts, frame protection, dependency audit in CI (Proposed)
+512: Secrets No API secrets in the bundle; only public settings injected per environment
+513: Audit Reason captured for critical actions; server audit log for veriﬁcation, payment and user-status changes; Super Admin
+514: viewer
+515: Input and ﬁles Schema validation; output escaped; attachment type and size checked before upload
+516: Exports Respect masking and permissions; every export audited
+========================================
+--- Line 508 ---
+504: SECURITY ARCHITECTURE
+505: Concern Approach
+506: Transport HTTPS for all traﬃc; certiﬁcate validation; HSTS (Proposed)
+507: Authentication Password sign-in with token-based session; MFA is an open item
+508: Authorization Server-issued permissions; route guards and gates in the UI; server re-checks
+509: Sensitive data Masked in routine screens; documents by short-lived signed links; reveals logged
+510: Session Tokens in memory plus httpOnly cookie, none in localStorage; idle timeout (Proposed)
+511: Browser hardening Content Security Policy, no inline scripts, frame protection, dependency audit in CI (Proposed)
+512: Secrets No API secrets in the bundle; only public settings injected per environment
+513: Audit Reason captured for critical actions; server audit log for veriﬁcation, payment and user-status changes; Super Admin
+514: viewer
+515: Input and ﬁles Schema validation; output escaped; attachment type and size checked before upload
+516: Exports Respect masking and permissions; every export audited
+517: Account state Suspended admin accounts are signed out with a clear message
+========================================
+--- Line 516 ---
+512: Secrets No API secrets in the bundle; only public settings injected per environment
+513: Audit Reason captured for critical actions; server audit log for veriﬁcation, payment and user-status changes; Super Admin
+514: viewer
+515: Input and ﬁles Schema validation; output escaped; attachment type and size checked before upload
+516: Exports Respect masking and permissions; every export audited
+517: Account state Suspended admin accounts are signed out with a clear message
+518: Privacy and consent Terms, privacy and consent content follows legal review; data retention is an open item
+519: WHERE DATA LIVES IN THE BROWSER
+520: Memory
+521: access token, permissions, drafts
+522: httpOnly cookie
+523: refresh credential only
+524: Local storage
+525: UI preferences only, no personal
+========================================
+--- Line 518 ---
+514: viewer
+515: Input and ﬁles Schema validation; output escaped; attachment type and size checked before upload
+516: Exports Respect masking and permissions; every export audited
+517: Account state Suspended admin accounts are signed out with a clear message
+518: Privacy and consent Terms, privacy and consent content follows legal review; data retention is an open item
+519: WHERE DATA LIVES IN THE BROWSER
+520: Memory
+521: access token, permissions, drafts
+522: httpOnly cookie
+523: refresh credential only
+524: Local storage
+525: UI preferences only, no personal
+526: data
+527: Logs / error reports
+========================================
+--- Line 521 ---
+517: Account state Suspended admin accounts are signed out with a clear message
+518: Privacy and consent Terms, privacy and consent content follows legal review; data retention is an open item
+519: WHERE DATA LIVES IN THE BROWSER
+520: Memory
+521: access token, permissions, drafts
+522: httpOnly cookie
+523: refresh credential only
+524: Local storage
+525: UI preferences only, no personal
+526: data
+527: Logs / error reports
+528: no personal data
+529: INTEGRATIONS
+530: Integration Frontend approach
+========================================
+--- Line 554 ---
+550: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 12 of 13
+551: 13 Quality, Release & Architecture Summary SEVANEST  |  ADMIN PORTAL: FRONTEND ARCHITECTURE
+552: TESTING STRATEGY
+553: Level Scope Tooling
+554: Unit Use cases, permission policies, mappers, validators, status mapping Vitest
+555: Component Design-system components and key screens in loading, empty, error and no-access states Testing Library
+556: Integration Login, veriﬁcation decision, booking transition, refund and conﬁguration edit against a
+557: mocked API
+558: MSW + Vitest
+559: End-to-end Role restrictions, verify, booking state change, payment status, refund, replacement, ticket Playwright
+560: Accessibility Keyboard and screen-reader checks on key screens axe + manual
+561: Browser Agreed supported browser matrix Cross-browser runs
+562: Non-functional Performance, security headers, dependency checks Proﬁling, audit tools
+563: UAT Critical workﬂows per acceptance criteria with the business team Manual
+========================================
+--- Line 577 ---
+573: ARCHITECTURE SUMMARY
+574: Item Summary
+575: Framework React + TypeScript single-page app (PRD: React admin web)
+576: Architecture Layered, feature-ﬁrst modules; contracts shared with the apps
+577: State / navigation TanStack Query + Zustand | React Router with permission guards (Proposed)
+578: Access Server-issued permissions; masked data; signed document links
+579: Operations UI Queues, remarks, server-permitted actions, plain status labels
+580: Localization i18n-ready; English in V1
+581: OPEN OR PROPOSED ITEMS
+582: Numeric performance budgets
+583: Admin MFA
+584: Supported browser matrix
+585: UI component library
+586: Cookie vs token session design with the backend
+========================================
+--- Line 578 ---
+574: Item Summary
+575: Framework React + TypeScript single-page app (PRD: React admin web)
+576: Architecture Layered, feature-ﬁrst modules; contracts shared with the apps
+577: State / navigation TanStack Query + Zustand | React Router with permission guards (Proposed)
+578: Access Server-issued permissions; masked data; signed document links
+579: Operations UI Queues, remarks, server-permitted actions, plain status labels
+580: Localization i18n-ready; English in V1
+581: OPEN OR PROPOSED ITEMS
+582: Numeric performance budgets
+583: Admin MFA
+584: Supported browser matrix
+585: UI component library
+586: Cookie vs token session design with the backend
+587: Data retention rules
+========================================
+--- Line 583 ---
+579: Operations UI Queues, remarks, server-permitted actions, plain status labels
+580: Localization i18n-ready; English in V1
+581: OPEN OR PROPOSED ITEMS
+582: Numeric performance budgets
+583: Admin MFA
+584: Supported browser matrix
+585: UI component library
+586: Cookie vs token session design with the backend
+587: Data retention rules
+588: Reveal-sensitive-data policy
+589: Final role and permission matrix
+590: Export formats and size limits
+591: Error monitoring tool
+592: The SevaNest Admin Portal is designed as a layered, feature-ﬁrst React application: operations staﬀ can verify workers, manage bookings, payments and support, and conﬁgure the platform with plain status labels, while the
+========================================
+--- Line 589 ---
+585: UI component library
+586: Cookie vs token session design with the backend
+587: Data retention rules
+588: Reveal-sensitive-data policy
+589: Final role and permission matrix
+590: Export formats and size limits
+591: Error monitoring tool
+592: The SevaNest Admin Portal is designed as a layered, feature-ﬁrst React application: operations staﬀ can verify workers, manage bookings, payments and support, and conﬁgure the platform with plain status labels, while the
+593: server remains the source of truth and every critical action stays auditable.
+594: Presentation / UI Domain / app logic Data / cache / storage Browser & external services Security-sensitive Core / shared / infrastructure
+595: Conﬁdential  |  Prepared for SevaNest (VPD Technologies Pvt Ltd)  |  Source: Admin Portal Frontend Architecture v1.0, SevaNest PRD Page 13 of 13
+========================================

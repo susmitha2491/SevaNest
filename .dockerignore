@@ -1,0 +1,36 @@
+# Dependencies and artifacts
+node_modules
+dist
+dist-ssr
+*.tsbuildinfo
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Git and OS
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+
+# IDE and editors
+.vscode
+.idea
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Large documentation and binary files not needed in image
+*.pdf
+*.docx
+*.xlsx
+D
+
+# Local env files
+.env.local
