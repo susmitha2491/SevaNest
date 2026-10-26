@@ -39,7 +39,8 @@ export interface RefundRecord {
   remarks: string;
   processedAt: string;
   processedBy: string;
-  mockIdempotencyKey: string;
+  idempotencyKey?: string;
+  mockIdempotencyKey?: string;
 }
 
 export interface PaymentTransaction {
@@ -87,6 +88,8 @@ export interface IPaymentRepository {
     transactionId: string,
     amount: number,
     reasonCategory: RefundReasonCategory,
-    remarks: string
+    remarks: string,
+    idempotencyKey?: string
   ): Promise<void>;
 }
+

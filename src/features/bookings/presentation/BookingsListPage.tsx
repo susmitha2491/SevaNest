@@ -611,26 +611,26 @@ export const BookingsListPage: React.FC = () => {
           setIsDetailOpen(false);
           setSelectedBooking(null);
         }}
-        onOpenMatchWizard={(b) => {
+        onOpenMatchWizard={canManage ? (b) => {
           setIsDetailOpen(false);
           setSelectedBooking(b);
           setIsMatchOpen(true);
-        }}
-        onOpenTrialOutcome={(b) => {
+        } : undefined}
+        onOpenTrialOutcome={canManage ? (b) => {
           setIsDetailOpen(false);
           setSelectedBooking(b);
           setIsTrialOutcomeOpen(true);
-        }}
-        onOpenReplacement={(b) => {
+        } : undefined}
+        onOpenReplacement={canManage ? (b) => {
           setIsDetailOpen(false);
           setSelectedBooking(b);
           setIsReplacementOpen(true);
-        }}
-        onOpenCancel={(b) => {
+        } : undefined}
+        onOpenCancel={canManage ? (b) => {
           setIsDetailOpen(false);
           setSelectedBooking(b);
           setIsCancelOpen(true);
-        }}
+        } : undefined}
       />
 
       {/* Candidate Matching Wizard Modal */}

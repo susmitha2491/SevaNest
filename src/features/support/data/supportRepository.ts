@@ -227,20 +227,52 @@ export class MockSupportRepository implements ISupportRepository {
 
   async getTicketById(id: string): Promise<SupportTicketDetail | null> {
     const item = this.tickets.find((t) => t.id === id);
-    return item ? JSON.parse(JSON.stringify(item)) : null;
+    if (!item) return null;
+    const cloned = JSON.parse(JSON.stringify(item));
+    cloned.etag = cloned.etag || '"mock-v1"';
+    return cloned;
   }
 
-  async claimTicket(ticketId: string, staffName: string): Promise<void> {
+  async claimTicket(
+    ticketId: string,
+    staffName?: string,
+    _etag?: string,
+    options?: { assigneeUserId?: string; note?: string }
+  ): Promise<void> {
     const item = this.tickets.find((t) => t.id === ticketId);
     if (item) {
-      item.assignedToStaffName = staffName;
+      item.assignedToStaffName = staffName || options?.assigneeUserId || 'Support Executive';
       item.status = 'ASSIGNED';
+      item.etag = `"mock-v${Date.now()}"`;
       item.caseNotes.push({
         id: `NOTE-${Date.now()}`,
-        authorName: staffName,
+        authorName: item.assignedToStaffName,
         authorRole: 'Support Executive',
         timestamp: 'Recent Event',
-        noteText: `Ticket claimed by ${staffName}. Status transitioned to Assigned.`,
+        noteText: options?.note || `Ticket claimed by ${item.assignedToStaffName}. Status transitioned to Assigned.`,
+        noteType: 'INTERNAL_NOTE',
+      });
+    }
+  }
+
+  async assignTicket(
+    ticketId: string,
+    options: { assigneeUserId?: string; note?: string; etag?: string }
+  ): Promise<void> {
+    return this.claimTicket(ticketId, options.assigneeUserId, options.etag, options);
+  }
+
+  async setPriority(ticketId: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', _etag?: string): Promise<void> {
+    const item = this.tickets.find((t) => t.id === ticketId);
+    if (item) {
+      item.priority = priority;
+      item.etag = `"mock-v${Date.now()}"`;
+      item.caseNotes.push({
+        id: `NOTE-${Date.now()}`,
+        authorName: 'Support Executive',
+        authorRole: 'Support Executive',
+        timestamp: 'Recent Event',
+        noteText: `Priority updated to ${priority}.`,
         noteType: 'INTERNAL_NOTE',
       });
     }
@@ -254,6 +286,7 @@ export class MockSupportRepository implements ISupportRepository {
   ): Promise<void> {
     const item = this.tickets.find((t) => t.id === ticketId);
     if (item) {
+      item.etag = `"mock-v${Date.now()}"`;
       item.caseNotes.push({
         id: `NOTE-${Date.now()}`,
         authorName,
@@ -268,10 +301,11 @@ export class MockSupportRepository implements ISupportRepository {
     }
   }
 
-  async resolveTicket(ticketId: string, resolutionSummary: string): Promise<void> {
+  async resolveTicket(ticketId: string, resolutionSummary: string, _etag?: string): Promise<void> {
     const item = this.tickets.find((t) => t.id === ticketId);
     if (item) {
       item.status = 'RESOLVED';
+      item.etag = `"mock-v${Date.now()}"`;
       item.caseNotes.push({
         id: `NOTE-${Date.now()}`,
         authorName: 'Support Executive',
@@ -283,10 +317,11 @@ export class MockSupportRepository implements ISupportRepository {
     }
   }
 
-  async escalateToOperations(ticketId: string, rationale: string): Promise<void> {
+  async escalateToOperations(ticketId: string, rationale: string, _etag?: string): Promise<void> {
     const item = this.tickets.find((t) => t.id === ticketId);
     if (item) {
       item.status = 'ESCALATED';
+      item.etag = `"mock-v${Date.now()}"`;
       item.caseNotes.push({
         id: `NOTE-${Date.now()}`,
         authorName: 'Support Executive',
@@ -298,10 +333,11 @@ export class MockSupportRepository implements ISupportRepository {
     }
   }
 
-  async initiateReplacementHandoff(ticketId: string, remarks: string): Promise<void> {
+  async initiateReplacementHandoff(ticketId: string, remarks: string, _etag?: string): Promise<void> {
     const item = this.tickets.find((t) => t.id === ticketId);
     if (item) {
       item.status = 'REPLACEMENT_INITIATED';
+      item.etag = `"mock-v${Date.now()}"`;
       item.caseNotes.push({
         id: `NOTE-${Date.now()}`,
         authorName: 'Support Executive',
@@ -314,41 +350,83 @@ export class MockSupportRepository implements ISupportRepository {
   }
 }
 
-function mapBackendSupportTicketToDomain(raw: Record<string, unknown>): SupportTicketDetail {
+function mapBackendSupportTicketToDomain(raw: Record<string, unknown>, etag?: string): SupportTicketDetail {
   const creator = raw.creator as Record<string, unknown> | undefined;
   const assignee = raw.assignee as Record<string, unknown> | undefined;
   const messages = Array.isArray(raw.messages) ? (raw.messages as Record<string, unknown>[]) : [];
+  const historyEvents = Array.isArray(raw.history) ? (raw.history as Record<string, unknown>[]) : [];
+
+  const categoryObj = typeof raw.category === 'object' && raw.category !== null ? (raw.category as Record<string, unknown>) : null;
+  const categoryLabel = String(categoryObj?.label || categoryObj?.name || (typeof raw.category === 'string' ? raw.category : raw.serviceCategory || 'General Support'));
+
+  let slaStatus: SupportTicketDetail['slaStatus'] = (raw.slaStatus as SupportTicketDetail['slaStatus']) || 'NORMAL';
+  let slaRemainingText = String(raw.slaRemainingText || '');
+  if (raw.slaBreachedAt) {
+    slaStatus = 'BREACHED';
+    slaRemainingText = 'SLA Target Breached';
+  } else if (raw.dueAt) {
+    const diffMs = new Date(String(raw.dueAt)).getTime() - Date.now();
+    if (diffMs <= 0) {
+      slaStatus = 'BREACHED';
+      slaRemainingText = 'SLA Target Expired';
+    } else if (diffMs < 4 * 60 * 60 * 1000) {
+      slaStatus = 'AT_RISK';
+      const hours = Math.max(1, Math.round(diffMs / (60 * 60 * 1000)));
+      slaRemainingText = `SLA Window: Impending Breach (~${hours}h remaining)`;
+    } else {
+      slaStatus = 'NORMAL';
+      slaRemainingText = `Due by ${new Date(String(raw.dueAt)).toLocaleDateString()}`;
+    }
+  }
+  if (!slaRemainingText) {
+    slaRemainingText = 'Standard SLA Window';
+  }
+
+  const messageNotes: TicketCaseNote[] = messages.map((m: Record<string, unknown>) => {
+    const sender = m.sender as Record<string, unknown> | undefined;
+    return {
+      id: String(m.id || `M-${Math.random()}`),
+      authorName: String(sender?.name || (m.internal ? 'Staff' : 'User')),
+      authorRole: m.internal ? 'Support Executive' : 'Complainant',
+      timestamp: String(m.createdAt || 'Recent'),
+      noteText: String(m.body || ''),
+      noteType: (m.noteType as TicketCaseNote['noteType']) || 'INTERNAL_NOTE',
+    };
+  });
+
+  const historyNotes: TicketCaseNote[] = historyEvents.map((h: Record<string, unknown>, idx: number) => ({
+    id: `HIST-${idx}-${h.createdAt || Date.now()}`,
+    authorName: String(h.actorUserId || 'Staff'),
+    authorRole: 'Audit Timeline',
+    timestamp: String(h.createdAt || 'Recent Event'),
+    noteText: String(h.internalNote || `Event: ${h.type || 'STATUS_UPDATE'} (${h.fromStatus || 'START'} -> ${h.toStatus || 'END'})`),
+    noteType: h.type === 'ESCALATED' ? 'ESCALATION_SUMMARY' : h.type === 'CLOSED' ? 'RESOLUTION_SUMMARY' : 'INTERNAL_NOTE',
+  }));
+
+  const allNotes = [...messageNotes, ...historyNotes];
+  const resolvedEtag = etag || (raw.etag as string | undefined) || (raw.version !== undefined ? `"${raw.version}"` : undefined);
 
   return {
     id: String(raw.id || raw.ticketId || ''),
-    complainantId: String(raw.complainantId || raw.customerUserId || raw.workerId || raw.creatorId || 'U-00'),
-    complainantName: String(raw.complainantName || creator?.fullName || 'User'),
-    complainantType: (raw.complainantType as SupportTicketDetail['complainantType']) || (raw.customerUserId ? 'CUSTOMER' : 'WORKER'),
+    etag: resolvedEtag,
+    complainantId: String(raw.creatorUserId || raw.complainantId || raw.customerUserId || raw.workerId || raw.creatorId || 'U-00'),
+    complainantName: String(raw.complainantName || creator?.fullName || (raw.creatorKind === 'WORKER' ? 'Worker' : 'Customer')),
+    complainantType: (raw.creatorKind as SupportTicketDetail['complainantType']) || (raw.complainantType as SupportTicketDetail['complainantType']) || (raw.customerUserId ? 'CUSTOMER' : 'WORKER'),
     complainantPhoneMasked: String(raw.complainantPhoneMasked || '+91 *****'),
     subjectWorkerId: raw.subjectWorkerId ? String(raw.subjectWorkerId) : undefined,
     subjectWorkerName: raw.subjectWorkerName ? String(raw.subjectWorkerName) : undefined,
-    serviceCategory: String(raw.category || raw.serviceCategory || 'General'),
+    serviceCategory: categoryLabel,
     disputeCategory: (raw.disputeCategory as DisputeCategory) || 'OTHER',
     description: String(raw.description || raw.subject || 'Support Ticket'),
     bookingRef: raw.bookingId ? String(raw.bookingId) : raw.bookingRef ? String(raw.bookingRef) : undefined,
     priority: (raw.priority as SupportTicketDetail['priority']) || 'MEDIUM',
-    slaStatus: (raw.slaStatus as SupportTicketDetail['slaStatus']) || 'NORMAL',
-    slaRemainingText: String(raw.slaRemainingText || 'Standard SLA Window'),
+    slaStatus,
+    slaRemainingText,
     assignedToStaffId: (raw.assignedToStaffId || raw.assigneeUserId) ? String(raw.assignedToStaffId || raw.assigneeUserId) : undefined,
     assignedToStaffName: (raw.assignedToStaffName || assignee?.name) ? String(raw.assignedToStaffName || assignee?.name) : undefined,
     status: (raw.status as SupportTicketDetail['status']) || 'OPEN',
     createdAt: String(raw.createdAt || 'Recent Intake'),
-    caseNotes: messages.map((m: Record<string, unknown>) => {
-      const sender = m.sender as Record<string, unknown> | undefined;
-      return {
-        id: String(m.id || `M-${Math.random()}`),
-        authorName: String(sender?.name || (m.internal ? 'Staff' : 'User')),
-        authorRole: m.internal ? 'Support Executive' : 'Complainant',
-        timestamp: String(m.createdAt || 'Recent'),
-        noteText: String(m.body || ''),
-        noteType: (m.noteType as TicketCaseNote['noteType']) || 'INTERNAL_NOTE',
-      };
-    }),
+    caseNotes: allNotes,
   };
 }
 
@@ -374,7 +452,7 @@ export class RealSupportRepository implements ISupportRepository {
 
       const payload = res.data;
       const items = Array.isArray(payload.data) ? payload.data : [];
-      const mapped = items.map(mapBackendSupportTicketToDomain);
+      const mapped = items.map((item) => mapBackendSupportTicketToDomain(item));
 
       return {
         items: mapped,
@@ -398,6 +476,8 @@ export class RealSupportRepository implements ISupportRepository {
       const raw = res.data.data;
       if (!raw) return null;
 
+      const etagHeader = (res.headers['etag'] || res.headers.etag) as string | undefined;
+
       // also fetch messages
       try {
         const msgRes = await httpClient.get<{ success: boolean; data: { data?: Record<string, unknown>[] } | Record<string, unknown>[] }>(
@@ -408,17 +488,60 @@ export class RealSupportRepository implements ISupportRepository {
         // preserve existing if messages fetch errors
       }
 
-      return mapBackendSupportTicketToDomain(raw);
+      return mapBackendSupportTicketToDomain(raw, etagHeader);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
   }
 
-  async claimTicket(ticketId: string, staffName: string): Promise<void> {
+  async claimTicket(
+    ticketId: string,
+    staffName?: string,
+    etag?: string,
+    options?: { assigneeUserId?: string; note?: string }
+  ): Promise<void> {
+    await this.assignTicket(ticketId, {
+      assigneeUserId: options?.assigneeUserId,
+      note: options?.note || (staffName ? `Assigned to ${staffName}` : undefined),
+      etag,
+    });
+  }
+
+  async assignTicket(
+    ticketId: string,
+    options: { assigneeUserId?: string; note?: string; etag?: string }
+  ): Promise<void> {
     try {
-      await httpClient.post(`/admin/support/tickets/${ticketId}/assign`, {
-        note: `Assigned to ${staffName}`,
-      });
+      const body: Record<string, unknown> = {};
+      if (options.assigneeUserId) {
+        body.assigneeUserId = options.assigneeUserId;
+      }
+      if (options.note) {
+        body.note = options.note;
+      }
+      if (options.etag) {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/assign`, body, {
+          headers: { 'If-Match': options.etag },
+        });
+      } else {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/assign`, body);
+      }
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async setPriority(ticketId: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', etag?: string): Promise<void> {
+    try {
+      if (etag) {
+        await httpClient.post(
+          `/admin/support/tickets/${ticketId}/priority`,
+          { priority },
+          { headers: { 'If-Match': etag } }
+        );
+      } else {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/priority`, { priority });
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -440,31 +563,51 @@ export class RealSupportRepository implements ISupportRepository {
     }
   }
 
-  async resolveTicket(ticketId: string, resolutionSummary: string): Promise<void> {
+  async resolveTicket(ticketId: string, resolutionSummary: string, etag?: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/support/tickets/${ticketId}/close`, {
-        resolution: resolutionSummary,
-      });
+      if (etag) {
+        await httpClient.post(
+          `/admin/support/tickets/${ticketId}/close`,
+          { resolution: resolutionSummary },
+          { headers: { 'If-Match': etag } }
+        );
+      } else {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/close`, { resolution: resolutionSummary });
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
   }
 
-  async escalateToOperations(ticketId: string, rationale: string): Promise<void> {
+  async escalateToOperations(ticketId: string, rationale: string, etag?: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/support/tickets/${ticketId}/escalate`, {
-        reason: rationale,
-      });
+      if (etag) {
+        await httpClient.post(
+          `/admin/support/tickets/${ticketId}/escalate`,
+          { reason: rationale },
+          { headers: { 'If-Match': etag } }
+        );
+      } else {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/escalate`, { reason: rationale });
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
   }
 
-  async initiateReplacementHandoff(ticketId: string, remarks: string): Promise<void> {
+  async initiateReplacementHandoff(ticketId: string, remarks: string, etag?: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/support/tickets/${ticketId}/escalate`, {
-        reason: `Replacement handoff: ${remarks}`,
-      });
+      if (etag) {
+        await httpClient.post(
+          `/admin/support/tickets/${ticketId}/escalate`,
+          { reason: `Replacement handoff: ${remarks}` },
+          { headers: { 'If-Match': etag } }
+        );
+      } else {
+        await httpClient.post(`/admin/support/tickets/${ticketId}/escalate`, {
+          reason: `Replacement handoff: ${remarks}`,
+        });
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

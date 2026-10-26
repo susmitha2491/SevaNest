@@ -5,9 +5,9 @@
 
 export const PERMISSIONS = {
   DASHBOARD_VIEW: 'dashboard.view',
-  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMER_VIEW: 'customer.view', // Canonical singular backend code
+  CUSTOMERS_VIEW: 'customer.view', // Backward-compatible alias
   CUSTOMERS_MANAGE: 'customers.manage',
-  CUSTOMERS_REVEAL_PII: 'customers.reveal_pii',
   CUSTOMERS_MANAGE_STATUS: 'customers.manage_status',
   WORKER_VIEW: 'worker.view',
   WORKERS_VIEW: 'worker.view', // Canonical singular backend code
@@ -40,6 +40,20 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   if (required === PERMISSIONS.VERIFICATION_DOCUMENT_VIEW && userPermissions.includes('documents.view_restricted')) {
     return true;
   }
+  // Support canonical customer.view and legacy customers.view interchangeably
+  if (
+    (required === PERMISSIONS.CUSTOMER_VIEW || required === 'customers.view' || required === 'customer.view') &&
+    (userPermissions.includes('customer.view') || userPermissions.includes('customers.view'))
+  ) {
+    return true;
+  }
+  // Support canonical worker.view and legacy workers.view interchangeably
+  if (
+    (required === PERMISSIONS.WORKER_VIEW || required === 'workers.view' || required === 'worker.view') &&
+    (userPermissions.includes('worker.view') || userPermissions.includes('workers.view'))
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -65,7 +79,12 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
   }
   const permissions = user.permissions;
 
-  // 1. Role-specific primary operational workstations when authorized
+  // 1. Role-specific command center / dashboard when authorized with dashboard.view
+  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
+    return '/dashboard';
+  }
+
+  // 2. Role-specific primary operational workstations when dashboard is not authorized
   if (
     user.role === 'VERIFICATION_EXECUTIVE' &&
     hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
@@ -78,11 +97,6 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
     (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) || hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE))
   ) {
     return '/support';
-  }
-
-  // 2. Command center for Super Admin, Operations Admin, and users authorized for dashboard.view
-  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
-    return '/dashboard';
   }
 
   // 3. Granular fallbacks to authorized operational workstations

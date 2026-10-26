@@ -140,7 +140,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const result = await repo.getWorkers({ searchTerm: 'Sunita', status: 'ACTIVE' });
 
       expect(getSpy).toHaveBeenCalledWith('/admin/workers', {
-        params: { mobile: 'Sunita', onboardingStatus: undefined },
+        params: { mobile: 'Sunita', verified: undefined, status: 'ACTIVE' },
       });
       expect(result[0].name).toBe('Sunita Devi');
       expect(result[0].isFullyVerified).toBe(false);
@@ -199,8 +199,8 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const queue = await repo.getVerificationQueue();
       expect(queue.items[0].id).toBe('VQ-101');
 
-      await repo.claimDossier('VQ-101');
-      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/VQ-101/start-review');
+      await repo.claimDossier('VQ-101', 'chk-identity-101');
+      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-identity-101/start-review');
     });
 
     it('approves, rejects, and rechecks verification items with required remarks', async () => {
@@ -209,18 +209,18 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       } as any);
 
       const repo = new RealVerificationRepository();
-      await repo.approveCheck('VQ-101', 'IDENTITY', 'Aadhaar verified');
-      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/VQ-101/approve', {
+      await repo.approveCheck('chk-identity-101', 'IDENTITY', 'Aadhaar verified');
+      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-identity-101/approve', {
         remarks: 'Aadhaar verified',
       });
 
-      await repo.rejectCheck('VQ-101', 'ADDRESS', 'BLURRY_IMAGE', 'Utility bill blurry');
-      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/VQ-101/reject', {
+      await repo.rejectCheck('chk-address-101', 'ADDRESS', 'BLURRY_IMAGE', 'Utility bill blurry');
+      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-address-101/reject', {
         remarks: 'Utility bill blurry',
       });
 
-      await repo.requestReVerification('VQ-101', ['POLICE_CLEARANCE'], 'Upload clear PCC');
-      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/VQ-101/recheck', {
+      await repo.requestReVerification('chk-police-101', ['POLICE_CLEARANCE'], 'Upload clear PCC');
+      expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-police-101/recheck', {
         remarks: 'Upload clear PCC',
       });
     });

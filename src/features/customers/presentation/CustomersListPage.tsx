@@ -1,13 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Search, Filter, Eye, Ban, RefreshCw, ChevronLeft, ChevronRight, User } from 'lucide-react';
+import { Search, Filter, Ban, RefreshCw, ChevronLeft, ChevronRight, User } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
-import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { CustomerDetailModal } from './CustomerDetailModal';
 
 const ITEMS_PER_PAGE = 5;
@@ -23,8 +23,6 @@ export const CustomersListPage: React.FC = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [detailModalId, setDetailModalId] = useState<string | null>(null);
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
-  const [isRevealOpen, setIsRevealOpen] = useState(false);
-  const [revealedContacts, setRevealedContacts] = useState<Record<string, { phone: string; email: string }>>({});
 
   const { data: customers = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['customers', 'list'],
@@ -75,13 +73,6 @@ export const CustomersListPage: React.FC = () => {
     return filteredAndSortedCustomers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredAndSortedCustomers, currentPage]);
 
-  const handleRevealConfirm = async (reason?: string) => {
-    if (selectedCustomerId) {
-      const revealed = await customerRepository.revealPII(selectedCustomerId, reason || 'Authorized audit justification');
-      setRevealedContacts((prev) => ({ ...prev, [selectedCustomerId]: revealed }));
-      setIsRevealOpen(false);
-    }
-  };
 
   const handleSuspendConfirm = async (remarks?: string) => {
     if (selectedCustomerId) {
@@ -338,39 +329,7 @@ export const CustomersListPage: React.FC = () => {
                       <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Registered: {customer.registeredDate}</div>
                     </td>
                     <td style={{ padding: '14px 16px' }}>
-                      {revealedContacts[customer.id] ? (
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{revealedContacts[customer.id].phone}</div>
-                          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)' }}>{revealedContacts[customer.id].email}</div>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                          <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
-                          <PermissionGate permission={PERMISSIONS.CUSTOMERS_REVEAL_PII}>
-                            <button
-                              onClick={() => {
-                                setSelectedCustomerId(customer.id);
-                                setIsRevealOpen(true);
-                              }}
-                              title="Unmask PII (Audited Action)"
-                              style={{
-                                padding: '2px 6px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-border-subtle)',
-                                backgroundColor: 'transparent',
-                                cursor: 'pointer',
-                                color: 'var(--color-accent)',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                fontSize: 'var(--font-size-xs)',
-                              }}
-                            >
-                              <Eye size={12} /> Reveal
-                            </button>
-                          </PermissionGate>
-                        </div>
-                      )}
+                      <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
                     </td>
                     <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
                       {customer.locality}
@@ -519,18 +478,6 @@ export const CustomersListPage: React.FC = () => {
         remarksPlaceholder="Enter mandatory operational reason for customer suspension..."
         onConfirm={handleSuspendConfirm}
         onCancel={() => setIsSuspendOpen(false)}
-      />
-
-      {/* PII Reveal Dialog */}
-      <ConfirmDialog
-        isOpen={isRevealOpen}
-        title="Authorize PII Reveal"
-        description="Customer contact details are masked for privacy. Unmasking contact details will create an immutable audit record."
-        confirmLabel="Reveal and Audit"
-        requireRemarks={true}
-        remarksPlaceholder="Enter business justification (e.g., Support Ticket TKT-4921 resolution)..."
-        onConfirm={handleRevealConfirm}
-        onCancel={() => setIsRevealOpen(false)}
       />
     </div>
   );

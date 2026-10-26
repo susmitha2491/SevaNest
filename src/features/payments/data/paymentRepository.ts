@@ -197,7 +197,8 @@ export class MockPaymentRepository implements IPaymentRepository {
     transactionId: string,
     amount: number,
     reasonCategory: RefundReasonCategory,
-    remarks: string
+    remarks: string,
+    idempotencyKey?: string
   ): Promise<void> {
     const item = this.transactions.find((t) => t.id === transactionId);
     if (item) {
@@ -209,7 +210,8 @@ export class MockPaymentRepository implements IPaymentRepository {
         remarks,
         processedAt: 'Recent Settlement',
         processedBy: 'Operations Admin',
-        mockIdempotencyKey: `mock_idem_key_${Date.now()}`,
+        idempotencyKey: idempotencyKey || `idem_key_${Date.now()}`,
+        mockIdempotencyKey: idempotencyKey || `mock_idem_key_${Date.now()}`,
       };
     }
   }
@@ -251,6 +253,7 @@ function mapBackendPaymentToDomain(raw: Record<string, unknown>): PaymentTransac
           remarks: String(refund.remarks || refund.reason || ''),
           processedAt: String(refund.processedAt || 'Recent'),
           processedBy: String(refund.processedBy || 'Admin'),
+          idempotencyKey: String(refund.idempotencyKey || refund.mockIdempotencyKey || ''),
           mockIdempotencyKey: String(refund.mockIdempotencyKey || refund.idempotencyKey || ''),
         }
       : undefined,
@@ -315,12 +318,22 @@ export class RealPaymentRepository implements IPaymentRepository {
     transactionId: string,
     _amount: number,
     reasonCategory: RefundReasonCategory,
-    remarks: string
+    remarks: string,
+    idempotencyKey?: string
   ): Promise<void> {
     try {
-      await httpClient.post(`/admin/payments/${transactionId}/refund`, {
+      const payload: Record<string, unknown> = {
         reason: `${reasonCategory}: ${remarks}`,
-      });
+      };
+      if (idempotencyKey) {
+        payload.idempotencyKey = idempotencyKey;
+        await httpClient.post(`/admin/payments/${transactionId}/refund`, payload, {
+          idempotencyKey,
+          headers: { 'Idempotency-Key': idempotencyKey },
+        });
+      } else {
+        await httpClient.post(`/admin/payments/${transactionId}/refund`, payload);
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

@@ -28,7 +28,6 @@ import {
   Check,
   Eye,
   EyeOff,
-  UserCheck,
   AlertCircle,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
@@ -39,9 +38,11 @@ import {
   REJECTION_CATEGORIES,
   VerificationCheck,
 } from '../../verification/domain/types';
+import { formatDocumentVaultError } from '../../verification/domain/documentVaultErrorFormatter';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useAuthStore } from '../../../core/auth/authStore';
@@ -76,17 +77,17 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const user = useAuthStore((s) => s.user);
 
   // Role permissions
+  const canViewWorker =
+    hasPermission(user?.permissions, PERMISSIONS.WORKERS_VIEW) ||
+    hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
-  const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) || canReview;
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
     hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED);
-  const canManageStatus = hasPermission(user?.permissions, PERMISSIONS.WORKERS_MANAGE_STATUS);
-  const canRevealPii =
-    hasPermission(user?.permissions, PERMISSIONS.CUSTOMERS_REVEAL_PII) || canReview;
+  const canRevealPii = canReview || canViewWorker;
 
   // View navigation
-  const [activeTab, setActiveTab] = useState<TabKey>('verification');
+  const [activeTab, setActiveTab] = useState<TabKey>(() => (canReview ? 'verification' : 'professional'));
   const [currentStep, setCurrentStep] = useState<WorkstationStep>(1);
 
   // Sensitive PII reveal
@@ -103,17 +104,21 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const [docZoom, setDocZoom] = useState(100);
 
   // Check actions state
+  const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
+  const [approveCheckId, setApproveCheckId] = useState<string | null>(null);
+  const [approveCheckType, setApproveCheckType] = useState<VerificationCheckType>('IDENTITY');
+  const [approveCheckTitle, setApproveCheckTitle] = useState<string>('Verification Check');
+
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [rejectCheckType, setRejectCheckType] = useState<VerificationCheckType>('IDENTITY');
+  const [rejectCheckId, setRejectCheckId] = useState<string | null>(null);
   const [rejectCategory, setRejectCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
   const [rejectRemarks, setRejectRemarks] = useState('');
 
   const [isRecheckModalOpen, setIsRecheckModalOpen] = useState(false);
   const [recheckCheckType, setRecheckCheckType] = useState<VerificationCheckType>('IDENTITY');
+  const [recheckCheckId, setRecheckCheckId] = useState<string | null>(null);
   const [recheckInstructions, setRecheckInstructions] = useState('');
-
-  // Final Decision state
-  const [finalDecisionRemarks, setFinalDecisionRemarks] = useState('');
 
   // Disciplinary state
   const [isDisciplineOpen, setIsDisciplineOpen] = useState(false);
@@ -138,6 +143,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const {
     data: dossier,
     isLoading: isDossierLoading,
+    isError: isDossierError,
+    error: dossierError,
     refetch: refetchDossier,
   } = useQuery({
     queryKey: ['verification', 'dossier', workerId],
@@ -146,6 +153,12 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   });
 
   // Query signed document link for inspectingDoc
+  const rawInspectingDocId = inspectingDoc?.id;
+  const inspectingDocId = typeof rawInspectingDocId === 'string' && rawInspectingDocId.trim() !== ''
+    ? rawInspectingDocId.trim()
+    : undefined;
+  const hasInspectingDocId = Boolean(inspectingDocId);
+
   const {
     data: docLinkData,
     isLoading: isDocLoading,
@@ -153,13 +166,14 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     error: docError,
     refetch: refetchDocLink,
   } = useQuery({
-    queryKey: ['verification', 'documentLink', workerId, inspectingDoc?.checkType, inspectingDoc?.id],
+    queryKey: ['verification', 'documentLink', workerId, inspectingDoc?.checkType, inspectingDocId],
     queryFn: () =>
-      inspectingDoc
-        ? verificationRepository.getSignedDocumentUrl(workerId, inspectingDoc.checkType, inspectingDoc.id)
+      inspectingDoc && inspectingDocId
+        ? verificationRepository.getSignedDocumentUrl(workerId, inspectingDoc.checkType, inspectingDocId)
         : null,
-    enabled: !!inspectingDoc && canViewDocuments,
+    enabled: !!inspectingDoc && hasInspectingDocId && canViewDocuments,
     staleTime: 5 * 60 * 1000,
+    retry: false,
   });
 
   // Invalidate and refresh cache helper
@@ -174,8 +188,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
   // Mutations
   const approveCheckMutation = useMutation({
-    mutationFn: async ({ checkType, notes }: { checkType: VerificationCheckType; notes?: string }) => {
-      await verificationRepository.approveCheck(workerId, checkType, notes);
+    mutationFn: async ({ checkId, checkType, notes }: { checkId: string; checkType: VerificationCheckType; notes?: string }) => {
+      await verificationRepository.approveCheck(checkId, checkType, notes);
     },
     onSuccess: () => {
       invalidateAll();
@@ -184,62 +198,43 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
   const rejectCheckMutation = useMutation({
     mutationFn: async ({
+      checkId,
       checkType,
       category,
       remarks,
     }: {
+      checkId: string;
       checkType: VerificationCheckType;
       category: RejectionReasonCategory;
       remarks: string;
     }) => {
-      await verificationRepository.rejectCheck(workerId, checkType, category, remarks);
+      await verificationRepository.rejectCheck(checkId, checkType, category, remarks);
     },
     onSuccess: () => {
       invalidateAll();
       setIsRejectDialogOpen(false);
       setRejectRemarks('');
+      setRejectCheckId(null);
     },
   });
 
   const recheckMutation = useMutation({
     mutationFn: async ({
+      checkId,
       checkTypes,
       instructions,
     }: {
+      checkId: string;
       checkTypes: VerificationCheckType[];
       instructions: string;
     }) => {
-      await verificationRepository.requestReVerification(workerId, checkTypes, instructions);
+      await verificationRepository.requestReVerification(checkId, checkTypes, instructions);
     },
     onSuccess: () => {
       invalidateAll();
       setIsRecheckModalOpen(false);
       setRecheckInstructions('');
-    },
-  });
-
-  const finalDecisionMutation = useMutation({
-    mutationFn: async ({
-      decision,
-      remarks,
-    }: {
-      decision: 'APPROVED' | 'REJECTED' | 'CORRECTIONS_REQUESTED';
-      remarks?: string;
-    }) => {
-      await verificationRepository.submitFinalDecision(workerId, decision, remarks);
-    },
-    onSuccess: () => {
-      invalidateAll();
-      setFinalDecisionRemarks('');
-    },
-  });
-
-  const activateWorkerMutation = useMutation({
-    mutationFn: async (remarks: string) => {
-      await workerRepository.updateWorkerStatus(workerId, 'ACTIVE', remarks);
-    },
-    onSuccess: () => {
-      invalidateAll();
+      setRecheckCheckId(null);
     },
   });
 
@@ -281,6 +276,53 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       prev.includes(cat) ? (prev.length > 1 ? prev.filter((c) => c !== cat) : prev) : [...prev, cat]
     );
   };
+
+  if (!canViewWorker) {
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+          padding: 'var(--space-4)',
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            backgroundColor: 'var(--color-bg-surface)',
+            borderRadius: 'var(--radius-xl)',
+            padding: 'var(--space-6)',
+            maxWidth: '520px',
+            width: '100%',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <NoAccessView moduleName="Worker Details" requiredPermission={PERMISSIONS.WORKER_VIEW} />
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'var(--space-4)' }}>
+            <button
+              onClick={onClose}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-bg-subtle)',
+                border: '1px solid var(--color-border)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isWorkerLoading || isDossierLoading) {
     return (
@@ -410,7 +452,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const hasRejectedCheck = operationalChecksList.some((c) => c.check?.status === 'REJECTED');
   const pendingChecksCount = operationalChecksList.filter((c) => c.check?.status === 'PENDING').length;
 
-  // Matching eligibility
+  // Authoritative overall verification status from backend level field
+  const authoritativeLevel = dossier?.level || worker.verification.level || worker.level;
+
+  // Matching eligibility (read-only): requires both active account and verified status
   const isMatchingEligible = worker.isFullyVerified && worker.status === 'ACTIVE';
 
   // Stepper labels
@@ -418,8 +463,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     { step: 1 as const, title: 'Application Overview', desc: 'Identity & Status' },
     { step: 2 as const, title: 'Documents & Evidence', desc: 'Secure Vault' },
     { step: 3 as const, title: 'Verification Checklist', desc: '6-Point Vetting' },
-    { step: 4 as const, title: 'Final Decision', desc: 'Trust Approval' },
-    { step: 5 as const, title: 'Activation & Eligibility', desc: 'Roster State' },
+    { step: 4 as const, title: 'Verification Summary', desc: 'Authoritative Level' },
+    { step: 5 as const, title: 'Platform Status', desc: 'Read-only State' },
   ];
 
   return (
@@ -516,7 +561,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   ID: {worker.id}
                 </span>
                 <span style={{ backgroundColor: '#ffffff', border: '1px solid var(--color-border-subtle)', padding: '2px 8px', borderRadius: '4px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                  • App ID: {worker.applicationId || dossier?.applicationId || `APP-${worker.id}`}
+                  • App ID: {worker.applicationId || dossier?.applicationId || worker.id}
                 </span>
                 <span style={{ backgroundColor: '#ffffff', border: '1px solid var(--color-border-subtle)', padding: '2px 8px', borderRadius: '4px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
                   • {worker.category} • {worker.experienceYears} Yrs Exp • {worker.locality}
@@ -735,8 +780,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       (s.step === 1 && Boolean(worker.id)) ||
                       (s.step === 2 && (worker.documents?.length || 0) > 0) ||
                       (s.step === 3 && allMandatoryChecksApproved) ||
-                      (s.step === 4 && worker.isFullyVerified) ||
-                      (s.step === 5 && isMatchingEligible);
+                      (s.step === 4 && Boolean(authoritativeLevel)) ||
+                      (s.step === 5 && Boolean(worker.status));
 
                     return (
                       <button
@@ -936,7 +981,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     <div>
                       <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Official Application Reference</span>
                       <strong style={{ fontFamily: 'monospace', color: 'var(--color-brand-700)', fontSize: 'var(--font-size-sm)' }}>
-                        {worker.applicationId || dossier?.applicationId || `APP-${worker.id}`}
+                        {worker.applicationId || dossier?.applicationId || worker.id}
                       </strong>
                     </div>
 
@@ -992,7 +1037,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                           </button>
                         ) : (
                           <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                            (Requires reveal_pii permission)
+                            (Requires verification review or worker view permission)
                           </span>
                         )}
                       </div>
@@ -1233,46 +1278,72 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                         </button>
                       </div>
 
-                      {isDocLoading ? (
-                        <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
-                          <LoadingSpinner message="Fetching authorized signed document link from secure vault..." />
-                        </div>
-                      ) : isDocError ? (
+                      {!hasInspectingDocId ? (
                         <div
+                          data-testid="worker-doc-missing-id"
                           style={{
                             padding: 'var(--space-6)',
-                            backgroundColor: 'var(--color-error-bg)',
-                            border: '1px solid var(--color-error-border)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            border: '1px solid var(--color-border)',
                             borderRadius: 'var(--radius-md)',
                             textAlign: 'center',
                           }}
                         >
-                          <AlertTriangle size={32} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
-                          <h5 style={{ fontWeight: 700, color: 'var(--color-error-dark)', margin: '0 0 var(--space-1) 0' }}>
-                            Failed to load document attachment
+                          <FileText size={32} color="var(--color-text-muted)" style={{ marginBottom: 'var(--space-2)' }} />
+                          <h5 style={{ fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-1) 0' }}>
+                            Document Attachment Unavailable
                           </h5>
-                          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)', maxWidth: '380px', margin: '0 auto var(--space-3) auto' }}>
-                            Document Vault Access Unavailable: {(docError as Error)?.message || 'The signed document link is missing, expired, or access was rejected. Required contract: GET /api/v1/admin/verification/documents/{documentId}/link.'}
+                          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                            No backend document reference ID is associated with this record. A genuine document ID is required to request an authorized signed URL.
                           </p>
-                          <button
-                            onClick={() => refetchDocLink()}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '6px 12px',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--color-brand-600)',
-                              color: '#fff',
-                              border: 'none',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <RefreshCw size={14} /> Retry Fetching Document
-                          </button>
                         </div>
+                      ) : isDocLoading ? (
+                        <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                          <LoadingSpinner message="Fetching authorized signed document link from secure vault..." />
+                        </div>
+                      ) : isDocError ? (
+                        (() => {
+                          const formattedErr = formatDocumentVaultError(docError);
+                          return (
+                            <div
+                              style={{
+                                padding: 'var(--space-6)',
+                                backgroundColor: 'var(--color-error-bg)',
+                                border: '1px solid var(--color-error-border)',
+                                borderRadius: 'var(--radius-md)',
+                                textAlign: 'center',
+                              }}
+                            >
+                              <AlertTriangle size={32} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
+                              <h5 style={{ fontWeight: 700, color: 'var(--color-error-dark)', margin: '0 0 var(--space-1) 0' }}>
+                                {formattedErr.title}
+                              </h5>
+                              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)', maxWidth: '420px', margin: '0 auto var(--space-3) auto' }}>
+                                {formattedErr.message}
+                              </p>
+                              {formattedErr.canRetry && (
+                                <button
+                                  onClick={() => refetchDocLink()}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '6px 12px',
+                                    borderRadius: 'var(--radius-md)',
+                                    backgroundColor: 'var(--color-brand-600)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <RefreshCw size={14} /> Retry Fetching Document
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })()
                       ) : docLinkData?.signedUrl ? (
                         <div
                           style={{
@@ -1502,12 +1573,17 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                         </div>
 
                         {/* Decision Controls for Verification Executives */}
-                        {canReview && (
+                        {canReview && (() => {
+                          const targetCheckId = check.id || (dossier?.checkId && key === 'IDENTITY' ? dossier.checkId : undefined);
+                          const hasValidCheckId = Boolean(targetCheckId);
+                          return (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', paddingTop: 'var(--space-2)', borderTop: '1px solid var(--color-border-subtle)' }}>
                             <button
-                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending}
+                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
+                              title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
                               onClick={() => {
                                 setRecheckCheckType(key);
+                                setRecheckCheckId(targetCheckId || null);
                                 setIsRecheckModalOpen(true);
                               }}
                               style={{
@@ -1518,7 +1594,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 color: 'var(--color-warning-dark)',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                cursor: 'pointer',
+                                cursor: (approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId) ? 'not-allowed' : 'pointer',
+                                opacity: (approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId) ? 0.6 : 1,
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
@@ -1529,9 +1606,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                             </button>
 
                             <button
-                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending}
+                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
+                              title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
                               onClick={() => {
                                 setRejectCheckType(key);
+                                setRejectCheckId(targetCheckId || null);
                                 setIsRejectDialogOpen(true);
                               }}
                               style={{
@@ -1542,7 +1621,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 color: 'var(--color-error-dark)',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                cursor: 'pointer',
+                                cursor: (approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId) ? 'not-allowed' : 'pointer',
+                                opacity: (approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId) ? 0.6 : 1,
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
@@ -1553,8 +1633,16 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                             </button>
 
                             <button
-                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || check.status === 'APPROVED'}
-                              onClick={() => approveCheckMutation.mutate({ checkType: key, notes: 'Verified and approved by Verification Executive' })}
+                              disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || check.status === 'APPROVED' || !hasValidCheckId}
+                              title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
+                              onClick={() => {
+                                if (targetCheckId) {
+                                  setApproveCheckId(targetCheckId);
+                                  setApproveCheckType(key);
+                                  setApproveCheckTitle(label);
+                                  setIsApproveDialogOpen(true);
+                                }
+                              }}
                               style={{
                                 padding: '4px 12px',
                                 borderRadius: 'var(--radius-sm)',
@@ -1563,7 +1651,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 color: check.status === 'APPROVED' ? 'var(--color-status-success-text)' : '#ffffff',
                                 fontSize: '11px',
                                 fontWeight: 600,
-                                cursor: check.status === 'APPROVED' ? 'default' : 'pointer',
+                                cursor: (check.status === 'APPROVED' || !hasValidCheckId) ? 'default' : 'pointer',
+                                opacity: !hasValidCheckId ? 0.6 : 1,
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
@@ -1573,7 +1662,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                               <span>{check.status === 'APPROVED' ? 'Check Approved' : 'Approve Check'}</span>
                             </button>
                           </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>
@@ -1614,26 +1704,166 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                         gap: '6px',
                       }}
                     >
-                      <span>Proceed to Step 4: Final Decision</span>
+                      <span>Proceed to Step 4: Verification Summary</span>
                       <ArrowRight size={14} />
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 4: FINAL VERIFICATION DECISION */}
+              {/* STEP 4: AUTHORITATIVE VERIFICATION SUMMARY */}
               {currentStep === 4 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                   <div style={{ borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
                     <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
-                      Step 4: Final Verification Decision & Authority Gate
+                      Step 4: Authoritative Verification Summary
                     </h3>
                     <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, marginTop: '2px' }}>
-                      Enforce verification prerequisite criteria before committing the authoritative decision to the server.
+                      Authoritative overall verification outcome established by the backend from individual check evaluations.
                     </p>
                   </div>
 
-                  {/* Prerequisites Checklist Card */}
+                  {/* Missing / Error State for Authoritative Level */}
+                  {(isDossierError || !authoritativeLevel) ? (
+                    <div
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor: 'var(--color-status-danger-bg)',
+                        border: '1px solid var(--color-status-danger-text)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: 'var(--color-status-danger-text)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
+                        <AlertTriangle size={18} />
+                        <span>Authoritative Verification Level Unavailable</span>
+                      </div>
+                      <p style={{ margin: 0, lineHeight: 1.5 }}>
+                        Unable to load the authoritative verification level from backend endpoint{' '}
+                        <code>GET /api/v1/admin/workers/{workerId}/verification</code>.
+                        {dossierError ? ` Error: ${(dossierError as Error).message || 'Server returned an error'}.` : ''}
+                      </p>
+                      <p style={{ margin: 0, lineHeight: 1.5 }}>
+                        The frontend displays only confirmed backend verification status and does not infer approval or compute final verification decisions from individual checks.
+                      </p>
+                      <div>
+                        <button
+                          onClick={() => refetchDossier()}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: '#ffffff',
+                            border: '1px solid var(--color-status-danger-text)',
+                            color: 'var(--color-status-danger-text)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            marginTop: 'var(--space-1)',
+                          }}
+                        >
+                          <RefreshCw size={12} />
+                          <span>Retry Fetching Authoritative Level</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Authoritative Status Card */
+                    <div
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor:
+                          ['VERIFIED', 'APPROVED', 'LEVEL_3', 'LEVEL_2'].includes(authoritativeLevel.toUpperCase())
+                            ? 'var(--color-status-success-bg)'
+                            : authoritativeLevel.toUpperCase() === 'REJECTED'
+                            ? 'var(--color-status-danger-bg)'
+                            : 'var(--color-status-warning-bg)',
+                        border:
+                          ['VERIFIED', 'APPROVED', 'LEVEL_3', 'LEVEL_2'].includes(authoritativeLevel.toUpperCase())
+                            ? '1px solid var(--color-status-success-text)'
+                            : authoritativeLevel.toUpperCase() === 'REJECTED'
+                            ? '1px solid var(--color-status-danger-text)'
+                            : '1px solid var(--color-status-warning-text)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                          {['VERIFIED', 'APPROVED', 'LEVEL_3', 'LEVEL_2'].includes(authoritativeLevel.toUpperCase()) ? (
+                            <CheckCircle2 size={20} color="var(--color-status-success-text)" />
+                          ) : authoritativeLevel.toUpperCase() === 'REJECTED' ? (
+                            <XCircle size={20} color="var(--color-status-danger-text)" />
+                          ) : (
+                            <Clock size={20} color="var(--color-status-warning-text)" />
+                          )}
+                          <div>
+                            <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px', opacity: 0.85 }}>
+                              Authoritative Overall Status
+                            </span>
+                            <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 800 }}>
+                              Level: {authoritativeLevel}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            padding: '4px 12px',
+                            borderRadius: 'var(--radius-full, 9999px)',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            letterSpacing: '0.3px',
+                            backgroundColor:
+                              ['VERIFIED', 'APPROVED', 'LEVEL_3', 'LEVEL_2'].includes(authoritativeLevel.toUpperCase())
+                                ? 'var(--color-status-success-text)'
+                                : authoritativeLevel.toUpperCase() === 'REJECTED'
+                                ? 'var(--color-status-danger-text)'
+                                : 'var(--color-status-warning-text)',
+                            color: '#ffffff',
+                          }}
+                        >
+                          {authoritativeLevel.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <p style={{ margin: '8px 0 0 0', lineHeight: 1.5 }}>
+                        {['VERIFIED', 'APPROVED', 'LEVEL_3', 'LEVEL_2'].includes(authoritativeLevel.toUpperCase())
+                          ? 'Worker application satisfies authoritative verification requirements according to backend level evaluation.'
+                          : authoritativeLevel.toUpperCase() === 'REJECTED'
+                          ? 'Worker verification is marked as REJECTED by backend records.'
+                          : 'Worker verification is currently in progress or pending completion of all individual checks.'}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Backend Contract Notice */}
+                  <div
+                    style={{
+                      padding: 'var(--space-3) var(--space-4)',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border-subtle)',
+                      fontSize: '11px',
+                      color: 'var(--color-text-secondary)',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: 'var(--color-navy)', marginBottom: '2px' }}>
+                      Backend Contract Architecture:
+                    </div>
+                    There is no worker-level final-decision endpoint. The overall verification status is maintained
+                    authoritatively by the backend through individual check evaluations. Worker-level final decision mutations
+                    are not exposed.
+                  </div>
+
+                  {/* Prerequisite Compliance Checklist Card */}
                   <div
                     style={{
                       padding: 'var(--space-4)',
@@ -1645,208 +1875,42 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       gap: 'var(--space-2)',
                     }}
                   >
-                    <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
-                      Prerequisite Compliance Checklist
-                    </h4>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, margin: 0, color: 'var(--color-text-primary)' }}>
+                        Individual Verification Checks Breakdown
+                      </h4>
+                      <span style={{ fontSize: '11px', fontWeight: 600, color: hasRejectedCheck ? 'var(--color-status-danger-text)' : 'var(--color-text-secondary)' }}>
+                        {approvedOpsCount + (otpPassed ? 1 : 0)} of 6 Checks Approved{hasRejectedCheck ? ' • Findings Recorded' : ''}
+                      </span>
+                    </div>
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)', fontSize: '11px', marginTop: 'var(--space-1)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                         {otpPassed ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <XCircle size={14} color="var(--color-status-danger-text)" />}
-                        <span>1. Mobile OTP Pre-Check (Automated)</span>
+                        <span>1. Mobile OTP Pre-Check ({otpPassed ? 'Passed' : 'Failed'})</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {idApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
-                        <span>2. Identity Proof Check</span>
+                        {idApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : checksRecord.IDENTITY?.status === 'REJECTED' ? <XCircle size={14} color="var(--color-status-danger-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
+                        <span>2. Identity Proof ({checksRecord.IDENTITY?.status || 'PENDING'})</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {addressApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
-                        <span>3. Residential Address Proof Check</span>
+                        {addressApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : checksRecord.ADDRESS?.status === 'REJECTED' ? <XCircle size={14} color="var(--color-status-danger-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
+                        <span>3. Residential Address Proof ({checksRecord.ADDRESS?.status || 'PENDING'})</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {emergencyApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
-                        <span>4. Emergency Contact Vetting Check</span>
+                        {emergencyApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : checksRecord.EMERGENCY_CONTACT?.status === 'REJECTED' ? <XCircle size={14} color="var(--color-status-danger-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
+                        <span>4. Emergency Contact Vetting ({checksRecord.EMERGENCY_CONTACT?.status || 'PENDING'})</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {referenceApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
-                        <span>5. Prior Employer Reference Check</span>
+                        {referenceApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : checksRecord.REFERENCE?.status === 'REJECTED' ? <XCircle size={14} color="var(--color-status-danger-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
+                        <span>5. Prior Employer Reference ({checksRecord.REFERENCE?.status || 'PENDING'})</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        {policeApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
-                        <span>6. Police Clearance Certificate Check</span>
+                        {policeApproved ? <CheckCircle2 size={14} color="var(--color-status-success-text)" /> : checksRecord.POLICE_CLEARANCE?.status === 'REJECTED' ? <XCircle size={14} color="var(--color-status-danger-text)" /> : <Clock size={14} color="var(--color-status-warning-text)" />}
+                        <span>6. Police Clearance Certificate ({checksRecord.POLICE_CLEARANCE?.status || 'PENDING'})</span>
                       </div>
                     </div>
                   </div>
-
-                  {/* Decision State Analysis Banner */}
-                  {allMandatoryChecksApproved ? (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-status-success-bg)',
-                        border: '1px solid var(--color-status-success-text)',
-                        borderRadius: 'var(--radius-md)',
-                        fontSize: 'var(--font-size-xs)',
-                        color: 'var(--color-status-success-text)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
-                        <CheckCircle2 size={18} />
-                        <span>All 6 Verification Checks Approved & Verified</span>
-                      </div>
-                      <p style={{ margin: '4px 0 0 0', lineHeight: 1.5 }}>
-                        The candidate satisfies all mandatory SevaNest trust requirements. You are authorized to submit the final decision to mark this worker as <strong>VERIFIED</strong>.
-                      </p>
-                    </div>
-                  ) : hasRejectedCheck ? (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-status-danger-bg)',
-                        border: '1px solid var(--color-status-danger-text)',
-                        borderRadius: 'var(--radius-md)',
-                        fontSize: 'var(--font-size-xs)',
-                        color: 'var(--color-status-danger-text)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
-                        <XCircle size={18} />
-                        <span>Rejection Findings Recorded</span>
-                      </div>
-                      <p style={{ margin: '4px 0 0 0', lineHeight: 1.5 }}>
-                        One or more checks have been rejected by the verification executive. You can confirm final rejection or issue a correction notice prompting the candidate to re-upload rectifications.
-                      </p>
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-status-warning-bg)',
-                        border: '1px solid var(--color-status-warning-text)',
-                        borderRadius: 'var(--radius-md)',
-                        fontSize: 'var(--font-size-xs)',
-                        color: 'var(--color-status-warning-text)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700, fontSize: 'var(--font-size-sm)' }}>
-                        <AlertTriangle size={18} />
-                        <span>Final Verification Decision Locked</span>
-                      </div>
-                      <p style={{ margin: '4px 0 0 0', lineHeight: 1.5 }}>
-                        Final approval cannot be submitted until every check in Step 3 is completed. Remaining incomplete checks: {operationalChecksList.filter((c) => !c.approved).map((c) => c.label).join(', ')}.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Submission Controls */}
-                  {canDecide && (
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        borderRadius: 'var(--radius-lg)',
-                        border: '1px solid var(--color-border-subtle)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 'var(--space-3)',
-                      }}
-                    >
-                      <div>
-                        <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                          Authoritative Executive Remarks & Compliance Rationale:
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={finalDecisionRemarks}
-                          onChange={(e) => setFinalDecisionRemarks(e.target.value)}
-                          placeholder="Record final verification notes for audit logging (e.g., Identity, address, and criminal record clear. Ready for operational activation)..."
-                          style={{
-                            width: '100%',
-                            padding: 'var(--space-2)',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-border)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontFamily: 'inherit',
-                          }}
-                        />
-                      </div>
-
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                        {hasRejectedCheck && (
-                          <>
-                            <button
-                              disabled={finalDecisionMutation.isPending}
-                              onClick={() =>
-                                finalDecisionMutation.mutate({
-                                  decision: 'CORRECTIONS_REQUESTED',
-                                  remarks: finalDecisionRemarks || 'Candidate correction requested for failed checks.',
-                                })
-                              }
-                              style={{
-                                padding: '8px 14px',
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid var(--color-warning-dark)',
-                                backgroundColor: 'var(--color-warning-bg)',
-                                color: 'var(--color-warning-dark)',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Issue Corrections Request
-                            </button>
-                            <button
-                              disabled={finalDecisionMutation.isPending}
-                              onClick={() =>
-                                finalDecisionMutation.mutate({
-                                  decision: 'REJECTED',
-                                  remarks: finalDecisionRemarks || 'Application rejected due to failed verification checks.',
-                                })
-                              }
-                              style={{
-                                padding: '8px 16px',
-                                borderRadius: 'var(--radius-md)',
-                                border: '1px solid var(--color-error-dark)',
-                                backgroundColor: 'var(--color-error-bg)',
-                                color: 'var(--color-error-dark)',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Confirm Final Rejection
-                            </button>
-                          </>
-                        )}
-
-                        <button
-                          disabled={!allMandatoryChecksApproved || finalDecisionMutation.isPending}
-                          onClick={() =>
-                            finalDecisionMutation.mutate({
-                              decision: 'APPROVED',
-                              remarks: finalDecisionRemarks || 'All 6 checks verified and approved by Verification Executive.',
-                            })
-                          }
-                          style={{
-                            padding: '8px 20px',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: allMandatoryChecksApproved ? 'var(--color-brand-600)' : 'var(--color-border)',
-                            color: '#ffffff',
-                            border: 'none',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 700,
-                            cursor: allMandatoryChecksApproved ? 'pointer' : 'not-allowed',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                          }}
-                        >
-                          <ShieldCheck size={16} />
-                          <span>
-                            {finalDecisionMutation.isPending ? 'Submitting Decision...' : 'Submit Final Verification Approval (VERIFIED)'}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Stepper Navigation Footer */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 'var(--space-2)' }}>
@@ -1884,58 +1948,49 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                         gap: '6px',
                       }}
                     >
-                      <span>Proceed to Step 5: Activation & Eligibility</span>
+                      <span>Proceed to Step 5: Platform Status</span>
                       <ArrowRight size={14} />
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* STEP 5: WORKER ACTIVATION AND ELIGIBILITY STATUS */}
+              {/* STEP 5: WORKER PLATFORM & ROSTER STATUS */}
               {currentStep === 5 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
                   <div style={{ borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
                     <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
-                      Step 5: Worker Activation & Matching Eligibility Handoff
+                      Step 5: Platform & Roster Status
                     </h3>
                     <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, marginTop: '2px' }}>
-                      Understand cross-role handoff between Verification Executive and Operations Admin.
+                      Read-only operational status and platform roster state.
                     </p>
                   </div>
 
-                  {/* Role Separation Notice */}
+                  {/* Activation Notice Banner */}
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr',
-                      gap: 'var(--space-3)',
                       padding: 'var(--space-4)',
                       backgroundColor: 'var(--color-bg-subtle)',
                       borderRadius: 'var(--radius-lg)',
                       border: '1px solid var(--color-border-subtle)',
-                      fontSize: 'var(--font-size-xs)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--space-2)',
                     }}
                   >
-                    <div>
-                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-brand-700)', fontWeight: 700, display: 'block' }}>
-                        Verification Executive Role Responsibility
-                      </span>
-                      <p style={{ margin: '4px 0 0 0', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
-                        Vets applicant identity, address proof, telephonic references, and criminal records. Issues the <strong>VERIFIED</strong> outcome upon satisfying all 6 checks. Does <em>not</em> activate accounts or assign commercial bookings.
-                      </p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700, fontSize: 'var(--font-size-xs)', color: 'var(--color-navy)' }}>
+                      <AlertCircle size={16} />
+                      <span>Activation Flow Notice (Unconfirmed Backend Contract)</span>
                     </div>
-
-                    <div>
-                      <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-navy)', fontWeight: 700, display: 'block' }}>
-                        Operations Admin Role Responsibility
-                      </span>
-                      <p style={{ margin: '4px 0 0 0', color: 'var(--color-text-secondary)', lineHeight: 1.4 }}>
-                        Manages workforce capacity, service category qualifications, and account status mutations. Activates verified workers to <strong>ACTIVE</strong> on the commercial roster.
-                      </p>
-                    </div>
+                    <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                      Worker activation and deactivation endpoints are not confirmed by the backend contract.
+                      Verification does not automatically activate a worker account onto the commercial roster.
+                      Worker activation controls have been removed until backend endpoints and events are formally exposed.
+                    </p>
                   </div>
 
-                  {/* Operational Status & Action Box */}
+                  {/* Operational Status Box */}
                   <div
                     style={{
                       padding: 'var(--space-4)',
@@ -1970,65 +2025,32 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       </span>
                     </div>
 
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-1)' }}>
+                      <div style={{ padding: 'var(--space-3)', backgroundColor: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-secondary)', fontWeight: 700, display: 'block' }}>
+                          Account Roster Status
+                        </span>
+                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {worker.status}
+                        </span>
+                      </div>
+                      <div style={{ padding: 'var(--space-3)', backgroundColor: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
+                        <span style={{ fontSize: '10px', textTransform: 'uppercase', color: 'var(--color-text-secondary)', fontWeight: 700, display: 'block' }}>
+                          Authoritative Verification Level
+                        </span>
+                        <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {authoritativeLevel || 'UNVERIFIED'}
+                        </span>
+                      </div>
+                    </div>
+
                     <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
                       {isMatchingEligible
-                        ? 'Worker is fully verified and actively enabled on the household matching engine. Operations Admins may assign this worker to domestic booking requests and trials.'
+                        ? 'Worker is fully verified and actively enabled on the household matching engine.'
                         : worker.isFullyVerified
-                        ? 'Worker has completed verification checks, but account activation is pending. Operations Admin must activate the worker account before matching eligibility is unlocked.'
-                        : 'Worker cannot be activated or matched until all mandatory verification checks are completed in Steps 1 through 4.'}
+                        ? 'Worker has completed verification checks, but account activation is not available via confirmed backend contract. Matching eligibility remains locked.'
+                        : 'Worker cannot be matched until mandatory verification checks are satisfied and confirmed by the backend.'}
                     </p>
-
-                    {/* Operations Admin Action Control */}
-                    {canManageStatus ? (
-                      <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-3)', display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)' }}>
-                        {worker.status !== 'ACTIVE' && worker.isFullyVerified && (
-                          <button
-                            disabled={activateWorkerMutation.isPending}
-                            onClick={() => activateWorkerMutation.mutate('Activated onto commercial roster by Operations Admin')}
-                            style={{
-                              padding: '8px 16px',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--color-brand-600)',
-                              color: '#ffffff',
-                              border: 'none',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 700,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                            }}
-                          >
-                            <UserCheck size={16} />
-                            <span>{activateWorkerMutation.isPending ? 'Activating...' : 'Activate Worker Account (Operations Admin)'}</span>
-                          </button>
-                        )}
-                        {worker.status === 'ACTIVE' && (
-                          <button
-                            onClick={() => {
-                              setTargetStatus('SUSPENDED');
-                              setIsDisciplineOpen(true);
-                            }}
-                            style={{
-                              padding: '6px 14px',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--color-status-warning-bg)',
-                              color: 'var(--color-status-warning-text)',
-                              border: '1px solid var(--color-status-warning-text)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                            }}
-                          >
-                            Suspend Worker Account
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <div style={{ borderTop: '1px solid var(--color-border-subtle)', paddingTop: 'var(--space-2)', fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                        (Worker account activation is reserved for Operations Admins. Verification Executives are not granted workers.manage_status permissions.)
-                      </div>
-                    )}
                   </div>
 
                   {/* Stepper Navigation Footer */}
@@ -2049,7 +2071,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       }}
                     >
                       <ChevronLeft size={14} />
-                      <span>Back to Step 4: Final Decision</span>
+                      <span>Back to Step 4: Verification Summary</span>
                     </button>
                   </div>
                 </div>
@@ -2573,13 +2595,16 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         requireRemarks={true}
         remarksPlaceholder="Enter mandatory operational remarks (e.g., Image is blurred, name mismatch with registration records)..."
         isLoading={rejectCheckMutation.isPending}
-        onConfirm={(remarks) =>
-          rejectCheckMutation.mutate({
-            checkType: rejectCheckType,
-            category: rejectCategory,
-            remarks: remarks || rejectRemarks || 'Verification check rejected by executive.',
-          })
-        }
+        onConfirm={(remarks) => {
+          if (rejectCheckId) {
+            rejectCheckMutation.mutate({
+              checkId: rejectCheckId,
+              checkType: rejectCheckType,
+              category: rejectCategory,
+              remarks: remarks || rejectRemarks || 'Verification check rejected by executive.',
+            });
+          }
+        }}
         onCancel={() => setIsRejectDialogOpen(false)}
       >
         <div style={{ marginBottom: 'var(--space-3)' }}>
@@ -2616,13 +2641,38 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         requireRemarks={true}
         remarksPlaceholder="Enter specific mandatory instructions (e.g., Please upload updated electricity bill or valid PCC certificate)..."
         isLoading={recheckMutation.isPending}
-        onConfirm={(instructions) =>
-          recheckMutation.mutate({
-            checkTypes: [recheckCheckType],
-            instructions: instructions || recheckInstructions || 'Periodic compliance re-verification requested.',
-          })
-        }
+        onConfirm={(instructions) => {
+          if (recheckCheckId) {
+            recheckMutation.mutate({
+              checkId: recheckCheckId,
+              checkTypes: [recheckCheckType],
+              instructions: instructions || recheckInstructions || 'Periodic compliance re-verification requested.',
+            });
+          }
+        }}
         onCancel={() => setIsRecheckModalOpen(false)}
+      />
+
+      {/* Approve Check Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isApproveDialogOpen}
+        title={`Approve ${approveCheckTitle}`}
+        description={`Confirm approval for ${approveCheckTitle} for ${worker?.name || 'the worker'}. Approving this check validates the operational evidence. Once all required checks are approved, the worker's authoritative verification level transitions to VERIFIED.`}
+        confirmLabel="Confirm Approval"
+        isLoading={approveCheckMutation.isPending}
+        requireRemarks={false}
+        remarksPlaceholder="Optional verification approval notes..."
+        onConfirm={(remarks) => {
+          if (approveCheckId) {
+            approveCheckMutation.mutate({
+              checkId: approveCheckId,
+              checkType: approveCheckType,
+              notes: remarks || 'Verified and approved by Verification Executive',
+            });
+            setIsApproveDialogOpen(false);
+          }
+        }}
+        onCancel={() => setIsApproveDialogOpen(false)}
       />
 
       {/* Disciplinary Confirmation Dialog */}

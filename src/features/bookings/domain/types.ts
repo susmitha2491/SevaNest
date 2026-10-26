@@ -103,10 +103,24 @@ export interface PaginatedBookings {
   totalPages: number;
 }
 
+export interface MatchRequirement {
+  category: string;
+  areaId: string;
+  engagement: 'FULL_TIME' | 'PART_TIME' | 'LIVE_IN' | 'DAILY' | 'HOURLY' | 'SHIFT' | 'ONE_TIME';
+  availableFrom: string;
+  availableTo: string;
+  startDate?: string;
+  language?: string;
+  minExperienceMonths?: number;
+  page?: number;
+  limit?: number;
+}
+
 export interface IBookingRepository {
   getBookings(filter?: BookingFilterCriteria): Promise<PaginatedBookings>;
   getBookingById(id: string): Promise<BookingDetail | null>;
   getCandidateSuggestions(bookingId: string): Promise<CandidateMatch[]>;
+  matchCandidates?(requirement: MatchRequirement): Promise<CandidateMatch[]>;
   scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void>;
   recordTrialOutcome(bookingId: string, outcome: TrialOutcome): Promise<void>;
   confirmBooking(bookingId: string): Promise<void>;

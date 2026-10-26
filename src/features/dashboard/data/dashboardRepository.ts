@@ -228,7 +228,7 @@ export class MockDashboardRepository implements IDashboardRepository {
       kpis: {
         openUnassignedGrievances: 11,
         myActiveCases: 4,
-        slaAtRiskCount: 3,
+        slaAtRiskCount: null,
         slaBreachedCount: 1,
         resolvedTodayCount: 19,
       },
@@ -962,74 +962,249 @@ export class RealDashboardRepository implements IDashboardRepository {
     kpis: SupportExecutiveKPIs;
     queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
   }> {
-    try {
-      const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
-      const root = res.data;
-      if (!root || typeof root !== 'object') {
-        throw new ServerFailureError('Invalid response received from dashboard API.');
+    const parseSupportQueueList = (list: unknown, tabName: string): SupportDashboardQueueItem[] => {
+      if (!list) return [];
+      if (!Array.isArray(list)) {
+        throw new ServerFailureError(`Dashboard contract violation: support queue "${tabName}" must be an array.`);
       }
-
-      const raw = (root.data && typeof root.data === 'object' && !Array.isArray(root.data))
-        ? (root.data as Record<string, unknown>)
-        : root;
-
-      const kpisRecord = (raw.kpis && typeof raw.kpis === 'object' && !Array.isArray(raw.kpis))
-        ? (raw.kpis as Record<string, unknown>)
-        : raw;
-
-      const openUnassignedGrievances = parseRequiredMetric(
-        kpisRecord.openUnassignedGrievances ?? kpisRecord.unassignedTickets ?? kpisRecord.openTickets ?? raw.openUnassignedGrievances ?? raw.unassignedTickets ?? raw.openTickets,
-        'openUnassignedGrievances'
-      );
-      const myActiveCases = parseRequiredMetric(
-        kpisRecord.myActiveCases ?? kpisRecord.assignedTickets ?? raw.myActiveCases ?? raw.assignedTickets,
-        'myActiveCases'
-      );
-      const slaAtRiskCount = parseRequiredMetric(
-        kpisRecord.slaAtRiskCount ?? kpisRecord.atRiskTickets ?? raw.slaAtRiskCount ?? raw.atRiskTickets,
-        'slaAtRiskCount'
-      );
-      const slaBreachedCount = parseRequiredMetric(
-        kpisRecord.slaBreachedCount ?? kpisRecord.breachedTickets ?? raw.slaBreachedCount ?? raw.breachedTickets,
-        'slaBreachedCount'
-      );
-      const resolvedTodayCount = parseRequiredMetric(
-        kpisRecord.resolvedTodayCount ?? kpisRecord.resolvedTickets ?? raw.resolvedTodayCount ?? raw.resolvedTickets,
-        'resolvedTodayCount'
-      );
-
-      if (!('queues' in raw) || !raw.queues || typeof raw.queues !== 'object') {
-        throw new ServerFailureError('Dashboard contract violation: missing or malformed support queues.');
-      }
-
-      const rawQueues = raw.queues as Record<string, unknown>;
-
-      const parseSupportQueueList = (list: unknown, tabName: string): SupportDashboardQueueItem[] => {
-        if (!list) return [];
-        if (!Array.isArray(list)) {
-          throw new ServerFailureError(`Dashboard contract violation: support queue "${tabName}" must be an array.`);
+      return list.map((item, index) => {
+        if (!item || typeof item !== 'object') {
+          throw new ServerFailureError(`Dashboard contract violation: malformed support item in "${tabName}" at index ${index}.`);
         }
-        return list.map((item, index) => {
-          if (!item || typeof item !== 'object') {
-            throw new ServerFailureError(`Dashboard contract violation: malformed support item in "${tabName}" at index ${index}.`);
-          }
-          const q = item as Record<string, unknown>;
-          if (!q.id || !q.ticketId || !q.complainantName || !q.roleType || !q.category || !q.disputeCategory || !q.slaIndicator || !q.status || !q.actionLabel) {
-            throw new ServerFailureError(`Dashboard contract violation: support item in "${tabName}" at index ${index} missing required fields.`);
-          }
-          return {
-            id: String(q.id),
-            ticketId: String(q.ticketId),
-            complainantName: String(q.complainantName),
-            roleType: (q.roleType as 'CUSTOMER' | 'WORKER') || 'CUSTOMER',
-            category: String(q.category),
-            disputeCategory: String(q.disputeCategory),
-            slaIndicator: (q.slaIndicator as 'NORMAL' | 'AT_RISK' | 'BREACHED') || 'NORMAL',
-            status: String(q.status),
-            actionLabel: String(q.actionLabel),
-          };
-        });
+        const q = item as Record<string, unknown>;
+        if (!q.id || !q.ticketId || !q.complainantName || !q.roleType || !q.category || !q.disputeCategory || !q.slaIndicator || !q.status || !q.actionLabel) {
+          throw new ServerFailureError(`Dashboard contract violation: support item in "${tabName}" at index ${index} missing required fields.`);
+        }
+        return {
+          id: String(q.id),
+          ticketId: String(q.ticketId),
+          complainantName: String(q.complainantName),
+          roleType: (q.roleType as 'CUSTOMER' | 'WORKER') || 'CUSTOMER',
+          category: String(q.category),
+          disputeCategory: String(q.disputeCategory),
+          slaIndicator: (q.slaIndicator as 'NORMAL' | 'AT_RISK' | 'BREACHED') || 'NORMAL',
+          status: String(q.status),
+          actionLabel: String(q.actionLabel),
+        };
+      });
+    };
+
+    const mapTicketToQueueItem = (raw: Record<string, unknown>, defaultAction: string): SupportDashboardQueueItem => {
+      const creator = raw.creator as Record<string, unknown> | undefined;
+      const complainantName = String(
+        raw.complainantName ||
+        creator?.fullName ||
+        (raw.creatorKind === 'CUSTOMER' ? 'Customer' : 'Worker') ||
+        'User'
+      );
+      const isBreached = Boolean(raw.slaBreachedAt) || raw.slaStatus === 'BREACHED';
+      const isAtRisk = raw.slaStatus === 'AT_RISK';
+      const slaIndicator = isBreached ? 'BREACHED' : isAtRisk ? 'AT_RISK' : 'NORMAL';
+
+      return {
+        id: String(raw.id || raw.ticketId || ''),
+        ticketId: String(raw.ticketId || raw.id || ''),
+        complainantName,
+        roleType: (raw.creatorKind as 'CUSTOMER' | 'WORKER') || (raw.complainantType as 'CUSTOMER' | 'WORKER') || 'CUSTOMER',
+        category: (raw.category && typeof raw.category === 'object')
+          ? String((raw.category as Record<string, unknown>).name || (raw.category as Record<string, unknown>).code || 'Support')
+          : String(raw.category || 'Support'),
+        disputeCategory: String(raw.subject || raw.disputeCategory || 'Support Ticket'),
+        slaIndicator,
+        status: String(raw.status || 'OPEN'),
+        actionLabel: defaultAction,
       };
+    };
+
+    try {
+      // 1. First attempt to read from unified /admin/dashboard
+      let complaintsSection: Record<string, unknown> | undefined;
+      let rawQueues: Record<string, unknown> | undefined;
+
+      try {
+        const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
+        const root = res.data;
+        if (root && typeof root === 'object') {
+          const raw = (root.data && typeof root.data === 'object' && !Array.isArray(root.data))
+            ? (root.data as Record<string, unknown>)
+            : root;
+
+          const kpisRecord = (raw.kpis && typeof raw.kpis === 'object' && !Array.isArray(raw.kpis))
+            ? (raw.kpis as Record<string, unknown>)
+            : undefined;
+
+          // If payload explicitly contains dedicated support KPI structure
+          if (
+            kpisRecord ||
+            ('openUnassignedGrievances' in raw) ||
+            ('unassignedTickets' in raw) ||
+            ('openTickets' in raw)
+          ) {
+            const metricsSource = kpisRecord || raw;
+            const openUnassignedGrievances = parseRequiredMetric(
+              metricsSource.openUnassignedGrievances ?? metricsSource.unassignedTickets ?? metricsSource.openTickets,
+              'openUnassignedGrievances'
+            );
+            const myActiveCases = parseRequiredMetric(
+              metricsSource.myActiveCases ?? metricsSource.assignedTickets,
+              'myActiveCases'
+            );
+            const slaAtRiskCount = metricsSource.slaAtRiskCount !== undefined
+              ? parseOptionalMetric(metricsSource.slaAtRiskCount, 'slaAtRiskCount')
+              : null;
+            const slaBreachedCount = parseRequiredMetric(
+              metricsSource.slaBreachedCount ?? metricsSource.breachedTickets,
+              'slaBreachedCount'
+            );
+            const resolvedTodayCount = parseRequiredMetric(
+              metricsSource.resolvedTodayCount ?? metricsSource.resolvedTickets,
+              'resolvedTodayCount'
+            );
+
+            if (!('queues' in raw) || !raw.queues || typeof raw.queues !== 'object') {
+              throw new ServerFailureError('Dashboard contract violation: missing or malformed support queues.');
+            }
+
+            const rawQueues = raw.queues as Record<string, unknown>;
+
+            return {
+              kpis: {
+                openUnassignedGrievances,
+                myActiveCases,
+                slaAtRiskCount,
+                slaBreachedCount,
+                resolvedTodayCount,
+              },
+              queues: {
+                AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
+                UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
+                MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
+                ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+              },
+            };
+          }
+
+          // Check if unified dashboard has sections.complaints
+          if (raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections)) {
+            const sections = raw.sections as Record<string, unknown>;
+            if (sections.complaints && typeof sections.complaints === 'object') {
+              complaintsSection = sections.complaints as Record<string, unknown>;
+            }
+          }
+
+          if (raw.queues && typeof raw.queues === 'object') {
+            rawQueues = raw.queues as Record<string, unknown>;
+          }
+        }
+      } catch (err: unknown) {
+        if (err instanceof ServerFailureError) {
+          throw err;
+        }
+        // Fall back gracefully to support tickets API
+      }
+
+      // If complaints section is present from /admin/dashboard
+      if (complaintsSection) {
+        const openUnassignedGrievances = parseOptionalMetric(
+          complaintsSection.unassigned ?? complaintsSection.open,
+          'complaints.open'
+        );
+        const myActiveCases = parseOptionalMetric(
+          complaintsSection.inProgress ?? complaintsSection.investigationPending,
+          'complaints.inProgress'
+        );
+        // SLA-at-risk threshold is not defined on backend; do not invent client-side thresholds.
+        // Return null so UI shows "—" rather than fabricated 0.
+        const slaAtRiskCount: number | null = null;
+        const slaBreachedCount = complaintsSection.escalated !== undefined
+          ? parseOptionalMetric(complaintsSection.escalated, 'complaints.escalated')
+          : null;
+        const resolvedTodayCount: number | null = null;
+
+        // Populate queues
+        let queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
+        if (rawQueues && ('AT_RISK' in rawQueues || 'UNASSIGNED' in rawQueues)) {
+          queues = {
+            AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
+            UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
+            MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
+            ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+          };
+        } else {
+          // Fetch authorized support tickets API for queue breakdown
+          const ticketsRes = await httpClient.get<{
+            success: boolean;
+            data: Record<string, unknown>[];
+          }>('/admin/support/tickets', { params: { limit: 50 } });
+          const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
+          const atRiskTickets = rawTickets.filter(
+            (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED'
+          );
+          const unassignedTickets = rawTickets.filter(
+            (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+          );
+          const myCasesTickets = rawTickets.filter(
+            (t) => (Boolean(t.assignedToUserId) || Boolean(t.assignedToStaffId) || Boolean(t.assigneeUserId)) && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+          );
+          const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED');
+
+          queues = {
+            AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
+            UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
+            MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
+            ESCALATED: escalatedTickets.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
+          };
+        }
+
+        return {
+          kpis: {
+            openUnassignedGrievances,
+            myActiveCases,
+            slaAtRiskCount,
+            slaBreachedCount,
+            resolvedTodayCount,
+          },
+          queues,
+        };
+      }
+
+      // 2. Derive accurately from authorized support tickets API: GET /admin/support/tickets
+      const ticketsRes = await httpClient.get<{
+        success: boolean;
+        data: Record<string, unknown>[];
+        meta?: { totalItems?: number };
+      }>('/admin/support/tickets', { params: { limit: 50 } });
+
+      const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
+
+      const atRiskTickets = rawTickets.filter(
+        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED'
+      );
+      const unassignedTickets = rawTickets.filter(
+        (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+      );
+      const myCasesTickets = rawTickets.filter(
+        (t) => (Boolean(t.assignedToUserId) || Boolean(t.assignedToStaffId) || Boolean(t.assigneeUserId)) && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+      );
+      const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED');
+
+      const openUnassignedGrievances = unassignedTickets.length;
+      const myActiveCases = myCasesTickets.length;
+      // Do not invent SLA-at-risk threshold; check if backend explicitly returns slaStatus === 'AT_RISK'
+      const hasExplicitAtRisk = rawTickets.some((t) => t.slaStatus === 'AT_RISK');
+      const slaAtRiskCount: number | null = hasExplicitAtRisk
+        ? rawTickets.filter((t) => t.slaStatus === 'AT_RISK').length
+        : null;
+      const slaBreachedCount = rawTickets.filter(
+        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED'
+      ).length;
+
+      const todayIso = new Date().toISOString().split('T')[0];
+      const resolvedToday = rawTickets.filter(
+        (t) => (t.status === 'CLOSED' || t.status === 'RESOLVED') && t.closedAt && String(t.closedAt).startsWith(todayIso)
+      ).length;
+      const hasClosedTickets = rawTickets.some((t) => t.status === 'CLOSED' || t.status === 'RESOLVED');
+      const resolvedTodayCount: number | null = hasClosedTickets ? resolvedToday : null;
 
       return {
         kpis: {
@@ -1040,10 +1215,10 @@ export class RealDashboardRepository implements IDashboardRepository {
           resolvedTodayCount,
         },
         queues: {
-          AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
-          UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
-          MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
-          ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+          AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
+          UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
+          MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
+          ESCALATED: escalatedTickets.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
         },
       };
     } catch (err) {

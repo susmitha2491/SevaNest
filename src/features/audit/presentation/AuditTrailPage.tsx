@@ -8,6 +8,7 @@ import { AuditDetailModal } from './AuditDetailModal';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { env } from '../../../core/config/env';
 
 export const AuditTrailPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
@@ -83,7 +84,7 @@ export const AuditTrailPage: React.FC = () => {
           }}
         >
           <Info size={16} />
-          <span>Strictly Read-Only — Simulated Immutability Log</span>
+          <span>{env.VITE_USE_MOCK_AUTH ? 'Strictly Read-Only — Simulated Immutability Log' : 'Strictly Read-Only — Immutable Platform Audit Trail'}</span>
         </div>
       </div>
 

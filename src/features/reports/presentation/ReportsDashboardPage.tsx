@@ -8,6 +8,7 @@ import { ReportPreviewModal } from './ReportPreviewModal';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { env } from '../../../core/config/env';
 
 export const ReportsDashboardPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
@@ -99,7 +100,7 @@ export const ReportsDashboardPage: React.FC = () => {
           }}
         >
           <Info size={16} />
-          <span>Simulated Reporting Engine — Sample Datasets</span>
+          <span>{env.VITE_USE_MOCK_AUTH ? 'Simulated Reporting Engine — Sample Datasets' : 'Business Intelligence & Reporting Catalogue'}</span>
         </div>
       </div>
 

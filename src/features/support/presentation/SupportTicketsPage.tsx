@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   Inbox,
   CheckCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -21,6 +22,7 @@ import { SupportTicketDetail } from '../domain/types';
 import { supportRepository } from '../data/supportRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TicketDetailModal } from './TicketDetailModal';
 
@@ -30,7 +32,7 @@ export const SupportTicketsPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
 
   // Filters & Search state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
   const [selectedPriority, setSelectedPriority] = useState('ALL');
   const [selectedComplainantRole, setSelectedComplainantRole] = useState('ALL');
@@ -40,6 +42,10 @@ export const SupportTicketsPage: React.FC = () => {
     const statusParam = searchParams.get('status');
     if (statusParam) {
       setSelectedStatus(statusParam);
+    }
+    const searchParam = searchParams.get('search');
+    if (searchParam !== null) {
+      setSearchTerm(searchParam);
     }
   }, [searchParams]);
 
@@ -68,37 +74,71 @@ export const SupportTicketsPage: React.FC = () => {
     enabled: canView,
   });
 
+  useEffect(() => {
+    const ticketIdParam = searchParams.get('ticketId');
+    if (ticketIdParam && supportData?.items && !isDetailOpen) {
+      const match = supportData.items.find((t) => t.id === ticketIdParam);
+      if (match) {
+        setSelectedTicket(match);
+        setIsDetailOpen(true);
+      }
+    }
+  }, [searchParams, supportData, isDetailOpen]);
+
+  const [staleError, setStaleError] = useState<string | null>(null);
+
   // Mutations
   const resolveMutation = useMutation({
-    mutationFn: async ({ ticketId, remarks }: { ticketId: string; remarks: string }) => {
-      await supportRepository.resolveTicket(ticketId, remarks);
+    mutationFn: async ({ ticketId, remarks, etag }: { ticketId: string; remarks: string; etag?: string }) => {
+      await supportRepository.resolveTicket(ticketId, remarks, etag);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
       setIsResolveOpen(false);
       setSelectedTicket(null);
+      setStaleError(null);
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
+        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry your action.');
+        queryClient.invalidateQueries({ queryKey: ['support'] });
+      }
     },
   });
 
   const escalateMutation = useMutation({
-    mutationFn: async ({ ticketId, rationale }: { ticketId: string; rationale: string }) => {
-      await supportRepository.escalateToOperations(ticketId, rationale);
+    mutationFn: async ({ ticketId, rationale, etag }: { ticketId: string; rationale: string; etag?: string }) => {
+      await supportRepository.escalateToOperations(ticketId, rationale, etag);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
       setIsEscalateOpen(false);
       setSelectedTicket(null);
+      setStaleError(null);
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
+        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry escalation.');
+        queryClient.invalidateQueries({ queryKey: ['support'] });
+      }
     },
   });
 
   const replacementHandoffMutation = useMutation({
-    mutationFn: async ({ ticketId, remarks }: { ticketId: string; remarks: string }) => {
-      await supportRepository.initiateReplacementHandoff(ticketId, remarks);
+    mutationFn: async ({ ticketId, remarks, etag }: { ticketId: string; remarks: string; etag?: string }) => {
+      await supportRepository.initiateReplacementHandoff(ticketId, remarks, etag);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
       setIsReplacementOpen(false);
       setSelectedTicket(null);
+      setStaleError(null);
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
+        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry replacement handoff.');
+        queryClient.invalidateQueries({ queryKey: ['support'] });
+      }
     },
   });
 
@@ -159,6 +199,44 @@ export const SupportTicketsPage: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Stale Concurrency Error Banner */}
+      {staleError && (
+        <div
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            backgroundColor: 'var(--color-warning-bg)',
+            border: '1px solid var(--color-warning-dark)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-warning-dark)',
+            fontSize: 'var(--font-size-sm)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 'var(--space-2)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <RefreshCw size={18} />
+            <span>{staleError}</span>
+          </div>
+          <button
+            onClick={() => setStaleError(null)}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--color-warning-dark)',
+              backgroundColor: 'transparent',
+              color: 'var(--color-warning-dark)',
+              fontSize: '11px',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Top SLA Indicator Metric Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
@@ -690,6 +768,7 @@ export const SupportTicketsPage: React.FC = () => {
             resolveMutation.mutate({
               ticketId: selectedTicket.id,
               remarks: remarks || 'Grievance resolved via support mediation.',
+              etag: selectedTicket.etag,
             });
           }
         }}
@@ -713,6 +792,7 @@ export const SupportTicketsPage: React.FC = () => {
             escalateMutation.mutate({
               ticketId: selectedTicket.id,
               rationale: remarks || 'Escalated to Operations for immediate arbitration.',
+              etag: selectedTicket.etag,
             });
           }
         }}
@@ -736,6 +816,7 @@ export const SupportTicketsPage: React.FC = () => {
             replacementHandoffMutation.mutate({
               ticketId: selectedTicket.id,
               remarks: remarks || 'Replacement handoff requested by customer support.',
+              etag: selectedTicket.etag,
             });
           }
         }}

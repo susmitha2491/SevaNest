@@ -51,7 +51,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'People',
     items: [
-      { name: 'Customers', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMERS_VIEW },
+      { name: 'Customers', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
       { name: 'Workers', path: '/workers', icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
     ],
   },
@@ -124,7 +124,7 @@ export const AppShell: React.FC = () => {
       console.warn('Logout notification error encountered, clearing client session regardless:', err);
     } finally {
       clearSession();
-      navigate('/auth/login', { replace: true });
+      navigate('/auth/login', { replace: true, state: null });
     }
   };
 

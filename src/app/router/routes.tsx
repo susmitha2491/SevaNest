@@ -173,7 +173,7 @@ export const routes: RouteObject[] = [
       {
         path: 'customers',
         element: (
-          <ProtectedRoute permission={PERMISSIONS.CUSTOMERS_VIEW}>
+          <ProtectedRoute permission={PERMISSIONS.CUSTOMER_VIEW}>
             <LazyRoute label="Loading customer directory...">
               <CustomersListPage />
             </LazyRoute>

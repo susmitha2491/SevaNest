@@ -178,7 +178,7 @@ describe('Role-Based Operational Dashboards', () => {
             PERMISSIONS.DASHBOARD_VIEW,
             PERMISSIONS.SUPPORT_VIEW,
             PERMISSIONS.SUPPORT_MANAGE,
-            PERMISSIONS.CUSTOMERS_REVEAL_PII,
+            PERMISSIONS.CUSTOMER_VIEW,
           ],
         },
         'supp-token'

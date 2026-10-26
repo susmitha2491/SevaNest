@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -35,7 +35,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders the sign-in form with all required inputs and simulated sandbox notice', async () => {
+  it('renders the sign-in form with all required inputs without gateway or sandbox banner', async () => {
     renderAuthFlow('/auth/login');
 
     expect(await screen.findByText('Staff Sign In', {}, { timeout: 4000 })).toBeInTheDocument();
@@ -43,9 +43,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     expect(screen.getByPlaceholderText('Enter password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Sign In to Operations Console/i })).toBeInTheDocument();
 
-    // Verify development sandbox notice is present
-    expect(screen.getByText(/Simulated Sandbox:/i)).toBeInTheDocument();
-    expect(screen.getByText(/In-memory mock authentication/i)).toBeInTheDocument();
+    // Verify gateway banner and development sandbox notice are absent
+    expect(screen.queryByText(/Backend API Gateway/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Simulated Sandbox/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/In-memory mock authentication/i)).not.toBeInTheDocument();
 
     // Verify persona preset buttons are absent
     expect(screen.queryByText('Quick Persona Testing Selectors:')).not.toBeInTheDocument();
@@ -302,21 +303,272 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     });
   });
 
-  it('redirects user back to target route after successful login', async () => {
-    const user = userEvent.setup();
-    const { router } = renderAuthFlow('/auth/login', { from: { pathname: '/bookings', search: '' } });
+  describe('Regression: Role-Based Default Dashboard After Sign-In', () => {
+    it('1. Super Admin signs in and lands on the Super Admin dashboard', async () => {
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
 
-    const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
-    await user.type(emailInput, 'ops.admin@sevanest.internal');
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'super.admin@sevanest.internal');
 
-    const passwordInput = screen.getByPlaceholderText('Enter password');
-    await user.type(passwordInput, 'password123');
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
 
-    const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
-    await user.click(submitBtn);
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
 
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/bookings');
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Super Admin Executive Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('2. Operations Admin signs in and lands on the Operations Admin dashboard', async () => {
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'ops.admin@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('3. Verification Executive signs in and lands on their authorized workstation/dashboard', async () => {
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'verif.exec@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification');
+      });
+
+      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
+    });
+
+    it('3b. Verification Executive with dashboard.view lands on Verification Executive dashboard (/dashboard)', async () => {
+      vi.spyOn(authRepository, 'login').mockResolvedValueOnce({
+        user: {
+          id: 'adm-003',
+          name: 'Verification Executive',
+          email: 'verif.exec@sevanest.internal',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.DASHBOARD_VIEW,
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+            PERMISSIONS.VERIFICATION_DECIDE,
+            PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+          ],
+        },
+        accessToken: 'token-ve-dash',
+        refreshToken: 'refresh-ve-dash',
+      });
+
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'verif.exec@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('4. Support Executive signs in and lands on the Support Executive dashboard (/dashboard)', async () => {
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'support.exec@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('5. A stale previous route such as /workers does not override the default dashboard after fresh sign-in', async () => {
+      const user = userEvent.setup();
+      // Simulate stale 'from' in location state pointing to /workers
+      const { router } = renderAuthFlow('/auth/login', { from: { pathname: '/workers', search: '' } });
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'ops.admin@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        // Must land on /dashboard, NOT on stale /workers
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('6. A stale returnTo or from value cannot redirect a fresh sign-in to another role page', async () => {
+      const user = userEvent.setup();
+      // Simulate stale returnTo or foreign role path /configuration
+      const { router } = renderAuthFlow('/auth/login?returnTo=/configuration', { from: { pathname: '/configuration' } });
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'support.exec@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        // Must open Support Executive dashboard (/dashboard), NOT /configuration
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
+    });
+
+    it('7. A valid authenticated session can still navigate to protected pages normally', async () => {
+      const user = userEvent.setup();
+      const { router } = renderAuthFlow('/auth/login');
+
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'ops.admin@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+
+      // Intentional navigation during active session to /workers
+      await act(async () => {
+        await router.navigate('/workers');
+      });
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/workers');
+      });
+
+      expect(await screen.findByRole('heading', { name: /Domestic Worker Roster & Profiles/i }, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('8. Signing out and signing in as another role does not retain the previous role route', async () => {
+      const user = userEvent.setup();
+
+      // Step 1: User A (Operations Admin) is active on /workers
+      useAuthStore.getState().setSession(
+        {
+          id: 'ops-01',
+          name: 'Operations Admin',
+          email: 'ops.admin@sevanest.internal',
+          role: 'OPERATIONS_ADMIN',
+          permissions: ['*'],
+        },
+        'token-ops'
+      );
+
+      const { router } = renderAuthFlow('/workers');
+      expect(await screen.findByRole('heading', { name: /Domestic Worker Roster & Profiles/i }, { timeout: 4000 })).toBeInTheDocument();
+
+      // Step 2: Sign out
+      act(() => {
+        useAuthStore.getState().clearSession();
+      });
+      await act(async () => {
+        await router.navigate('/auth/login', { replace: true, state: null });
+      });
+
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/auth/login');
+      });
+
+      // Step 3: User B (Verification Executive) signs in
+      const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
+      await user.type(emailInput, 'verif.exec@sevanest.internal');
+
+      const passwordInput = screen.getByPlaceholderText('Enter password');
+      await user.type(passwordInput, 'password123');
+
+      const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+      await user.click(submitBtn);
+
+      await waitFor(() => {
+        // User B must land on /verification, NOT retain User A's /workers
+        expect(router.state.location.pathname).toBe('/verification');
+      });
+
+      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+    });
+
+    it('9. Unauthorized dashboard destinations follow existing RBAC fallback behavior', async () => {
+      // User without dashboard.view attempting to access /dashboard
+      useAuthStore.getState().setSession(
+        {
+          id: 'adm-003',
+          name: 'Verification Executive',
+          email: 'verification.exec@sevanest.internal',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+          ],
+        },
+        'verif-token'
+      );
+
+      renderAuthFlow('/dashboard');
+
+      expect(await screen.findByRole('heading', { name: /Access Restricted/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Required permission: dashboard.view/i)).toBeInTheDocument();
+
+      const returnLink = screen.getByRole('link', { name: /Return to Primary Workstation/i });
+      expect(returnLink).toBeInTheDocument();
+      expect(returnLink).toHaveAttribute('href', '/verification');
     });
   });
 

@@ -67,9 +67,24 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
       case 404:
         return new NotFoundError(serverMessage || 'Resource not found.', correlationId);
       case 409:
-        return new ConcurrencyConflictError(serverMessage || 'Concurrent modification conflict.', correlationId);
+        if (payload?.code === 'CHECK_ALREADY_ASSIGNED') {
+          return new ConcurrencyConflictError(serverMessage || 'Check is already assigned to another reviewer.', correlationId, 409);
+        }
+        return new ConcurrencyConflictError(serverMessage || 'Concurrent modification conflict.', correlationId, 409);
+      case 412:
+        return new ConcurrencyConflictError(
+          serverMessage || 'STALE_VERSION: This record was modified by another user or session. Please reload the latest data and retry.',
+          correlationId,
+          412
+        );
       case 422:
         return new ValidationError(serverMessage || 'Validation rules violated.', fieldErrors, correlationId);
+      case 428:
+        return new ConcurrencyConflictError(
+          serverMessage || 'PRECONDITION_REQUIRED: Concurrency version precondition (ETag/If-Match) is required for this mutation.',
+          correlationId,
+          428
+        );
       case 429:
         return new RateLimitExceededError(serverMessage || 'Rate limit exceeded.', correlationId);
       case 500:

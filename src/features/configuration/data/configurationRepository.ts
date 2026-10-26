@@ -290,9 +290,8 @@ export class MockConfigurationRepository implements IConfigurationRepository {
       description: 'Candidate matching, replacement fulfillment, booking lifecycle management, and financial refunds.',
       permissions: [
         PERMISSIONS.DASHBOARD_VIEW,
-        PERMISSIONS.CUSTOMERS_VIEW,
+        PERMISSIONS.CUSTOMER_VIEW,
         PERMISSIONS.CUSTOMERS_MANAGE,
-        PERMISSIONS.CUSTOMERS_REVEAL_PII,
         PERMISSIONS.CUSTOMERS_MANAGE_STATUS,
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.WORKERS_MANAGE,

@@ -292,3 +292,76 @@ tbody tr:hover {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-disabled);
 }
+
+/* Interactive Table Rows (Worker Verification Queue) */
+.verification-queue-row {
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.verification-queue-row:hover {
+  background-color: var(--color-brand-50) !important;
+}
+
+.verification-queue-row:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+  background-color: var(--color-brand-50);
+}
+
+.verification-queue-row.selected {
+  background-color: var(--color-brand-50);
+  border-left: 3px solid var(--color-primary);
+}
+
+/* Centered Worker Verification Dossier Modal */
+.verification-dossier-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 950;
+  padding: var(--space-4);
+}
+
+.verification-dossier-modal-content {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--color-border);
+  border: 1px solid var(--color-border);
+  width: 92%;
+  max-width: 1280px;
+  max-height: 90vh;
+  height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.verification-dossier-tab-bar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+.verification-dossier-tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+.verification-dossier-tab-bar::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+@media (max-width: 768px) {
+  .verification-dossier-modal-backdrop {
+    padding: var(--space-2);
+  }
+  .verification-dossier-modal-content {
+    width: 98% !important;
+    height: 95vh !important;
+    max-height: 95vh !important;
+    border-radius: var(--radius-lg) !important;
+  }
+}

@@ -67,7 +67,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
             Support Operations Console
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Grievance mediation, audited PII reveal calls, live SLA deadline tracking, and Ops escalation handoffs.
+            Grievance mediation, customer/worker dispute resolution, live SLA deadline tracking, and Ops escalation handoffs.
           </p>
         </div>
         <button
@@ -117,7 +117,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="SLA At Risk"
           value={kpis.slaAtRiskCount}
-          subtitle="< 25% resolution time left"
+          subtitle="Requires agreed SLA threshold"
           icon={Clock}
           onClick={() => setActiveTab('AT_RISK')}
         />
@@ -286,7 +286,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>
                       <button
-                        onClick={() => navigate('/support')}
+                        onClick={() => navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`)}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',

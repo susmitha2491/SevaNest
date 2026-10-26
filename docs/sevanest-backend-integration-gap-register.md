@@ -246,6 +246,113 @@ Three key blockers prevent 100% live browser-based verification against the depl
   - Implement SLA calculation logic upon worker KYC submission.
   - Expose aggregate turnaround telemetry in the verification reporting endpoint.
 
+### Dependency 8: Absence of Worker-Level Final Decision Endpoint & Event
+
+- **Category:** API Contract Clarification / Architecture Alignment
+- **Severity:** MEDIUM (Frontend workflow aligned to read-only summary)
+- **Module & Feature:** Worker Verification Workstation (`src/features/workers/presentation/WorkerDetailModal.tsx`, `src/features/verification`)
+- **Existing Endpoint / Evidence Inspected:**
+  - `GET /api/v1/admin/workers/{workerId}/verification`
+  - Confirmed: `level` field provides authoritative overall verification evaluation.
+  - Confirmed: There is NO worker-level final-decision endpoint (`POST /admin/verification/checks/{id}/decision` and `POST /admin/workers/{id}/verification/decision` are nonexistent).
+  - Confirmed: No `worker.verification.completed` event is confirmed.
+- **Frontend Action / Mitigation (Implemented & Verified in Phase 2):**
+  - Removed unsupported `submitFinalDecision` from `IVerificationRepository`, `MockVerificationRepository`, and `RealVerificationRepository`.
+  - Replaced the decision submission step in `WorkerDetailModal.tsx` with a read-only authoritative Verification Summary.
+  - Overall status is determined strictly by the backend `level` field, displaying an explicit error/unavailable state if `level` fails to load or is missing.
+  - The frontend never infers approval from individual checks or submits worker-level decision mutations.
+- **Required Backend-Team Action:**
+  - If a worker-level override decision or manual final sign-off is required by business operations, the backend team must define and implement an explicit contract (e.g., `POST /api/v1/admin/workers/{workerId}/verification/decision` with audit schema) and publish the `worker.verification.completed` domain event.
+  - Otherwise, maintain the current architectural pattern where the backend computes the authoritative `level` from individual check results.
+
+---
+
+### Dependency 9: Worker Post-Verification Commercial Activation Endpoint
+
+- **Category:** Backend Endpoint & Workflow Availability Gap
+- **Severity:** MEDIUM (Blocks direct post-verification worker activation)
+- **Module & Feature:** Worker Verification Lifecycle -> Platform Roster Activation
+- **Existing Endpoint / Evidence Inspected:**
+  - `GET /api/v1/admin/workers/{workerId}`
+  - `PATCH /api/v1/admin/workers/{workerId}` (Operational disciplinary action: Suspend/Blacklist/Reinstate only)
+  - Confirmed: No dedicated worker activation endpoint (e.g., `POST /admin/workers/{id}/activate`) or activation event has been confirmed.
+  - Confirmed: `workers.manage_status` is not a registered permission for the worker verification workflow (`worker.view` is canonical).
+- **Frontend Action / Mitigation (Implemented & Verified in Phase 2):**
+  - Removed unsupported activation controls and mutations from the guided verification workflow in `WorkerDetailModal.tsx`.
+  - Replaced the activation step with a neutral, read-only Platform & Roster Status view.
+  - Explicitly states that verification does not automatically activate a worker onto the commercial roster and that activation endpoints remain unconfirmed by the backend team.
+- **Required Backend-Team Action:**
+  - Specify and implement a dedicated commercial activation contract (e.g., `POST /api/v1/admin/workers/{workerId}/activate`) with registered RBAC permissions and onboarding state validation if domestic workers are meant to be activated through the admin portal upon passing verification.
+
+---
+
+### Dependency 10: Mandatory Document ID in Verification Check Payloads
+
+- **Category:** API Contract & Data Completeness Gap
+- **Severity:** MEDIUM (Prevents secure document vault retrieval if documentId is omitted)
+- **Module & Feature:** Worker Verification Workstation (`/verification`, `WorkerDetailModal.tsx`) -> Document Inspection Vault
+- **Existing Endpoint / Evidence Inspected:**
+  - `GET /api/v1/admin/verification/queue`
+  - `GET /api/v1/admin/workers/{workerId}/verification`
+  - `GET /api/v1/admin/verification/documents/{documentId}/link`
+- **Missing Endpoint, Response Field, Permission, or Business Rule:**
+  - The document link vault endpoint requires a genuine `:documentId` (`GET /api/v1/admin/verification/documents/{documentId}/link`).
+  - Previously, frontend code had a fallback (`const targetId = documentId || dossierId`) that substituted `dossierId` or `workerId` when `documentId` was absent in check responses.
+  - If backend verification check items in `checks: [...]` or `checks: { ... }` omit `documentId` (or `documentMetadata.documentId`), signed document link retrieval cannot proceed.
+- **Expected Backend Contract:**
+  1. For every document inspection check (`IDENTITY`, `ADDRESS`, `POLICE_CLEARANCE`), include a genuine backend document reference identifier:
+     ```json
+     {
+       "id": "chk-101",
+       "type": "IDENTITY",
+       "status": "PENDING",
+       "evaluationMethod": "DOCUMENT_INSPECTION",
+       "documentId": "doc-vault-88912",
+       "documentMetadata": {
+         "documentId": "doc-vault-88912",
+         "documentTypeName": "Aadhaar Card",
+         "docNumberMasked": "XXXX-XXXX-8921"
+       }
+     }
+     ```
+  2. The returned `documentId` must be the authoritative key accepted by `GET /api/v1/admin/verification/documents/{documentId}/link`.
+- **Frontend Action / Mitigation (Implemented & Verified in Phase 4):**
+  - Removed all substitution fallbacks (`dossierId`, `workerId`, `checkId`, `checkType`).
+  - Added strict validation in `RealVerificationRepository.getSignedDocumentUrl` and `MockVerificationRepository.getSignedDocumentUrl` requiring a genuine non-empty `documentId` and rejecting substituted IDs with `ValidationError`.
+  - In `VerificationQueuePage` and `WorkerDetailModal`, if `documentId` is missing from backend check data, the query is disabled (no invalid HTTP calls made) and an honest, clear "Document Vault Attachment Unavailable" state is displayed.
+  - Implemented URL security validation enforcing HTTPS (permitting HTTP only for local development loopback) and rejecting unsafe protocols (`javascript:`, `data:`, etc.) without logging tokens or PII.
+- **Required Backend-Team Action:**
+---
+
+### Dependency 11: Verification Queue Check Identifier (`checkId`) Contract & Action Workflow
+
+- **Category:** API Contract & Workflow State Alignment
+- **Severity:** MEDIUM (Ensures queue action triggers match backend capabilities)
+- **Module & Feature:** Worker Verification Queue (`/verification`) -> Status-Aware Actions & Dossier Interactivity
+- **Existing Endpoint / Evidence Inspected:**
+  - `GET /api/v1/admin/verification/queue`
+  - `POST /api/v1/admin/verification/checks/{checkId}/start-review`
+  - `POST /api/v1/admin/verification/checks/{checkId}/approve`
+  - `POST /api/v1/admin/verification/checks/{checkId}/reject`
+  - `POST /api/v1/admin/verification/checks/{checkId}/recheck`
+- **Missing Endpoint, Response Field, Permission, or Business Rule:**
+  - The review-start endpoint operates strictly at the check level (`/checks/{checkId}/start-review`). If queue payloads omit top-level `checkId` (or an active check ID), the frontend cannot claim the check via the server API.
+  - Verification statuses (`PENDING_REVIEW`, `IN_REVIEW`, `REJECTED`, `RECHECK_DUE`, `APPROVED`) map to specific operational workflows:
+    - `PENDING_REVIEW`: Must permit claiming review (`Start Review`) if `checkId` is present and executive has `verification.decide` permission; otherwise falls back to `Inspect Dossier` with `Claim Unavailable` if `checkId` is missing.
+    - `IN_REVIEW`: Already claimed; must offer `Continue Review` or `Inspect Dossier` without repeating claim mutations or initiating duplicate reviews.
+    - `REJECTED`: Previous review rejected; allows `Review Corrections` or `Inspect Dossier` where workflow permits re-inspection.
+    - `RECHECK_DUE`: Periodic or requested re-inspection; allows `Review Re-Check` or `Inspect Dossier`.
+    - `APPROVED`: Verification completed; allows `View Dossier` strictly in read-only mode with decision mutations disabled.
+- **Frontend Action / Mitigation (Implemented & Verified):**
+  - Updated queue table rows to be fully interactive (pointer cursor, hover highlight, keyboard focus via `tabIndex={0}` and Enter/Space navigation, event propagation stopped on inner controls).
+  - Implemented status-aware action buttons with clear, accessible labels.
+  - Enforced server-issued RBAC permissions (`verification.decide` required for review-start and check decisions).
+  - Maintained complete separation between verification approval and worker account activation (approving verification does not auto-activate workers or modify commercial roster status).
+  - Handled 409 `CHECK_ALREADY_ASSIGNED` conflicts and unexpected network errors gracefully with clear dismissible UI banners.
+- **Required Backend-Team Action:**
+  - Ensure `checkId` (or the initial pending check's ID) is always included in each item returned by `GET /api/v1/admin/verification/queue`.
+  - Confirm whether an application-level claim endpoint (e.g., `POST /api/v1/admin/verification/applications/{id}/start-review`) will be provided in a future release to claim all checks for a worker atomically.
+
 ---
 
 ## 3. Module-by-Module Backend Integration Matrix
@@ -294,8 +401,82 @@ Three key blockers prevent 100% live browser-based verification against the depl
 
 ---
 
+---
+
 ## 4. Verification Categorization
 
 - **Implemented:** 100% of required frontend API repositories and domain mappers exist and connect to real endpoints via `httpClient`.
 - **Automated Verification Passed:** 100% of integration test suites (`vitest`), TypeScript typecheck (`tsc --noEmit`), ESLint, and production build (`vite build`) pass.
 - **Live Integration Verified:** Blocked pending Backend Action 1 (CORS enablement on Render) and Backend Action 2 (administrative user seeding in production database).
+
+---
+
+## 5. Worker Verification Documents & Secure Vault Integration Gap Analysis
+
+### 5.1 Document ID Availability in Verification Dossiers
+- **Category:** Data Model / API Contract Consistency
+- **Observed Behavior:**
+  - `GET /api/v1/admin/verification/queue` and `GET /api/v1/admin/verification/dossiers/{workerId}` return check records for each applicant.
+  - In certain responses, checks (e.g. `IDENTITY`, `ADDRESS`, `POLICE_CLEARANCE`) contain status information without an associated `documentId` (e.g., `documents: []` or `documentMetadata: null`).
+  - When an applicant has not yet submitted an attachment, the check is in `PENDING` status. The frontend correctly identifies this as `Pending Submission` and suppresses the `Inspect Document` action.
+- **Backend Requirement:**
+  - Ensure the backend worker submission pipeline reliably sets `documentId` on the verification check record immediately upon file receipt in object storage.
+  - Never return placeholder strings (e.g., `"null"`, `"undefined"`, or empty strings) as document identifiers.
+
+### 5.2 Document Metadata & MIME Type Standardization
+- **Category:** Metadata Contract Completeness
+- **Observed Behavior:**
+  - The backend returns varied schema structures for document attachments across endpoints:
+    - Array of objects: `documents: [{ id, documentNumber, documentType }]`
+    - Nested metadata: `documentMetadata: { documentId, docNumberMasked, documentTypeName, expiryDate }`
+    - Top-level fields: `documentId`, `documentNumber`, `documentType`
+- **Required Backend Action:**
+  - Standardize document metadata in `GET /api/v1/admin/verification/dossiers/{workerId}` to include:
+    - `documentId: string` (Canonical UUID)
+    - `documentType: string` (e.g. `'AADHAAR'`, `'VOTER_ID'`, `'PASSPORT'`, `'UTILITY_BILL'`, `'PCC'`)
+    - `documentTypeName: string` (Human-readable label)
+    - `docNumberMasked: string` (Pre-masked string e.g. `'XXXX-XXXX-8921'`)
+    - `mimeType: string` (e.g. `'application/pdf'`, `'image/jpeg'`, `'image/png'`)
+    - `fileSizeBytes: number`
+    - `uploadedAt: string` (ISO 8601 UTC)
+    - `expiryDate?: string`
+
+### 5.3 Secure Document Link Retrieval (`GET /api/v1/admin/verification/documents/{documentId}/link`)
+- **Category:** Secure Vault URL Lifecycle & Error Handling
+- **Observed Contract & Root Cause Analysis:**
+  - **Verified Backend Contract:** `GET /api/v1/admin/verification/documents/{documentId}/link` (Path parameter only; no query parameters).
+  - **Identified Root Cause of 404 / Duplicate Requests:**
+    1. Previous frontend implementation in `RealVerificationRepository.getSignedDocumentUrl` appended `{ params: { checkType } }`, dispatching requests like `GET /api/v1/admin/verification/documents/{documentId}/link?checkType=IDENTITY`.
+    2. The backend document vault returns HTTP 404 (`{"code":"NOT_FOUND","message":"Document not found"}`) when an attachment record exists in metadata but the actual physical file is missing or un-uploaded in storage.
+    3. React Query's default retry behavior caused an immediate duplicate retry on 404 responses, resulting in twin 404 entries in browser network logs.
+  - **Resolution Applied:**
+    - Removed `checkType` query parameter from `verificationRepository.getSignedDocumentUrl`. Requests now strictly follow `GET /admin/verification/documents/{cleanDocId}/link`.
+    - Added retry predicate to `useQuery` hooks (`VerificationQueuePage` and `WorkerDetailModal`) preventing automatic retries on 404 (`NotFoundError`), 401 (`UnauthorizedError`), 403 (`ForbiddenError`), and 422 (`ValidationError`), eliminating duplicate requests.
+    - Structured error formatting via `formatDocumentVaultError` provides distinct user-facing messages for 404 (document not found in storage vault), 401/403 (insufficient permissions), expired links, and network failures with explicit retry actions.
+  - Returns: `{ data: { url: string, signedUrl: string, expiresAt: string, expiresInSeconds: number } }`.
+  - Frontend enforces HTTPS-only URLs (with local loopback exception for development) and rejects unsafe protocols (`javascript:`, `data:`, `file:`).
+- **Backend Requirements & Gaps:**
+  - **Storage Vault Availability:** When a worker is onboarded or moves through KYC checks, ensure worker-uploaded documents are properly transferred and stored in the backend vault with matching `documentId` records.
+  - **Structured Error Responses:** Continue returning standard error payloads for missing files (`404 NOT_FOUND`) or expired URLs (`410 GONE` / `400 DOCUMENT_EXPIRED`) rather than 500 server crashes.
+  - **CORS Support:** The S3/GCS bucket pre-signed URLs must include appropriate CORS headers allowing `GET` from the admin portal origin if loaded via JavaScript or canvas.
+
+### 5.4 RBAC Permission Alignment
+- **Category:** Authorization Enforcement
+- **Backend Permissions:**
+  - Canonical permission code: `verification.document.view`.
+  - Frontend supports both `verification.document.view` and legacy alias `documents.view_restricted`.
+  - Without this permission, the UI displays a `Restricted Access` notice and prevents signed URL resolution.
+- **Backend Requirement:**
+  - Ensure JWT tokens issued for `VERIFICATION_EXECUTIVE` and `SUPER_ADMIN` roles contain `verification.document.view`.
+
+### 5.5 Granular Document Review vs. Check-Level Decisions
+- **Category:** Workflow Architecture
+- **Observed Architecture:**
+  - Backend mutations exist at the *check level*:
+    - `POST /api/v1/admin/verification/checks/{checkId}/approve`
+    - `POST /api/v1/admin/verification/checks/{checkId}/reject`
+    - `POST /api/v1/admin/verification/checks/{checkId}/recheck`
+  - There are no separate per-document mutation endpoints.
+  - Document inspection in the Submitted Documents Vault is an authoritative evidence-gathering step that feeds directly into the check-level verification decision.
+  - Inspecting a document does NOT auto-approve the check, preserving human-in-the-loop audit integrity.
+

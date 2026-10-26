@@ -41,9 +41,8 @@ describe('Customer & Worker Management Workflows', () => {
           role: 'OPERATIONS_ADMIN',
           permissions: [
             PERMISSIONS.DASHBOARD_VIEW,
-            PERMISSIONS.CUSTOMERS_VIEW,
+            PERMISSIONS.CUSTOMER_VIEW,
             PERMISSIONS.CUSTOMERS_MANAGE_STATUS,
-            PERMISSIONS.CUSTOMERS_REVEAL_PII,
           ],
         },
         'ops-token'
@@ -89,22 +88,11 @@ describe('Customer & Worker Management Workflows', () => {
       fireEvent.click(closeBtn);
     });
 
-    it('allows audited PII unmasking upon entering mandatory justification', async () => {
+    it('displays masked customer contacts and maintains read-only protection without unapproved PII reveal action', async () => {
       renderApp('/customers');
 
-      const revealButtons = await screen.findAllByText('Reveal');
-      fireEvent.click(revealButtons[0]);
-
-      expect(await screen.findByText('Authorize PII Reveal')).toBeInTheDocument();
-
-      const remarksInput = screen.getByPlaceholderText(/Enter business justification/i);
-      fireEvent.change(remarksInput, { target: { value: 'Support dispute arbitration' } });
-
-      const confirmBtn = screen.getByText('Reveal and Audit');
-      fireEvent.click(confirmBtn);
-
-      // Verify unmasked phone and email are rendered
-      expect(await screen.findByText('+91 98765 43210')).toBeInTheDocument();
+      expect(await screen.findByText(/\+91 98\*\*\*\* \*\*12/i)).toBeInTheDocument();
+      expect(screen.queryByText('Reveal')).not.toBeInTheDocument();
     });
 
     it('allows customer account suspension with mandatory operational remarks', async () => {

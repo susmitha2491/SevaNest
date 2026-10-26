@@ -43,9 +43,8 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
         role: 'OPERATIONS_ADMIN',
         permissions: [
           PERMISSIONS.DASHBOARD_VIEW,
-          PERMISSIONS.CUSTOMERS_VIEW,
+          PERMISSIONS.CUSTOMER_VIEW,
           PERMISSIONS.CUSTOMERS_MANAGE,
-          PERMISSIONS.CUSTOMERS_REVEAL_PII,
           PERMISSIONS.CUSTOMERS_MANAGE_STATUS,
           PERMISSIONS.WORKERS_VIEW,
           PERMISSIONS.WORKERS_MANAGE,

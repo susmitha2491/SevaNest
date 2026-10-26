@@ -14,6 +14,8 @@ import { SupportTicketDetail, TicketCaseNote } from '../domain/types';
 import { supportRepository } from '../data/supportRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 
+import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
+
 interface TicketDetailModalProps {
   ticket: SupportTicketDetail | null;
   isOpen: boolean;
@@ -35,8 +37,9 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
 
   const [newNoteText, setNewNoteText] = useState('');
   const [newNoteType, setNewNoteType] = useState<TicketCaseNote['noteType']>('TELEPHONIC_LOG');
+  const [staleWarning, setStaleWarning] = useState<string | null>(null);
 
-  // Add Case Note Mutation
+  // Add Case Note Mutation (internal note / telephonic log)
   const addNoteMutation = useMutation({
     mutationFn: async () => {
       if (!ticket || !newNoteText.trim()) return;
@@ -50,17 +53,43 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
       setNewNoteText('');
+      setStaleWarning(null);
     },
   });
 
-  // Claim Ticket Mutation
-  const claimMutation = useMutation({
-    mutationFn: async () => {
+  // Priority Change Mutation (sends If-Match with ticket.etag)
+  const priorityMutation = useMutation({
+    mutationFn: async (newPriority: 'LOW' | 'MEDIUM' | 'HIGH') => {
       if (!ticket) return;
-      await supportRepository.claimTicket(ticket.id, 'Support Executive');
+      await supportRepository.setPriority(ticket.id, newPriority, ticket.etag);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
+      setStaleWarning(null);
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
+        setStaleWarning('This ticket was modified by another transaction (stale version). Latest ticket data has been refetched. Please review and retry.');
+        queryClient.invalidateQueries({ queryKey: ['support'] });
+      }
+    },
+  });
+
+  // Claim Ticket Mutation (sends If-Match with ticket.etag)
+  const claimMutation = useMutation({
+    mutationFn: async () => {
+      if (!ticket) return;
+      await supportRepository.claimTicket(ticket.id, 'Support Executive', ticket.etag);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['support'] });
+      setStaleWarning(null);
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
+        setStaleWarning('This ticket was modified by another user (stale version). Data has been refreshed. Please retry claiming.');
+        queryClient.invalidateQueries({ queryKey: ['support'] });
+      }
     },
   });
 
@@ -116,25 +145,62 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 Grievance Case: {ticket.id}
               </h2>
               <StatusBadge status={ticket.status} />
-              <span
-                style={{
-                  padding: '2px 8px',
-                  borderRadius: 'var(--radius-full)',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  backgroundColor:
-                    ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
-                      ? 'var(--color-error-bg)'
-                      : 'var(--color-brand-50)',
-                  color:
-                    ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
-                      ? 'var(--color-error-dark)'
-                      : 'var(--color-brand-700)',
-                  border: '1px solid var(--color-border)',
-                }}
-              >
-                Priority: {ticket.priority}
-              </span>
+              {ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <label htmlFor="ticket-priority-select" style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                    Priority:
+                  </label>
+                  <select
+                    id="ticket-priority-select"
+                    value={ticket.priority === 'CRITICAL' ? 'HIGH' : ticket.priority}
+                    disabled={priorityMutation.isPending}
+                    onChange={(e) => {
+                      const val = e.target.value as 'LOW' | 'MEDIUM' | 'HIGH';
+                      priorityMutation.mutate(val);
+                    }}
+                    style={{
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-full)',
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      backgroundColor:
+                        ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
+                          ? 'var(--color-error-bg)'
+                          : 'var(--color-brand-50)',
+                      color:
+                        ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
+                          ? 'var(--color-error-dark)'
+                          : 'var(--color-brand-700)',
+                      border: '1px solid var(--color-border)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="LOW">LOW</option>
+                    <option value="MEDIUM">MEDIUM</option>
+                    <option value="HIGH">HIGH</option>
+                  </select>
+                </div>
+              ) : (
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-full)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    backgroundColor:
+                      ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
+                        ? 'var(--color-error-bg)'
+                        : 'var(--color-brand-50)',
+                    color:
+                      ticket.priority === 'CRITICAL' || ticket.priority === 'HIGH'
+                        ? 'var(--color-error-dark)'
+                        : 'var(--color-brand-700)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  Priority: {ticket.priority}
+                </span>
+              )}
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
               Category: <strong>{ticket.serviceCategory}</strong> • Assigned To: {ticket.assignedToStaffName || 'Unassigned'}
@@ -164,6 +230,44 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             gap: 'var(--space-5)',
           }}
         >
+          {/* Stale Version Concurrency Warning */}
+          {staleWarning && (
+            <div
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-warning-dark)',
+                backgroundColor: 'var(--color-warning-bg)',
+                color: 'var(--color-warning-dark)',
+                fontSize: 'var(--font-size-xs)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 'var(--space-2)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <RefreshCw size={16} />
+                <span>{staleWarning}</span>
+              </div>
+              <button
+                onClick={() => setStaleWarning(null)}
+                style={{
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-warning-dark)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--color-warning-dark)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* SLA Tracking Status Banner */}
           <div
             style={{

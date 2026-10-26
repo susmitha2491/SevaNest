@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { Lock, Mail, AlertCircle, ArrowRight, Info, Eye, EyeOff } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { authRepository } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
-import { env } from '../../../core/config/env';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 
 const signInSchema = z.object({
@@ -24,19 +23,14 @@ export const SignInPage: React.FC = () => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const from = (location.state as { from?: { pathname?: string; search?: string } })?.from;
-
-  // Redirect to role-authorized landing workstation if already authenticated
+  // Redirect to role-authorized landing dashboard if already authenticated
   useEffect(() => {
     if (isAuthenticated && user) {
       const userLanding = getDefaultLandingRoute(user);
-      const hasValidFrom = from?.pathname && from.pathname !== '/' && !from.pathname.startsWith('/auth');
-      const finalDestination = hasValidFrom ? `${from.pathname}${from.search || ''}` : userLanding;
-      navigate(finalDestination, { replace: true });
+      navigate(userLanding, { replace: true, state: null });
     }
-  }, [isAuthenticated, user, from, navigate]);
+  }, [isAuthenticated, user, navigate]);
 
   const {
     register,
@@ -59,9 +53,9 @@ export const SignInPage: React.FC = () => {
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
       setSession(loggedInUser, accessToken, refreshToken);
       const userLanding = getDefaultLandingRoute(loggedInUser);
-      const hasValidFrom = from?.pathname && from.pathname !== '/' && !from.pathname.startsWith('/auth');
-      const finalDestination = hasValidFrom ? `${from.pathname}${from.search || ''}` : userLanding;
-      navigate(finalDestination, { replace: true });
+      // Fresh sign-in must always navigate directly to the authenticated user's designated role dashboard,
+      // clearing any stale 'from' or 'returnTo' navigation state from earlier sessions.
+      navigate(userLanding, { replace: true, state: null });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
       setAuthError(errorMessage);
@@ -81,34 +75,6 @@ export const SignInPage: React.FC = () => {
         <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
           Enter your administrative credentials to access operations queues.
         </p>
-      </div>
-
-      {/* Authentication Mode Notice */}
-      <div
-        style={{
-          padding: 'var(--space-2) var(--space-3)',
-          backgroundColor: 'var(--color-status-info-bg)',
-          border: '1px solid var(--color-status-info-border)',
-          borderRadius: 'var(--radius-md)',
-          fontSize: 'var(--font-size-xs)',
-          color: 'var(--color-status-info-text)',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 'var(--space-2)',
-        }}
-      >
-        <Info size={16} style={{ flexShrink: 0 }} />
-        <span>
-          {env.VITE_USE_MOCK_AUTH ? (
-            <>
-              <strong>Simulated Sandbox:</strong> In-memory mock authentication for development & testing.
-            </>
-          ) : (
-            <>
-              <strong>Backend API Gateway:</strong> Authenticating with <code>{env.VITE_API_BASE_URL}</code>.
-            </>
-          )}
-        </span>
       </div>
 
       {authError && (

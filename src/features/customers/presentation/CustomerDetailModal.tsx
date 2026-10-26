@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { X, Eye, MapPin, CheckCircle, ShieldAlert } from 'lucide-react';
+import { X, MapPin, CheckCircle, ShieldAlert } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
-import { PermissionGate } from '../../../core/rbac/PermissionGate';
-import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { PermissionGate } from '../../../core/rbac/PermissionGate';
+import { PERMISSIONS } from '../../../core/rbac/permissions';
 
 interface CustomerDetailModalProps {
   customerId: string;
@@ -20,20 +20,12 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onClose,
   onStatusChanged,
 }) => {
-  const [isRevealOpen, setIsRevealOpen] = useState(false);
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
-  const [unmaskedInfo, setUnmaskedInfo] = useState<{ phone: string; email: string } | null>(null);
 
   const { data: customer, isLoading, refetch } = useQuery({
     queryKey: ['customers', 'detail', customerId],
     queryFn: () => customerRepository.getCustomerById(customerId),
   });
-
-  const handleRevealConfirm = async (reason?: string) => {
-    const revealed = await customerRepository.revealPII(customerId, reason || 'Authorized audit justification');
-    setUnmaskedInfo(revealed);
-    setIsRevealOpen(false);
-  };
 
   const handleSuspendConfirm = async (remarks?: string) => {
     await customerRepository.suspendCustomer(customerId, remarks || 'Operational account suspension');
@@ -176,42 +168,19 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
               <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                 Household Contact & Locality Details
               </h3>
-              {!unmaskedInfo && (
-                <PermissionGate permission={PERMISSIONS.CUSTOMERS_REVEAL_PII}>
-                  <button
-                    onClick={() => setIsRevealOpen(true)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '4px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--color-primary-subtle)',
-                      color: 'var(--color-accent)',
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 600,
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <Eye size={13} />
-                    <span>Authorize PII Reveal</span>
-                  </button>
-                </PermissionGate>
-              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', fontSize: 'var(--font-size-sm)' }}>
               <div>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block' }}>Phone Number:</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                  {unmaskedInfo ? unmaskedInfo.phone : customer.maskedPhone}
+                  {customer.unmaskedPhone || customer.maskedPhone}
                 </span>
               </div>
               <div>
                 <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block' }}>Email Address:</span>
                 <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                  {unmaskedInfo ? unmaskedInfo.email : customer.maskedEmail}
+                  {customer.unmaskedEmail || customer.maskedEmail}
                 </span>
               </div>
             </div>
@@ -361,17 +330,6 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         </div>
       </div>
 
-      {/* PII Reveal Dialog */}
-      <ConfirmDialog
-        isOpen={isRevealOpen}
-        title="Authorize Customer PII Reveal"
-        description="Unmasking household contact details creates an immutable platform audit entry. Enter mandatory operational rationale."
-        confirmLabel="Authorize & Reveal"
-        requireRemarks={true}
-        remarksPlaceholder="Enter business justification (e.g., Escalation on Ticket TKT-4921)..."
-        onConfirm={handleRevealConfirm}
-        onCancel={() => setIsRevealOpen(false)}
-      />
 
       {/* Suspend Confirmation Dialog */}
       <ConfirmDialog

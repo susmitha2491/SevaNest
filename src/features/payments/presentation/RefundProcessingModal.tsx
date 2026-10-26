@@ -4,6 +4,7 @@ import { X, RotateCcw, Key } from 'lucide-react';
 import { PaymentTransaction, RefundReasonCategory, REFUND_REASONS } from '../domain/types';
 import { paymentRepository } from '../data/paymentRepository';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { env } from '../../../core/config/env';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
@@ -26,7 +27,10 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   const [remarks, setRemarks] = useState('');
   const [confirmedPolicy, setConfirmedPolicy] = useState(false);
 
-  const mockIdempotencyKey = `mock_idem_${transaction?.id}_${Date.now()}`;
+  const idempotencyKey = React.useMemo(
+    () => (transaction ? `idem_${transaction.id}_${Date.now()}` : ''),
+    [transaction]
+  );
 
   const refundMutation = useMutation({
     mutationFn: async () => {
@@ -36,7 +40,8 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
         transaction.id,
         finalAmount,
         reasonCategory,
-        remarks || 'Refund processed under commercial policy guidelines.'
+        remarks || 'Refund processed under commercial policy guidelines.',
+        idempotencyKey
       );
     },
     onSuccess: () => {
@@ -272,7 +277,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             />
           </div>
 
-          {/* Mock Idempotency Key Info */}
+          {/* Idempotency Key Info */}
           <div
             style={{
               padding: 'var(--space-2) var(--space-3)',
@@ -286,10 +291,10 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}>
-              <Key size={14} /> <span>Simulated Idempotency Key:</span>
+              <Key size={14} /> <span>{env.VITE_USE_MOCK_AUTH ? 'Simulated Idempotency Key:' : 'Idempotency Reference Key:'}</span>
             </div>
             <span style={{ fontFamily: 'monospace', color: 'var(--color-brand-600)' }}>
-              {mockIdempotencyKey}
+              {idempotencyKey}
             </span>
           </div>
 

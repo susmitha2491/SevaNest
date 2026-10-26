@@ -27,7 +27,7 @@ export const MyAccountPage: React.FC = () => {
       console.warn('Logout notification error encountered:', err);
     } finally {
       clearSession();
-      navigate('/auth/login', { replace: true });
+      navigate('/auth/login', { replace: true, state: null });
     }
   };
 

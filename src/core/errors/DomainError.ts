@@ -41,8 +41,10 @@ export class NotFoundError extends DomainError {
 
 export class ConcurrencyConflictError extends DomainError {
   public readonly code = 'CONCURRENCY_CONFLICT';
-  constructor(message = 'This record was modified by another user. Please reload the latest data.', correlationId?: string) {
+  public readonly statusCode?: number;
+  constructor(message = 'This record was modified by another user. Please reload the latest data.', correlationId?: string, statusCode?: number) {
     super(message, correlationId);
+    this.statusCode = statusCode;
   }
 }
 

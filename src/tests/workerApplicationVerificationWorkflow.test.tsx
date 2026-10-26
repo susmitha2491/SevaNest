@@ -140,7 +140,10 @@ describe('Worker Application & Verification Complete Workflow', () => {
 
       await user.click(approveBtn);
 
-      expect(approveSpy).toHaveBeenCalledWith('VQ-101', 'IDENTITY', '');
+      const confirmApproveBtn = await screen.findByRole('button', { name: /Confirm Approval/i });
+      await user.click(confirmApproveBtn);
+
+      expect(approveSpy).toHaveBeenCalledWith('chk-identity-101', 'IDENTITY', expect.any(String));
     });
 
     it('requires mandatory remarks and category when rejecting a check', async () => {
@@ -170,7 +173,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       await user.click(confirmBtn);
 
       expect(rejectSpy).toHaveBeenCalledWith(
-        'VQ-101',
+        'chk-identity-101',
         'IDENTITY',
         'BLURRY_IMAGE',
         'Aadhaar copy is truncated and unreadable.'
@@ -200,7 +203,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       await user.click(confirmBtn);
 
       expect(recheckSpy).toHaveBeenCalledWith(
-        'VQ-101',
+        'chk-identity-101',
         ['IDENTITY'],
         'Please upload fresh address proof with matching name.'
       );
@@ -463,28 +466,26 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
       expect(screen.getByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
 
-      // Proceed to Step 4: Final Decision
-      const step4Btn = screen.getByRole('button', { name: /Proceed to Step 4: Final Decision/i });
+      // Proceed to Step 4: Verification Summary
+      const step4Btn = screen.getByRole('button', { name: /Proceed to Step 4: Verification Summary/i });
       await user.click(step4Btn);
-      expect(await screen.findByText(/Step 4: Final Verification Decision/i)).toBeInTheDocument();
-      expect(screen.getByText(/Prerequisite Compliance Checklist/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
+      expect(screen.getByText(/Individual Verification Checks Breakdown/i)).toBeInTheDocument();
 
-      // Proceed to Step 5: Activation & Eligibility
-      const step5Btn = screen.getByRole('button', { name: /Proceed to Step 5: Activation & Eligibility/i });
+      // Proceed to Step 5: Platform Status
+      const step5Btn = screen.getByRole('button', { name: /Proceed to Step 5: Platform Status/i });
       await user.click(step5Btn);
-      expect(await screen.findByText(/Step 5: Worker Activation & Matching Eligibility Handoff/i)).toBeInTheDocument();
-      expect(screen.getByText(/Verification Executive Role Responsibility/i)).toBeInTheDocument();
-      expect(screen.getByText(/Operations Admin Role Responsibility/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/Activation Flow Notice \(Unconfirmed Backend Contract\)/i)).toBeInTheDocument();
     });
 
-    it('submits final verification approval via verificationRepository.submitFinalDecision when all checks are approved', async () => {
-      await verificationRepository.approveCheck('W-10482', 'IDENTITY');
-      await verificationRepository.approveCheck('W-10482', 'ADDRESS');
-      await verificationRepository.approveCheck('W-10482', 'EMERGENCY_CONTACT');
-      await verificationRepository.approveCheck('W-10482', 'REFERENCE');
-      await verificationRepository.approveCheck('W-10482', 'POLICE_CLEARANCE');
+    it('displays authoritative overall verification level in Step 4 and does not expose unsupported decision controls', async () => {
+      await verificationRepository.approveCheck('chk-identity-101', 'IDENTITY');
+      await verificationRepository.approveCheck('chk-address-101', 'ADDRESS');
+      await verificationRepository.approveCheck('chk-emergency-101', 'EMERGENCY_CONTACT');
+      await verificationRepository.approveCheck('chk-reference-101', 'REFERENCE');
+      await verificationRepository.approveCheck('chk-police-101', 'POLICE_CLEARANCE');
 
-      const submitDecisionSpy = vi.spyOn(verificationRepository, 'submitFinalDecision');
       const user = userEvent.setup();
 
       renderWithProviders(
@@ -495,70 +496,81 @@ describe('Worker Application & Verification Complete Workflow', () => {
       );
 
       // Navigate to Step 4 directly via stepper pill
-      const step4Pill = await screen.findByRole('button', { name: /Final Decision/i });
+      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
       await user.click(step4Pill);
 
-      expect(await screen.findByText(/All 6 Verification Checks Approved & Verified/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
+      expect(screen.getByText(/Authoritative Overall Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/There is no worker-level final-decision endpoint/i)).toBeInTheDocument();
 
-      const approveFinalBtn = screen.getByRole('button', { name: /Submit Final Verification Approval \(VERIFIED\)/i });
-      expect(approveFinalBtn).not.toBeDisabled();
-      await user.click(approveFinalBtn);
-
-      expect(submitDecisionSpy).toHaveBeenCalledWith('W-10482', 'APPROVED', expect.any(String));
+      // Ensure no unsupported final decision mutation buttons are exposed
+      expect(screen.queryByRole('button', { name: /Submit Final Verification Approval/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Confirm Final Rejection/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Issue Corrections Request/i })).not.toBeInTheDocument();
     });
 
-    it('enforces role separation in Step 5: Verification Executive sees pending activation notice, while Operations Admin can activate account', async () => {
-      // 1. As Verification Executive (without workers.manage_status)
+    it('displays unavailable state when authoritative verification level cannot be loaded and does not fabricate approval', async () => {
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValueOnce({
+        id: 'W-TEST-ERR',
+        applicationId: 'W-TEST-ERR',
+        workerId: 'W-TEST-ERR',
+        workerName: 'Test Worker',
+        category: 'Cook',
+        locality: 'Banjara Hills',
+        experienceYears: 3,
+        phoneMasked: '+91 99999 *****',
+        submissionTime: new Date().toISOString(),
+        status: 'PENDING_REVIEW',
+        level: undefined,
+        preCheckOtpVerified: true,
+        checks: {
+          IDENTITY: { type: 'IDENTITY', title: 'Identity Proof', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          ADDRESS: { type: 'ADDRESS', title: 'Address Proof', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          EMERGENCY_CONTACT: { type: 'EMERGENCY_CONTACT', title: 'Emergency Contact', status: 'APPROVED', evaluationMethod: 'TELEPHONIC_VETTING' },
+          REFERENCE: { type: 'REFERENCE', title: 'Reference', status: 'APPROVED', evaluationMethod: 'TELEPHONIC_VETTING' },
+          POLICE_CLEARANCE: { type: 'POLICE_CLEARANCE', title: 'Police Certificate', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
+        },
+      });
+
       const user = userEvent.setup();
-      const { unmount } = renderWithProviders(
+
+      renderWithProviders(
         <WorkerDetailModal
           workerId="W-10483"
           onClose={() => {}}
         />
       );
 
-      const step5Pill = await screen.findByRole('button', { name: /Activation & Eligibility/i });
-      await user.click(step5Pill);
+      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
+      await user.click(step4Pill);
 
-      expect(
-        await screen.findByText(/Worker account activation is reserved for Operations Admins/i)
-      ).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Activate Worker Account \(Operations Admin\)/i })).not.toBeInTheDocument();
+      // Even if individual checks are approved, missing authoritative level must render unavailable error
+      expect(await screen.findByText(/Authoritative Verification Level Unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/does not infer approval or compute final verification decisions/i)).toBeInTheDocument();
+    });
 
-      unmount();
-
-      // 2. As Operations Admin (with workers.manage_status)
-      useAuthStore.setState({
-        user: {
-          id: 'STAFF-OPS-01',
-          name: 'Operations Manager',
-          email: 'ops.admin@sevanest.internal',
-          role: 'OPERATIONS_ADMIN',
-          permissions: [
-            PERMISSIONS.DASHBOARD_VIEW,
-            PERMISSIONS.WORKERS_VIEW,
-            PERMISSIONS.WORKERS_MANAGE,
-            PERMISSIONS.WORKERS_MANAGE_STATUS,
-            PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED,
-          ],
-        },
-        isAuthenticated: true,
-      });
-
-      const userOps = userEvent.setup();
+    it('renders read-only platform status in Step 5 without exposing unconfirmed activation controls or calling updateWorkerStatus', async () => {
+      const updateStatusSpy = vi.spyOn(workerRepository, 'updateWorkerStatus');
+      const user = userEvent.setup();
 
       renderWithProviders(
         <WorkerDetailModal
-          workerId="W-10482"
+          workerId="W-10483"
           onClose={() => {}}
         />
       );
 
-      const step5PillOps = await screen.findByRole('button', { name: /Activation & Eligibility/i });
-      await userOps.click(step5PillOps);
+      const step5Pill = await screen.findByRole('button', { name: /Platform Status/i });
+      await user.click(step5Pill);
 
-      // Sunita Devi is verified and active; Operations Admin can see account controls
-      expect(await screen.findByText(/Suspend Worker Account/i)).toBeInTheDocument();
+      expect(
+        await screen.findByText(/Activation Flow Notice \(Unconfirmed Backend Contract\)/i)
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(/Worker activation and deactivation endpoints are not confirmed by the backend contract/i)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
+      expect(updateStatusSpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -6,7 +6,7 @@ import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 const MOCK_WORKERS: WorkerDetail[] = [
   {
     id: 'W-10482',
-    applicationId: 'APP-8012',
+    applicationId: 'W-10482',
     name: 'Sunita Devi',
     category: 'House Maid',
     categories: ['House Maid'],
@@ -84,7 +84,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
   },
   {
     id: 'W-10483',
-    applicationId: 'APP-8013',
+    applicationId: 'W-10483',
     name: 'Ramesh Yadav',
     category: 'Driver',
     categories: ['Driver'],
@@ -166,7 +166,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
   },
   {
     id: 'W-10484',
-    applicationId: 'APP-8014',
+    applicationId: 'W-10484',
     name: 'Meena Bai',
     category: 'Cook',
     categories: ['Cook'],
@@ -226,7 +226,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
   },
   {
     id: 'W-10310',
-    applicationId: 'APP-8015',
+    applicationId: 'W-10310',
     name: 'Kavita Kumari',
     category: 'Babysitter',
     categories: ['Babysitter'],
@@ -288,7 +288,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
   },
   {
     id: 'W-10200',
-    applicationId: 'APP-8016',
+    applicationId: 'W-10200',
     name: 'Devendra Singh',
     category: 'Driver',
     categories: ['Driver'],
@@ -349,7 +349,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
   },
   {
     id: 'W-10115',
-    applicationId: 'APP-8017',
+    applicationId: 'W-10115',
     name: 'Lakshmi Bai',
     category: 'Cleaning Helper',
     categories: ['Cleaning Helper'],
@@ -441,11 +441,11 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   }
 
   const rawId = String(item.workerId || item.id || '');
-  const applicationId = item.applicationId
+  const applicationId = item.applicationId && !String(item.applicationId).startsWith('APP-')
     ? String(item.applicationId)
-    : rawId
-    ? `APP-${rawId.replace(/\D/g, '') || rawId}`
-    : undefined;
+    : rawId || undefined;
+  const rawLevel = (item.level ?? item.verificationLevel) as string | number | undefined;
+  const level = rawLevel !== undefined ? String(rawLevel) : undefined;
 
   return {
     id: rawId,
@@ -464,6 +464,8 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     phoneMasked,
     onboardingStatus: (item.onboardingStatus as Worker['onboardingStatus']) || (isVerified ? 'VERIFIED' : 'APPLIED'),
     verificationStatus: (item.verificationStatus as Worker['verificationStatus']) || (isVerified ? 'VERIFIED' : 'PENDING'),
+    verificationLevel: level,
+    level,
     createdAt: item.createdAt ? String(item.createdAt) : undefined,
     registeredAt: item.registeredAt ? String(item.registeredAt) : item.createdAt ? String(item.createdAt) : undefined,
   };
@@ -473,21 +475,36 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   const summary = mapBackendWorkerToWorker(data);
   const rawV = (verifData?.verification && typeof verifData.verification === 'object'
     ? verifData.verification
-    : data.verification) as Record<string, unknown> | undefined;
+    : verifData || data.verification) as Record<string, unknown> | undefined;
 
-  // Worker is only fully verified if all required verification checks are approved
-  const hasIncompleteChecks = rawV ? (
-    rawV.identityProofStatus === 'PENDING' ||
-    rawV.identityProofStatus === 'REJECTED' ||
-    rawV.addressProofStatus === 'PENDING' ||
-    rawV.addressProofStatus === 'REJECTED' ||
-    rawV.criminalRecordStatus === 'PENDING' ||
-    rawV.criminalRecordStatus === 'REJECTED' ||
-    rawV.referenceCheckStatus === 'PENDING' ||
-    rawV.referenceCheckStatus === 'FAILED'
-  ) : false;
+  // The authoritative overall verification result is the response's `level` field.
+  const rawLevel = (rawV?.level ?? verifData?.level ?? data.level ?? data.verificationLevel) as string | number | undefined;
+  const levelStr = rawLevel !== undefined ? String(rawLevel) : undefined;
 
-  const effectiveFullyVerified = summary.isFullyVerified && !hasIncompleteChecks;
+  let effectiveFullyVerified: boolean;
+  if (levelStr !== undefined) {
+    const upper = levelStr.toUpperCase();
+    if (upper === 'VERIFIED' || upper === 'APPROVED' || upper === 'COMPLETE' || upper === 'LEVEL_1' || upper === 'LEVEL_2' || upper === 'TIER_1' || upper === 'TIER_2' || upper === 'TRUE') {
+      effectiveFullyVerified = true;
+    } else if (upper === 'PENDING' || upper === 'NONE' || upper === 'UNVERIFIED' || upper === '0' || upper === 'REJECTED' || upper === 'IN_REVIEW' || upper === 'FALSE') {
+      effectiveFullyVerified = false;
+    } else {
+      effectiveFullyVerified = summary.isFullyVerified;
+    }
+  } else {
+    // Fallback when level field is absent
+    const hasIncompleteChecks = rawV ? (
+      rawV.identityProofStatus === 'PENDING' ||
+      rawV.identityProofStatus === 'REJECTED' ||
+      rawV.addressProofStatus === 'PENDING' ||
+      rawV.addressProofStatus === 'REJECTED' ||
+      rawV.criminalRecordStatus === 'PENDING' ||
+      rawV.criminalRecordStatus === 'REJECTED' ||
+      rawV.referenceCheckStatus === 'PENDING' ||
+      rawV.referenceCheckStatus === 'FAILED'
+    ) : false;
+    effectiveFullyVerified = summary.isFullyVerified && !hasIncompleteChecks;
+  }
 
   // Build documents list from verification metadata or documents payload
   const rawDocs = Array.isArray(data.documents) ? data.documents : Array.isArray(verifData?.documents) ? verifData.documents : [];
@@ -577,8 +594,11 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
       overallRemarks: rawV?.overallRemarks ? String(rawV.overallRemarks) : undefined,
       reviewerName: rawV?.reviewerName ? String(rawV.reviewerName) : undefined,
       reviewedAt: rawV?.reviewedAt ? String(rawV.reviewedAt) : undefined,
+      level: levelStr,
       ...((rawV as object) || {}),
     },
+    verificationLevel: levelStr || summary.verificationLevel,
+    level: levelStr || summary.level,
     recentEngagements: Array.isArray(data.recentEngagements) ? (data.recentEngagements as WorkerDetail['recentEngagements']) : [],
     internalNotes: Array.isArray(data.internalNotes) ? data.internalNotes.map(String) : [],
   };
@@ -589,6 +609,9 @@ export function syncMockWorkerVerification(workerId: string, isFullyVerified: bo
   if (worker) {
     worker.isFullyVerified = isFullyVerified;
     worker.verificationStatus = isFullyVerified ? 'VERIFIED' : 'PENDING';
+    worker.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
+    worker.verificationLevel = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
+    worker.verification.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
     if (isFullyVerified) {
       worker.verification.identityProofStatus = 'VERIFIED';
       worker.verification.addressProofStatus = 'VERIFIED';
@@ -603,14 +626,38 @@ export function syncMockWorkerVerification(workerId: string, isFullyVerified: bo
 export class RealWorkerRepository implements IWorkerRepository {
   async getWorkers(filter?: WorkerFilterCriteria): Promise<Worker[]> {
     try {
+      let verifiedParam: boolean | undefined = undefined;
+      if (filter?.verified !== undefined) {
+        verifiedParam = filter.verified;
+      } else if (filter?.verificationStatus === 'VERIFIED') {
+        verifiedParam = true;
+      } else if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        verifiedParam = false;
+      }
+
+      const params: Record<string, unknown> = {
+        mobile: filter?.searchTerm,
+        verified: verifiedParam,
+      };
+
+      if (filter?.category && filter.category !== 'ALL') {
+        params.category = filter.category;
+      }
+      if (filter?.status && filter.status !== 'ALL') {
+        params.status = filter.status;
+      }
+      if (filter?.page !== undefined) {
+        params.page = filter.page;
+      }
+      if (filter?.pageSize !== undefined) {
+        params.limit = filter.pageSize;
+      } else if (filter?.limit !== undefined) {
+        params.limit = filter.limit;
+      }
+
       const response = await httpClient.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
         '/admin/workers',
-        {
-          params: {
-            mobile: filter?.searchTerm,
-            onboardingStatus: filter?.verificationStatus === 'VERIFIED' ? 'VERIFIED' : undefined,
-          },
-        }
+        { params }
       );
 
       const rawData = response.data as Record<string, unknown>;
@@ -709,7 +756,9 @@ export class MockWorkerRepository implements IWorkerRepository {
       result = result.filter((w) => w.status === filter.status);
     }
 
-    if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+    if (filter?.verified !== undefined) {
+      result = result.filter((w) => w.isFullyVerified === filter.verified);
+    } else if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
       const wantVerified = filter.verificationStatus === 'VERIFIED';
       result = result.filter((w) => w.isFullyVerified === wantVerified);
     }

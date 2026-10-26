@@ -47,11 +47,11 @@ export interface VerificationExecutiveKPIs {
 }
 
 export interface SupportExecutiveKPIs {
-  openUnassignedGrievances: number;
-  myActiveCases: number;
-  slaAtRiskCount: number;
-  slaBreachedCount: number;
-  resolvedTodayCount: number;
+  openUnassignedGrievances: number | null;
+  myActiveCases: number | null;
+  slaAtRiskCount: number | null;
+  slaBreachedCount: number | null;
+  resolvedTodayCount: number | null;
 }
 
 export interface SuperAdminQueueItem {

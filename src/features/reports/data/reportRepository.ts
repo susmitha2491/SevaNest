@@ -335,6 +335,10 @@ export class RealReportRepository implements IReportRepository {
           ? '/admin/reports/worker-registrations'
           : id.startsWith('REP-04') || id.toLowerCase().includes('funnel')
           ? '/admin/reports/booking-funnel'
+          : id.toLowerCase().includes('payment') || id.toLowerCase().includes('collection')
+          ? '/admin/reports/payment-collections'
+          : id.toLowerCase().includes('support') || id.toLowerCase().includes('ticket')
+          ? '/admin/reports/support-tickets'
           : '/admin/reports';
 
       const res = await httpClient.get<{ success: boolean; data: Record<string, unknown> | Record<string, unknown>[] }>(endpoint, { params });

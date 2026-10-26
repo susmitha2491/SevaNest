@@ -42,6 +42,7 @@ export interface TicketCaseNote {
 
 export interface SupportTicketDetail {
   id: string;
+  etag?: string;
   complainantId: string;
   complainantName: string;
   complainantType: ComplainantRole;
@@ -89,14 +90,16 @@ export interface PaginatedSupportTickets {
 export interface ISupportRepository {
   getTickets(filter?: SupportFilterCriteria): Promise<PaginatedSupportTickets>;
   getTicketById(id: string): Promise<SupportTicketDetail | null>;
-  claimTicket(ticketId: string, staffName: string): Promise<void>;
+  claimTicket(ticketId: string, staffName?: string, etag?: string, options?: { assigneeUserId?: string; note?: string }): Promise<void>;
+  assignTicket(ticketId: string, options: { assigneeUserId?: string; note?: string; etag?: string }): Promise<void>;
+  setPriority(ticketId: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', etag?: string): Promise<void>;
   addCaseNote(
     ticketId: string,
     noteText: string,
     noteType: TicketCaseNote['noteType'],
     authorName: string
   ): Promise<void>;
-  resolveTicket(ticketId: string, resolutionSummary: string): Promise<void>;
-  escalateToOperations(ticketId: string, rationale: string): Promise<void>;
-  initiateReplacementHandoff(ticketId: string, remarks: string): Promise<void>;
+  resolveTicket(ticketId: string, resolutionSummary: string, etag?: string): Promise<void>;
+  escalateToOperations(ticketId: string, rationale: string, etag?: string): Promise<void>;
+  initiateReplacementHandoff(ticketId: string, remarks: string, etag?: string): Promise<void>;
 }

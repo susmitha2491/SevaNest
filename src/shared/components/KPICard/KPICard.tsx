@@ -3,7 +3,7 @@ import { LucideIcon } from 'lucide-react';
 
 interface KPICardProps {
   title: string;
-  value: string | number;
+  value: string | number | null | undefined;
   subtitle?: string;
   icon?: LucideIcon;
   trend?: {
@@ -16,6 +16,7 @@ interface KPICardProps {
 /**
  * Operational KPI Metric Card.
  * Renders server-reported operational counts and metric summaries.
+ * Unknown or unprovided metrics are cleanly displayed as "—" rather than fabricated as 0.
  */
 export const KPICard: React.FC<KPICardProps> = ({
   title,
@@ -25,6 +26,8 @@ export const KPICard: React.FC<KPICardProps> = ({
   trend,
   onClick,
 }) => {
+  const displayValue = value === null || value === undefined ? '—' : value;
+
   return (
     <div
       onClick={onClick}
@@ -65,7 +68,7 @@ export const KPICard: React.FC<KPICardProps> = ({
 
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
         <span style={{ fontSize: 'var(--font-size-kpi)', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.2 }}>
-          {value}
+          {displayValue}
         </span>
         {trend && (
           <span

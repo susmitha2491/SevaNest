@@ -12,6 +12,7 @@ export interface WorkerVerificationDetail {
   overallRemarks?: string;
   reviewerName?: string;
   reviewedAt?: string;
+  level?: string;
 }
 
 export interface WorkerDocumentMetadata {
@@ -50,6 +51,8 @@ export interface Worker {
   phoneMasked?: string;
   onboardingStatus?: 'REGISTERED' | 'APPLIED' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
   verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED' | 'RECHECK_DUE';
+  verificationLevel?: string;
+  level?: string;
   createdAt?: string;
   registeredAt?: string;
   completedChecksCount?: number;
@@ -79,7 +82,11 @@ export interface WorkerFilterCriteria {
   category?: string;
   locality?: string;
   verificationStatus?: 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED';
+  verified?: boolean;
   status?: 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
+  page?: number;
+  pageSize?: number;
+  limit?: number;
 }
 
 export interface IWorkerRepository {

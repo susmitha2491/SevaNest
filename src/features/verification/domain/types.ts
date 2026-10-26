@@ -49,6 +49,15 @@ export interface VerificationContactDetails {
   callNotes?: string;
 }
 
+export interface VerificationCheckEvent {
+  fromStatus?: string | null;
+  toStatus: string;
+  actorUserId: string;
+  actorName?: string;
+  remarks?: string | null;
+  createdAt: string;
+}
+
 export interface VerificationCheck {
   id?: string;
   type: VerificationCheckType;
@@ -56,6 +65,7 @@ export interface VerificationCheck {
   status: VerificationCheckStatus;
   evaluationMethod: 'DOCUMENT_INSPECTION' | 'TELEPHONIC_VETTING' | 'CERTIFICATE_TRACKING';
   documentMetadata?: VerificationDocumentMetadata;
+  documents?: VerificationDocumentMetadata[];
   contactDetails?: VerificationContactDetails;
   mockDocumentUrl?: string;
   rejectionCategory?: RejectionReasonCategory;
@@ -63,10 +73,12 @@ export interface VerificationCheck {
   verifiedAt?: string;
   verifiedBy?: string;
   recheckDueDate?: string;
+  history?: VerificationCheckEvent[];
 }
 
 export interface VerificationDossier {
   id: string;
+  checkId?: string;
   applicationId?: string;
   workerId: string;
   workerName: string;
@@ -75,17 +87,51 @@ export interface VerificationDossier {
   experienceYears: number;
   phoneMasked: string;
   submissionTime: string;
+  applicationSubmittedAt?: string;
   status: 'PENDING_REVIEW' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'RECHECK_DUE';
   assignedReviewer?: string;
+  reviewerUserId?: string;
+  claimedAt?: string;
+  level?: string;
   preCheckOtpVerified: boolean; // Automated pre-check
   checks: Record<VerificationCheckType, VerificationCheck>;
   overallRemarks?: string;
+  address?: {
+    line1?: string;
+    line2?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    locality?: string;
+  };
+  languages?: string[];
+  skills?: string[];
+  availability?: string;
+  expectedSalary?: number | string;
+  emergencyContact?: {
+    name?: string;
+    relationship?: string;
+    phoneMasked?: string;
+    phone?: string;
+  };
+  previousEmployer?: {
+    name?: string;
+    phoneMasked?: string;
+    phone?: string;
+    role?: string;
+    period?: string;
+    feedback?: string;
+  };
+  accountStatus?: 'ACTIVE' | 'SUSPENDED';
 }
 
 export interface VerificationFilterCriteria {
   searchTerm?: string;
   status?: 'ALL' | 'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'APPROVED' | 'REJECTED';
   category?: string;
+  categoryId?: string;
+  assignedTo?: 'me';
+  reviewerId?: string;
   sortBy?: 'submissionTime' | 'workerName' | 'category';
   sortOrder?: 'asc' | 'desc';
   page?: number;
@@ -102,28 +148,25 @@ export interface PaginatedVerificationQueue {
 
 export interface IVerificationRepository {
   getVerificationQueue(filter?: VerificationFilterCriteria): Promise<PaginatedVerificationQueue>;
-  getDossierById(dossierId: string): Promise<VerificationDossier | null>;
-  claimDossier(dossierId: string): Promise<void>;
-  approveCheck(dossierId: string, checkType: VerificationCheckType, notes?: string): Promise<void>;
+  getDossierById(workerId: string): Promise<VerificationDossier | null>;
+  claimDossier(workerId: string, checkId?: string): Promise<void>;
+  claimCheck(checkId: string): Promise<void>;
+  approveCheck(checkId: string, checkType?: VerificationCheckType, notes?: string): Promise<void>;
   rejectCheck(
-    dossierId: string,
-    checkType: VerificationCheckType,
-    category: RejectionReasonCategory,
-    remarks: string
-  ): Promise<void>;
-  requestReVerification(
-    dossierId: string,
-    checkTypes: VerificationCheckType[],
-    instructions: string
-  ): Promise<void>;
-  getSignedDocumentUrl(
-    dossierId: string,
-    checkType: VerificationCheckType,
-    documentId?: string
-  ): Promise<{ signedUrl: string; expiresAt: string }>;
-  submitFinalDecision(
-    dossierId: string,
-    decision: 'APPROVED' | 'REJECTED' | 'CORRECTIONS_REQUESTED',
+    checkId: string,
+    checkType?: VerificationCheckType,
+    category?: RejectionReasonCategory,
     remarks?: string
   ): Promise<void>;
+  requestReVerification(
+    checkId: string,
+    checkTypes?: VerificationCheckType[],
+    instructions?: string
+  ): Promise<void>;
+  getSignedDocumentUrl(
+    workerId: string,
+    checkType: VerificationCheckType,
+    documentId?: string
+  ): Promise<{ signedUrl: string; url?: string; expiresAt: string; expiresInSeconds?: number }>;
 }
+

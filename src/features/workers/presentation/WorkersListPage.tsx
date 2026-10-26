@@ -76,16 +76,20 @@ export const WorkersListPage: React.FC = () => {
 
   const handleOpenDetailModal = (id: string) => {
     setDetailModalId(id);
-    const nextParams = new window.URLSearchParams(searchParams);
-    nextParams.set('workerId', id);
-    setSearchParams(nextParams, { replace: true });
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.set('workerId', id);
+      return next;
+    }, { replace: true });
   };
 
   const handleCloseDetailModal = () => {
     setDetailModalId(null);
-    const nextParams = new window.URLSearchParams(searchParams);
-    nextParams.delete('workerId');
-    setSearchParams(nextParams, { replace: true });
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.delete('workerId');
+      return next;
+    }, { replace: true });
   };
 
   const { data: workers = [], isLoading, isError, refetch } = useQuery({
@@ -113,8 +117,11 @@ export const WorkersListPage: React.FC = () => {
     }
 
     if (verificationFilter !== 'ALL') {
-      const wantVerified = verificationFilter === 'VERIFIED';
-      result = result.filter((w) => w.isFullyVerified === wantVerified);
+      if (verificationFilter === 'VERIFIED') {
+        result = result.filter((w) => w.isFullyVerified === true && w.status === 'ACTIVE');
+      } else if (verificationFilter === 'PENDING') {
+        result = result.filter((w) => !w.isFullyVerified);
+      }
     }
 
     if (statusFilter !== 'ALL') {
@@ -513,7 +520,7 @@ export const WorkersListPage: React.FC = () => {
                   Primary Skill
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                  Verification
+                  KYC Status
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                   Matching Eligibility
@@ -528,7 +535,7 @@ export const WorkersListPage: React.FC = () => {
                   Cluster
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                  Status
+                  Account Status
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
                   Actions

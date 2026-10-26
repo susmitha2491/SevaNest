@@ -22,6 +22,7 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { RefundProcessingModal } from './RefundProcessingModal';
+import { env } from '../../../core/config/env';
 
 export const PaymentsListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -133,7 +134,7 @@ export const PaymentsListPage: React.FC = () => {
           }}
         >
           <Info size={16} />
-          <span>Simulated Ledger Mode — Direct Gateway Webhooks Simulated</span>
+          <span>{env.VITE_USE_MOCK_AUTH ? 'Simulated Ledger Mode — Direct Gateway Webhooks Simulated' : 'Platform Financial Ledger — Gateway Reconciled'}</span>
         </div>
       </div>
 

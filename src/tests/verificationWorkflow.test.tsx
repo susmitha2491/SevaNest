@@ -110,6 +110,8 @@ describe('Worker Verification & Trust Workstation', () => {
     const approveButton = await screen.findByRole('button', { name: /Approve Check/i });
     expect(approveButton).toBeInTheDocument();
     await user.click(approveButton);
+    const confirmButton = await screen.findByRole('button', { name: /Confirm Approval/i });
+    await user.click(confirmButton);
   });
 
   it('opens reject check dialog requiring category selection and mandatory operational remarks', async () => {

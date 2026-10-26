@@ -6,6 +6,7 @@ import {
   BookingFilterCriteria,
   PaginatedBookings,
   IBookingRepository,
+  MatchRequirement,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -281,6 +282,12 @@ export class MockBookingRepository implements IBookingRepository {
     );
   }
 
+  async matchCandidates(requirement: MatchRequirement): Promise<CandidateMatch[]> {
+    return this.candidatesPool.filter(
+      (c) => c.isFullyVerified && (c.category.toLowerCase().includes(requirement.category.toLowerCase()) || requirement.category.toLowerCase().includes(c.category.toLowerCase()))
+    );
+  }
+
   async scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void> {
     const booking = this.bookings.find((b) => b.id === bookingId);
     const candidate = this.candidatesPool.find((c) => c.workerId === candidateWorkerId);
@@ -425,8 +432,68 @@ export class RealBookingRepository implements IBookingRepository {
     }
   }
 
+  async matchCandidates(requirement: MatchRequirement): Promise<CandidateMatch[]> {
+    try {
+      const res = await httpClient.post<{
+        data: Array<{
+          workerId: string;
+          userId: string;
+          name: string;
+          experienceMonths?: number | null;
+          categories: Array<{ id: string; name?: string }>;
+          languages: string[];
+          serviceAreas: Array<{ id: string; name?: string }>;
+          engagementPreference?: string | null;
+        }>;
+        meta: { page: number; limit: number; total: number; totalPages: number };
+        ordering: string;
+        ranked: boolean;
+      }>('/admin/matching/candidates', requirement);
+
+      const items = Array.isArray(res.data?.data) ? res.data.data : [];
+      return items.map((raw) => ({
+        workerId: String(raw.workerId || ''),
+        workerName: String(raw.name || 'Candidate'),
+        category: raw.categories?.[0]?.name || requirement.category,
+        locality: raw.serviceAreas?.[0]?.name || 'Hyderabad',
+        experienceYears: raw.experienceMonths ? Math.round(raw.experienceMonths / 12) : 0,
+        matchScore: 100,
+        ratingAverage: 5.0,
+        totalReviews: 0,
+        isFullyVerified: true,
+        languages: Array.isArray(raw.languages) ? raw.languages : [],
+      }));
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async getCandidateSuggestions(bookingId: string): Promise<CandidateMatch[]> {
     try {
+      // 1. If booking details are available, attempt candidate matching via POST /admin/matching/candidates
+      const booking = await this.getBookingById(bookingId).catch(() => null);
+      if (booking) {
+        let engagement: MatchRequirement['engagement'] = 'FULL_TIME';
+        if (booking.engagementType === 'PART_TIME') engagement = 'PART_TIME';
+        else if (booking.engagementType === 'FULL_TIME_LIVE_IN') engagement = 'LIVE_IN';
+        else if (booking.engagementType === 'ONE_TIME') engagement = 'ONE_TIME';
+
+        try {
+          const matched = await this.matchCandidates({
+            category: booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
+            areaId: booking.customerLocality,
+            engagement,
+            availableFrom: '09:00',
+            availableTo: '17:00',
+          });
+          if (matched.length > 0) {
+            return matched;
+          }
+        } catch {
+          // If 422 or match criteria cannot be met, fall back to replacement candidates
+        }
+      }
+
       const res = await httpClient.get<{ success: boolean; data: Record<string, unknown>[] }>(
         `/admin/replacement-requests/${bookingId}/candidates`
       );

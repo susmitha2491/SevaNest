@@ -214,7 +214,7 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       renderApp('/customers');
 
       expect(await screen.findByRole('heading', { name: /Access Restricted/i })).toBeInTheDocument();
-      expect(screen.getByText(/Required permission: customers\.view/i)).toBeInTheDocument();
+      expect(screen.getByText(/Required permission: customer\.view/i)).toBeInTheDocument();
     });
 
     it('restricts direct URL access to /bookings and renders Access Restricted', async () => {
