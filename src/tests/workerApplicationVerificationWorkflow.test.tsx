@@ -31,9 +31,17 @@ function renderWithProviders(ui: React.ReactElement, initialRoute: string = '/')
   );
 }
 
+const repoWithDossiers = verificationRepository as unknown as { dossiers?: unknown[] };
+const initialDossiersSnapshot = repoWithDossiers.dossiers
+  ? JSON.stringify(repoWithDossiers.dossiers)
+  : null;
+
 describe('Worker Application & Verification Complete Workflow', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    if (initialDossiersSnapshot && repoWithDossiers.dossiers) {
+      repoWithDossiers.dossiers = JSON.parse(initialDossiersSnapshot);
+    }
     useAuthStore.setState({
       user: {
         id: 'STAFF-VE-01',
@@ -44,6 +52,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
           PERMISSIONS.DASHBOARD_VIEW,
           PERMISSIONS.WORKERS_VIEW,
           PERMISSIONS.VERIFICATION_REVIEW,
+          PERMISSIONS.VERIFICATION_DECIDE,
           PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED,
         ],
       },
@@ -476,7 +485,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const step5Btn = screen.getByRole('button', { name: /Proceed to Step 5: Platform Status/i });
       await user.click(step5Btn);
       expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/Activation Flow Notice \(Unconfirmed Backend Contract\)/i)).toBeInTheDocument();
+      expect(screen.getByText(/Current Platform Matching State/i)).toBeInTheDocument();
     });
 
     it('displays authoritative overall verification level in Step 4 and does not expose unsupported decision controls', async () => {
@@ -501,7 +510,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
 
       expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
       expect(screen.getByText(/Authoritative Overall Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/There is no worker-level final-decision endpoint/i)).toBeInTheDocument();
+      expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
 
       // Ensure no unsupported final decision mutation buttons are exposed
       expect(screen.queryByRole('button', { name: /Submit Final Verification Approval/i })).not.toBeInTheDocument();
@@ -564,13 +573,288 @@ describe('Worker Application & Verification Complete Workflow', () => {
       await user.click(step5Pill);
 
       expect(
-        await screen.findByText(/Activation Flow Notice \(Unconfirmed Backend Contract\)/i)
+        await screen.findByText(/Step 5: Platform & Roster Status/i)
       ).toBeInTheDocument();
       expect(
-        screen.getByText(/Worker activation and deactivation endpoints are not confirmed by the backend contract/i)
+        screen.getByText(/Current Platform Matching State/i)
       ).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
       expect(updateStatusSpy).not.toHaveBeenCalled();
+    });
+
+    it('Step 2 displays submitted documents harvested from both worker record and checks, supports viewing/previewing, zoom, rotate, and secure links', async () => {
+      const user = userEvent.setup();
+      renderWithProviders(
+        <WorkerDetailModal
+          workerId="W-10482"
+          onClose={() => {}}
+        />
+      );
+
+      // Navigate to Step 2 via button
+      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
+      await user.click(step2Btn);
+
+      expect(await screen.findByText(/Step 2: Documents & KYC Evidence Vault/i)).toBeInTheDocument();
+      expect(screen.getByText(/Secure Vault Protocol:/i)).toBeInTheDocument();
+
+      // Verify documents table contains headers
+      expect(screen.getByText('Document Type')).toBeInTheDocument();
+      expect(screen.getByText('Document ID / Reference')).toBeInTheDocument();
+      expect(screen.getByText('Verification State')).toBeInTheDocument();
+
+      // W-10482 has Aadhaar card in documents
+      expect((await screen.findAllByText(/Aadhaar Card/i)).length).toBeGreaterThan(0);
+
+      // Inspect Document button
+      const inspectButtons = screen.getAllByRole('button', { name: /^Inspect Document$/i });
+      expect(inspectButtons.length).toBeGreaterThan(0);
+      await user.click(inspectButtons[0]);
+
+      // Preview panel appears
+      expect(await screen.findByText(/Authorized Document Vault Preview/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Zoom In/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Rotate 90°/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Open Secure Document Link/i })).toBeInTheDocument();
+
+      // Close preview
+      const closePreviewBtn = screen.getByRole('button', { name: /Close Preview/i });
+      await user.click(closePreviewBtn);
+      expect(screen.queryByText(/Authorized Document Vault Preview/i)).not.toBeInTheDocument();
+    });
+
+    it('Step 2 displays honest empty state when applicant has not uploaded any documents', async () => {
+      vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValueOnce({
+        id: 'W-NO-DOCS',
+        name: 'Applicant Without Documents',
+        category: 'Cook',
+        categories: ['Cook'],
+        experienceYears: 1,
+        ratingAverage: 0,
+        totalReviews: 0,
+        locality: 'Kondapur',
+        serviceRadiusKm: 5,
+        languages: ['Hindi'],
+        bio: '',
+        isFullyVerified: false,
+        status: 'SUSPENDED',
+        onboardingStatus: 'IN_REVIEW',
+        phoneMasked: '+91 99999 *****',
+        documents: [],
+        verification: {
+          phoneOtpVerified: true,
+          identityProofStatus: 'PENDING',
+          addressProofStatus: 'PENDING',
+          criminalRecordStatus: 'PENDING',
+          skillProofStatus: 'NOT_APPLICABLE',
+          referenceCheckStatus: 'PENDING',
+        },
+        activeEngagementsCount: 0,
+        completedBookingsCount: 0,
+        replacementsIncurred: 0,
+        recentEngagements: [],
+        internalNotes: [],
+      });
+
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValueOnce({
+        id: 'W-NO-DOCS',
+        applicationId: 'APP-NO-DOCS',
+        workerId: 'W-NO-DOCS',
+        workerName: 'Applicant Without Documents',
+        category: 'Cook',
+        locality: 'Kondapur',
+        experienceYears: 1,
+        phoneMasked: '+91 99999 *****',
+        submissionTime: new Date().toISOString(),
+        status: 'PENDING_REVIEW',
+        preCheckOtpVerified: true,
+        checks: {
+          IDENTITY: { type: 'IDENTITY', title: 'Identity Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          ADDRESS: { type: 'ADDRESS', title: 'Address Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          EMERGENCY_CONTACT: { type: 'EMERGENCY_CONTACT', title: 'Emergency Contact', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          REFERENCE: { type: 'REFERENCE', title: 'Reference', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          POLICE_CLEARANCE: { type: 'POLICE_CLEARANCE', title: 'Police Certificate', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+        },
+      });
+
+      const user = userEvent.setup();
+      renderWithProviders(
+        <WorkerDetailModal
+          workerId="W-NO-DOCS"
+          onClose={() => {}}
+        />
+      );
+
+      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
+      await user.click(step2Btn);
+
+      expect(await screen.findByTestId('no-documents-submitted')).toBeInTheDocument();
+      expect(screen.getByText(/No verification documents submitted yet/i)).toBeInTheDocument();
+      expect(screen.getByText(/Pending worker upload via the Worker Mobile App\./i)).toBeInTheDocument();
+    });
+
+    it('Step 3 allows approving an active check, opening ConfirmDialog, and persisting decision through verificationRepository.approveCheck', async () => {
+      const approveSpy = vi.spyOn(verificationRepository, 'approveCheck').mockResolvedValueOnce();
+      const user = userEvent.setup();
+
+      vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValueOnce({
+        id: 'W-PENDING',
+        name: 'Pending Worker',
+        category: 'House Maid',
+        categories: ['House Maid'],
+        experienceYears: 2,
+        ratingAverage: 0,
+        totalReviews: 0,
+        locality: 'Kondapur',
+        serviceRadiusKm: 5,
+        languages: ['Hindi'],
+        bio: '',
+        isFullyVerified: false,
+        status: 'SUSPENDED',
+        onboardingStatus: 'IN_REVIEW',
+        phoneMasked: '+91 99999 *****',
+        documents: [],
+        verification: {
+          phoneOtpVerified: true,
+          identityProofStatus: 'PENDING',
+          addressProofStatus: 'PENDING',
+          criminalRecordStatus: 'PENDING',
+          skillProofStatus: 'NOT_APPLICABLE',
+          referenceCheckStatus: 'PENDING',
+        },
+        activeEngagementsCount: 0,
+        completedBookingsCount: 0,
+        replacementsIncurred: 0,
+        recentEngagements: [],
+        internalNotes: [],
+      });
+
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValueOnce({
+        id: 'W-PENDING',
+        applicationId: 'APP-PENDING',
+        workerId: 'W-PENDING',
+        workerName: 'Pending Worker',
+        category: 'House Maid',
+        locality: 'Kondapur',
+        experienceYears: 2,
+        phoneMasked: '+91 99999 *****',
+        submissionTime: new Date().toISOString(),
+        status: 'PENDING_REVIEW',
+        preCheckOtpVerified: true,
+        checks: {
+          IDENTITY: { id: 'chk-id-test', type: 'IDENTITY', title: 'Identity Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          ADDRESS: { id: 'chk-addr-test', type: 'ADDRESS', title: 'Address Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          EMERGENCY_CONTACT: { id: 'chk-em-test', type: 'EMERGENCY_CONTACT', title: 'Emergency Contact', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          REFERENCE: { id: 'chk-ref-test', type: 'REFERENCE', title: 'Reference', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          POLICE_CLEARANCE: { id: 'chk-pol-test', type: 'POLICE_CLEARANCE', title: 'Police Certificate', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+        },
+      });
+
+      renderWithProviders(
+        <WorkerDetailModal
+          workerId="W-PENDING"
+          onClose={() => {}}
+        />
+      );
+
+      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
+      await user.click(step2Btn);
+
+      const step3Btn = await screen.findByRole('button', { name: /^Proceed to Step 3: Verification Checklist$/i });
+      await user.click(step3Btn);
+
+      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+
+      // Find the Approve Check button for the active Identity check
+      const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
+      // The first check (Identity) is not locked
+      await user.click(approveButtons[0]);
+
+      // ConfirmDialog opens
+      expect(await screen.findByRole('button', { name: /Confirm Approval/i })).toBeInTheDocument();
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Approval/i });
+      await user.click(confirmBtn);
+
+      expect(approveSpy).toHaveBeenCalledWith(
+        'chk-id-test',
+        'IDENTITY',
+        expect.any(String)
+      );
+    });
+
+    it('Step 3 enforces sequential locking where dependent check is locked until prerequisite is approved', async () => {
+      const user = userEvent.setup();
+
+      vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValueOnce({
+        id: 'W-PENDING',
+        name: 'Pending Worker',
+        category: 'House Maid',
+        categories: ['House Maid'],
+        experienceYears: 2,
+        ratingAverage: 0,
+        totalReviews: 0,
+        locality: 'Kondapur',
+        serviceRadiusKm: 5,
+        languages: ['Hindi'],
+        bio: '',
+        isFullyVerified: false,
+        status: 'SUSPENDED',
+        onboardingStatus: 'IN_REVIEW',
+        phoneMasked: '+91 99999 *****',
+        documents: [],
+        verification: {
+          phoneOtpVerified: true,
+          identityProofStatus: 'PENDING',
+          addressProofStatus: 'PENDING',
+          criminalRecordStatus: 'PENDING',
+          skillProofStatus: 'NOT_APPLICABLE',
+          referenceCheckStatus: 'PENDING',
+        },
+        activeEngagementsCount: 0,
+        completedBookingsCount: 0,
+        replacementsIncurred: 0,
+        recentEngagements: [],
+        internalNotes: [],
+      });
+
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValueOnce({
+        id: 'W-PENDING',
+        applicationId: 'APP-PENDING',
+        workerId: 'W-PENDING',
+        workerName: 'Pending Worker',
+        category: 'House Maid',
+        locality: 'Kondapur',
+        experienceYears: 2,
+        phoneMasked: '+91 99999 *****',
+        submissionTime: new Date().toISOString(),
+        status: 'PENDING_REVIEW',
+        preCheckOtpVerified: true,
+        checks: {
+          IDENTITY: { id: 'chk-id-test', type: 'IDENTITY', title: 'Identity Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          ADDRESS: { id: 'chk-addr-test', type: 'ADDRESS', title: 'Address Proof', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+          EMERGENCY_CONTACT: { id: 'chk-em-test', type: 'EMERGENCY_CONTACT', title: 'Emergency Contact', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          REFERENCE: { id: 'chk-ref-test', type: 'REFERENCE', title: 'Reference', status: 'PENDING', evaluationMethod: 'TELEPHONIC_VETTING' },
+          POLICE_CLEARANCE: { id: 'chk-pol-test', type: 'POLICE_CLEARANCE', title: 'Police Certificate', status: 'PENDING', evaluationMethod: 'DOCUMENT_INSPECTION' },
+        },
+      });
+
+      renderWithProviders(
+        <WorkerDetailModal
+          workerId="W-PENDING"
+          onClose={() => {}}
+        />
+      );
+
+      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
+      await user.click(step2Btn);
+
+      const step3Btn = await screen.findByRole('button', { name: /^Proceed to Step 3: Verification Checklist$/i });
+      await user.click(step3Btn);
+
+      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+
+      // Address check is Step 2 and requires Identity (Step 1)
+      expect((await screen.findAllByText(/is locked until preceding check\(s\)/i)).length).toBeGreaterThan(0);
     });
   });
 });

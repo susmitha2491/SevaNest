@@ -73,6 +73,9 @@ export interface VerificationCheck {
   verifiedAt?: string;
   verifiedBy?: string;
   recheckDueDate?: string;
+  notes?: string[];
+  referenceNumber?: string;
+  expiresOn?: string;
   history?: VerificationCheckEvent[];
 }
 
@@ -86,6 +89,8 @@ export interface VerificationDossier {
   locality: string;
   experienceYears: number;
   phoneMasked: string;
+  phone?: string;
+  email?: string;
   submissionTime: string;
   applicationSubmittedAt?: string;
   status: 'PENDING_REVIEW' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'RECHECK_DUE';
@@ -123,6 +128,10 @@ export interface VerificationDossier {
     feedback?: string;
   };
   accountStatus?: 'ACTIVE' | 'SUSPENDED';
+  applicationStatus?: 'SUBMITTED' | 'UNDER_REVIEW' | 'VERIFIED' | 'ACTIVE' | 'REJECTED' | string;
+  activatedAt?: string;
+  signedOffAt?: string;
+  signedOffBy?: string;
 }
 
 export interface VerificationFilterCriteria {
@@ -146,18 +155,61 @@ export interface PaginatedVerificationQueue {
   totalPages: number;
 }
 
+export interface AdminCheckView {
+  checkId: string;
+  checkType: 'IDENTITY' | 'ADDRESS' | 'EMERGENCY_CONTACT' | 'PREVIOUS_EMPLOYMENT' | 'POLICE_VERIFICATION' | 'SKILL_CERTIFICATE' | 'LICENSE' | string;
+  status: 'NOT_SUBMITTED' | 'SUBMITTED' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'RECHECK_DUE';
+  required: boolean;
+  submittedAt?: string | null;
+  reviewedAt?: string | null;
+  remarks?: string | null;
+  recheckAt?: string | null;
+  documents?: Array<{
+    documentId: string;
+    documentType: string;
+    status: string;
+    fileName?: string;
+    fileUrl?: string;
+    uploadedAt?: string;
+  }>;
+  reviewerUserId?: string | null;
+  claimedAt?: string | null;
+  history?: Array<Record<string, unknown>>;
+}
+
+export interface AdminWorkerVerificationResponse {
+  workerId: string;
+  level: 'VERIFIED' | 'IN_PROGRESS' | 'NOT_STARTED' | string;
+  requiredChecks: string[];
+  checks: AdminCheckView[];
+  status?: string;
+  applicationStatus?: string;
+  activatedAt?: string;
+  signedOffAt?: string;
+  signedOffBy?: string;
+}
+
 export interface IVerificationRepository {
   getVerificationQueue(filter?: VerificationFilterCriteria): Promise<PaginatedVerificationQueue>;
   getDossierById(workerId: string): Promise<VerificationDossier | null>;
   claimDossier(workerId: string, checkId?: string): Promise<void>;
   claimCheck(checkId: string): Promise<void>;
-  approveCheck(checkId: string, checkType?: VerificationCheckType, notes?: string): Promise<void>;
+  approveCheck(
+    checkId: string,
+    checkType?: VerificationCheckType,
+    notes?: string,
+    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+  ): Promise<AdminWorkerVerificationResponse | void>;
   rejectCheck(
     checkId: string,
     checkType?: VerificationCheckType,
     category?: RejectionReasonCategory,
     remarks?: string
   ): Promise<void>;
+  releaseReview(checkId: string): Promise<void>;
+  reassignReview(checkId: string, reviewerUserId: string, reason?: string): Promise<void>;
+  addCheckNote(checkId: string, note: string, kind?: 'CALL' | 'REVIEW'): Promise<void>;
+  updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void>;
   requestReVerification(
     checkId: string,
     checkTypes?: VerificationCheckType[],
@@ -168,5 +220,27 @@ export interface IVerificationRepository {
     checkType: VerificationCheckType,
     documentId?: string
   ): Promise<{ signedUrl: string; url?: string; expiresAt: string; expiresInSeconds?: number }>;
+  signOffVerification(
+    workerId: string,
+    remarks?: string
+  ): Promise<AdminWorkerVerificationResponse>;
+  activateWorker(
+    workerId: string
+  ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult>;
+  approveApplicationAndOnboardWorker(
+    workerId: string,
+    notes?: string
+  ): Promise<FinalOnboardingResult>;
 }
+
+export interface FinalOnboardingResult {
+  success: boolean;
+  workerId: string;
+  applicationId?: string;
+  status: string;
+  message?: string;
+  acceptedAt?: string;
+  acceptedBy?: string;
+}
+
 

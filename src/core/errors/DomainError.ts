@@ -42,19 +42,36 @@ export class NotFoundError extends DomainError {
 export class ConcurrencyConflictError extends DomainError {
   public readonly code = 'CONCURRENCY_CONFLICT';
   public readonly statusCode?: number;
-  constructor(message = 'This record was modified by another user. Please reload the latest data.', correlationId?: string, statusCode?: number) {
+  public readonly errorCode?: string;
+  constructor(
+    message = 'This record was modified by another user. Please reload the latest data.',
+    correlationId?: string,
+    statusCode?: number,
+    errorCode?: string
+  ) {
     super(message, correlationId);
     this.statusCode = statusCode;
+    this.errorCode = errorCode;
   }
 }
 
 export class ValidationError extends DomainError {
   public readonly code = 'VALIDATION_ERROR';
   public readonly fieldErrors?: Record<string, string[]>;
+  public readonly errorCode?: string;
+  public readonly details?: unknown;
 
-  constructor(message = 'Validation failed. Please review the highlighted fields.', fieldErrors?: Record<string, string[]>, correlationId?: string) {
+  constructor(
+    message = 'Validation failed. Please review the highlighted fields.',
+    fieldErrors?: Record<string, string[]>,
+    correlationId?: string,
+    errorCode?: string,
+    details?: unknown
+  ) {
     super(message, correlationId);
     this.fieldErrors = fieldErrors;
+    this.errorCode = errorCode;
+    this.details = details;
   }
 }
 

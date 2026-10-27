@@ -68,9 +68,18 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
         return new NotFoundError(serverMessage || 'Resource not found.', correlationId);
       case 409:
         if (payload?.code === 'CHECK_ALREADY_ASSIGNED') {
-          return new ConcurrencyConflictError(serverMessage || 'Check is already assigned to another reviewer.', correlationId, 409);
+          return new ConcurrencyConflictError(serverMessage || 'Check is already assigned to another reviewer.', correlationId, 409, payload.code);
         }
-        return new ConcurrencyConflictError(serverMessage || 'Concurrent modification conflict.', correlationId, 409);
+        if (payload?.code === 'NOT_FULLY_VERIFIED') {
+          return new ConcurrencyConflictError(serverMessage || 'Cannot sign off: all required verification checks must be approved first.', correlationId, 409, payload.code);
+        }
+        if (payload?.code === 'WORKER_DISQUALIFIED') {
+          return new ConcurrencyConflictError(serverMessage || 'Worker disqualified: application cannot be signed off due to a rejected check.', correlationId, 409, payload.code);
+        }
+        if (payload?.code === 'NOT_SIGNED_OFF') {
+          return new ConcurrencyConflictError(serverMessage || 'Worker verification has not been signed off. Complete supervisor sign-off before activation.', correlationId, 409, payload.code);
+        }
+        return new ConcurrencyConflictError(serverMessage || 'Concurrent modification conflict.', correlationId, 409, payload?.code);
       case 412:
         return new ConcurrencyConflictError(
           serverMessage || 'STALE_VERSION: This record was modified by another user or session. Please reload the latest data and retry.',
@@ -78,7 +87,13 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
           412
         );
       case 422:
-        return new ValidationError(serverMessage || 'Validation rules violated.', fieldErrors, correlationId);
+        if (payload?.code === 'ACTIVATION_REQUIREMENTS_MISSING') {
+          return new ValidationError(serverMessage || 'Missing authoritative prerequisites for worker activation.', fieldErrors, correlationId, payload.code, payload.details);
+        }
+        if (payload?.code === 'PROFILE_NOT_SUBMITTED') {
+          return new ValidationError(serverMessage || 'Worker profile has not been submitted yet.', fieldErrors, correlationId, payload.code, payload.details);
+        }
+        return new ValidationError(serverMessage || 'Validation rules violated.', fieldErrors, correlationId, payload?.code, payload?.details);
       case 428:
         return new ConcurrencyConflictError(
           serverMessage || 'PRECONDITION_REQUIRED: Concurrency version precondition (ETag/If-Match) is required for this mutation.',

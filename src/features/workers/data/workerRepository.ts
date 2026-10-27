@@ -2,6 +2,7 @@ import { Worker, WorkerDetail, WorkerFilterCriteria, IWorkerRepository, WorkerDo
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
+import { DomainError, ValidationError, NotFoundError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 
 const MOCK_WORKERS: WorkerDetail[] = [
   {
@@ -21,6 +22,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     isFullyVerified: true,
     status: 'ACTIVE',
     phoneMasked: '+91 98765 *****',
+    phone: '+91 98765 43210',
+    email: 'sunita.devi@sevanest.worker',
     onboardingStatus: 'VERIFIED',
     verificationStatus: 'VERIFIED',
     createdAt: '2026-01-05T10:00:00Z',
@@ -99,6 +102,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     isFullyVerified: false,
     status: 'ACTIVE',
     phoneMasked: '+91 98450 *****',
+    phone: '+91 98450 12345',
+    email: 'ramesh.yadav@sevanest.worker',
     onboardingStatus: 'IN_REVIEW',
     verificationStatus: 'IN_REVIEW',
     createdAt: '2026-01-08T09:00:00Z',
@@ -429,10 +434,22 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     ? item.ratingAverage
     : 0;
 
-  const isVerified = (item.verification === 'VERIFIED' || item.isFullyVerified === true || item.onboardingStatus === 'VERIFIED') &&
+  const rawLevel = (item.level ?? item.verificationLevel ?? (typeof item.verification === 'object' && item.verification !== null ? (item.verification as Record<string, unknown>).level : undefined)) as string | number | undefined;
+  const level = rawLevel !== undefined ? String(rawLevel) : undefined;
+  const levelUpper = level ? level.toUpperCase() : '';
+  const isLevelVerified = levelUpper === 'VERIFIED' || levelUpper === 'APPROVED' || levelUpper === 'COMPLETE' || levelUpper === 'LEVEL_1' || levelUpper === 'LEVEL_2' || levelUpper === 'LEVEL_3' || levelUpper === 'TIER_1' || levelUpper === 'TIER_2' || levelUpper === 'TRUE';
+
+  const isVerified = (
+    item.verification === 'VERIFIED' ||
+    item.verificationStatus === 'VERIFIED' ||
+    item.isFullyVerified === true ||
+    item.onboardingStatus === 'VERIFIED' ||
+    isLevelVerified
+  ) &&
     item.onboardingStatus !== 'REJECTED' &&
     item.verification !== 'REJECTED' &&
-    item.verificationStatus !== 'REJECTED';
+    item.verificationStatus !== 'REJECTED' &&
+    levelUpper !== 'REJECTED';
 
   let phoneMasked = item.phoneMasked ? String(item.phoneMasked) : undefined;
   if (!phoneMasked && (item.mobile || item.phone)) {
@@ -444,11 +461,13 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   const applicationId = item.applicationId && !String(item.applicationId).startsWith('APP-')
     ? String(item.applicationId)
     : rawId || undefined;
-  const rawLevel = (item.level ?? item.verificationLevel) as string | number | undefined;
-  const level = rawLevel !== undefined ? String(rawLevel) : undefined;
+
+  const rawPhone = item.phone ? String(item.phone) : item.mobile ? String(item.mobile) : undefined;
+  const rawEmail = item.email ? String(item.email) : undefined;
 
   return {
     id: rawId,
+    userId: item.userId ? String(item.userId) : undefined,
     applicationId,
     name: String(item.fullName || item.name || 'Worker'),
     category: categoryStr,
@@ -462,6 +481,9 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     isFullyVerified: isVerified,
     status: (item.status === 'SUSPENDED' ? 'SUSPENDED' : item.status === 'BLACKLISTED' ? 'BLACKLISTED' : 'ACTIVE') as Worker['status'],
     phoneMasked,
+    phone: rawPhone,
+    mobile: rawPhone,
+    email: rawEmail,
     onboardingStatus: (item.onboardingStatus as Worker['onboardingStatus']) || (isVerified ? 'VERIFIED' : 'APPLIED'),
     verificationStatus: (item.verificationStatus as Worker['verificationStatus']) || (isVerified ? 'VERIFIED' : 'PENDING'),
     verificationLevel: level,
@@ -472,19 +494,22 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
 }
 
 export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknown>, verifData?: Record<string, unknown>): WorkerDetail {
-  const summary = mapBackendWorkerToWorker(data);
-  const rawV = (verifData?.verification && typeof verifData.verification === 'object'
-    ? verifData.verification
-    : verifData || data.verification) as Record<string, unknown> | undefined;
+  const unwrappedData = (data?.data && typeof data.data === 'object' && !Array.isArray(data.data) ? data.data : data) as Record<string, unknown>;
+  const unwrappedVerif = (verifData?.data && typeof verifData.data === 'object' && !Array.isArray(verifData.data) ? verifData.data : verifData) as Record<string, unknown> | undefined;
+
+  const summary = mapBackendWorkerToWorker(unwrappedData);
+  const rawV = (unwrappedVerif?.verification && typeof unwrappedVerif.verification === 'object'
+    ? unwrappedVerif.verification
+    : unwrappedVerif || unwrappedData.verification) as Record<string, unknown> | undefined;
 
   // The authoritative overall verification result is the response's `level` field.
-  const rawLevel = (rawV?.level ?? verifData?.level ?? data.level ?? data.verificationLevel) as string | number | undefined;
+  const rawLevel = (rawV?.level ?? unwrappedVerif?.level ?? unwrappedData.level ?? unwrappedData.verificationLevel) as string | number | undefined;
   const levelStr = rawLevel !== undefined ? String(rawLevel) : undefined;
 
   let effectiveFullyVerified: boolean;
   if (levelStr !== undefined) {
     const upper = levelStr.toUpperCase();
-    if (upper === 'VERIFIED' || upper === 'APPROVED' || upper === 'COMPLETE' || upper === 'LEVEL_1' || upper === 'LEVEL_2' || upper === 'TIER_1' || upper === 'TIER_2' || upper === 'TRUE') {
+    if (upper === 'VERIFIED' || upper === 'APPROVED' || upper === 'COMPLETE' || upper === 'LEVEL_1' || upper === 'LEVEL_2' || upper === 'LEVEL_3' || upper === 'TIER_1' || upper === 'TIER_2' || upper === 'TRUE') {
       effectiveFullyVerified = true;
     } else if (upper === 'PENDING' || upper === 'NONE' || upper === 'UNVERIFIED' || upper === '0' || upper === 'REJECTED' || upper === 'IN_REVIEW' || upper === 'FALSE') {
       effectiveFullyVerified = false;
@@ -506,82 +531,135 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
     effectiveFullyVerified = summary.isFullyVerified && !hasIncompleteChecks;
   }
 
-  // Build documents list from verification metadata or documents payload
-  const rawDocs = Array.isArray(data.documents) ? data.documents : Array.isArray(verifData?.documents) ? verifData.documents : [];
-  let documents: WorkerDocumentMetadata[] = [];
-  if (rawDocs.length > 0) {
-    documents = rawDocs.map((d: Record<string, unknown>) => ({
-      id: String(d.id || d.documentId || ''),
-      documentType: String(d.documentType || d.type || 'KYC_DOCUMENT'),
-      documentTypeName: String(d.documentTypeName || d.name || 'Government KYC Document'),
-      docNumberMasked: d.docNumberMasked || d.documentNumber ? String(d.docNumberMasked || d.documentNumber) : undefined,
-      status: (d.status as WorkerDocumentMetadata['status']) || 'SUBMITTED',
+  // Build documents list from root, verification metadata, and checks
+  const documents: WorkerDocumentMetadata[] = [];
+  const seenDocIds = new Set<string>();
+
+  const registerDoc = (d: Record<string, unknown>, fallbackType?: string) => {
+    const rawId = String(d.id || d.documentId || '').trim();
+    const docId = rawId || `doc-auto-${documents.length + 1}`;
+    if (rawId && seenDocIds.has(rawId)) return;
+    if (rawId) seenDocIds.add(rawId);
+
+    const docType = String(d.documentType || d.type || fallbackType || 'IDENTITY');
+    const docTypeName = String(d.documentTypeName || d.name || d.title || `${docType} Document`);
+    const docNumberMasked = d.docNumberMasked || d.documentNumber ? String(d.docNumberMasked || d.documentNumber) : undefined;
+    const rawStatus = String(d.status || '').toUpperCase();
+    const status: WorkerDocumentMetadata['status'] =
+      rawStatus === 'VERIFIED' || rawStatus === 'APPROVED'
+        ? 'VERIFIED'
+        : rawStatus === 'REJECTED' || rawStatus === 'FAILED'
+        ? 'REJECTED'
+        : 'SUBMITTED';
+
+    documents.push({
+      id: docId,
+      documentType: docType,
+      documentTypeName: docTypeName,
+      docNumberMasked,
+      status,
       submittedAt: d.submittedAt || d.createdAt ? String(d.submittedAt || d.createdAt) : undefined,
       verifiedAt: d.verifiedAt ? String(d.verifiedAt) : undefined,
       recheckDueDate: d.recheckDueDate || d.expiryDate ? String(d.recheckDueDate || d.expiryDate) : undefined,
       rejectionReason: d.rejectionReason || d.remarks ? String(d.rejectionReason || d.remarks) : undefined,
-    }));
-  } else {
-    // Generate authoritative documents list reflecting the 5 checks
-    documents = [
-      {
-        id: `DOC-${summary.id}-01`,
-        documentType: 'IDENTITY',
-        documentTypeName: String(rawV?.identityDocName || 'Aadhaar Card (National ID)'),
-        docNumberMasked: 'XXXX-XXXX-8921',
-        status: (rawV?.identityProofStatus as WorkerDocumentMetadata['status']) || (effectiveFullyVerified ? 'VERIFIED' : 'SUBMITTED'),
-        submittedAt: summary.registeredAt || '2026-01-10T10:00:00Z',
-        verifiedAt: rawV?.lastVerifiedAt ? String(rawV.lastVerifiedAt) : undefined,
-      },
-      {
-        id: `DOC-${summary.id}-02`,
-        documentType: 'ADDRESS',
-        documentTypeName: 'Electricity Utility Bill (Residential Address)',
-        docNumberMasked: 'ELEC-HYD-49201',
-        status: (rawV?.addressProofStatus as WorkerDocumentMetadata['status']) || (effectiveFullyVerified ? 'VERIFIED' : 'SUBMITTED'),
-        submittedAt: summary.registeredAt || '2026-01-10T10:00:00Z',
-        verifiedAt: rawV?.lastVerifiedAt ? String(rawV.lastVerifiedAt) : undefined,
-      },
-      {
-        id: `DOC-${summary.id}-03`,
-        documentType: 'POLICE_CLEARANCE',
-        documentTypeName: 'Cyberabad Police Clearance Certificate (PCC)',
-        docNumberMasked: 'PCC-CYB-2024-8891',
-        status: (rawV?.criminalRecordStatus as WorkerDocumentMetadata['status']) || (effectiveFullyVerified ? 'VERIFIED' : 'SUBMITTED'),
-        submittedAt: summary.registeredAt || '2026-01-10T10:00:00Z',
-        recheckDueDate: rawV?.recheckDueDate ? String(rawV.recheckDueDate) : undefined,
-      },
-    ];
-    if (rawV?.skillDocName || summary.category.includes('Driver')) {
-      documents.push({
-        id: `DOC-${summary.id}-04`,
-        documentType: 'SKILL_LICENSE',
-        documentTypeName: String(rawV?.skillDocName || 'Commercial Driving License (LMV)'),
-        docNumberMasked: 'DL-09-2016-77881',
-        status: (rawV?.skillProofStatus as WorkerDocumentMetadata['status']) || 'VERIFIED',
-        submittedAt: summary.registeredAt || '2026-01-10T10:00:00Z',
-      });
-    }
+    });
+  };
+
+  if (Array.isArray(unwrappedData.documents)) {
+    unwrappedData.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>));
+  }
+  if (Array.isArray(unwrappedVerif?.documents)) {
+    (unwrappedVerif.documents as unknown[]).forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>));
+  }
+  if (Array.isArray(rawV?.documents)) {
+    (rawV.documents as unknown[]).forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>));
+  }
+
+  // Harvest documents embedded in checks
+  const checksSource = unwrappedVerif?.checks || rawV?.checks || unwrappedData.checks;
+  if (Array.isArray(checksSource)) {
+    checksSource.forEach((chk: Record<string, unknown>) => {
+      const checkType = String(chk.checkType || chk.type || '');
+      if (Array.isArray(chk.documents)) {
+        chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType));
+      }
+      if (chk.documentMetadata && typeof chk.documentMetadata === 'object') {
+        const meta = chk.documentMetadata as Record<string, unknown>;
+        if (meta.documentId || meta.id || meta.docNumberMasked) {
+          registerDoc({
+            id: meta.documentId || meta.id,
+            documentType: meta.documentType || checkType,
+            documentTypeName: meta.documentTypeName || chk.title,
+            docNumberMasked: meta.docNumberMasked,
+            status: chk.status === 'APPROVED' ? 'VERIFIED' : chk.status === 'REJECTED' ? 'REJECTED' : 'SUBMITTED',
+            submittedAt: meta.submittedAt || chk.verifiedAt,
+            verifiedAt: chk.verifiedAt,
+          }, checkType);
+        }
+      } else if (chk.documentId) {
+        registerDoc({
+          id: chk.documentId,
+          documentType: checkType,
+          documentTypeName: chk.documentTypeName || chk.title,
+          docNumberMasked: chk.documentNumber || chk.docNumberMasked,
+          status: chk.status === 'APPROVED' ? 'VERIFIED' : 'SUBMITTED',
+          verifiedAt: chk.verifiedAt,
+        }, checkType);
+      }
+    });
+  } else if (checksSource && typeof checksSource === 'object') {
+    Object.entries(checksSource).forEach(([key, val]) => {
+      if (val && typeof val === 'object') {
+        const chk = val as Record<string, unknown>;
+        const checkType = String(chk.checkType || chk.type || key);
+        if (Array.isArray(chk.documents)) {
+          chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType));
+        }
+        if (chk.documentMetadata && typeof chk.documentMetadata === 'object') {
+          const meta = chk.documentMetadata as Record<string, unknown>;
+          if (meta.documentId || meta.id || meta.docNumberMasked) {
+            registerDoc({
+              id: meta.documentId || meta.id,
+              documentType: meta.documentType || checkType,
+              documentTypeName: meta.documentTypeName || chk.title,
+              docNumberMasked: meta.docNumberMasked,
+              status: chk.status === 'APPROVED' ? 'VERIFIED' : chk.status === 'REJECTED' ? 'REJECTED' : 'SUBMITTED',
+              submittedAt: meta.submittedAt || chk.verifiedAt,
+              verifiedAt: chk.verifiedAt,
+            }, checkType);
+          }
+        } else if (chk.documentId) {
+          registerDoc({
+            id: chk.documentId,
+            documentType: checkType,
+            documentTypeName: chk.documentTypeName || chk.title,
+            docNumberMasked: chk.documentNumber || chk.docNumberMasked,
+            status: chk.status === 'APPROVED' ? 'VERIFIED' : 'SUBMITTED',
+            verifiedAt: chk.verifiedAt,
+          }, checkType);
+        }
+      }
+    });
   }
 
   return {
     ...summary,
     isFullyVerified: effectiveFullyVerified,
-    serviceRadiusKm: Number(data.serviceRadiusKm || 8),
-    languages: Array.isArray(data.languages) ? data.languages.map(String) : ['Hindi', 'Telugu'],
-    bio: String(data.bio || 'Domestic service professional registered on the SevaNest household workforce platform.'),
-    skills: Array.isArray(data.skills) ? data.skills.map(String) : [summary.category, 'Household Maintenance', 'Punctuality'],
-    preferredServiceArea: String(data.preferredServiceArea || summary.locality || 'Hyderabad Central'),
-    expectedCompensation: data.expectedSalary || data.expectedCompensation ? String(data.expectedSalary || data.expectedCompensation) : '₹18,000 / month',
-    availability: String(data.availability || (summary.status === 'ACTIVE' ? 'Available for Allocation' : 'Unavailable')),
-    registeredAt: summary.registeredAt || '2026-01-05T10:00:00Z',
-    updatedAt: data.updatedAt ? String(data.updatedAt) : '2026-02-12T14:30:00Z',
-    activeEngagementsCount: Number(data.activeEngagementsCount || 0),
-    completedBookingsCount: Number(data.completedBookingsCount || 0),
-    replacementsIncurred: Number(data.replacementsIncurred || 0),
+    serviceRadiusKm: Number(unwrappedData.serviceRadiusKm || 8),
+    languages: Array.isArray(unwrappedData.languages) ? unwrappedData.languages.map(String) : [],
+    bio: String(unwrappedData.bio || ''),
+    skills: Array.isArray(unwrappedData.skills) ? unwrappedData.skills.map(String) : summary.categories || [summary.category],
+    preferredServiceArea: String(unwrappedData.preferredServiceArea || summary.locality || ''),
+    expectedCompensation: unwrappedData.expectedSalary || unwrappedData.expectedCompensation ? String(unwrappedData.expectedSalary || unwrappedData.expectedCompensation) : undefined,
+    availability: String(unwrappedData.availability || (summary.status === 'ACTIVE' ? 'Available for Allocation' : 'Unavailable')),
+    registeredAt: summary.registeredAt || (unwrappedData.createdAt ? String(unwrappedData.createdAt) : undefined),
+    updatedAt: unwrappedData.updatedAt ? String(unwrappedData.updatedAt) : undefined,
+    activeEngagementsCount: Number(unwrappedData.activeEngagementsCount || 0),
+    completedBookingsCount: Number(unwrappedData.completedBookingsCount || 0),
+    replacementsIncurred: Number(unwrappedData.replacementsIncurred || 0),
     documents,
     verification: {
-      phoneOtpVerified: Boolean(rawV?.phoneOtpVerified ?? data.phoneOtpVerified ?? true),
+      phoneOtpVerified: Boolean(rawV?.phoneOtpVerified ?? unwrappedData.phoneOtpVerified ?? true),
       identityProofStatus: (rawV?.identityProofStatus as WorkerDetail['verification']['identityProofStatus']) || (effectiveFullyVerified ? 'VERIFIED' : 'PENDING'),
       identityDocName: rawV?.identityDocName ? String(rawV.identityDocName) : 'Aadhaar Card (Front & Back)',
       addressProofStatus: (rawV?.addressProofStatus as WorkerDetail['verification']['addressProofStatus']) || (effectiveFullyVerified ? 'VERIFIED' : 'PENDING'),
@@ -599,8 +677,8 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
     },
     verificationLevel: levelStr || summary.verificationLevel,
     level: levelStr || summary.level,
-    recentEngagements: Array.isArray(data.recentEngagements) ? (data.recentEngagements as WorkerDetail['recentEngagements']) : [],
-    internalNotes: Array.isArray(data.internalNotes) ? data.internalNotes.map(String) : [],
+    recentEngagements: Array.isArray(unwrappedData.recentEngagements) ? (unwrappedData.recentEngagements as WorkerDetail['recentEngagements']) : [],
+    internalNotes: Array.isArray(unwrappedData.internalNotes) ? unwrappedData.internalNotes.map(String) : [],
   };
 }
 
@@ -661,13 +739,23 @@ export class RealWorkerRepository implements IWorkerRepository {
       );
 
       const rawData = response.data as Record<string, unknown>;
-      const list = Array.isArray(response.data)
-        ? response.data
-        : Array.isArray(rawData?.items)
-        ? (rawData.items as Record<string, unknown>[])
-        : Array.isArray(rawData?.data)
-        ? (rawData.data as Record<string, unknown>[])
-        : [];
+      let list: Record<string, unknown>[] = [];
+      if (Array.isArray(response.data)) {
+        list = response.data;
+      } else if (rawData) {
+        if (Array.isArray(rawData.items)) {
+          list = rawData.items as Record<string, unknown>[];
+        } else if (Array.isArray(rawData.data)) {
+          list = rawData.data as Record<string, unknown>[];
+        } else if (rawData.data && typeof rawData.data === 'object') {
+          const inner = rawData.data as Record<string, unknown>;
+          if (Array.isArray(inner.items)) {
+            list = inner.items as Record<string, unknown>[];
+          } else if (Array.isArray(inner.workers)) {
+            list = inner.workers as Record<string, unknown>[];
+          }
+        }
+      }
 
       return list.map(mapBackendWorkerToWorker);
     } catch (err) {
@@ -682,8 +770,19 @@ export class RealWorkerRepository implements IWorkerRepository {
         httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}/verification`).catch(() => ({ data: undefined })),
       ]);
 
-      if (!workerRes.data) return null;
-      return mapBackendWorkerDetailToWorkerDetail(workerRes.data, verifRes.data);
+      const rawWorker = workerRes.data as Record<string, unknown>;
+      if (!rawWorker) return null;
+      const unwrappedWorker = (rawWorker?.data && typeof rawWorker.data === 'object' && !Array.isArray(rawWorker.data)
+        ? rawWorker.data
+        : rawWorker) as Record<string, unknown>;
+
+      const rawVerif = verifRes.data as Record<string, unknown> | undefined;
+      const unwrappedVerif = (rawVerif?.data && typeof rawVerif.data === 'object' && !Array.isArray(rawVerif.data)
+        ? rawVerif.data
+        : rawVerif) as Record<string, unknown> | undefined;
+
+      if (!unwrappedWorker || Object.keys(unwrappedWorker).length === 0) return null;
+      return mapBackendWorkerDetailToWorkerDetail(unwrappedWorker, unwrappedVerif);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -691,12 +790,28 @@ export class RealWorkerRepository implements IWorkerRepository {
 
   async updateWorkerStatus(workerId: string, status: Worker['status'], remarks: string): Promise<void> {
     try {
-      await httpClient.patch(`/admin/workers/${encodeURIComponent(workerId)}`, {
+      if (status === 'BLACKLISTED') {
+        await httpClient.post(`/admin/workers/${encodeURIComponent(workerId)}/blacklist`, {
+          reason: remarks || 'Worker blacklisted by administrator',
+        });
+        return;
+      }
+
+      // Worker account status (ACTIVE / SUSPENDED) is updated via /admin/users/{userId}/status (DEC-06)
+      let targetUserId = workerId;
+      try {
+        const worker = await this.getWorkerById(workerId);
+        if (worker?.userId) {
+          targetUserId = worker.userId;
+        }
+      } catch {
+        // Fall back to workerId if fetching detail is not available
+      }
+
+      await httpClient.patch(`/admin/users/${encodeURIComponent(targetUserId)}/status`, {
         status,
+        reason: remarks || `Status transitioned to ${status}`,
       });
-      await httpClient.post(`/admin/workers/${encodeURIComponent(workerId)}/notes`, {
-        note: `[STATUS -> ${status}] ${remarks}`,
-      }).catch(() => null);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -704,12 +819,10 @@ export class RealWorkerRepository implements IWorkerRepository {
 
   async updateWorkerCategories(workerId: string, categoryCodes: string[]): Promise<void> {
     try {
+      // Backend contract SetWorkerCategoriesDto requires { categoryIds: string[] }
       await httpClient.put(`/admin/workers/${encodeURIComponent(workerId)}/categories`, {
-        categoryCodes,
+        categoryIds: categoryCodes,
       });
-      await httpClient.post(`/admin/workers/${encodeURIComponent(workerId)}/notes`, {
-        note: `[CATEGORIES UPDATED] ${categoryCodes.join(', ')}`,
-      }).catch(() => null);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -717,10 +830,53 @@ export class RealWorkerRepository implements IWorkerRepository {
 
   async requestReVerification(workerId: string, checkTypes: string[], remarks: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/workers/${encodeURIComponent(workerId)}/notes`, {
-        note: `[RE-VERIFICATION REQUESTED: ${checkTypes.join(', ')}] ${remarks}`,
-      });
+      const cleanId = workerId.trim();
+      // If a checkId is passed directly, trigger check recheck
+      if (cleanId.startsWith('chk-') || cleanId.startsWith('check-')) {
+        await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanId)}/recheck`, {
+          remarks: remarks || `Re-verification requested: ${checkTypes.join(', ')}`,
+        });
+        return;
+      }
+
+      // Locate check in worker's verification dossier and request recheck
+      const verifRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(cleanId)}/verification`).catch(() => null);
+      const raw = verifRes?.data;
+      const verifData = (raw && typeof raw === 'object' && 'data' in raw && raw.data && typeof raw.data === 'object' ? raw.data : raw) as Record<string, unknown> | undefined;
+      const checks = Array.isArray(verifData?.checks) ? (verifData.checks as Record<string, unknown>[]) : [];
+      const targetCheck = checks.find((c) => checkTypes.includes(String(c.checkType || c.type || ''))) || checks[0];
+
+      if (targetCheck && targetCheck.id) {
+        await httpClient.post(`/admin/verification/checks/${encodeURIComponent(String(targetCheck.id))}/recheck`, {
+          remarks: remarks || `Re-verification requested: ${checkTypes.join(', ')}`,
+        });
+      }
     } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async activateWorker(workerId: string): Promise<WorkerDetail> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for activation.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+
+    try {
+      const response = await httpClient.post<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/activate`, {});
+      const resData = (response.data?.data && typeof response.data.data === 'object' && !Array.isArray(response.data.data) ? response.data.data : response.data) as Record<string, unknown>;
+      return mapBackendWorkerDetailToWorkerDetail(resData);
+    } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }
@@ -793,6 +949,48 @@ export class MockWorkerRepository implements IWorkerRepository {
     if (worker) {
       worker.internalNotes.push(`[RE-VERIFICATION REQUESTED: ${checkTypes.join(', ')}] ${remarks}`);
     }
+  }
+
+  async activateWorker(workerId: string): Promise<WorkerDetail> {
+    const worker = MOCK_WORKERS.find((w) => w.id === workerId);
+    if (!worker) {
+      throw new NotFoundError(`Worker ${workerId} not found.`);
+    }
+
+    if (!worker.isFullyVerified) {
+      throw new ConcurrencyConflictError(
+        'Worker must complete verification sign-off before platform activation.',
+        undefined,
+        409,
+        'NOT_SIGNED_OFF'
+      );
+    }
+
+    const missingPrerequisites: string[] = [];
+    if (!worker.categories || worker.categories.length === 0) {
+      missingPrerequisites.push('Service category must be assigned');
+    }
+    if (!worker.locality && !worker.preferredServiceArea) {
+      missingPrerequisites.push('Service area must be defined');
+    }
+    if (worker.status === 'BLACKLISTED') {
+      missingPrerequisites.push('Worker is blacklisted and cannot be activated');
+    }
+
+    if (missingPrerequisites.length > 0) {
+      throw new ValidationError(
+        'ACTIVATION_REQUIREMENTS_MISSING: Worker is missing prerequisites for platform activation.',
+        undefined,
+        undefined,
+        'ACTIVATION_REQUIREMENTS_MISSING',
+        [{ field: 'activation', messages: missingPrerequisites }]
+      );
+    }
+
+    worker.status = 'ACTIVE';
+    worker.applicationStatus = 'ACTIVE';
+    worker.activatedAt = new Date().toISOString();
+    return { ...worker };
   }
 }
 

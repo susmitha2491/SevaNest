@@ -13,6 +13,7 @@ import {
   Clock,
   CheckCircle2,
   ExternalLink,
+  XCircle,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { Worker } from '../domain/types';
@@ -31,8 +32,17 @@ export const WorkersListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || 'ALL');
-  const [verificationFilter, setVerificationFilter] = useState<'ALL' | 'VERIFIED' | 'PENDING'>(
-    () => (searchParams.get('verificationStatus') as 'ALL' | 'VERIFIED' | 'PENDING') || 'ALL'
+  const [verificationFilter, setVerificationFilter] = useState<
+    'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
+  >(
+    () =>
+      (searchParams.get('verificationStatus') as
+        | 'ALL'
+        | 'VERIFIED'
+        | 'PENDING'
+        | 'IN_REVIEW'
+        | 'REJECTED'
+        | 'RECHECK_DUE') || 'ALL'
   );
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED'>(
     () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED') || 'ALL'
@@ -43,12 +53,14 @@ export const WorkersListPage: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
 
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
-  const [detailModalId, setDetailModalId] = useState<string | null>(() => searchParams.get('workerId') || null);
+  const [detailModalId, setDetailModalId] = useState<string | null>(
+    () => searchParams.get('workerId') || searchParams.get('applicationId') || null
+  );
   const [isDisciplineOpen, setIsDisciplineOpen] = useState(false);
   const [targetStatus, setTargetStatus] = useState<'SUSPENDED' | 'BLACKLISTED' | 'ACTIVE'>('SUSPENDED');
 
   useEffect(() => {
-    const wid = searchParams.get('workerId');
+    const wid = searchParams.get('workerId') || searchParams.get('applicationId');
     if (wid !== null) {
       setDetailModalId(wid);
     }
@@ -58,7 +70,9 @@ export const WorkersListPage: React.FC = () => {
     }
     const verif = searchParams.get('verificationStatus');
     if (verif) {
-      setVerificationFilter(verif as 'ALL' | 'VERIFIED' | 'PENDING');
+      setVerificationFilter(
+        verif as 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
+      );
     }
     const stat = searchParams.get('status');
     if (stat) {
@@ -79,6 +93,7 @@ export const WorkersListPage: React.FC = () => {
     setSearchParams((prev) => {
       const next = new window.URLSearchParams(prev);
       next.set('workerId', id);
+      next.delete('applicationId');
       return next;
     }, { replace: true });
   };
@@ -88,6 +103,7 @@ export const WorkersListPage: React.FC = () => {
     setSearchParams((prev) => {
       const next = new window.URLSearchParams(prev);
       next.delete('workerId');
+      next.delete('applicationId');
       return next;
     }, { replace: true });
   };
@@ -121,6 +137,12 @@ export const WorkersListPage: React.FC = () => {
         result = result.filter((w) => w.isFullyVerified === true && w.status === 'ACTIVE');
       } else if (verificationFilter === 'PENDING') {
         result = result.filter((w) => !w.isFullyVerified);
+      } else if (verificationFilter === 'IN_REVIEW') {
+        result = result.filter((w) => w.verificationStatus === 'IN_REVIEW');
+      } else if (verificationFilter === 'REJECTED') {
+        result = result.filter((w) => w.verificationStatus === 'REJECTED');
+      } else if (verificationFilter === 'RECHECK_DUE') {
+        result = result.filter((w) => w.verificationStatus === 'RECHECK_DUE');
       }
     }
 
@@ -241,13 +263,18 @@ export const WorkersListPage: React.FC = () => {
           { key: 'ALL', label: 'All Registered Workers' },
           { key: 'VERIFIED', label: 'Active & Verified Roster (Matching Eligible)' },
           { key: 'PENDING', label: 'Pending Verification / Incomplete KYC' },
+          { key: 'IN_REVIEW', label: 'In Review Pipeline' },
+          { key: 'REJECTED', label: 'Rejected / Corrections' },
+          { key: 'RECHECK_DUE', label: 'Re-Check Due' },
         ].map((tab) => {
           const isActive = verificationFilter === tab.key;
           return (
             <button
               key={tab.key}
               onClick={() => {
-                setVerificationFilter(tab.key as 'ALL' | 'VERIFIED' | 'PENDING');
+                setVerificationFilter(
+                  tab.key as 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
+                );
                 setCurrentPage(1);
               }}
               style={{
@@ -347,8 +374,18 @@ export const WorkersListPage: React.FC = () => {
             placeholder="Search by worker name, ID, category, or locality..."
             value={searchTerm}
             onChange={(e) => {
-              setSearchTerm(e.target.value);
+              const val = e.target.value;
+              setSearchTerm(val);
               setCurrentPage(1);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val) {
+                  next.set('search', val);
+                } else {
+                  next.delete('search');
+                }
+                return next;
+              }, { replace: true });
             }}
             style={{
               width: '100%',
@@ -367,8 +404,18 @@ export const WorkersListPage: React.FC = () => {
           <select
             value={categoryFilter}
             onChange={(e) => {
-              setCategoryFilter(e.target.value);
+              const val = e.target.value;
+              setCategoryFilter(val);
               setCurrentPage(1);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val && val !== 'ALL') {
+                  next.set('category', val);
+                } else {
+                  next.delete('category');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by skill category"
             style={{
@@ -551,7 +598,35 @@ export const WorkersListPage: React.FC = () => {
                 </tr>
               ) : (
                 paginatedWorkers.map((worker: Worker) => (
-                  <tr key={worker.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <tr
+                    key={worker.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View profile for ${worker.name} (${worker.id})`}
+                    className="worker-directory-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      handleOpenDetailModal(worker.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        handleOpenDetailModal(worker.id);
+                      }
+                    }}
+                    style={{
+                      borderBottom: '1px solid var(--color-border-subtle)',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.15s ease',
+                    }}
+                  >
                     <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace' }}>
                       <div>{worker.id}</div>
                       {worker.applicationId && worker.applicationId !== worker.id && (
@@ -591,7 +666,7 @@ export const WorkersListPage: React.FC = () => {
                       )}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
-                      <VerificationBadge isFullyVerified={worker.isFullyVerified} />
+                      <VerificationBadge isFullyVerified={worker.isFullyVerified} status={worker.verificationStatus} />
                       {worker.completedChecksCount != null && (
                         <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                           {worker.completedChecksCount}/{worker.totalRequiredChecksCount || 6} checks approved
@@ -627,10 +702,20 @@ export const WorkersListPage: React.FC = () => {
                     <td style={{ padding: '14px 16px' }}>
                       <StatusBadge status={worker.status} />
                     </td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: 'var(--space-2)' }}>
+                    <td
+                      style={{ padding: '14px 16px', textAlign: 'right' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div
+                        style={{ display: 'inline-flex', gap: 'var(--space-2)' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
-                          onClick={() => handleOpenDetailModal(worker.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetailModal(worker.id);
+                          }}
+                          aria-label={`View profile for ${worker.name}`}
                           style={{
                             padding: '4px 10px',
                             borderRadius: 'var(--radius-sm)',
@@ -649,61 +734,93 @@ export const WorkersListPage: React.FC = () => {
                           <span>View Profile</span>
                         </button>
 
-                        {!worker.isFullyVerified && (
-                          <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
-                            <button
-                              onClick={() => navigate(`/verification?search=${encodeURIComponent(worker.id)}&dossierId=${encodeURIComponent(worker.id)}`)}
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-border-subtle)',
-                                backgroundColor: 'var(--color-bg-subtle)',
-                                color: 'var(--color-brand-600, var(--color-primary))',
-                                fontSize: 'var(--font-size-xs)',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                            >
-                              <ShieldAlert size={13} />
-                              <span>Review KYC</span>
-                            </button>
-                          </PermissionGate>
-                        )}
+                        <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/verification?workerId=${encodeURIComponent(worker.id)}&search=${encodeURIComponent(worker.id)}&dossierId=${encodeURIComponent(worker.id)}`);
+                            }}
+                            aria-label={`${worker.isFullyVerified ? 'Inspect dossier' : 'Review KYC'} for ${worker.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border-subtle)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              color: 'var(--color-brand-600, var(--color-primary))',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <ShieldAlert size={13} />
+                            <span>{worker.isFullyVerified ? 'Inspect Dossier' : 'Review KYC'}</span>
+                          </button>
+                        </PermissionGate>
 
                         <PermissionGate permission={PERMISSIONS.WORKERS_MANAGE_STATUS}>
                           {worker.status === 'ACTIVE' ? (
-                            <button
-                              onClick={() => {
-                                setSelectedWorkerId(worker.id);
-                                setTargetStatus('SUSPENDED');
-                                setIsDisciplineOpen(true);
-                              }}
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-border-subtle)',
-                                backgroundColor: 'var(--color-bg-surface)',
-                                color: 'var(--color-status-danger-text)',
-                                fontSize: 'var(--font-size-xs)',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                            >
-                              <ShieldAlert size={13} />
-                              <span>Discipline</span>
-                            </button>
+                            <>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedWorkerId(worker.id);
+                                  setTargetStatus('SUSPENDED');
+                                  setIsDisciplineOpen(true);
+                                }}
+                                aria-label={`Discipline worker ${worker.name}`}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                  backgroundColor: 'var(--color-bg-surface)',
+                                  color: 'var(--color-status-warning-text)',
+                                  fontSize: 'var(--font-size-xs)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <ShieldAlert size={13} />
+                                <span>Discipline</span>
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedWorkerId(worker.id);
+                                  setTargetStatus('BLACKLISTED');
+                                  setIsDisciplineOpen(true);
+                                }}
+                                aria-label={`Blacklist worker ${worker.name}`}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--color-border-subtle)',
+                                  backgroundColor: 'var(--color-bg-surface)',
+                                  color: 'var(--color-status-danger-text)',
+                                  fontSize: 'var(--font-size-xs)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                }}
+                              >
+                                <XCircle size={13} />
+                                <span>Blacklist</span>
+                              </button>
+                            </>
                           ) : (
                             <button
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setSelectedWorkerId(worker.id);
                                 setTargetStatus('ACTIVE');
                                 setIsDisciplineOpen(true);
                               }}
+                              aria-label={`Reinstate worker ${worker.name}`}
                               style={{
                                 padding: '4px 8px',
                                 borderRadius: 'var(--radius-sm)',
@@ -794,7 +911,7 @@ export const WorkersListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Worker Detail Modal */}
+      {/* Detailed Worker Profile / Operational Dossier Modal */}
       {detailModalId && (
         <WorkerDetailModal
           workerId={detailModalId}
@@ -810,7 +927,9 @@ export const WorkersListPage: React.FC = () => {
         description={
           targetStatus === 'ACTIVE'
             ? `Reinstate active operational state for worker ${selectedWorkerId}. This restores matching eligibility if verification is complete.`
-            : `Configure account state for worker ${selectedWorkerId}. This action revokes active matching eligibility.`
+            : targetStatus === 'BLACKLISTED'
+            ? `Permanently blacklist worker ${selectedWorkerId}. This action revokes account access and permanently disables matching eligibility.`
+            : `Suspend worker ${selectedWorkerId}. This action temporarily revokes active matching eligibility.`
         }
         isDestructive={targetStatus !== 'ACTIVE'}
         requireRemarks={true}

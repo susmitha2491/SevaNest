@@ -94,6 +94,12 @@ const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Customer Records',
+    items: [
+      { name: 'Customers Directory', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
+    ],
+  },
+  {
     title: 'Insights',
     items: [
       { name: 'Review History', path: '/verification/history', icon: History, permission: PERMISSIONS.VERIFICATION_REVIEW },
@@ -213,7 +219,7 @@ export const AppShell: React.FC = () => {
 
         {/* Nav Sections */}
         <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-4) 0' }}>
-          {(user?.role === 'VERIFICATION_EXECUTIVE' ? VERIFICATION_EXECUTIVE_SECTIONS : NAV_SECTIONS).map((section) => {
+          {((user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR') ? VERIFICATION_EXECUTIVE_SECTIONS : NAV_SECTIONS).map((section) => {
             const visibleItems = section.items.filter(
               (item) => !item.permission || hasPermission(user?.permissions, item.permission)
             );

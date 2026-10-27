@@ -322,18 +322,14 @@ export class RealPaymentRepository implements IPaymentRepository {
     idempotencyKey?: string
   ): Promise<void> {
     try {
-      const payload: Record<string, unknown> = {
+      // Backend RefundDto allows only { reason: string }
+      const payload = {
         reason: `${reasonCategory}: ${remarks}`,
       };
-      if (idempotencyKey) {
-        payload.idempotencyKey = idempotencyKey;
-        await httpClient.post(`/admin/payments/${transactionId}/refund`, payload, {
-          idempotencyKey,
-          headers: { 'Idempotency-Key': idempotencyKey },
-        });
-      } else {
-        await httpClient.post(`/admin/payments/${transactionId}/refund`, payload);
-      }
+      const key = idempotencyKey || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
+      await httpClient.post(`/admin/payments/${transactionId}/refund`, payload, {
+        headers: { 'Idempotency-Key': key },
+      });
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

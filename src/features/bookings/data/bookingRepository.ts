@@ -517,11 +517,18 @@ export class RealBookingRepository implements IBookingRepository {
 
   async scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void> {
     try {
-      await httpClient.post(`/admin/bookings/${bookingId}/schedule`, {
-        scheduleType: 'TRIAL',
-        scheduledAt: trial.scheduledDate,
-        workerId: candidateWorkerId,
-      });
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/schedule`,
+        {
+          scheduleType: 'TRIAL',
+          scheduledAt: trial.scheduledDate,
+          workerId: candidateWorkerId,
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -529,9 +536,16 @@ export class RealBookingRepository implements IBookingRepository {
 
   async recordTrialOutcome(bookingId: string, outcome: TrialOutcome): Promise<void> {
     try {
-      await httpClient.post(`/admin/bookings/${bookingId}/interview-complete`, {
-        outcomeNote: `${outcome.outcome}: ${outcome.feedbackRemarks || ''}`,
-      });
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_trial_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/interview-complete`,
+        {
+          outcomeNote: `${outcome.outcome}: ${outcome.feedbackRemarks || ''}`,
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -539,9 +553,16 @@ export class RealBookingRepository implements IBookingRepository {
 
   async confirmBooking(bookingId: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/bookings/${bookingId}/confirm-worker`, {
-        startDate: new Date().toISOString().split('T')[0],
-      });
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_conf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/confirm-worker`,
+        {
+          startDate: new Date().toISOString().split('T')[0],
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -549,10 +570,17 @@ export class RealBookingRepository implements IBookingRepository {
 
   async processReplacement(bookingId: string, replacementWorkerId: string, remarks: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/bookings/${bookingId}/match`, {
-        workerId: replacementWorkerId,
-        reason: remarks,
-      });
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/match`,
+        {
+          workerId: replacementWorkerId,
+          reason: remarks,
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -560,9 +588,16 @@ export class RealBookingRepository implements IBookingRepository {
 
   async cancelBooking(bookingId: string, remarks: string, _reasonCategory: string): Promise<void> {
     try {
-      await httpClient.post(`/admin/bookings/${bookingId}/cancel`, {
-        reason: remarks,
-      });
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_cancel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/cancel`,
+        {
+          reason: remarks,
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

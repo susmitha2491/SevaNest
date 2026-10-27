@@ -43,7 +43,9 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.WORKERS_MANAGE,
       PERMISSIONS.WORKERS_MANAGE_STATUS,
+      PERMISSIONS.WORKER_ACTIVATE,
       PERMISSIONS.VERIFICATION_REVIEW,
+      PERMISSIONS.VERIFICATION_SIGNOFF,
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       PERMISSIONS.BOOKINGS_VIEW,
       PERMISSIONS.BOOKINGS_MANAGE,
@@ -61,6 +63,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     name: 'Verification Executive',
     role: 'VERIFICATION_EXECUTIVE',
     permissions: [
+      PERMISSIONS.CUSTOMER_VIEW,
       PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.VERIFICATION_REVIEW,
       PERMISSIONS.VERIFICATION_DECIDE,
@@ -82,6 +85,25 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     ],
     aliases: ['support.exec@sevanest.internal', 'support@sevanest.internal', 'support.executive@sevanest.example.com'],
   },
+  'verification.supervisor@sevanest.internal': {
+    id: 'adm-005',
+    name: 'Verification Supervisor',
+    role: 'VERIFICATION_SUPERVISOR',
+    permissions: [
+      PERMISSIONS.CUSTOMER_VIEW,
+      PERMISSIONS.WORKER_VIEW,
+      PERMISSIONS.VERIFICATION_REVIEW,
+      PERMISSIONS.VERIFICATION_DECIDE,
+      PERMISSIONS.VERIFICATION_SIGNOFF,
+      PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+    ],
+    aliases: [
+      'verification.supervisor@sevanest.internal',
+      'verif.supervisor@sevanest.internal',
+      'supervisor@sevanest.internal',
+      'verification.supervisor@sevanest.example.com',
+    ],
+  },
 };
 
 export function getDefaultPermissionsForRole(role: AdminRole): string[] {
@@ -97,7 +119,9 @@ export function getDefaultPermissionsForRole(role: AdminRole): string[] {
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.WORKERS_MANAGE,
         PERMISSIONS.WORKERS_MANAGE_STATUS,
+        PERMISSIONS.WORKER_ACTIVATE,
         PERMISSIONS.VERIFICATION_REVIEW,
+        PERMISSIONS.VERIFICATION_SIGNOFF,
         PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
         PERMISSIONS.BOOKINGS_VIEW,
         PERMISSIONS.BOOKINGS_MANAGE,
@@ -110,9 +134,19 @@ export function getDefaultPermissionsForRole(role: AdminRole): string[] {
       ];
     case 'VERIFICATION_EXECUTIVE':
       return [
+        PERMISSIONS.CUSTOMER_VIEW,
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.VERIFICATION_REVIEW,
         PERMISSIONS.VERIFICATION_DECIDE,
+        PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+      ];
+    case 'VERIFICATION_SUPERVISOR':
+      return [
+        PERMISSIONS.CUSTOMER_VIEW,
+        PERMISSIONS.WORKER_VIEW,
+        PERMISSIONS.VERIFICATION_REVIEW,
+        PERMISSIONS.VERIFICATION_DECIDE,
+        PERMISSIONS.VERIFICATION_SIGNOFF,
         PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       ];
     case 'SUPPORT_EXECUTIVE':
@@ -213,6 +247,8 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
     rawRole = 'OPERATIONS_ADMIN';
   } else if (rawRole === 'VERIFICATION_OFFICER' || rawRole === 'VERIF_EXEC') {
     rawRole = 'VERIFICATION_EXECUTIVE';
+  } else if (rawRole === 'VERIFICATION_SUPERVISOR' || rawRole === 'VERIF_SUPERVISOR' || rawRole === 'VERIFICATION_LEAD') {
+    rawRole = 'VERIFICATION_SUPERVISOR';
   } else if (rawRole === 'SUPPORT_EXEC' || rawRole === 'SUPPORT_MANAGER') {
     rawRole = 'SUPPORT_EXECUTIVE';
   }
@@ -221,6 +257,7 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
     'SUPER_ADMIN',
     'OPERATIONS_ADMIN',
     'VERIFICATION_EXECUTIVE',
+    'VERIFICATION_SUPERVISOR',
     'SUPPORT_EXECUTIVE',
   ];
 

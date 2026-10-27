@@ -6,18 +6,31 @@ export interface CustomerBookingSummary {
   date: string;
 }
 
+export interface CustomerComplaintSummary {
+  ticketId: string;
+  disputeCategory: string;
+  serviceCategory?: string;
+  status: string;
+  createdAt: string;
+  description?: string;
+}
+
 export interface Customer {
   id: string;
+  userId?: string;
   name: string;
   maskedPhone: string;
   maskedEmail: string;
   locality: string;
   status: 'ACTIVE' | 'SUSPENDED';
+  verificationStatus?: 'VERIFIED' | 'PENDING' | 'REJECTED';
   totalBookings: number;
   registeredDate: string;
+  preferredLanguage?: string;
 }
 
 export interface CustomerDetail extends Customer {
+  etag?: string;
   unmaskedPhone?: string;
   unmaskedEmail?: string;
   fullAddress: string;
@@ -25,6 +38,7 @@ export interface CustomerDetail extends Customer {
   totalSpendINR: number;
   openGrievances: number;
   bookings: CustomerBookingSummary[];
+  complaints?: CustomerComplaintSummary[];
   notes: string[];
 }
 
@@ -40,4 +54,6 @@ export interface ICustomerRepository {
   revealPII(customerId: string, reason: string): Promise<{ phone: string; email: string }>;
   suspendCustomer(customerId: string, remarks: string): Promise<void>;
   reactivateCustomer(customerId: string): Promise<void>;
+  addCustomerNote(customerId: string, note: string): Promise<void>;
 }
+

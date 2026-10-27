@@ -131,7 +131,7 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
 
       expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
       expect(screen.getByText(/Level: LEVEL_3/i)).toBeInTheDocument();
-      expect(screen.getByText(/There is no worker-level final-decision endpoint/i)).toBeInTheDocument();
+      expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
     });
 
     it('renders unavailable error state when authoritative level fails to load and does not infer approval', async () => {
@@ -192,12 +192,7 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
       await user.click(step5Pill);
 
       expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
-      expect(
-        screen.getByText(/Worker activation and deactivation endpoints are not confirmed by the backend contract/i)
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(/Verification does not automatically activate a worker account onto the commercial roster/i)
-      ).toBeInTheDocument();
+      expect(screen.getByText(/Current Platform Matching State/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
     });
 
@@ -250,6 +245,7 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
       expect(postSpy).toHaveBeenCalledWith(
         '/admin/verification/checks/chk-address-02/reject',
         {
+          reasonCode: 'DOCUMENT_EXPIRED',
           remarks: 'Utility bill is more than 3 months old',
         }
       );

@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Filter, Ban, RefreshCw, ChevronLeft, ChevronRight, User } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, Filter, Ban, RefreshCw, ChevronLeft, ChevronRight, User, CheckCircle } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
+import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
@@ -13,16 +15,58 @@ import { CustomerDetailModal } from './CustomerDetailModal';
 const ITEMS_PER_PAGE = 5;
 
 export const CustomersListPage: React.FC = () => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
-  const [localityFilter, setLocalityFilter] = useState('ALL');
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>(
+    () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED') || 'ALL'
+  );
+  const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
   const [sortField, setSortField] = useState<'name' | 'id' | 'totalBookings'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [detailModalId, setDetailModalId] = useState<string | null>(null);
+  const [detailModalId, setDetailModalId] = useState<string | null>(() => searchParams.get('customerId') || null);
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
+
+  useEffect(() => {
+    const cid = searchParams.get('customerId');
+    if (cid !== detailModalId) {
+      setDetailModalId(cid);
+    }
+    const q = searchParams.get('search');
+    if (q !== null && q !== searchTerm) {
+      setSearchTerm(q);
+    }
+    const stat = searchParams.get('status');
+    if (stat && stat !== statusFilter) {
+      setStatusFilter(stat as 'ALL' | 'ACTIVE' | 'SUSPENDED');
+    }
+    const loc = searchParams.get('locality');
+    if (loc && loc !== localityFilter) {
+      setLocalityFilter(loc);
+    }
+  }, [searchParams, detailModalId, searchTerm, statusFilter, localityFilter]);
+
+  const handleOpenDetailModal = (id: string) => {
+    setDetailModalId(id);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.set('customerId', id);
+      return next;
+    }, { replace: true });
+  };
+
+  const handleCloseDetailModal = () => {
+    setDetailModalId(null);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.delete('customerId');
+      return next;
+    }, { replace: true });
+  };
 
   const { data: customers = [], isLoading, isError, refetch } = useQuery({
     queryKey: ['customers', 'list'],
@@ -73,13 +117,19 @@ export const CustomersListPage: React.FC = () => {
     return filteredAndSortedCustomers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredAndSortedCustomers, currentPage]);
 
-
   const handleSuspendConfirm = async (remarks?: string) => {
     if (selectedCustomerId) {
       await customerRepository.suspendCustomer(selectedCustomerId, remarks || 'Operational account suspension');
       setIsSuspendOpen(false);
-      refetch();
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['customers', 'detail', selectedCustomerId] });
     }
+  };
+
+  const handleReactivateCustomer = async (id: string) => {
+    await customerRepository.reactivateCustomer(id);
+    await refetch();
+    queryClient.invalidateQueries({ queryKey: ['customers', 'detail', id] });
   };
 
   const localities = useMemo(() => {
@@ -178,8 +228,18 @@ export const CustomersListPage: React.FC = () => {
             placeholder="Search by customer name, ID, or locality..."
             value={searchTerm}
             onChange={(e) => {
-              setSearchTerm(e.target.value);
+              const val = e.target.value;
+              setSearchTerm(val);
               setCurrentPage(1);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val) {
+                  next.set('search', val);
+                } else {
+                  next.delete('search');
+                }
+                return next;
+              }, { replace: true });
             }}
             style={{
               width: '100%',
@@ -199,8 +259,18 @@ export const CustomersListPage: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => {
-              setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED');
+              const val = e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED';
+              setStatusFilter(val);
               setCurrentPage(1);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val !== 'ALL') {
+                  next.set('status', val);
+                } else {
+                  next.delete('status');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by account status"
             style={{
@@ -224,8 +294,18 @@ export const CustomersListPage: React.FC = () => {
           <select
             value={localityFilter}
             onChange={(e) => {
-              setLocalityFilter(e.target.value);
+              const val = e.target.value;
+              setLocalityFilter(val);
               setCurrentPage(1);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val !== 'ALL') {
+                  next.set('locality', val);
+                } else {
+                  next.delete('locality');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by cluster locality"
             style={{
@@ -301,6 +381,9 @@ export const CustomersListPage: React.FC = () => {
                   Cluster Locality
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  KYC Verification
+                </th>
+                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
                   Account Status
                 </th>
                 <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
@@ -314,7 +397,7 @@ export const CustomersListPage: React.FC = () => {
             <tbody>
               {paginatedCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+                  <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
                     No customer accounts match your search and filter criteria.
                   </td>
                 </tr>
@@ -335,6 +418,12 @@ export const CustomersListPage: React.FC = () => {
                       {customer.locality}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
+                      <VerificationBadge
+                        isFullyVerified={customer.verificationStatus === 'VERIFIED'}
+                        status={customer.verificationStatus || 'PENDING'}
+                      />
+                    </td>
+                    <td style={{ padding: '14px 16px' }}>
                       <StatusBadge status={customer.status} />
                     </td>
                     <td style={{ padding: '14px 16px', color: 'var(--color-text-primary)', fontWeight: 600 }}>
@@ -343,7 +432,7 @@ export const CustomersListPage: React.FC = () => {
                     <td style={{ padding: '14px 16px', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: 'var(--space-2)' }}>
                         <button
-                          onClick={() => setDetailModalId(customer.id)}
+                          onClick={() => handleOpenDetailModal(customer.id)}
                           style={{
                             padding: '4px 10px',
                             borderRadius: 'var(--radius-sm)',
@@ -363,12 +452,13 @@ export const CustomersListPage: React.FC = () => {
                         </button>
 
                         <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
-                          {customer.status === 'ACTIVE' && (
+                          {customer.status === 'ACTIVE' ? (
                             <button
                               onClick={() => {
                                 setSelectedCustomerId(customer.id);
                                 setIsSuspendOpen(true);
                               }}
+                              aria-label={`Suspend customer ${customer.name}`}
                               style={{
                                 padding: '4px 8px',
                                 borderRadius: 'var(--radius-sm)',
@@ -384,6 +474,26 @@ export const CustomersListPage: React.FC = () => {
                             >
                               <Ban size={13} />
                               <span>Suspend</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleReactivateCustomer(customer.id)}
+                              aria-label={`Reactivate customer ${customer.name}`}
+                              style={{
+                                padding: '4px 8px',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--color-status-success-text)',
+                                backgroundColor: 'var(--color-status-success-bg)',
+                                color: 'var(--color-status-success-text)',
+                                fontSize: 'var(--font-size-xs)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                              }}
+                            >
+                              <CheckCircle size={13} />
+                              <span>Reactivate</span>
                             </button>
                           )}
                         </PermissionGate>
@@ -463,7 +573,7 @@ export const CustomersListPage: React.FC = () => {
       {detailModalId && (
         <CustomerDetailModal
           customerId={detailModalId}
-          onClose={() => setDetailModalId(null)}
+          onClose={handleCloseDetailModal}
           onStatusChanged={() => refetch()}
         />
       )}

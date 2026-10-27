@@ -554,10 +554,22 @@ export class RealSupportRepository implements ISupportRepository {
     _authorName: string
   ): Promise<void> {
     try {
-      await httpClient.post(`/admin/support/tickets/${ticketId}/messages`, {
-        body: noteText,
-        internal: true,
-      });
+      const idempotencyKey = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `idem_msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      await httpClient.post(
+        `/admin/support/tickets/${ticketId}/messages`,
+        {
+          body: noteText,
+          internal: true,
+        },
+        {
+          headers: {
+            'Idempotency-Key': idempotencyKey,
+          },
+        }
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

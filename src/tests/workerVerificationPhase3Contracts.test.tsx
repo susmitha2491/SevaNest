@@ -481,6 +481,7 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       await repo.rejectCheck('chk-address-101', 'ADDRESS', 'BLURRY_IMAGE', 'Utility bill illegible');
 
       expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-address-101/reject', {
+        reasonCode: 'BLURRY_IMAGE',
         remarks: 'Utility bill illegible',
       });
     });

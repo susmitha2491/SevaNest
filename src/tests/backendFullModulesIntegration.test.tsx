@@ -89,23 +89,35 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
     });
 
     it('suspends customer with mandatory operational remarks', async () => {
-      const patchSpy = vi.spyOn(httpClient, 'patch').mockResolvedValueOnce({
-        data: { success: true },
+      vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          id: 'C-1092',
+          userId: 'usr-cust-1092',
+          fullName: 'Anand Sharma',
+        },
+        headers: { etag: 'W/"etag-cust-1092"' },
       } as any);
-      const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValueOnce({
+      const patchSpy = vi.spyOn(httpClient, 'patch').mockResolvedValue({
         data: { success: true },
       } as any);
 
       const repo = new RealCustomerRepository();
       await repo.suspendCustomer('C-1092', 'Documents unclear');
 
-      expect(patchSpy).toHaveBeenCalledWith('/admin/customers/C-1092/verification-status', {
-        status: 'PENDING',
-        note: 'Documents unclear',
+      expect(patchSpy).toHaveBeenCalledWith('/admin/users/usr-cust-1092/status', {
+        status: 'SUSPENDED',
+        reason: 'Documents unclear',
       });
-      expect(postSpy).toHaveBeenCalledWith('/admin/customers/C-1092/notes', {
-        note: '[SUSPENDED] Documents unclear',
-      });
+      expect(patchSpy).toHaveBeenCalledWith(
+        '/admin/customers/C-1092/verification-status',
+        {
+          status: 'PENDING',
+          note: 'Documents unclear',
+        },
+        {
+          headers: { 'If-Match': 'W/"etag-cust-1092"' },
+        }
+      );
     });
   });
 
@@ -146,7 +158,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       expect(result[0].isFullyVerified).toBe(false);
     });
 
-    it('updates worker status via PATCH /admin/workers/:id', async () => {
+    it('updates worker status via PATCH /admin/users/:userId/status', async () => {
       const patchSpy = vi.spyOn(httpClient, 'patch').mockResolvedValueOnce({
         data: { success: true },
       } as any);
@@ -154,8 +166,9 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const repo = new RealWorkerRepository();
       await repo.updateWorkerStatus('W-10482', 'SUSPENDED', 'Disciplinary reason');
 
-      expect(patchSpy).toHaveBeenCalledWith('/admin/workers/W-10482', {
+      expect(patchSpy).toHaveBeenCalledWith('/admin/users/W-10482/status', {
         status: 'SUSPENDED',
+        reason: 'Disciplinary reason',
       });
     });
 
@@ -168,7 +181,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       await repo.updateWorkerCategories('W-10482', ['COOK', 'HOUSE_MAID']);
 
       expect(putSpy).toHaveBeenCalledWith('/admin/workers/W-10482/categories', {
-        categoryCodes: ['COOK', 'HOUSE_MAID'],
+        categoryIds: ['COOK', 'HOUSE_MAID'],
       });
     });
   });
@@ -216,6 +229,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
 
       await repo.rejectCheck('chk-address-101', 'ADDRESS', 'BLURRY_IMAGE', 'Utility bill blurry');
       expect(postSpy).toHaveBeenCalledWith('/admin/verification/checks/chk-address-101/reject', {
+        reasonCode: 'BLURRY_IMAGE',
         remarks: 'Utility bill blurry',
       });
 
@@ -264,22 +278,37 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
         trialFeeAmount: 499,
         notes: 'Morning trial',
       });
-      expect(postSpy).toHaveBeenCalledWith('/admin/bookings/B-84920/schedule', {
-        scheduleType: 'TRIAL',
-        scheduledAt: '2026-10-15',
-        workerId: 'W-10482',
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/admin/bookings/B-84920/schedule',
+        {
+          scheduleType: 'TRIAL',
+          scheduledAt: '2026-10-15',
+          workerId: 'W-10482',
+        },
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
+        })
+      );
 
       await repo.confirmBooking('B-84920');
       expect(postSpy).toHaveBeenCalledWith(
         '/admin/bookings/B-84920/confirm-worker',
-        expect.objectContaining({ startDate: expect.any(String) })
+        expect.objectContaining({ startDate: expect.any(String) }),
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
+        })
       );
 
       await repo.cancelBooking('B-84920', 'Customer requested cancellation', 'CUSTOMER_INITIATED');
-      expect(postSpy).toHaveBeenCalledWith('/admin/bookings/B-84920/cancel', {
-        reason: 'Customer requested cancellation',
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/admin/bookings/B-84920/cancel',
+        {
+          reason: 'Customer requested cancellation',
+        },
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
+        })
+      );
     });
   });
 
@@ -312,9 +341,15 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       expect(list.totalGrossCollectionsINR).toBe(499);
 
       await repo.processRefund('TXN-892104', 499, 'OTHER', 'Cancellation before trial');
-      expect(postSpy).toHaveBeenCalledWith('/admin/payments/TXN-892104/refund', {
-        reason: 'OTHER: Cancellation before trial',
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/admin/payments/TXN-892104/refund',
+        {
+          reason: 'OTHER: Cancellation before trial',
+        },
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
+        })
+      );
     });
   });
 
@@ -350,10 +385,16 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       });
 
       await repo.addCaseNote('TKT-4921', 'Spoke to customer', 'TELEPHONIC_LOG', 'Pooja');
-      expect(postSpy).toHaveBeenCalledWith('/admin/support/tickets/TKT-4921/messages', {
-        body: 'Spoke to customer',
-        internal: true,
-      });
+      expect(postSpy).toHaveBeenCalledWith(
+        '/admin/support/tickets/TKT-4921/messages',
+        {
+          body: 'Spoke to customer',
+          internal: true,
+        },
+        expect.objectContaining({
+          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
+        })
+      );
 
       await repo.resolveTicket('TKT-4921', 'Replacement arranged and confirmed');
       expect(postSpy).toHaveBeenCalledWith('/admin/support/tickets/TKT-4921/close', {

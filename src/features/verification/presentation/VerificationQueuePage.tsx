@@ -36,6 +36,10 @@ import {
   REJECTION_CATEGORIES,
   VerificationFilterCriteria,
 } from '../domain/types';
+import {
+  evaluateVerificationWorkflow,
+  getNextStepType,
+} from '../domain/verificationWorkflow';
 import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -62,6 +66,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
   const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN';
+  const canSignOff = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
   const canViewDocuments = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) || hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED);
   const canViewPhone = hasPermission(user?.permissions, PERMISSIONS.WORKERS_MANAGE) || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN';
@@ -107,6 +112,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
   // Modal dialog states
   const [isApproveDialogOpen, setIsApproveDialogOpen] = useState(false);
+  const [isFinalApproveDialogOpen, setIsFinalApproveDialogOpen] = useState(false);
   const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
   const [isRecheckDialogOpen, setIsRecheckDialogOpen] = useState(false);
   const [selectedRejectionCategory, setSelectedRejectionCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
@@ -126,6 +132,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const [vaultDocRotation, setVaultDocRotation] = useState(0);
   const [vaultDocZoom, setVaultDocZoom] = useState(100);
   const [claimConflictMessage, setClaimConflictMessage] = useState<string | null>(null);
+  const [workflowFeedbackMessage, setWorkflowFeedbackMessage] = useState<string | null>(null);
 
   // References for modal accessibility & focus management
   const triggerElementRef = useRef<{ focus: () => void } | null>(null);
@@ -161,10 +168,15 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   };
 
   const handleCloseModal = useCallback(() => {
+    const returnTo = searchParams.get('returnTo');
     setSelectedDossierId(null);
     setInspectingVaultDoc(null);
     setVaultDocRotation(0);
     setVaultDocZoom(100);
+    if (returnTo) {
+      navigate(returnTo);
+      return;
+    }
     setSearchParams((prev) => {
       const next = new window.URLSearchParams(prev);
       next.delete('workerId');
@@ -176,7 +188,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         triggerElementRef.current.focus();
       }
     }, 0);
-  }, [setSearchParams]);
+  }, [setSearchParams, searchParams, navigate]);
 
   // Synchronize state when URL params change externally
   useEffect(() => {
@@ -238,6 +250,14 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     : null;
   const dossierTargetCheckId = currentCheck?.id || currentDossier?.checkId;
 
+  // Strict sequential workflow evaluation
+  const workflow = evaluateVerificationWorkflow(
+    currentDossier?.checks,
+    currentDossier?.preCheckOtpVerified ?? true
+  );
+  const currentStepEval = workflow.steps.find((s) => s.type === activeCheckTab);
+  const isCurrentCheckLocked = Boolean(currentStepEval?.isLocked);
+
   const isModalOpen = Boolean(selectedDossierId);
 
   // Lock background scroll while modal is open, and handle Escape key
@@ -249,7 +269,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
     const handleKeyDown = (e: { key: string; preventDefault: () => void }) => {
       // If a nested confirm dialog is open, let that dialog handle Escape
-      if (isApproveDialogOpen || isRejectDialogOpen || isRecheckDialogOpen) {
+      if (isApproveDialogOpen || isFinalApproveDialogOpen || isRejectDialogOpen || isRecheckDialogOpen) {
         return;
       }
       if (e.key === 'Escape') {
@@ -264,7 +284,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isModalOpen, isApproveDialogOpen, isRejectDialogOpen, isRecheckDialogOpen, handleCloseModal]);
+  }, [isModalOpen, isApproveDialogOpen, isFinalApproveDialogOpen, isRejectDialogOpen, isRecheckDialogOpen, handleCloseModal]);
 
   // Trap keyboard focus within modal and focus close button on open
   useEffect(() => {
@@ -395,9 +415,37 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
       notes?: string;
     }) => {
       await verificationRepository.approveCheck(checkId, checkType, notes);
+      return { checkId, checkType };
     },
     onSuccess: () => {
       invalidateRelated();
+      const nextStep = getNextStepType(activeCheckTab);
+      if (nextStep) {
+        setActiveCheckTab(nextStep);
+        setWorkflowFeedbackMessage(`Step approved successfully. Automatically advanced to Step: ${nextStep.replace(/_/g, ' ')}.`);
+      } else {
+        setWorkflowFeedbackMessage('All 5 operational checks approved! Worker application satisfies authoritative verification requirements.');
+      }
+      setTimeout(() => setWorkflowFeedbackMessage(null), 6000);
+    },
+    onError: (err: Error) => {
+      setIsApproveDialogOpen(false);
+      setWorkflowFeedbackMessage(`Approval failed: ${err.message || 'Server error occurred'}. Please retry.`);
+    },
+  });
+
+  const finalOnboardMutation = useMutation({
+    mutationFn: async ({ workerId, notes }: { workerId: string; notes?: string }) => {
+      return await verificationRepository.signOffVerification(workerId, notes);
+    },
+    onSuccess: () => {
+      setIsFinalApproveDialogOpen(false);
+      invalidateRelated();
+      setWorkflowFeedbackMessage('Worker verification dossier formally signed off (VERIFIED)!');
+    },
+    onError: (err: Error) => {
+      setIsFinalApproveDialogOpen(false);
+      setWorkflowFeedbackMessage(`Verification Sign-Off failed: ${err.message || 'Server error occurred'}.`);
     },
   });
 
@@ -1477,6 +1525,29 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                         )
                       )}
 
+                      {searchParams.get('returnTo') && (
+                        <button
+                          onClick={() => navigate(searchParams.get('returnTo')!)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '4px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-bg-surface)',
+                            color: 'var(--color-text-primary)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          aria-label="Back to Workers Directory"
+                        >
+                          <ChevronLeft size={14} />
+                          <span>Back to Workers</span>
+                        </button>
+                      )}
+
                       <button
                         ref={closeButtonRef}
                         onClick={handleCloseModal}
@@ -1533,6 +1604,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
                     <button
                       onClick={() => navigate(`/workers?search=${encodeURIComponent(currentDossier.workerId)}&workerId=${encodeURIComponent(currentDossier.workerId)}`)}
+                      aria-label={`Inspect Worker Profile (View Worker Record) for ${currentDossier.workerName}`}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
@@ -1709,7 +1781,35 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               {/* Section 1: Inspection Workstation (Active Check Actions & Inspection Pane) */}
             {activeDossierSection === 'WORKSTATION' && (
               <>
-                {/* 5 Operations Checks Navigation Tabs */}
+                {/* Workflow Success / Progression Feedback Toast */}
+                {workflowFeedbackMessage && (
+                  <div
+                    style={{
+                      padding: 'var(--space-2) var(--space-6)',
+                      backgroundColor: 'var(--color-status-success-bg)',
+                      borderBottom: '1px solid var(--color-status-success-border)',
+                      color: 'var(--color-status-success-text)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <CheckCircle2 size={16} />
+                      <span>{workflowFeedbackMessage}</span>
+                    </div>
+                    <button
+                      onClick={() => setWorkflowFeedbackMessage(null)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* 5 Operations Checks Navigation Tabs in Canonical Sequence */}
                 <div
                   className="verification-dossier-tab-bar"
                   style={{
@@ -1720,727 +1820,983 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                     overflowX: 'auto',
                   }}
                 >
-              {(
-                [
-                  { key: 'IDENTITY', label: '1. Identity Proof' },
-                  { key: 'ADDRESS', label: '2. Address Proof' },
-                  { key: 'EMERGENCY_CONTACT', label: '3. Emergency Contact' },
-                  { key: 'REFERENCE', label: '4. Employer Reference' },
-                  { key: 'POLICE_CLEARANCE', label: '5. Police Certificate' },
-                ] as const
-              ).map((tab) => {
-                const check = currentDossier.checks[tab.key];
-                return (
-                  <button
-                    key={tab.key}
-                    onClick={() => setActiveCheckTab(tab.key)}
-                    style={{
-                      padding: 'var(--space-3) var(--space-4)',
-                      border: 'none',
-                      borderBottom: activeCheckTab === tab.key ? '3px solid var(--color-brand-600)' : '3px solid transparent',
-                      backgroundColor: activeCheckTab === tab.key ? 'var(--color-surface)' : 'transparent',
-                      color: activeCheckTab === tab.key ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
-                      fontWeight: 700,
-                      fontSize: 'var(--font-size-xs)',
-                      cursor: 'pointer',
-                      whiteSpace: 'nowrap',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-1)',
-                      flexShrink: 0,
-                    }}
-                  >
-                    <span>{tab.label}</span>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        width: '8px',
-                        height: '8px',
-                        borderRadius: '50%',
-                        backgroundColor:
-                          check?.status === 'APPROVED'
-                            ? 'var(--color-status-success-text)'
-                            : check?.status === 'REJECTED'
-                            ? 'var(--color-status-danger-text)'
-                            : 'var(--color-status-warning-text)',
-                      }}
-                    />
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Active Check Details and Inspection Pane */}
-            {currentCheck && (
-              <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                {/* Active Check Overview Box */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: 'var(--space-3) var(--space-4)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                  }}
-                >
-                  <div>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
-                      Inspection Check:
-                    </span>
-                    <h4 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {currentCheck.title}
-                    </h4>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>Check Status:</span>
-                      <StatusBadge status={currentCheck.status} />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)', fontSize: 'var(--font-size-xs)' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>Document Attachment:</span>
-                      {!hasValidDocId ? (
-                        <span style={{ color: 'var(--color-text-tertiary)', fontWeight: 600 }}>○ Pending Submission</span>
-                      ) : isDocLoading ? (
-                        <span style={{ color: 'var(--color-brand-600)', fontWeight: 600 }}>● Loading Secure Link...</span>
-                      ) : isDocError ? (
-                        <span style={{ color: 'var(--color-error-dark)', fontWeight: 600 }}>✕ Vault Retrieval Failed</span>
-                      ) : docLinkData?.signedUrl ? (
-                        <span style={{ color: 'var(--color-status-success-text)', fontWeight: 600 }}>● Available in Vault</span>
-                      ) : (
-                        <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
-                      )}
-                    </div>
-                  </div>
+                  {workflow.steps.map((step) => {
+                    const check = currentDossier?.checks[step.type];
+                    const isActive = activeCheckTab === step.type;
+                    return (
+                      <button
+                        key={step.type}
+                        onClick={() => setActiveCheckTab(step.type)}
+                        title={
+                          step.isLocked
+                            ? `Step ${step.order} is locked: Prerequisite (${step.prerequisiteBlockers.join(', ')}) must be approved first.`
+                            : step.isCompleted
+                            ? `Step ${step.order} is approved.`
+                            : step.isCurrentActionable
+                            ? `Step ${step.order} is current actionable step.`
+                            : undefined
+                        }
+                        style={{
+                          padding: 'var(--space-3) var(--space-4)',
+                          border: 'none',
+                          borderBottom: isActive ? '3px solid var(--color-brand-600)' : '3px solid transparent',
+                          backgroundColor: isActive ? 'var(--color-surface)' : 'transparent',
+                          color: isActive ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
+                          fontWeight: 700,
+                          fontSize: 'var(--font-size-xs)',
+                          cursor: 'pointer',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 'var(--space-2)',
+                          flexShrink: 0,
+                          opacity: step.isLocked ? 0.75 : 1,
+                        }}
+                      >
+                        {step.isLocked && <Lock size={12} color="var(--color-warning-dark)" />}
+                        <span>{step.order}. {step.title}</span>
+                        <span
+                          style={{
+                            display: 'inline-block',
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '50%',
+                            backgroundColor:
+                              check?.status === 'APPROVED'
+                                ? 'var(--color-status-success-text)'
+                                : check?.status === 'REJECTED'
+                                ? 'var(--color-status-danger-text)'
+                                : step.isLocked
+                                ? 'var(--color-text-muted)'
+                                : 'var(--color-status-warning-text)',
+                          }}
+                        />
+                      </button>
+                    );
+                  })}
                 </div>
 
-                {/* Sub-Pane 1: Document Inspection View (Identity, Address, Police) */}
-                {currentCheck.evaluationMethod !== 'TELEPHONIC_VETTING' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-                    {currentCheck.documentMetadata && (
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-                          gap: 'var(--space-3)',
-                          padding: 'var(--space-3)',
-                          backgroundColor: '#f8fafc',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: 'var(--font-size-xs)',
-                          border: '1px solid var(--color-border)',
-                        }}
-                      >
-                        <div>
-                          <strong style={{ color: 'var(--color-text-secondary)' }}>Document Type:</strong>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.documentMetadata.documentTypeName}</div>
-                        </div>
-                        <div>
-                          <strong style={{ color: 'var(--color-text-secondary)' }}>Name on Document:</strong>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.documentMetadata.nameOnDoc || currentDossier.workerName}</div>
-                        </div>
-                        <div>
-                          <strong style={{ color: 'var(--color-text-secondary)' }}>Document Ref Number:</strong>
-                          <div style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-brand-700)' }}>
-                            {currentCheck.documentMetadata.docNumberMasked || '—'}
-                          </div>
-                        </div>
-                        <div>
-                          <strong style={{ color: 'var(--color-text-secondary)' }}>Vault Availability:</strong>
-                          <div style={{ fontWeight: 600 }}>
-                            {!hasValidDocId ? (
-                              <span style={{ color: 'var(--color-text-tertiary)' }}>○ Pending Upload</span>
-                            ) : isDocLoading ? (
-                              <span style={{ color: 'var(--color-brand-600)' }}>● Retrieving Link...</span>
-                            ) : isDocError ? (
-                              <span style={{ color: 'var(--color-error-dark)' }}>✕ Retrieval Failed</span>
-                            ) : docLinkData?.signedUrl ? (
-                              <span style={{ color: 'var(--color-status-success-text)' }}>● Attached in Storage Vault</span>
-                            ) : (
-                              <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Restricted access notice if user lacks DOCUMENTS_VIEW_RESTRICTED */}
-                    {!canViewDocuments ? (
-                      <div
-                        style={{
-                          padding: 'var(--space-6)',
-                          backgroundColor: 'var(--color-warning-bg)',
-                          border: '1px solid var(--color-warning-border)',
-                          borderRadius: 'var(--radius-md)',
-                          textAlign: 'center',
-                          color: 'var(--color-warning-dark)',
-                        }}
-                      >
-                        <Lock size={32} style={{ marginBottom: 'var(--space-2)' }} />
-                        <h5 style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-1) 0' }}>
-                          Restricted Personal Document (KYC)
-                        </h5>
-                        <p style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>
-                          Access to raw identity and address document attachments requires the <code>verification.document.view</code> (<code>documents.view_restricted</code>) permission.
-                        </p>
-                      </div>
-                    ) : !hasValidDocId ? (
-                      <div
-                        data-testid="verification-doc-missing-id"
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          minHeight: '220px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: 'var(--space-6)',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <FileText size={36} color="var(--color-text-muted)" style={{ marginBottom: 'var(--space-2)' }} />
-                        <h5 style={{ fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-1) 0' }}>
-                          Document Vault Attachment Unavailable
-                        </h5>
-                        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 0, maxWidth: '380px' }}>
-                          No backend document reference ID is associated with this verification check. Secure signed URL retrieval cannot proceed without a genuine document ID.
-                        </p>
-                      </div>
-                    ) : isDocLoading ? (
-                      <div
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          minHeight: '220px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <LoadingSpinner message="Fetching authorized signed document link from secure vault..." />
-                      </div>
-                    ) : isDocError ? (
-                      <div
-                        style={{
-                          border: '1px solid var(--color-error-border)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-error-bg)',
-                          minHeight: '220px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: 'var(--space-6)',
-                          textAlign: 'center',
-                        }}
-                      >
-                        {(() => {
-                          const errInfo = formatDocumentVaultError(docError);
-                          return (
-                            <>
-                              <AlertTriangle size={36} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
-                              <h5 style={{ fontWeight: 700, color: 'var(--color-error-dark)', margin: '0 0 var(--space-1) 0' }}>
-                                {errInfo.title}
-                              </h5>
-                              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)', maxWidth: '420px', margin: '0 auto var(--space-3) auto' }}>
-                                {errInfo.message}
-                              </p>
-                              {errInfo.canRetry && (
-                                <button
-                                  onClick={() => refetchDocLink()}
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '6px 12px',
-                                    borderRadius: 'var(--radius-md)',
-                                    backgroundColor: 'var(--color-brand-600)',
-                                    color: '#fff',
-                                    border: 'none',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  <RefreshCw size={14} /> Retry Fetching Document
-                                </button>
-                              )}
-                            </>
-                          );
-                        })()}
-                      </div>
-                    ) : !docLinkData?.signedUrl ? (
-                      <div
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          minHeight: '220px',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          padding: 'var(--space-6)',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <AlertCircle size={36} color="var(--color-text-muted)" style={{ marginBottom: 'var(--space-2)' }} />
-                        <h5 style={{ fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-1) 0' }}>
-                          Document Attachment Unavailable
-                        </h5>
-                        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)', maxWidth: '380px' }}>
-                          The authorized backend signed document endpoint did not return an active access URL. Contract gap: <code>GET /api/v1/admin/verification/documents/{'{documentId}'}/link</code>.
-                        </p>
+                {/* Celebratory Authoritative Acceptance Banner when all checks pass */}
+                {(workflow.allApproved || currentDossier?.status === 'APPROVED') && (
+                  <div
+                    style={{
+                      margin: 'var(--space-4) var(--space-6) 0 var(--space-6)',
+                      padding: 'var(--space-4)',
+                      backgroundColor: 'var(--color-status-success-bg)',
+                      border: '1px solid var(--color-status-success-border)',
+                      borderRadius: 'var(--radius-md)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--space-1)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <CheckCircle2 size={18} color="var(--color-status-success-text)" />
+                      <strong style={{ color: 'var(--color-status-success-text)', fontSize: 'var(--font-size-sm)' }}>
+                        All 6 Verification Criteria Satisfied • Authoritative Status: VERIFIED
+                      </strong>
+                    </div>
+                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', margin: 0, lineHeight: 1.5 }}>
+                      Every required verification check (Mobile OTP Pre-Check and all 5 Operations Checks) has been inspected and approved. The worker application is authoritatively promoted to VERIFIED status.
+                    </p>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                      <strong>Backend Architecture (ARCH-VERIF-01):</strong> Verification status is maintained server-side from individual check decisions.
+                    </div>
+                    {canSignOff ? (
+                      <div style={{ marginTop: 'var(--space-3)', display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
                         <button
-                          onClick={() => refetchDocLink()}
+                          id="queue-final-approval-onboard-btn"
+                          disabled={finalOnboardMutation.isPending}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIsFinalApproveDialogOpen(true);
+                          }}
                           style={{
+                            padding: '8px 16px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-brand-600, #2563eb)',
+                            color: '#ffffff',
+                            fontWeight: 700,
+                            fontSize: 'var(--font-size-xs)',
+                            border: 'none',
+                            cursor: finalOnboardMutation.isPending ? 'not-allowed' : 'pointer',
+                            opacity: finalOnboardMutation.isPending ? 0.6 : 1,
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '6px',
-                            padding: '6px 12px',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor: 'var(--color-brand-600)',
-                            color: '#fff',
-                            border: 'none',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
+                            boxShadow: 'var(--shadow-sm)',
                           }}
                         >
-                          <RefreshCw size={14} /> Retry Fetching Document
+                          <CheckCircle2 size={14} />
+                          <span>{finalOnboardMutation.isPending ? 'Signing Off...' : 'Sign Off Verification Dossier'}</span>
                         </button>
                       </div>
                     ) : (
-                      /* Document Viewer Container with Authorized Link */
-                      <div
-                        style={{
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          color: 'var(--color-text-primary)',
-                          minHeight: '440px',
-                          width: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          position: 'relative',
-                          overflow: 'hidden',
-                          padding: 'var(--space-6)',
-                        }}
-                      >
-                        {/* Document Canvas Display */}
-                        {(() => {
-                          const url = docLinkData.signedUrl;
-                          const isPdf = /\.pdf(\?.*)?$/i.test(url);
-                          const isImage = /\.(jpe?g|png|webp|svg|gif)(\?.*)?$/i.test(url);
-
-                          if (isImage) {
-                            return (
-                              <div
-                                style={{
-                                  display: 'flex',
-                                  flexDirection: 'column',
-                                  alignItems: 'center',
-                                  gap: 'var(--space-2)',
-                                  width: '100%',
-                                }}
-                              >
-                                <img
-                                  src={url}
-                                  alt={currentCheck.documentMetadata?.documentTypeName || 'Document Attachment'}
-                                  style={{
-                                    maxWidth: '100%',
-                                    maxHeight: '460px',
-                                    objectFit: 'contain',
-                                    transform: `rotate(${docRotation}deg) scale(${docZoom / 100})`,
-                                    transition: 'transform 0.2s ease',
-                                    borderRadius: 'var(--radius-sm)',
-                                    boxShadow: 'var(--shadow-sm)',
-                                  }}
-                                />
-                                {docLinkData.expiresAt && (
-                                  <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
-                                    Validity: {docLinkData.expiresAt}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-
-                          if (isPdf) {
-                            return (
-                              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
-                                <object
-                                  data={url}
-                                  type="application/pdf"
-                                  style={{
-                                    width: '100%',
-                                    height: '480px',
-                                    border: '1px solid var(--color-border)',
-                                    borderRadius: 'var(--radius-sm)',
-                                  }}
-                                >
-                                  <iframe
-                                    src={url}
-                                    title={currentCheck.documentMetadata?.documentTypeName || 'PDF Attachment'}
-                                    style={{ width: '100%', height: '480px', border: 'none' }}
-                                  >
-                                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', padding: 'var(--space-4)' }}>
-                                      Inline PDF preview is not supported by your browser. Use the secure link below to view the document.
-                                    </p>
-                                  </iframe>
-                                </object>
-                                {docLinkData.expiresAt && (
-                                  <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
-                                    Validity: {docLinkData.expiresAt}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          }
-
-                          return (
-                            <div
-                              style={{
-                                transform: `rotate(${docRotation}deg) scale(${docZoom / 100})`,
-                                transition: 'transform 0.2s ease',
-                                textAlign: 'center',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                gap: 'var(--space-2)',
-                              }}
-                            >
-                              <FileText size={56} color="var(--color-brand-600)" />
-                              <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                                [CONFIDENTIAL KYC ATTACHMENT]
-                              </div>
-                              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                                {currentCheck.documentMetadata?.documentTypeName || 'Official Government Certificate'}
-                              </div>
-                              <div
-                                style={{
-                                  fontSize: '10px',
-                                  color: 'var(--color-text-muted)',
-                                  backgroundColor: 'var(--color-border-subtle)',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  marginTop: 'var(--space-1)',
-                                }}
-                              >
-                                Authorized Document Vault Record • Watermarked for Confidential Inspection
-                              </div>
-                              {docLinkData.expiresAt && (
-                                <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
-                                  Validity: {docLinkData.expiresAt}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-
-                        {/* Secure Document Link Action */}
-                        <div style={{ marginTop: 'var(--space-4)', zIndex: 2 }}>
-                          <a
-                            href={docLinkData.signedUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              try {
-                                validateDocumentSignedUrl(docLinkData.signedUrl);
-                              } catch {
-                                e.preventDefault();
-                              }
-                            }}
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '6px',
-                              padding: '6px 12px',
-                              borderRadius: 'var(--radius-md)',
-                              backgroundColor: 'var(--color-brand-600)',
-                              color: '#ffffff',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              textDecoration: 'none',
-                              boxShadow: 'var(--shadow-sm)',
-                            }}
-                          >
-                            <ExternalLink size={14} /> Open Secure Document Link
-                          </a>
-                        </div>
-
-                        {/* Viewer Toolbar */}
-                        <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 'var(--space-2)',
-                            right: 'var(--space-2)',
-                            display: 'flex',
-                            gap: 'var(--space-1)',
-                            backgroundColor: 'var(--color-bg-surface)',
-                            border: '1px solid var(--color-border-subtle)',
-                            boxShadow: 'var(--shadow-sm)',
-                            padding: '4px',
-                            borderRadius: 'var(--radius-md)',
-                            zIndex: 3,
-                          }}
-                        >
-                          <button
-                            onClick={() => setDocZoom((z) => Math.min(z + 10, 150))}
-                            style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '2px 4px' }}
-                            title="Zoom In"
-                            aria-label="Zoom In"
-                          >
-                            <ZoomIn size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDocZoom((z) => Math.max(z - 10, 70))}
-                            style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '2px 4px' }}
-                            title="Zoom Out"
-                            aria-label="Zoom Out"
-                          >
-                            <ZoomOut size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDocRotation((r) => (r + 90) % 360)}
-                            style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '2px 4px' }}
-                            title="Rotate 90deg"
-                            aria-label="Rotate 90 degrees"
-                          >
-                            <RotateCw size={14} />
-                          </button>
-                        </div>
+                      <div style={{ marginTop: 'var(--space-3)', padding: '8px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border)', fontSize: '11px', color: 'var(--color-text-muted)' }}>
+                        <strong>Role Boundary Notice:</strong> Verification Executives decide individual checks. Verification Sign-Off requires <code>verification.signoff</code> (Operations Admin, Verification Supervisor, or Super Admin).
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Sub-Pane 2: Telephonic Vetting View (Emergency Contact / Prior Employer Reference) */}
-                {currentCheck.evaluationMethod === 'TELEPHONIC_VETTING' && currentCheck.contactDetails && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 'var(--space-3)',
-                      padding: 'var(--space-4)',
-                      backgroundColor: '#f8fafc',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-border)',
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--color-brand-700)' }}>
-                      <PhoneCall size={18} />
-                      <h5 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700 }}>
-                        Telephonic Vetting Contact Record
-                      </h5>
-                    </div>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--space-3)', fontSize: 'var(--font-size-xs)' }}>
-                      <div>
-                        <strong style={{ color: 'var(--color-text-secondary)' }}>Contact Person:</strong>
-                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.contactDetails.contactName}</div>
-                      </div>
-                      <div>
-                        <strong style={{ color: 'var(--color-text-secondary)' }}>Relationship / Role:</strong>
-                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.contactDetails.relationshipOrRole}</div>
-                      </div>
-                      <div>
-                        <strong style={{ color: 'var(--color-text-secondary)' }}>Phone Number:</strong>
-                        <div style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-brand-600)' }}>
-                          {currentCheck.contactDetails.phoneMasked}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-1)' }}>
-                        Telephonic Interview Notes & Vetting Summary:
-                      </label>
-                      <textarea
-                        rows={2}
-                        defaultValue={currentCheck.contactDetails.callNotes || ''}
-                        onChange={(e) => setTelephonicCallNotes(e.target.value)}
-                        placeholder="Record detailed notes from phone conversation (relationship confirmation, conduct feedback, tenure verification)..."
+                {/* Active Check 2-Column Split-Screen Workstation */}
+                {currentCheck && (
+                  <div className="verification-workstation-grid">
+                    {/* LEFT COLUMN: Verification Details & Action Controls */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+                      {/* Card 1: Active Check Status & Step Progress */}
+                      <div
                         style={{
-                          width: '100%',
-                          padding: 'var(--space-2)',
-                          borderRadius: 'var(--radius-md)',
+                          padding: 'var(--space-4)',
+                          backgroundColor: 'var(--color-surface)',
+                          borderRadius: 'var(--radius-lg)',
                           border: '1px solid var(--color-border)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontFamily: 'inherit',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Rejection Details Banner if already rejected */}
-                {currentCheck.status === 'REJECTED' && (
-                  <div
-                    style={{
-                      padding: 'var(--space-3) var(--space-4)',
-                      backgroundColor: 'var(--color-error-bg)',
-                      border: '1px solid var(--color-error-border)',
-                      borderRadius: 'var(--radius-md)',
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--color-error-dark)',
-                    }}
-                  >
-                    <strong>Rejection Category:</strong> {currentCheck.rejectionCategory || 'Operational Rejection'}
-                    <div style={{ marginTop: '2px' }}>
-                      <strong>Remarks:</strong> {currentCheck.rejectionRemarks || 'No additional remarks.'}
-                    </div>
-                  </div>
-                )}
-
-                {/* Action Controls for Active Check */}
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginTop: 'var(--space-2)',
-                    paddingTop: 'var(--space-4)',
-                    borderTop: '1px solid var(--color-border)',
-                    flexWrap: 'wrap',
-                    gap: 'var(--space-2)',
-                  }}
-                >
-                  {currentDossier.status === 'APPROVED' ? (
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--space-2)',
-                        padding: 'var(--space-2) var(--space-4)',
-                        backgroundColor: 'var(--color-status-success-bg)',
-                        border: '1px solid var(--color-status-success-border)',
-                        borderRadius: 'var(--radius-md)',
-                        color: 'var(--color-status-success-text)',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
-                      }}
-                    >
-                      <CheckCircle2 size={16} />
-                      <span>Verification Approved & Complete — Dossier is in Read-Only Mode</span>
-                    </div>
-                  ) : (
-                    <>
-                      <button
-                        disabled={isActionPending || !dossierTargetCheckId}
-                        title={!dossierTargetCheckId ? 'Check ID unavailable from backend data. Action cannot be executed.' : undefined}
-                        onClick={() => setIsRecheckDialogOpen(true)}
-                        style={{
-                          padding: 'var(--space-2) var(--space-3)',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--color-warning-dark)',
-                          backgroundColor: 'var(--color-warning-bg)',
-                          color: 'var(--color-warning-dark)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                          cursor: (isActionPending || !dossierTargetCheckId) ? 'not-allowed' : 'pointer',
-                          opacity: (isActionPending || !dossierTargetCheckId) ? 0.6 : 1,
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 'var(--space-3)',
                         }}
                       >
-                        <RefreshCw size={14} /> Request Re-Verification
-                      </button>
-
-                      {canDecide ? (
-                        <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                          <button
-                            disabled={isActionPending || !dossierTargetCheckId}
-                            title={!dossierTargetCheckId ? 'Check ID unavailable from backend data. Action cannot be executed.' : undefined}
-                            onClick={() => setIsRejectDialogOpen(true)}
-                            style={{
-                              padding: 'var(--space-2) var(--space-4)',
-                              borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-error-dark)',
-                              backgroundColor: 'var(--color-error-bg)',
-                              color: 'var(--color-error-dark)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: (isActionPending || !dossierTargetCheckId) ? 'not-allowed' : 'pointer',
-                              opacity: (isActionPending || !dossierTargetCheckId) ? 0.6 : 1,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <X size={14} /> Reject Check
-                          </button>
-
-                          <button
-                            disabled={isActionPending || !dossierTargetCheckId || currentCheck?.status === 'APPROVED'}
-                            title={
-                              !dossierTargetCheckId
-                                ? 'Check ID unavailable from backend data. Action cannot be executed.'
-                                : currentCheck?.status === 'APPROVED'
-                                ? 'This check has already been approved.'
-                                : undefined
-                            }
-                            onClick={() => setIsApproveDialogOpen(true)}
-                            style={{
-                              padding: 'var(--space-2) var(--space-4)',
-                              borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-brand-600)',
-                              backgroundColor: 'var(--color-brand-600)',
-                              color: '#ffffff',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: (isActionPending || !dossierTargetCheckId || currentCheck?.status === 'APPROVED') ? 'not-allowed' : 'pointer',
-                              opacity: (isActionPending || !dossierTargetCheckId || currentCheck?.status === 'APPROVED') ? 0.6 : 1,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <Check size={14} /> {approveCheckMutation.isPending ? 'Approving...' : currentCheck?.status === 'APPROVED' ? 'Check Approved' : 'Approve Check'}
-                          </button>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                          <div>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>
+                              Step {currentStepEval?.order || 1} of 5
+                            </span>
+                            <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                              {currentCheck.title}
+                            </h4>
+                          </div>
                         </div>
-                      ) : (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                          <button
-                            onClick={() => navigate(`/workers?search=${encodeURIComponent(currentDossier.workerId)}&workerId=${encodeURIComponent(currentDossier.workerId)}`)}
+
+                        {/* Status, Attachment & Method Badges */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontWeight: 600 }}>Check Status:</span>
+                            <StatusBadge status={currentCheck.status} />
+                          </div>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>Document Attachment:</span>{' '}
+                            <span>{hasValidDocId ? (currentCheck.documentMetadata?.documentTypeName || 'Available in Secure Vault') : 'Not Submitted / Pending'}</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                            <span>Method:</span>
+                            <span style={{ fontWeight: 600, color: 'var(--color-brand-700)' }}>
+                              {currentCheck.evaluationMethod === 'TELEPHONIC_VETTING' ? 'Telephonic Call Vetting' : 'Visual Document Inspection'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Sequential Lock Warning Banner */}
+                        {isCurrentCheckLocked && (
+                          <div
                             style={{
-                              padding: 'var(--space-2) var(--space-3)',
+                              padding: 'var(--space-3)',
+                              backgroundColor: 'var(--color-warning-bg)',
+                              border: '1px solid var(--color-warning-border)',
                               borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-border)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '4px',
+                              color: 'var(--color-warning-dark)',
+                              fontSize: 'var(--font-size-xs)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}>
+                              <Lock size={14} />
+                              <span>Sequential Verification Rule</span>
+                            </div>
+                            <p style={{ margin: 0, lineHeight: 1.4 }}>
+                              Step {currentStepEval?.order} ({currentCheck.title}) cannot be approved out of order. Preceding check(s) [{currentStepEval?.prerequisiteBlockers.join(', ')}] must reach APPROVED status first.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* Document Metadata (for document-based checks) */}
+                        {currentCheck.documentMetadata && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 'var(--space-2)',
+                              padding: 'var(--space-3)',
                               backgroundColor: 'var(--color-bg-subtle)',
-                              color: 'var(--color-brand-600)',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: 'var(--font-size-xs)',
+                              border: '1px solid var(--color-border-subtle)',
+                            }}
+                          >
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Document Type: </strong>
+                              <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.documentMetadata.documentTypeName}</span>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Name on Document: </strong>
+                              <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{currentCheck.documentMetadata.nameOnDoc || currentDossier?.workerName}</span>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Document Ref Number: </strong>
+                              <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-brand-700)' }}>
+                                {currentCheck.documentMetadata.docNumberMasked || '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Vault Status: </strong>
+                              <span style={{ fontWeight: 600 }}>
+                                {!hasValidDocId ? (
+                                  <span style={{ color: 'var(--color-text-tertiary)' }}>○ Pending Upload</span>
+                                ) : isDocLoading ? (
+                                  <span style={{ color: 'var(--color-brand-600)' }}>● Retrieving Authorized Link...</span>
+                                ) : isDocError ? (
+                                  <span style={{ color: 'var(--color-error-dark)' }}>✕ Retrieval Failed</span>
+                                ) : docLinkData?.signedUrl ? (
+                                  <span style={{ color: 'var(--color-status-success-text)' }}>● Attached in Storage Vault</span>
+                                ) : (
+                                  <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Contact Record (for telephonic vetting checks) */}
+                        {currentCheck.evaluationMethod === 'TELEPHONIC_VETTING' && currentCheck.contactDetails && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 'var(--space-2)',
+                              padding: 'var(--space-3)',
+                              backgroundColor: '#f8fafc',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: 'var(--font-size-xs)',
+                              border: '1px solid var(--color-border-subtle)',
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--color-brand-700)', marginBottom: '4px' }}>
+                              <PhoneCall size={16} />
+                              <h5 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, margin: 0 }}>
+                                Telephonic Vetting Contact Record
+                              </h5>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Contact Person: </strong>
+                              <span style={{ fontWeight: 600 }}>{currentCheck.contactDetails.contactName}</span>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Relationship / Role: </strong>
+                              <span style={{ fontWeight: 600 }}>{currentCheck.contactDetails.relationshipOrRole}</span>
+                            </div>
+                            <div>
+                              <strong style={{ color: 'var(--color-text-secondary)' }}>Phone Number: </strong>
+                              <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-brand-600)' }}>
+                                {currentCheck.contactDetails.phoneMasked}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Rejection Details Banner if rejected */}
+                        {currentCheck.status === 'REJECTED' && (
+                          <div
+                            style={{
+                              padding: 'var(--space-3)',
+                              backgroundColor: 'var(--color-error-bg)',
+                              border: '1px solid var(--color-error-border)',
+                              borderRadius: 'var(--radius-md)',
+                              fontSize: 'var(--font-size-xs)',
+                              color: 'var(--color-error-dark)',
+                            }}
+                          >
+                            <strong>Rejection Category:</strong> {currentCheck.rejectionCategory || 'Operational Rejection'}
+                            <div style={{ marginTop: '2px' }}>
+                              <strong>Remarks:</strong> {currentCheck.rejectionRemarks || 'No additional remarks.'}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Telephonic Call Notes Input */}
+                        {currentCheck.evaluationMethod === 'TELEPHONIC_VETTING' && (
+                          <div>
+                            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                              Telephonic Interview Notes & Vetting Summary:
+                            </label>
+                            <textarea
+                              rows={3}
+                              defaultValue={currentCheck.contactDetails?.callNotes || ''}
+                              onChange={(e) => setTelephonicCallNotes(e.target.value)}
+                              placeholder="Record detailed notes from phone conversation (relationship confirmation, conduct feedback, tenure verification)..."
+                              style={{
+                                width: '100%',
+                                padding: 'var(--space-2)',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--color-border)',
+                                fontSize: 'var(--font-size-xs)',
+                                fontFamily: 'inherit',
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Card 2: Review Actions Card */}
+                      <div
+                        style={{
+                          padding: 'var(--space-4)',
+                          backgroundColor: 'var(--color-surface)',
+                          borderRadius: 'var(--radius-lg)',
+                          border: '1px solid var(--color-border)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 'var(--space-3)',
+                        }}
+                      >
+                        <h5 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', margin: 0 }}>
+                          Review Decision Controls
+                        </h5>
+
+                        {currentDossier?.status === 'APPROVED' ? (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 'var(--space-2)',
+                              padding: 'var(--space-3)',
+                              backgroundColor: 'var(--color-status-success-bg)',
+                              border: '1px solid var(--color-status-success-border)',
+                              borderRadius: 'var(--radius-md)',
+                              color: 'var(--color-status-success-text)',
                               fontSize: 'var(--font-size-xs)',
                               fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
                             }}
                           >
-                            <ExternalLink size={14} /> Inspect Worker Profile
-                          </button>
-                          <span
-                            style={{
-                              fontSize: 'var(--font-size-xs)',
-                              color: 'var(--color-text-muted)',
-                              fontStyle: 'italic',
-                            }}
-                          >
-                            (Verification decisions reserved for Verification Executives)
-                          </span>
+                            <CheckCircle2 size={16} />
+                            <span>Verification Approved & Complete — Dossier is in Read-Only Mode</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                            {/* Start Review button (if check is PENDING or unreviewed) */}
+                            {currentCheck.status === 'PENDING' && canDecide && dossierTargetCheckId && (
+                              <button
+                                disabled={isActionPending}
+                                onClick={() => {
+                                  setClaimConflictMessage(null);
+                                  claimMutation.mutate({ checkId: dossierTargetCheckId, dossierId: currentDossier.id });
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  borderRadius: 'var(--radius-md)',
+                                  border: '1px solid var(--color-brand-600)',
+                                  backgroundColor: 'var(--color-brand-50)',
+                                  color: 'var(--color-brand-700)',
+                                  fontSize: 'var(--font-size-xs)',
+                                  fontWeight: 700,
+                                  cursor: isActionPending ? 'not-allowed' : 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                <Clock size={14} />
+                                <span>{claimMutation.isPending ? 'Starting Review...' : 'Start Review'}</span>
+                              </button>
+                            )}
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-2)' }}>
+                              <button
+                                disabled={isActionPending || !dossierTargetCheckId}
+                                title={!dossierTargetCheckId ? 'Check ID unavailable from backend data.' : undefined}
+                                onClick={() => setIsRecheckDialogOpen(true)}
+                                style={{
+                                  padding: '8px 10px',
+                                  borderRadius: 'var(--radius-md)',
+                                  border: '1px solid var(--color-warning-dark)',
+                                  backgroundColor: 'var(--color-warning-bg)',
+                                  color: 'var(--color-warning-dark)',
+                                  fontSize: 'var(--font-size-xs)',
+                                  fontWeight: 600,
+                                  cursor: (isActionPending || !dossierTargetCheckId) ? 'not-allowed' : 'pointer',
+                                  opacity: (isActionPending || !dossierTargetCheckId) ? 0.6 : 1,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '4px',
+                                }}
+                                aria-label="Request Re-Verification"
+                              >
+                                <RefreshCw size={14} /> Request Re-Verification
+                              </button>
+
+                              {canDecide ? (
+                                <button
+                                  disabled={isActionPending || !dossierTargetCheckId}
+                                  title={!dossierTargetCheckId ? 'Check ID unavailable from backend data.' : undefined}
+                                  onClick={() => setIsRejectDialogOpen(true)}
+                                  style={{
+                                    padding: '8px 10px',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--color-error-dark)',
+                                    backgroundColor: 'var(--color-error-bg)',
+                                    color: 'var(--color-error-dark)',
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 600,
+                                    cursor: (isActionPending || !dossierTargetCheckId) ? 'not-allowed' : 'pointer',
+                                    opacity: (isActionPending || !dossierTargetCheckId) ? 0.6 : 1,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <X size={14} /> Reject Check
+                                </button>
+                              ) : null}
+                            </div>
+
+                            {canDecide ? (
+                              <button
+                                disabled={isActionPending || !dossierTargetCheckId || currentCheck?.status === 'APPROVED' || isCurrentCheckLocked}
+                                title={
+                                  !dossierTargetCheckId
+                                    ? 'Check ID unavailable from backend data. Action cannot be executed.'
+                                    : isCurrentCheckLocked
+                                    ? `Step locked: Prerequisite (${currentStepEval?.prerequisiteBlockers.join(', ')}) must be approved first.`
+                                    : currentCheck?.status === 'APPROVED'
+                                    ? 'This check has already been approved.'
+                                    : undefined
+                                }
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (!isCurrentCheckLocked) {
+                                    setIsApproveDialogOpen(true);
+                                  }
+                                }}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px 14px',
+                                  borderRadius: 'var(--radius-md)',
+                                  border: '1px solid var(--color-brand-600)',
+                                  backgroundColor: isCurrentCheckLocked
+                                    ? 'var(--color-bg-subtle)'
+                                    : currentCheck?.status === 'APPROVED'
+                                    ? 'var(--color-status-success-bg)'
+                                    : 'var(--color-brand-600)',
+                                  color: isCurrentCheckLocked
+                                    ? 'var(--color-text-secondary)'
+                                    : currentCheck?.status === 'APPROVED'
+                                    ? 'var(--color-status-success-text)'
+                                    : '#ffffff',
+                                  fontSize: 'var(--font-size-xs)',
+                                  fontWeight: 700,
+                                  cursor: (isActionPending || !dossierTargetCheckId || currentCheck?.status === 'APPROVED' || isCurrentCheckLocked) ? 'not-allowed' : 'pointer',
+                                  opacity: (isActionPending || !dossierTargetCheckId || isCurrentCheckLocked) ? 0.65 : 1,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: '6px',
+                                }}
+                              >
+                                {isCurrentCheckLocked ? (
+                                  <>
+                                    <Lock size={14} /> Locked (Prerequisite Required)
+                                  </>
+                                ) : currentCheck?.status === 'APPROVED' ? (
+                                  <>
+                                    <Check size={14} /> Check Approved
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check size={14} /> {approveCheckMutation.isPending ? 'Approving...' : 'Approve Check'}
+                                  </>
+                                )}
+                              </button>
+                            ) : (
+                              <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', textAlign: 'center', fontStyle: 'italic' }}>
+                                Verification decisions reserved for Verification Executives
+                              </div>
+                            )}
+
+                            {/* Advance to Next Step Button if current is approved */}
+                            {currentCheck?.status === 'APPROVED' && (() => {
+                              const nextStep = getNextStepType(activeCheckTab);
+                              if (!nextStep) return null;
+                              const nextStepEval = workflow.steps.find((s) => s.type === nextStep);
+                              return (
+                                <button
+                                  onClick={() => setActiveCheckTab(nextStep)}
+                                  style={{
+                                    marginTop: 'var(--space-1)',
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    borderRadius: 'var(--radius-md)',
+                                    border: '1px solid var(--color-border)',
+                                    backgroundColor: 'var(--color-surface)',
+                                    color: 'var(--color-brand-600)',
+                                    fontSize: 'var(--font-size-xs)',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '6px',
+                                  }}
+                                >
+                                  <span>Advance to Next Step: {nextStepEval?.order}. {nextStepEval?.title}</span>
+                                  <ChevronRight size={14} />
+                                </button>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* RIGHT COLUMN: Dedicated Document Viewer / Telephonic Dossier */}
+                    {currentCheck.evaluationMethod !== 'TELEPHONIC_VETTING' ? (
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          backgroundColor: 'var(--color-surface)',
+                          borderRadius: 'var(--radius-lg)',
+                          border: '1px solid var(--color-border)',
+                          overflow: 'hidden',
+                          minHeight: '560px',
+                        }}
+                      >
+                        {/* Viewer Header & Toolbar */}
+                        <div
+                          style={{
+                            padding: 'var(--space-3) var(--space-4)',
+                            borderBottom: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            gap: 'var(--space-2)',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                            <FileText size={18} color="var(--color-brand-600)" />
+                            <div>
+                              <h5 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                                {currentCheck.documentMetadata?.documentTypeName || 'Official KYC Document Attachment'}
+                              </h5>
+                              <span style={{ fontSize: '10px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                                {currentCheck.documentMetadata?.docNumberMasked || 'Ref: Confirmed on Record'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Right Toolbar Controls */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                            {docLinkData?.expiresAt && (
+                              <span
+                                style={{
+                                  fontSize: '10px',
+                                  padding: '2px 6px',
+                                  borderRadius: '4px',
+                                  backgroundColor: 'var(--color-brand-50)',
+                                  color: 'var(--color-brand-700)',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Signed Link Active
+                              </span>
+                            )}
+                            {docLinkData?.signedUrl && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <button
+                                  onClick={() => setDocZoom((z) => Math.min(z + 10, 150))}
+                                  style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px 6px' }}
+                                  title="Zoom In"
+                                  aria-label="Zoom In"
+                                >
+                                  <ZoomIn size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setDocZoom((z) => Math.max(z - 10, 70))}
+                                  style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px 6px' }}
+                                  title="Zoom Out"
+                                  aria-label="Zoom Out"
+                                >
+                                  <ZoomOut size={14} />
+                                </button>
+                                <button
+                                  onClick={() => setDocRotation((r) => (r + 90) % 360)}
+                                  style={{ background: 'none', border: '1px solid var(--color-border)', borderRadius: '4px', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '4px 6px' }}
+                                  title="Rotate 90deg"
+                                  aria-label="Rotate 90 degrees"
+                                >
+                                  <RotateCw size={14} />
+                                </button>
+                                <a
+                                  href={docLinkData.signedUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick={(e) => {
+                                    try {
+                                      validateDocumentSignedUrl(docLinkData.signedUrl);
+                                    } catch {
+                                      e.preventDefault();
+                                    }
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    backgroundColor: 'var(--color-brand-600)',
+                                    color: '#ffffff',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    textDecoration: 'none',
+                                  }}
+                                >
+                                  <ExternalLink size={12} /> Open Secure Document Link
+                                </a>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </div>
-            )}
+
+                        {/* Viewer Canvas Area */}
+                        <div
+                          style={{
+                            flex: 1,
+                            minHeight: '480px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: 'var(--space-6)',
+                            backgroundColor: '#f1f5f9',
+                            position: 'relative',
+                            overflow: 'auto',
+                          }}
+                        >
+                          {!canViewDocuments ? (
+                            <div
+                              style={{
+                                padding: 'var(--space-6)',
+                                backgroundColor: 'var(--color-warning-bg)',
+                                border: '1px solid var(--color-warning-border)',
+                                borderRadius: 'var(--radius-md)',
+                                textAlign: 'center',
+                                color: 'var(--color-warning-dark)',
+                                maxWidth: '420px',
+                              }}
+                            >
+                              <Lock size={36} style={{ marginBottom: 'var(--space-2)' }} />
+                              <h5 style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', margin: '0 0 var(--space-1) 0' }}>
+                                Restricted Personal Document (KYC)
+                              </h5>
+                              <p style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>
+                                Access to raw identity and address document attachments requires the <code>verification.document.view</code> or <code>documents.view_restricted</code> permission.
+                              </p>
+                            </div>
+                          ) : !hasValidDocId ? (
+                            <div
+                              data-testid="verification-doc-missing-id"
+                              style={{
+                                border: '1px solid var(--color-border)',
+                                borderRadius: 'var(--radius-md)',
+                                backgroundColor: 'var(--color-surface)',
+                                minHeight: '260px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 'var(--space-6)',
+                                textAlign: 'center',
+                                maxWidth: '460px',
+                              }}
+                            >
+                              <FileText size={40} color="var(--color-text-muted)" style={{ marginBottom: 'var(--space-2)' }} />
+                              <h5 style={{ fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-1) 0' }}>
+                                Document Vault Attachment Unavailable
+                              </h5>
+                              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 0 }}>
+                                No backend document reference ID is associated with this verification check. Secure signed URL retrieval cannot proceed without a genuine document ID.
+                              </p>
+                            </div>
+                          ) : isDocLoading ? (
+                            <div style={{ textAlign: 'center' }}>
+                              <LoadingSpinner message="Fetching authorized signed document link from secure vault..." />
+                            </div>
+                          ) : isDocError ? (
+                            <div
+                              style={{
+                                border: '1px solid var(--color-error-border)',
+                                borderRadius: 'var(--radius-md)',
+                                backgroundColor: 'var(--color-error-bg)',
+                                minHeight: '260px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 'var(--space-6)',
+                                textAlign: 'center',
+                                maxWidth: '460px',
+                              }}
+                            >
+                              {(() => {
+                                const errInfo = formatDocumentVaultError(docError);
+                                return (
+                                  <>
+                                    <AlertTriangle size={36} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
+                                    <h5 style={{ fontWeight: 700, color: 'var(--color-error-dark)', margin: '0 0 var(--space-1) 0' }}>
+                                      {errInfo.title}
+                                    </h5>
+                                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)' }}>
+                                      {errInfo.message}
+                                    </p>
+                                    {errInfo.canRetry && (
+                                      <button
+                                        onClick={() => refetchDocLink()}
+                                        style={{
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          padding: '6px 12px',
+                                          borderRadius: 'var(--radius-md)',
+                                          backgroundColor: 'var(--color-brand-600)',
+                                          color: '#fff',
+                                          border: 'none',
+                                          fontSize: 'var(--font-size-xs)',
+                                          fontWeight: 600,
+                                          cursor: 'pointer',
+                                        }}
+                                      >
+                                        <RefreshCw size={14} /> Retry Fetching Document
+                                      </button>
+                                    )}
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          ) : !docLinkData?.signedUrl ? (
+                            <div
+                              style={{
+                                border: '1px solid var(--color-border)',
+                                borderRadius: 'var(--radius-md)',
+                                backgroundColor: 'var(--color-surface)',
+                                minHeight: '260px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 'var(--space-6)',
+                                textAlign: 'center',
+                                maxWidth: '460px',
+                              }}
+                            >
+                              <AlertCircle size={36} color="var(--color-text-muted)" style={{ marginBottom: 'var(--space-2)' }} />
+                              <h5 style={{ fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-1) 0' }}>
+                                Document Attachment Unavailable
+                              </h5>
+                              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-3)' }}>
+                                The authorized backend signed document endpoint did not return an active access URL.
+                              </p>
+                              <button
+                                onClick={() => refetchDocLink()}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '6px 12px',
+                                  borderRadius: 'var(--radius-md)',
+                                  backgroundColor: 'var(--color-brand-600)',
+                                  color: '#fff',
+                                  border: 'none',
+                                  fontSize: 'var(--font-size-xs)',
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <RefreshCw size={14} /> Retry Fetching Document
+                              </button>
+                            </div>
+                          ) : (
+                            (() => {
+                              const url = docLinkData.signedUrl;
+                              const isPdf = /\.pdf(\?.*)?$/i.test(url);
+                              const isImage = /\.(jpe?g|png|webp|svg|gif)(\?.*)?$/i.test(url);
+
+                              if (isImage) {
+                                return (
+                                  <div
+                                    style={{
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      gap: 'var(--space-2)',
+                                      width: '100%',
+                                    }}
+                                  >
+                                    <img
+                                      src={url}
+                                      alt={currentCheck.documentMetadata?.documentTypeName || 'Document Attachment'}
+                                      style={{
+                                        maxWidth: '100%',
+                                        maxHeight: '500px',
+                                        objectFit: 'contain',
+                                        transform: `rotate(${docRotation}deg) scale(${docZoom / 100})`,
+                                        transition: 'transform 0.2s ease',
+                                        borderRadius: 'var(--radius-sm)',
+                                        boxShadow: 'var(--shadow-sm)',
+                                      }}
+                                    />
+                                    {docLinkData.expiresAt && (
+                                      <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
+                                        Signed URL Validity: {docLinkData.expiresAt}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              if (isPdf) {
+                                return (
+                                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
+                                    <object
+                                      data={url}
+                                      type="application/pdf"
+                                      style={{
+                                        width: '100%',
+                                        height: '500px',
+                                        border: '1px solid var(--color-border)',
+                                        borderRadius: 'var(--radius-sm)',
+                                      }}
+                                    >
+                                      <iframe
+                                        src={url}
+                                        title={currentCheck.documentMetadata?.documentTypeName || 'PDF Attachment'}
+                                        style={{ width: '100%', height: '500px', border: 'none' }}
+                                      >
+                                        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', padding: 'var(--space-4)' }}>
+                                          Inline PDF preview is not supported by your browser. Use the secure link above to view the document.
+                                        </p>
+                                      </iframe>
+                                    </object>
+                                    {docLinkData.expiresAt && (
+                                      <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
+                                        Signed URL Validity: {docLinkData.expiresAt}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  style={{
+                                    transform: `rotate(${docRotation}deg) scale(${docZoom / 100})`,
+                                    transition: 'transform 0.2s ease',
+                                    textAlign: 'center',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    gap: 'var(--space-2)',
+                                  }}
+                                >
+                                  <FileText size={56} color="var(--color-brand-600)" />
+                                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                                    [CONFIDENTIAL KYC ATTACHMENT]
+                                  </div>
+                                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                                    {currentCheck.documentMetadata?.documentTypeName || 'Official Government Certificate'}
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: '10px',
+                                      color: 'var(--color-text-muted)',
+                                      backgroundColor: 'var(--color-border-subtle)',
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
+                                      marginTop: 'var(--space-1)',
+                                    }}
+                                  >
+                                    Authorized Document Vault Record • Watermarked for Confidential Inspection
+                                  </div>
+                                  {docLinkData.expiresAt && (
+                                    <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
+                                      Validity: {docLinkData.expiresAt}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Telephonic Vetting Dossier Pane */
+                      <div
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          backgroundColor: 'var(--color-surface)',
+                          borderRadius: 'var(--radius-lg)',
+                          border: '1px solid var(--color-border)',
+                          padding: 'var(--space-6)',
+                          gap: 'var(--space-4)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', color: 'var(--color-brand-700)' }}>
+                          <PhoneCall size={20} />
+                          <h4 style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700 }}>
+                            Telephonic Vetting Standard & Protocol
+                          </h4>
+                        </div>
+
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                          Verification Executives must place a direct telephonic call to verify relationship legitimacy, character reference, and conduct integrity.
+                        </div>
+
+                        <div
+                          style={{
+                            padding: 'var(--space-4)',
+                            backgroundColor: '#f8fafc',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-border)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 'var(--space-2)',
+                          }}
+                        >
+                          <h5 style={{ margin: 0, fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            SevaNest Telephonic Audit Protocol
+                          </h5>
+                          <ul style={{ margin: 0, paddingLeft: 'var(--space-4)', fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+                            <li>Verify respondent identity and confirm their relationship or employment relationship with the applicant.</li>
+                            <li>Confirm duration of tenure and nature of previous household work performed.</li>
+                            <li>Confirm trustworthiness, reliability, punctuality, and conduct without coercive prompting.</li>
+                            <li>Log comprehensive interview notes in the left panel before submitting your approval decision.</li>
+                          </ul>
+                        </div>
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: 'var(--space-3) var(--space-4)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: '11px',
+                            color: 'var(--color-text-secondary)',
+                          }}
+                        >
+                          <span>Carrier Gateway: <strong>Authorized Telecom Trunk</strong></span>
+                          <span>Operating Window: <strong>09:00 - 19:00 IST</strong></span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
 
@@ -2933,7 +3289,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                           Restricted Personal Document (KYC)
                         </h5>
                         <p style={{ fontSize: 'var(--font-size-xs)', margin: 0 }}>
-                          Access to raw identity and address document attachments requires the <code>verification.document.view</code> permission.
+                          Access to raw identity and address document attachments requires the <code>verification.document.view</code> or <code>documents.view_restricted</code> permission.
                         </p>
                       </div>
                     ) : isVaultDocLoading ? (
@@ -3396,11 +3752,11 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               </div>
             )}
             </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
+    </div>
+  )}
 
       {/* Approve Confirmation Dialog */}
       <ConfirmDialog
@@ -3422,6 +3778,27 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
           }
         }}
         onCancel={() => setIsApproveDialogOpen(false)}
+      />
+
+      {/* Verification Sign-Off Dialog */}
+      <ConfirmDialog
+        isOpen={isFinalApproveDialogOpen}
+        title={`Verification Sign-Off: ${currentDossier?.workerName || 'Worker'}`}
+        description={`Confirm formal verification sign-off for ${currentDossier?.workerName || 'the worker'}. All mandatory KYC checks have been verified. This transitions the application to VERIFIED status.`}
+        confirmLabel={finalOnboardMutation.isPending ? 'Signing Off...' : 'Sign Off Verification'}
+        isLoading={finalOnboardMutation.isPending}
+        requireRemarks={false}
+        remarksPlaceholder="Optional supervisor sign-off remarks..."
+        onConfirm={(remarks) => {
+          const targetWorkerId = currentDossier?.workerId || currentDossier?.id;
+          if (targetWorkerId) {
+            finalOnboardMutation.mutate({
+              workerId: targetWorkerId,
+              notes: remarks,
+            });
+          }
+        }}
+        onCancel={() => setIsFinalApproveDialogOpen(false)}
       />
 
       {/* Reject Dialog with Structured Rejection Categories */}

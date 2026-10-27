@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { AdminUser, AuthSession } from './authTypes';
 import { getStoredRefreshToken, setStoredRefreshToken, clearStoredRefreshToken } from './tokenStorage';
+import { queryClient } from '../api/queryClient';
+import { broadcastLogout } from './tokenRefreshCoordinator';
 
 export interface AuthState extends AuthSession {
   isInitialized: boolean;
@@ -8,7 +10,7 @@ export interface AuthState extends AuthSession {
   setSession: (user: AdminUser, accessToken: string, refreshToken?: string | null) => void;
   setAccessToken: (accessToken: string) => void;
   setTokens: (accessToken: string, refreshToken?: string | null) => void;
-  clearSession: () => void;
+  clearSession: (broadcast?: boolean) => void;
   setLoading: (isLoading: boolean) => void;
   setInitialized: (isInitialized: boolean) => void;
   setRestoring: (isRestoring: boolean) => void;
@@ -58,8 +60,16 @@ export const useAuthStore = create<AuthState>((set) => ({
     }));
   },
 
-  clearSession: () => {
+  clearSession: (broadcast = true) => {
     clearStoredRefreshToken();
+    try {
+      queryClient.clear();
+    } catch {
+      // Ignore query client clear error in environments without active provider
+    }
+    if (broadcast) {
+      broadcastLogout();
+    }
     set({
       user: null,
       accessToken: null,

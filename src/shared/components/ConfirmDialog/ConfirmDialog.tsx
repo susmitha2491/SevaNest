@@ -9,7 +9,9 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   isDestructive?: boolean;
   requireRemarks?: boolean;
+  showRemarks?: boolean;
   remarksPlaceholder?: string;
+  errorMessage?: string | null;
   onConfirm: (remarks?: string) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -28,7 +30,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   cancelLabel = 'Cancel',
   isDestructive = false,
   requireRemarks = false,
+  showRemarks = false,
   remarksPlaceholder = 'Enter mandatory operational rationale / remarks...',
+  errorMessage = null,
   onConfirm,
   onCancel,
   isLoading = false,
@@ -62,6 +66,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (e.target === e.currentTarget && !isLoading) {
+          onCancel();
+        }
+      }}
     >
       <div
         style={{
@@ -76,6 +86,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           gap: 'var(--space-4)',
           boxShadow: 'var(--shadow-xl)',
         }}
+        onClick={(e) => {
+          e.stopPropagation();
+        }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
@@ -88,7 +101,15 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               {title}
             </h2>
           </div>
-          <button onClick={onCancel} style={{ color: 'var(--color-text-muted)' }} aria-label="Close dialog">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (!isLoading) onCancel();
+            }}
+            style={{ color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+            aria-label="Close dialog"
+          >
             <X size={20} />
           </button>
         </div>
@@ -97,12 +118,32 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           {description}
         </p>
 
+        {errorMessage && (
+          <div
+            role="alert"
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              backgroundColor: 'var(--color-status-danger-bg, #fef2f2)',
+              border: '1px solid var(--color-status-danger-border, #fca5a5)',
+              borderRadius: 'var(--radius-md)',
+              color: 'var(--color-status-danger-text, #b91c1c)',
+              fontSize: 'var(--font-size-xs)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         {children}
 
-        {requireRemarks && (
+        {(requireRemarks || showRemarks) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             <label htmlFor="remarks-input" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-              Operational Remarks (Mandatory)
+              Operational Remarks {requireRemarks ? '(Mandatory)' : '(Optional)'}
             </label>
             <textarea
               id="remarks-input"
@@ -138,7 +179,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
           <button
-            onClick={onCancel}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onCancel();
+            }}
             disabled={isLoading}
             style={{
               padding: '8px 16px',
@@ -153,7 +198,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {cancelLabel}
           </button>
           <button
-            onClick={handleConfirm}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleConfirm();
+            }}
             disabled={isSubmitDisabled}
             style={{
               padding: '8px 16px',

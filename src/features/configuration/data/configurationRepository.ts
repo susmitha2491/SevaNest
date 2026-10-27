@@ -27,6 +27,8 @@ export function getRoleDisplayName(role: AdminRole): string {
       return 'Operations Admin';
     case 'VERIFICATION_EXECUTIVE':
       return 'Verification Executive';
+    case 'VERIFICATION_SUPERVISOR':
+      return 'Verification Supervisor';
     case 'SUPPORT_EXECUTIVE':
       return 'Support Executive';
   }
@@ -40,6 +42,8 @@ export function getRoleDefaultDescription(role: AdminRole): string {
       return 'Candidate matching, replacement fulfillment, booking lifecycle management, and financial refunds.';
     case 'VERIFICATION_EXECUTIVE':
       return 'Worker document vetting, Aadhaar & address proof validation, and reference phone checks.';
+    case 'VERIFICATION_SUPERVISOR':
+      return 'Worker verification oversight, identity validation, document compliance audits, and supervisor sign-off.';
     case 'SUPPORT_EXECUTIVE':
       return 'Household grievance mediation, telephonic dispute logging, SLA countdowns, and Operations escalation.';
   }
@@ -51,6 +55,7 @@ export function mapBackendRoleToDefinition(raw: Record<string, unknown>): RolePe
     'SUPER_ADMIN',
     'OPERATIONS_ADMIN',
     'VERIFICATION_EXECUTIVE',
+    'VERIFICATION_SUPERVISOR',
     'SUPPORT_EXECUTIVE',
   ];
 
@@ -492,6 +497,7 @@ export class RealConfigurationRepository implements IConfigurationRepository {
       'SUPER_ADMIN',
       'OPERATIONS_ADMIN',
       'VERIFICATION_EXECUTIVE',
+      'VERIFICATION_SUPERVISOR',
       'SUPPORT_EXECUTIVE',
     ];
     if (!validRoles.includes(roleCode as AdminRole)) {
@@ -522,6 +528,7 @@ export class RealConfigurationRepository implements IConfigurationRepository {
       'SUPER_ADMIN',
       'OPERATIONS_ADMIN',
       'VERIFICATION_EXECUTIVE',
+      'VERIFICATION_SUPERVISOR',
       'SUPPORT_EXECUTIVE',
     ];
 
@@ -641,9 +648,14 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async saveCategoryDraft(category: ServiceCategoryItem, rationale: string): Promise<ServiceCategoryItem> {
     try {
-      const response = await httpClient.put(
+      // Backend contract: PATCH /admin/service-categories/{categoryId} with UpdateServiceCategoryDto: { name, description?, isEnabled? }
+      const response = await httpClient.patch(
         `/admin/service-categories/${encodeURIComponent(category.id)}`,
-        category,
+        {
+          name: category.name,
+          description: category.tagline,
+          isEnabled: category.status !== 'ARCHIVED',
+        },
         {
           headers: {
             'X-Audit-Reason': rationale.trim(),
@@ -697,9 +709,14 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async saveOperationalArea(area: OperationalAreaItem, remarks: string): Promise<OperationalAreaItem> {
     try {
-      const response = await httpClient.put(
+      // Backend contract: PATCH /admin/service-areas/{areaId} with UpdateServiceAreaDto: { name, city, isEnabled }
+      const response = await httpClient.patch(
         `/admin/service-areas/${encodeURIComponent(area.id)}`,
-        area,
+        {
+          name: area.clusterName,
+          city: area.cityName,
+          isEnabled: area.status !== 'PLANNED',
+        },
         {
           headers: {
             'X-Audit-Reason': remarks.trim(),
@@ -755,16 +772,26 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async publishFeeSchedule(fees: FeePlanItem[], rationale: string): Promise<FeePlanItem[]> {
     try {
-      await httpClient.put(
-        '/admin/fees',
-        { fees },
-        {
-          headers: {
-            'X-Audit-Reason': rationale.trim(),
-          },
-        }
+      // Backend contract: update fees individually via PUT /admin/fees/{code} with SetFeeDto: { amountMinor, isActive }
+      await Promise.all(
+        fees.map((fee) => {
+          const code = fee.parameterName || fee.id;
+          const endpoint = code === 'BOOKING_FEE' ? '/admin/fees/booking-fee' : `/admin/fees/${encodeURIComponent(code)}`;
+          return httpClient.put(
+            endpoint,
+            {
+              amountMinor: Math.round(fee.draftValueINR * 100),
+              isActive: true,
+            },
+            {
+              headers: {
+                'X-Audit-Reason': rationale.trim(),
+              },
+            }
+          );
+        })
       );
-      return fees;
+      return fees.map((f) => ({ ...f, liveValueINR: f.draftValueINR }));
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -806,9 +833,14 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async saveNotificationTemplate(template: NotificationTemplateItem, rationale: string): Promise<NotificationTemplateItem> {
     try {
-      const response = await httpClient.put(
+      // Backend contract: PATCH /admin/notification-templates/{templateId} with UpdateTemplateDto: { title?, body?, isActive? }
+      const response = await httpClient.patch(
         `/admin/notification-templates/${encodeURIComponent(template.id)}`,
-        template,
+        {
+          title: template.titleTemplate,
+          body: template.bodyTemplate,
+          isActive: template.status === 'ACTIVE',
+        },
         {
           headers: {
             'X-Audit-Reason': rationale.trim(),

@@ -42,12 +42,25 @@ if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
           }
         } else if (data.type === 'LOGOUT') {
           clearStoredRefreshToken();
-          useAuthStore.getState().clearSession();
+          useAuthStore.getState().clearSession(false);
         }
       };
     }
   } catch {
     syncChannel = null;
+  }
+}
+
+/**
+ * Broadcasts a logout event across all open tabs via BroadcastChannel.
+ */
+export function broadcastLogout(): void {
+  if (syncChannel) {
+    try {
+      syncChannel.postMessage({ type: 'LOGOUT' });
+    } catch {
+      // Ignore broadcast failure
+    }
   }
 }
 

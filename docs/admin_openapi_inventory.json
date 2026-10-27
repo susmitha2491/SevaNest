@@ -1,0 +1,3823 @@
+[
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/audit-logs",
+    "operationId": "AuditLogController_search_v1",
+    "summary": "Search the audit log (newest first)",
+    "description": "Offset pages (page, limit; counts the total) or, for deep walks, keyset pages: take meta.nextCursor ",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "action",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "actionPrefix",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "entityType",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "entityId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "actorId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "requestId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/users/me",
+    "operationId": "UsersController_me_v1",
+    "summary": "Who am I: identity, type, status, roles and permissions",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/users",
+    "operationId": "AdminUsersController_listUsers_v1",
+    "summary": "List accounts (paginated; filter by type and status; mobile masked; roles for admins)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users",
+    "operationId": "AdminUsersController_createAdmin_v1",
+    "summary": "Create an admin account with one role (Super Admin)",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateAdminDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/users/{userId}",
+    "operationId": "AdminUsersController_getUser_v1",
+    "summary": "View an account (mobile masked)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/users/{userId}/role",
+    "operationId": "AdminUsersController_changeRole_v1",
+    "summary": "Move an admin account to another role (audited)",
+    "description": "Only a Super Admin may grant or take away the Super Admin role; nobody changes their own role; the l",
+    "parameters": [
+      {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ChangeAdminRoleDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/users/{userId}/password-reset",
+    "operationId": "AdminUsersController_resetPassword_v1",
+    "summary": "Set a new temporary password for another admin (Super Admin; shown once)",
+    "description": "For an admin who is locked out or forgot the password. The new password is returned ONCE in this res",
+    "parameters": [
+      {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/users/{userId}/status",
+    "operationId": "AdminUsersController_changeStatus_v1",
+    "summary": "Suspend or reactivate a customer, worker or admin account",
+    "description": "Suspended users cannot log in and their sessions are revoked. Changing an admin account additionally",
+    "parameters": [
+      {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateUserStatusDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/roles",
+    "operationId": "AdminRolesController_roles_v1",
+    "summary": "The admin roles with their permissions and how many accounts hold each",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/permissions",
+    "operationId": "AdminRolesController_permissions_v1",
+    "summary": "The permission catalog",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/roles/{roleCode}",
+    "operationId": "AdminRolesController_role_v1",
+    "summary": "One role with its permissions",
+    "description": "",
+    "parameters": [
+      {
+        "name": "roleCode",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/roles/{roleCode}/permissions",
+    "operationId": "AdminRolesController_setPermissions_v1",
+    "summary": "Set the complete permission set of a role (audited, immediate)",
+    "description": "409 ROLE_IMMUTABLE for SUPER_ADMIN; 422 PERMISSION_RESTRICTED for permissions only the Super Admin m",
+    "parameters": [
+      {
+        "name": "roleCode",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetRolePermissionsDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/alerts",
+    "operationId": "AdminAlertsController_list_v1",
+    "summary": "Open alerts (newest first, paginated); filter by status, severity, type",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "severity",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/alerts/summary",
+    "operationId": "AdminAlertsController_summary_v1",
+    "summary": "Open alert counts by severity (for the dashboard badge)",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/alerts/{alertId}/acknowledge",
+    "operationId": "AdminAlertsController_acknowledge_v1",
+    "summary": "Mark that someone is looking at it (repeating is harmless; audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "alertId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/alerts/{alertId}/resolve",
+    "operationId": "AdminAlertsController_resolve_v1",
+    "summary": "Close an alert with a note (audited)",
+    "description": "Resolving does not change the booking, ticket or payment the alert is about. If the problem is detec",
+    "parameters": [
+      {
+        "name": "alertId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ResolveAlertDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/deletion-requests",
+    "operationId": "AdminDeletionController_list_v1",
+    "summary": "Account deletion requests (newest first)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/deletion-requests/{requestId}/reject",
+    "operationId": "AdminDeletionController_reject_v1",
+    "summary": "Refuse an open deletion request (reason required, audited)",
+    "description": "The account stays as it is. A request is otherwise anonymised automatically once the cooling-off per",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RejectDeletionDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/admin/login",
+    "operationId": "AuthController_adminLogin_v1",
+    "summary": "Admin login with email and password",
+    "description": "Repeated failures lock the account and the client IP for a configured time (429, ADMIN_LOGIN_LOCKED)",
+    "parameters": [],
+    "requestBody": "#/components/schemas/AdminLoginDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/token/refresh",
+    "operationId": "AuthController_refresh_v1",
+    "summary": "Rotate the refresh token and get a new access token",
+    "description": "The refresh token is single-use. Presenting an already-used token revokes the session (possible toke",
+    "parameters": [],
+    "requestBody": "#/components/schemas/RefreshTokenDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/auth/logout",
+    "operationId": "AuthController_logout_v1",
+    "summary": "Revoke the current session and its push token",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/account/password",
+    "operationId": "AdminAccountController_changeAdminPassword_v1",
+    "summary": "Change my admin password",
+    "description": "Needs the current password. Revokes every other session of this admin; the current session stays sig",
+    "parameters": [],
+    "requestBody": "#/components/schemas/ChangeAdminPasswordDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers",
+    "operationId": "AdminWorkersController_create_v1",
+    "summary": "Create a worker account and empty profile for a mobile (assisted onboarding, audited)",
+    "description": "409 MOBILE_IN_USE (a customer or staff number), 409 WORKER_PROFILE_EXISTS. The worker signs in with ",
+    "parameters": [],
+    "requestBody": "#/components/schemas/AdminCreateWorkerDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/workers",
+    "operationId": "AdminWorkersController_list_v1",
+    "summary": "List workers (paginated, mobile masked)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "onboardingStatus",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "mobile",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "name",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "accountStatus",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "areaId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "minRating",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "verified",
+        "in": "query",
+        "required": false,
+        "schema": "boolean"
+      },
+      {
+        "name": "createdFrom",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "createdTo",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/workers/{workerId}",
+    "operationId": "AdminWorkersController_get_v1",
+    "summary": "Worker profile including address and emergency contact",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/workers/{workerId}",
+    "operationId": "AdminWorkersController_update_v1",
+    "summary": "Edit a worker profile on the worker's behalf (assisted onboarding)",
+    "description": "Send If-Match with the ETag of the GET to refuse the edit (412 STALE_VERSION) when someone else chan",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateWorkerProfileDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/workers/{workerId}/references",
+    "operationId": "AdminWorkersController_references_v1",
+    "summary": "A worker's references (audited read: third-party personal data)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/workers/{workerId}/categories",
+    "operationId": "AdminWorkersController_setCategories_v1",
+    "summary": "Set a worker's roles (service categories) on their behalf",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetWorkerCategoriesDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers/{workerId}/blacklist",
+    "operationId": "AdminWorkersController_blacklist_v1",
+    "summary": "Blacklist a worker (reason required, audited)",
+    "description": "The worker leaves search, matching and eligibility at once, their account is suspended (sessions end",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/BlacklistWorkerDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers/{workerId}/blacklist/lift",
+    "operationId": "AdminWorkersController_liftBlacklist_v1",
+    "summary": "Lift a blacklisting (Super Admin only; reason required, audited)",
+    "description": "The account is reactivated. The worker is searchable again only if still verified.",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/BlacklistWorkerDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers/{workerId}/emergency-contact/reveal",
+    "operationId": "AdminWorkersController_revealEmergencyContact_v1",
+    "summary": "Reveal a worker's emergency contact (reason required; every reveal is audited)",
+    "description": "The general staff profile never contains the emergency contact. 422 without a reason; 404 EMERGENCY_",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RevealEmergencyContactDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/service-categories",
+    "operationId": "AdminServiceCategoriesController_list_v1",
+    "summary": "List all categories including disabled (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "isEnabled",
+        "in": "query",
+        "required": false,
+        "schema": "boolean"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/service-categories",
+    "operationId": "AdminServiceCategoriesController_create_v1",
+    "summary": "Add a category (409 CATEGORY_DUPLICATE for an existing code or name)",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateServiceCategoryDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/service-categories/{categoryId}",
+    "operationId": "AdminServiceCategoriesController_get_v1",
+    "summary": "One category including disabled (ETag for If-Match)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "categoryId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/service-categories/{categoryId}",
+    "operationId": "AdminServiceCategoriesController_update_v1",
+    "summary": "Rename, describe, enable or disable a category",
+    "description": "The code is immutable. Disabling hides the category from new selections; workers who already hold it",
+    "parameters": [
+      {
+        "name": "categoryId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateServiceCategoryDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/service-categories/{categoryId}/engagements",
+    "operationId": "AdminServiceCategoriesController_setEngagements_v1",
+    "summary": "Set the engagement types a category offers (empty list = not restricted)",
+    "description": "Once set, booking requests, search and matching for the category accept only these engagement types ",
+    "parameters": [
+      {
+        "name": "categoryId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetCategoryEngagementsDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/pricing-guidance",
+    "operationId": "AdminPricingGuidanceController_list_v1",
+    "summary": "List price guidance rows (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/pricing-guidance",
+    "operationId": "AdminPricingGuidanceController_set_v1",
+    "summary": "Set (create or replace) the band for a category + engagement, optionally for one area",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/SetPricingGuidanceDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/pricing-guidance/{id}",
+    "operationId": "AdminPricingGuidanceController_remove_v1",
+    "summary": "Remove a price guidance row",
+    "description": "",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/service-areas",
+    "operationId": "AdminServiceAreasController_list_v1",
+    "summary": "List all service areas including disabled (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "city",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "isEnabled",
+        "in": "query",
+        "required": false,
+        "schema": "boolean"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/service-areas",
+    "operationId": "AdminServiceAreasController_create_v1",
+    "summary": "Add an area (409 AREA_DUPLICATE when the city already has it)",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateServiceAreaDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/service-areas/{areaId}",
+    "operationId": "AdminServiceAreasController_get_v1",
+    "summary": "One service area including disabled (ETag for If-Match)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "areaId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/service-areas/{areaId}",
+    "operationId": "AdminServiceAreasController_update_v1",
+    "summary": "Rename, move, enable or disable an area",
+    "description": "Disabling hides the area from new selections; workers who already hold it keep it.",
+    "parameters": [
+      {
+        "name": "areaId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateServiceAreaDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/workers/{workerId}/availability",
+    "operationId": "AdminWorkerAvailabilityController_get_v1",
+    "summary": "A worker's availability",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/workers/{workerId}/availability",
+    "operationId": "AdminWorkerAvailabilityController_update_v1",
+    "summary": "Edit a worker's availability on their behalf (assisted onboarding)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateAvailabilityDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/bookings",
+    "operationId": "AdminBookingsController_create_v1",
+    "summary": "Create a booking request on behalf of a customer (audited as an admin action)",
+    "description": "Same rules as the customer request, plus customerId. 404 CUSTOMER_NOT_FOUND, 409 CUSTOMER_NOT_ACTIVE",
+    "parameters": [
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/AdminCreateBookingDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/bookings",
+    "operationId": "AdminBookingsController_list_v1",
+    "summary": "All bookings, newest first (paginated, filter by status/customer/worker)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "areaId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "engagement",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "createdFrom",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "createdTo",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "customerUserId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "workerId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/bookings/{bookingId}",
+    "operationId": "AdminBookingsController_get_v1",
+    "summary": "A booking with its full timeline and actors",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/bookings/{bookingId}/replacement-chain",
+    "operationId": "AdminBookingsController_chain_v1",
+    "summary": "The replacement chain of a booking with the worker of each link",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/bookings/{bookingId}/slot-proposal/{answer}",
+    "operationId": "AdminBookingsController_answerSlot_v1",
+    "summary": "Answer the time a worker proposed, on the customer behalf (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "answer",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/bookings/{bookingId}/{action}",
+    "operationId": "AdminBookingsController_act_v1",
+    "summary": "Perform a booking action as staff (audited)",
+    "description": "Actions: match (admin), schedule, decline (worker/admin), reopen-matching, interview-complete, confi",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "action",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/BookingActionDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/interviews",
+    "operationId": "AdminInterviewsController_search_v1",
+    "summary": "All interviews and trials (paginated; filter by status, type, booking)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "type",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews",
+    "operationId": "AdminInterviewsController_request_v1",
+    "summary": "Request an interview or trial on behalf of the customer (audited)",
+    "description": "States: REQUESTED -> CONFIRMED | DECLINED | RESCHEDULE_PROPOSED; open sessions can be CANCELLED; a C",
+    "parameters": [
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RequestInterviewDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/bookings/{bookingId}/interviews",
+    "operationId": "AdminInterviewsController_forBooking_v1",
+    "summary": "The interviews and trials of a booking, oldest first",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/interviews/{interviewId}",
+    "operationId": "AdminInterviewsController_get_v1",
+    "summary": "One interview or trial",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/confirm",
+    "operationId": "AdminInterviewsController_confirm_v1",
+    "summary": "Confirm the requested time on behalf of the worker (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/reschedule",
+    "operationId": "AdminInterviewsController_reschedule_v1",
+    "summary": "Change the preferred time on behalf of the customer",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RescheduleInterviewDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/accept-proposal",
+    "operationId": "AdminInterviewsController_acceptProposal_v1",
+    "summary": "Accept the worker proposed time on behalf of the customer",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/reject-proposal",
+    "operationId": "AdminInterviewsController_rejectProposal_v1",
+    "summary": "Keep the original time on behalf of the customer",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/cancel",
+    "operationId": "AdminInterviewsController_cancel_v1",
+    "summary": "Cancel an open interview or trial (reason required, audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CancelInterviewDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/interviews/{interviewId}/complete",
+    "operationId": "AdminInterviewsController_complete_v1",
+    "summary": "Record the outcome on behalf of the customer (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "interviewId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CompleteInterviewDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/customers",
+    "operationId": "AdminCustomersController_list_v1",
+    "summary": "List customers (paginated, mobile masked)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "verificationStatus",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "mobile",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "name",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "accountStatus",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "city",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "createdFrom",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "createdTo",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/customers/{customerId}",
+    "operationId": "AdminCustomersController_get_v1",
+    "summary": "Customer profile with all addresses and account status",
+    "description": "",
+    "parameters": [
+      {
+        "name": "customerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/customers/{customerId}/verification-status",
+    "operationId": "AdminCustomersController_setVerificationStatus_v1",
+    "summary": "Set the customer verification status (audited with before/after)",
+    "description": "Send If-Match with the ETag of the GET to refuse the change (412 STALE_VERSION) when the profile cha",
+    "parameters": [
+      {
+        "name": "customerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateVerificationStatusDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/customers/{customerId}/notes",
+    "operationId": "AdminCustomersController_addNote_v1",
+    "summary": "Add an operational note to a customer",
+    "description": "",
+    "parameters": [
+      {
+        "name": "customerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CreateCustomerNoteDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/customers/{customerId}/notes",
+    "operationId": "AdminCustomersController_listNotes_v1",
+    "summary": "List customer notes (paginated, newest first)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "customerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/notification-events",
+    "operationId": "AdminNotificationsController_events_v1",
+    "summary": "The events that can notify, with the placeholders a template may use",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/notification-templates",
+    "operationId": "AdminNotificationsController_list_v1",
+    "summary": "Templates (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "eventCode",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/notification-templates",
+    "operationId": "AdminNotificationsController_create_v1",
+    "summary": "Create a template (wording + channel for an event)",
+    "description": "An event notifies only through channels that have an active template. Placeholders must be ones the ",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateTemplateDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/notification-templates/{templateId}",
+    "operationId": "AdminNotificationsController_get_v1",
+    "summary": "One template (ETag for If-Match)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "templateId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/notification-templates/{templateId}",
+    "operationId": "AdminNotificationsController_update_v1",
+    "summary": "Change wording or switch a template on or off",
+    "description": "",
+    "parameters": [
+      {
+        "name": "templateId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateTemplateDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/notifications",
+    "operationId": "AdminNotificationsController_deliveries_v1",
+    "summary": "Delivery log, newest first (paginated)",
+    "description": "Channel, event, status and attempts. No message text, phone number, token or provider detail.",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "eventCode",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "recipientUserId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/notifications/health",
+    "operationId": "AdminNotificationsController_health_v1",
+    "summary": "Delivery and outbox health",
+    "description": "Counts per status, age of the oldest waiting notification and unprocessed outbox event, queue depth ",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/notifications/{notificationId}/retry",
+    "operationId": "AdminNotificationsController_retry_v1",
+    "summary": "Retry a FAILED notification",
+    "description": "404 NOTIFICATION_NOT_FOUND; 409 NOTIFICATION_NOT_FAILED for any other status. Audited.",
+    "parameters": [
+      {
+        "name": "notificationId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/outbox-events/{eventId}/retry",
+    "operationId": "AdminNotificationsController_retryOutbox_v1",
+    "summary": "Retry a dead-lettered outbox event",
+    "description": "Events that failed to dispatch five times stop being retried (see health.outbox.deadLettered). 409 O",
+    "parameters": [
+      {
+        "name": "eventId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/payments",
+    "operationId": "AdminPaymentsController_list_v1",
+    "summary": "All payments, newest first (paginated, filter by status/booking/customer)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "refunded",
+        "in": "query",
+        "required": false,
+        "schema": "boolean"
+      },
+      {
+        "name": "customerUserId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/payments-export",
+    "operationId": "AdminPaymentsController_exportCsv_v1",
+    "summary": "Payments created in a date range as a CSV file (invoice/reference export)",
+    "description": "from and to are required (India dates, at most 366 days apart). At most 5000 rows (413 beyond: short",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/payments/{paymentId}",
+    "operationId": "AdminPaymentsController_get_v1",
+    "summary": "A payment with the gateway references kept for reconciliation",
+    "description": "",
+    "parameters": [
+      {
+        "name": "paymentId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/payments/{paymentId}/reconcile",
+    "operationId": "AdminPaymentsController_reconcile_v1",
+    "summary": "Ask the gateway for the real outcome and apply it (idempotent)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "paymentId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/payments/{paymentId}/refund",
+    "operationId": "AdminPaymentsController_refund_v1",
+    "summary": "Refund a succeeded payment in full (reason required; repeating is safe)",
+    "description": "Who may refund and the cancellation fee rules are open (Q-17, Q-21): nothing is refunded automatical",
+    "parameters": [
+      {
+        "name": "paymentId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RefundDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/payment-exceptions",
+    "operationId": "AdminPaymentsController_exceptions_v1",
+    "summary": "Money problems that need a person (late payment for a cancelled booking, mismatch, duplicate, stuck refund)",
+    "description": "Each item states the booking and payment state, the amount, the gateway references and the required ",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "kind",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "paymentId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/payment-exceptions/{exceptionId}/resolve",
+    "operationId": "AdminPaymentsController_resolveException_v1",
+    "summary": "Close a money problem after a person dealt with it (note required; audited)",
+    "description": "Moves no money. Refund through POST /admin/payments/{id}/refund first when a refund is due.",
+    "parameters": [
+      {
+        "name": "exceptionId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ResolveExceptionDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/payment-recovery/summary",
+    "operationId": "AdminPaymentsController_recovery_v1",
+    "summary": "Recovery queue health: checks due, open money problems, webhooks without an order",
+    "description": "A growing \"dueForCheck\" with an old \"oldestDueSeconds\" means the worker process is not running.",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/fees",
+    "operationId": "AdminPaymentsController_fees_v1",
+    "summary": "Fee catalogue (empty until an administrator sets fees, Q-01); filter by kind",
+    "description": "Each fee carries kind (BOOKING, PLACEMENT, VERIFICATION, REPLACEMENT_PLAN, SUBSCRIPTION, CANCELLATIO",
+    "parameters": [
+      {
+        "name": "kind",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/fees",
+    "operationId": "AdminPaymentsController_createFee_v1",
+    "summary": "Add a fee to the catalogue (audited)",
+    "description": "409 FEE_EXISTS. A PLACEMENT, VERIFICATION or REPLACEMENT_PLAN fee becomes payable by customers (POST",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateFeeDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/fees/{code}",
+    "operationId": "AdminPaymentsController_fee_v1",
+    "summary": "One fee (ETag for If-Match)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/fees/{code}",
+    "operationId": "AdminPaymentsController_updateFee_v1",
+    "summary": "Change a fee amount or switch it on/off (If-Match required: 428 without it, 412 when stale)",
+    "description": "A fee already used by a payment is deactivated, not deleted.",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateFeeDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/fees/{code}",
+    "operationId": "AdminPaymentsController_deleteFee_v1",
+    "summary": "Delete a fee that was never charged (If-Match required)",
+    "description": "409 FEE_IN_USE once any payment used it; 409 FEE_PROTECTED for the booking fee.",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/fees/{code}",
+    "operationId": "AdminPaymentsController_setFee_v1",
+    "summary": "Set any configured fee by code (placement, verification, replacement plan ...); audited with before and after",
+    "description": "Create-or-replace upsert (use POST/PATCH /admin/fees for the catalogue). Fee values are configuratio",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetFeeDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/fees/booking-fee",
+    "operationId": "AdminPaymentsController_setBookingFee_v1",
+    "summary": "Set the booking/platform fee (BOOKING_FEE); audited with before and after",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/SetFeeDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/safety/reports",
+    "operationId": "AdminSafetyController_reports_v1",
+    "summary": "Safety reports, newest first (filter by a user on either side)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "userId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/safety/blocks",
+    "operationId": "AdminSafetyController_blocks_v1",
+    "summary": "Blocks (filter by a user on either side)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "userId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/safety/blocks",
+    "operationId": "AdminSafetyController_block_v1",
+    "summary": "Apply a block between two customer/worker accounts (reason required, audited)",
+    "description": "The user cannot lift a block applied by staff.",
+    "parameters": [],
+    "requestBody": "#/components/schemas/AdminCreateBlockDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/safety/blocks/{blockId}",
+    "operationId": "AdminSafetyController_unblock_v1",
+    "summary": "Lift any block (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "blockId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "204"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/app-settings",
+    "operationId": "AdminPlatformConfigController_listSettings_v1",
+    "summary": "Every app start-up setting with its current value and where the value comes from",
+    "description": "source DATABASE = set here, ENVIRONMENT = deployment default, UNSET = nothing. GET /app-config serve",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/app-settings/{key}",
+    "operationId": "AdminPlatformConfigController_setSetting_v1",
+    "summary": "Set one app start-up setting (audited)",
+    "description": "404 SETTING_UNKNOWN for a key not in the list. 422 SETTING_VALUE_INVALID for a wrong type or format ",
+    "parameters": [
+      {
+        "name": "key",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetAppSettingDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/v1/admin/app-settings/{key}",
+    "operationId": "AdminPlatformConfigController_clearSetting_v1",
+    "summary": "Clear a setting so the deployment default applies again (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "key",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/rating-tags",
+    "operationId": "AdminPlatformConfigController_listTags_v1",
+    "summary": "All rating tags, active and retired",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/rating-tags",
+    "operationId": "AdminPlatformConfigController_createTag_v1",
+    "summary": "Add a rating tag (audited)",
+    "description": "409 RATING_TAG_EXISTS for a code already used. The tag is offered to customers at once.",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateRatingTagDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/rating-tags/{code}",
+    "operationId": "AdminPlatformConfigController_updateTag_v1",
+    "summary": "Rename, reorder, change the sentiment of, or retire a rating tag (audited)",
+    "description": "The code never changes. Retiring (isActive false) keeps the tag on old ratings.",
+    "parameters": [
+      {
+        "name": "code",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateRatingTagDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/system/readiness",
+    "operationId": "SystemController_get_v1",
+    "summary": "Every prerequisite for real use and whether it is met (areas, fee, verification set, providers, templates, workers)",
+    "description": "BLOCKER checks must pass before launch. `workers` lists the background loops seen in the last 3 minu",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/verification/queue",
+    "operationId": "AdminVerificationController_queue_v1",
+    "summary": "Verification queue, oldest submission first (paginated)",
+    "description": "Filters: status, checkType, categoryId, search (worker name), assignedTo=me (My Reviews, from the to",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "checkType",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "assignedTo",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "reviewerId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "search",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/verification/requirements",
+    "operationId": "AdminVerificationController_requirements_v1",
+    "summary": "Checks required for a worker to count as verified",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/verification/requirements",
+    "operationId": "AdminVerificationController_setRequirements_v1",
+    "summary": "Replace the set of required checks (audited)",
+    "description": "Which checks are mandatory is an open business decision (Q-04); nothing is required until an adminis",
+    "parameters": [],
+    "requestBody": "#/components/schemas/SetRequirementsDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/start-review",
+    "operationId": "AdminVerificationController_startReview_v1",
+    "summary": "Claim a check for review (SUBMITTED to IN_REVIEW; persists the reviewer and claim time)",
+    "description": "Repeating on my own claim changes nothing. 409 CHECK_ALREADY_ASSIGNED when another reviewer holds it",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/approve",
+    "operationId": "AdminVerificationController_approve_v1",
+    "summary": "Approve a check in review",
+    "description": "409 INVALID_TRANSITION unless the check is IN_REVIEW (a parallel decision loses).",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ApproveCheckDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/reject",
+    "operationId": "AdminVerificationController_reject_v1",
+    "summary": "Reject a check in review with an approved reason code",
+    "description": "Body: reasonCode (BLURRY_IMAGE, DOCUMENT_EXPIRED, NAME_MISMATCH, INCOMPLETE_DOCUMENT, INVALID_DOCUME",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RejectCheckDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/release-review",
+    "operationId": "AdminVerificationController_releaseReview_v1",
+    "summary": "Release a claimed check back to the queue (IN_REVIEW to SUBMITTED)",
+    "description": "The claiming reviewer, or a supervisor holding verification.reassign. 409 CHECK_NOT_CLAIMED, 409 CHE",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ReleaseReviewDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/reassign-review",
+    "operationId": "AdminVerificationController_reassignReview_v1",
+    "summary": "Give a check in review to another reviewer (supervisors)",
+    "description": "Body: reviewerUserId (an active admin holding verification.review), reason. 422 REVIEWER_NOT_ELIGIBL",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ReassignReviewDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/notes",
+    "operationId": "AdminVerificationController_addNote_v1",
+    "summary": "Add a reviewer note or a call note to a check in review (staff only)",
+    "description": "Body: kind (CALL or REVIEW) and body. Never shown to the worker. Counts as reviewer activity. Previo",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/AddNoteDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PUT",
+    "path": "/api/v1/admin/verification/checks/{checkId}/document-details",
+    "operationId": "AdminVerificationController_setDocumentDetails_v1",
+    "summary": "Record the document number (last four characters kept) and validity end for a check in review",
+    "description": "Licence and police clearance need expiresOn (and police clearance the reference number) before they ",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/DocumentDetailsDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/verification/checks/{checkId}/recheck",
+    "operationId": "AdminVerificationController_recheck_v1",
+    "summary": "Re-verify an approved check (APPROVED back to IN_REVIEW; the worker stops counting as verified at once)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "checkId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RemarksDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/verification/documents/{documentId}/link",
+    "operationId": "AdminVerificationController_documentLink_v1",
+    "summary": "Short-lived signed link to open a KYC document (every issue is audited)",
+    "description": "The storage path is never returned. Do not log or share the link.",
+    "parameters": [
+      {
+        "name": "documentId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/workers/{workerId}/verification",
+    "operationId": "AdminWorkerVerificationController_get_v1",
+    "summary": "A worker's checks, document metadata and full history",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers/{workerId}/verification/sign-off",
+    "operationId": "AdminWorkerVerificationController_signOff_v1",
+    "summary": "Final verification sign-off (every required check approved, then a supervisor accepts the worker)",
+    "description": "Repeating changes nothing and notifies nothing twice. 409 NOT_FULLY_VERIFIED, 409 WORKER_DISQUALIFIE",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SignOffDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/workers/{workerId}/activate",
+    "operationId": "AdminWorkerActivationController_activate_v1",
+    "summary": "Activate a signed-off worker: live in search and matching",
+    "description": "Needs the sign-off (409 NOT_SIGNED_OFF), every required check still approved, one service category, ",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/matching/candidates",
+    "operationId": "MatchingController_candidates_v1",
+    "summary": "Candidates for a requirement (paginated, audited)",
+    "description": "A POST because the body is the requirement; nothing is stored or assigned. Candidates are active, pr",
+    "parameters": [],
+    "requestBody": "#/components/schemas/MatchRequirementDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/attendance/bookings/{bookingId}",
+    "operationId": "AdminAttendanceController_list_v1",
+    "summary": "Attendance of a booking with the full change history (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/attendance/bookings/{bookingId}",
+    "operationId": "AdminAttendanceController_record_v1",
+    "summary": "Record attendance for a date on behalf of the worker (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/AdminRecordAttendanceDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/attendance/bookings/{bookingId}/summary",
+    "operationId": "AdminAttendanceController_summary_v1",
+    "summary": "Present / absent / exception counts for one month of a booking",
+    "description": "",
+    "parameters": [
+      {
+        "name": "bookingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "month",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/attendance/{attendanceId}",
+    "operationId": "AdminAttendanceController_correct_v1",
+    "summary": "Correct an entry (reason required; the previous value stays in the history)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "attendanceId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CorrectAttendanceDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/wage-payments",
+    "operationId": "AdminEarningsController_record_v1",
+    "summary": "Record a wage payment made off-platform for the worker of a started booking (audited)",
+    "description": "409 NO_WORKER_ASSIGNED / BOOKING_NOT_STARTED; 404 for an unknown booking. The platform moves no mone",
+    "parameters": [
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CreateWagePaymentDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/wage-payments",
+    "operationId": "AdminEarningsController_list_v1",
+    "summary": "All wage payment entries including corrections and voids (paginated, filter by worker or booking)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "workerId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/wage-payments/{id}/correct",
+    "operationId": "AdminEarningsController_correct_v1",
+    "summary": "Correct an entry with a new one (the old row stays as history and stops counting)",
+    "description": "409 WAGE_PAYMENT_ALREADY_CORRECTED when a newer row already replaced it; 409 WAGE_PAYMENT_IS_VOID fo",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/RecordWagePaymentDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/wage-payments/{id}/void",
+    "operationId": "AdminEarningsController_voidEntry_v1",
+    "summary": "Cancel an entry that should not exist (a new voiding row; the old one stays as history)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/VoidWagePaymentDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/retention/preview",
+    "operationId": "RetentionController_preview_v1",
+    "summary": "Dry run: how much data is past its retention period (changes nothing)",
+    "description": "Counts per task (notifications, processed outbox events, rejected KYC files) and the account deletio",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/replacement-requests",
+    "operationId": "AdminReplacementsController_list_v1",
+    "summary": "All replacement requests (paginated, filter by status/booking)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/replacement-requests/{requestId}",
+    "operationId": "AdminReplacementsController_get_v1",
+    "summary": "One request with who asked, who decided and the worker being replaced",
+    "description": "",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/replacement-requests/{requestId}/approve",
+    "operationId": "AdminReplacementsController_approve_v1",
+    "summary": "Approve eligibility (REQUESTED to APPROVED)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/DecisionDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/replacement-requests/{requestId}/reject",
+    "operationId": "AdminReplacementsController_reject_v1",
+    "summary": "Reject a request (remarks required); the booking becomes ACTIVE again",
+    "description": "",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/DecisionDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/replacement-requests/{requestId}/candidates",
+    "operationId": "AdminReplacementsController_candidates_v1",
+    "summary": "Alternative workers for the booking requirement (excludes the current worker; audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/replacement-requests/{requestId}/select",
+    "operationId": "AdminReplacementsController_select_v1",
+    "summary": "Select the replacement worker on the customer behalf (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "requestId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SelectReplacementWorkerDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/ratings",
+    "operationId": "AdminRatingsController_list_v1",
+    "summary": "All ratings (paginated, filter by status/worker/booking)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "workerId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/ratings/workers/{workerId}/summary",
+    "operationId": "AdminRatingsController_summary_v1",
+    "summary": "A worker rating count and average",
+    "description": "",
+    "parameters": [
+      {
+        "name": "workerId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/ratings/{ratingId}",
+    "operationId": "AdminRatingsController_get_v1",
+    "summary": "One rating with moderation details",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ratingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/ratings/{ratingId}/hide",
+    "operationId": "AdminRatingsController_hide_v1",
+    "summary": "Hide a rating from the worker profile and totals (reason required, audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ratingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ModerationDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/ratings/{ratingId}/unhide",
+    "operationId": "AdminRatingsController_unhide_v1",
+    "summary": "Restore a hidden rating (reason required, audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ratingId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/ModerationDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/support/tickets",
+    "operationId": "AdminSupportController_list_v1",
+    "summary": "All tickets (paginated; filter by status, priority, owner, category, booking)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "status",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "priority",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "categoryId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "assignedToUserId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "creatorUserId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "unassigned",
+        "in": "query",
+        "required": false,
+        "schema": "boolean"
+      },
+      {
+        "name": "bookingId",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "creatorKind",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/support/tickets/{ticketId}",
+    "operationId": "AdminSupportController_get_v1",
+    "summary": "One ticket with the full history including internal notes",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/assign",
+    "operationId": "AdminSupportController_assign_v1",
+    "summary": "Assign the ticket (to me by default); the first assignment starts work (IN_PROGRESS)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/AssignTicketDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/priority",
+    "operationId": "AdminSupportController_priority_v1",
+    "summary": "Set the priority (staff only)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/SetPriorityDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/escalate",
+    "operationId": "AdminSupportController_escalate_v1",
+    "summary": "Escalate the ticket (reason required, internal)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/EscalateTicketDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/close",
+    "operationId": "AdminSupportController_close_v1",
+    "summary": "Close the ticket with the resolution (required); a closed ticket is final",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/CloseTicketDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/messages",
+    "operationId": "AdminSupportController_staffMessage_v1",
+    "summary": "Reply to the ticket creator, or leave an internal note (`internal: true`)",
+    "description": "A reply notifies the creator; an internal note is staff-only. 409 TICKET_CLOSED. Audited.",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/StaffMessageDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/support/tickets/{ticketId}/messages",
+    "operationId": "AdminSupportController_adminMessages_v1",
+    "summary": "The full conversation including internal notes",
+    "description": "",
+    "parameters": [
+      {
+        "name": "ticketId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/support/categories",
+    "operationId": "AdminSupportController_categories_v1",
+    "summary": "All ticket categories including disabled ones",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/v1/admin/support/categories",
+    "operationId": "AdminSupportController_createCategory_v1",
+    "summary": "Add a ticket category (audited)",
+    "description": "",
+    "parameters": [],
+    "requestBody": "#/components/schemas/CreateSupportCategoryDto",
+    "responses": [
+      "201"
+    ]
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v1/admin/support/categories/{categoryId}",
+    "operationId": "AdminSupportController_updateCategory_v1",
+    "summary": "Rename or enable/disable a ticket category (audited)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "categoryId",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": "#/components/schemas/UpdateSupportCategoryDto",
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports",
+    "operationId": "ReportsController_catalog_v1",
+    "summary": "The available reports with the definition each one uses",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/export/{report}",
+    "operationId": "ReportsController_export_v1",
+    "summary": "Any report as a CSV file",
+    "description": "report is one of the report names listed by GET /admin/reports. Period reports need from and to (Ind",
+    "parameters": [
+      {
+        "name": "report",
+        "in": "path",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "from",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      },
+      {
+        "name": "minRatings",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/new-customers",
+    "operationId": "ReportsController_newCustomers_v1",
+    "summary": "FR-RPT-001 New customers per day/week/month",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/worker-registrations",
+    "operationId": "ReportsController_workerRegistrations_v1",
+    "summary": "FR-RPT-002 Worker registrations and verification conversion",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/booking-funnel",
+    "operationId": "ReportsController_bookingFunnel_v1",
+    "summary": "FR-RPT-003 Booking requests vs confirmed bookings",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/demand-by-category",
+    "operationId": "ReportsController_demandByCategory_v1",
+    "summary": "FR-RPT-004 Category-wise demand",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/demand-by-area",
+    "operationId": "ReportsController_demandByArea_v1",
+    "summary": "FR-RPT-005 Area-wise demand (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/worker-utilization",
+    "operationId": "ReportsController_workerUtilization_v1",
+    "summary": "FR-RPT-006 Worker utilization (point in time)",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/interview-conversion",
+    "operationId": "ReportsController_interviewConversion_v1",
+    "summary": "FR-RPT-007 Interview-to-confirmation conversion",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/cancellation-rate",
+    "operationId": "ReportsController_cancellationRate_v1",
+    "summary": "FR-RPT-008 Cancellation rate",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/replacement-rate",
+    "operationId": "ReportsController_replacementRate_v1",
+    "summary": "FR-RPT-009 Replacement rate",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/payment-collections",
+    "operationId": "ReportsController_paymentCollections_v1",
+    "summary": "FR-RPT-010 Payment collections by period and fee type",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/support-tickets",
+    "operationId": "ReportsController_supportTickets_v1",
+    "summary": "FR-RPT-011 Support ticket volume and resolution time",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "interval",
+        "in": "query",
+        "required": false,
+        "schema": "string"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/top-rated-workers",
+    "operationId": "ReportsController_topRatedWorkers_v1",
+    "summary": "FR-RPT-012 Top-rated workers (paginated, all-time)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "minRatings",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/reports/repeat-customers",
+    "operationId": "ReportsController_repeatCustomers_v1",
+    "summary": "FR-RPT-012 Repeat customers (paginated)",
+    "description": "",
+    "parameters": [
+      {
+        "name": "from",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "to",
+        "in": "query",
+        "required": true,
+        "schema": "string"
+      },
+      {
+        "name": "page",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      },
+      {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": "number"
+      }
+    ],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/admin/dashboard",
+    "operationId": "DashboardController_get_v1",
+    "summary": "Operations dashboard: only the sections the caller is permitted to see",
+    "description": "",
+    "parameters": [],
+    "requestBody": null,
+    "responses": [
+      "200"
+    ]
+  }
+]

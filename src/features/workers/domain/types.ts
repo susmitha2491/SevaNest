@@ -38,6 +38,7 @@ export interface WorkerEngagementSummary {
 
 export interface Worker {
   id: string;
+  userId?: string;
   applicationId?: string;
   name: string;
   category: string;
@@ -49,8 +50,14 @@ export interface Worker {
   isFullyVerified: boolean;
   status: 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
   phoneMasked?: string;
+  phone?: string;
+  mobile?: string;
+  email?: string;
   onboardingStatus?: 'REGISTERED' | 'APPLIED' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
   verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED' | 'RECHECK_DUE';
+  applicationStatus?: 'SUBMITTED' | 'UNDER_REVIEW' | 'VERIFIED' | 'ACTIVE' | 'REJECTED' | string;
+  activatedAt?: string;
+  signedOffAt?: string;
   verificationLevel?: string;
   level?: string;
   createdAt?: string;
@@ -95,4 +102,5 @@ export interface IWorkerRepository {
   updateWorkerStatus(workerId: string, status: Worker['status'], remarks: string): Promise<void>;
   updateWorkerCategories(workerId: string, categoryCodes: string[]): Promise<void>;
   requestReVerification(workerId: string, checkTypes: string[], remarks: string): Promise<void>;
+  activateWorker(workerId: string): Promise<WorkerDetail>;
 }

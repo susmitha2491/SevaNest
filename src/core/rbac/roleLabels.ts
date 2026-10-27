@@ -8,6 +8,7 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   SUPER_ADMIN: 'Super Admin',
   OPERATIONS_ADMIN: 'Operations Admin',
   VERIFICATION_EXECUTIVE: 'Verification Executive',
+  VERIFICATION_SUPERVISOR: 'Verification Supervisor',
   SUPPORT_EXECUTIVE: 'Support Executive',
 };
 
@@ -41,6 +42,13 @@ export function getRoleLabel(role?: string | null): string {
     raw === 'VERIFICATION_SPECIALIST'
   ) {
     return ROLE_LABELS.VERIFICATION_EXECUTIVE;
+  }
+  if (
+    raw === 'VERIFICATION_SUPERVISOR' ||
+    raw === 'VERIF_SUPERVISOR' ||
+    raw === 'VERIFICATION_LEAD'
+  ) {
+    return ROLE_LABELS.VERIFICATION_SUPERVISOR;
   }
   if (
     raw === 'SUPPORT_EXECUTIVE' ||

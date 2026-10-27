@@ -338,7 +338,7 @@ describe('Phase 1: Worker Verification Integration Fixes', () => {
 
       expect(postSpy).toHaveBeenCalledWith(
         '/admin/verification/checks/chk-address-402/reject',
-        { remarks: 'Image blurry' }
+        { reasonCode: 'BLURRY_IMAGE', remarks: 'Image blurry' }
       );
     });
 

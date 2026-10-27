@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.agents/**'],
+    ignores: ['dist/**', 'node_modules/**', '.agents/**', 'scripts/**'],
   },
   js.configs.recommended,
   {
@@ -23,6 +23,7 @@ export default [
         document: 'readonly',
         navigator: 'readonly',
         console: 'readonly',
+        crypto: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         setInterval: 'readonly',

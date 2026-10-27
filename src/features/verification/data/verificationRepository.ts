@@ -7,11 +7,14 @@ import {
   VerificationCheckType,
   VerificationCheckStatus,
   RejectionReasonCategory,
+  FinalOnboardingResult,
+  AdminWorkerVerificationResponse,
+  AdminCheckView,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
-import { DomainError, ServerFailureError, ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
+import { DomainError, ServerFailureError, ValidationError, ConcurrencyConflictError, NotFoundError } from '../../../core/errors/DomainError';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { syncMockWorkerVerification } from '../../workers/data/workerRepository';
 import { validateDocumentSignedUrl, isSafeDocumentUrl } from '../domain/documentUrlValidator';
@@ -28,6 +31,8 @@ export class MockVerificationRepository implements IVerificationRepository {
       locality: 'Kondapur',
       experienceYears: 6,
       phoneMasked: '+91 98765 *****',
+      phone: '+91 98765 43210',
+      email: 'sunita.devi@sevanest.worker',
       submissionTime: '2026-10-15T07:15:00Z',
       status: 'PENDING_REVIEW',
       preCheckOtpVerified: true,
@@ -149,6 +154,8 @@ export class MockVerificationRepository implements IVerificationRepository {
       locality: 'Madhapur',
       experienceYears: 9,
       phoneMasked: '+91 98450 *****',
+      phone: '+91 98450 12345',
+      email: 'ramesh.yadav@sevanest.worker',
       submissionTime: '2026-10-15T08:00:00Z',
       status: 'IN_REVIEW',
       reviewerUserId: 'adm-003',
@@ -284,6 +291,8 @@ export class MockVerificationRepository implements IVerificationRepository {
       locality: 'Gachibowli',
       experienceYears: 4,
       phoneMasked: '+91 91234 *****',
+      phone: '+91 91234 56789',
+      email: 'meena.bai@sevanest.worker',
       submissionTime: '2026-10-15T09:30:00Z',
       status: 'PENDING_REVIEW',
       reviewerUserId: 'adm-002',
@@ -685,7 +694,12 @@ export class MockVerificationRepository implements IVerificationRepository {
     await this.claimCheck(checkId);
   }
 
-  async approveCheck(checkId: string, checkType?: VerificationCheckType, notes?: string): Promise<void> {
+  async approveCheck(
+    checkId: string,
+    checkType?: VerificationCheckType,
+    notes?: string,
+    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+  ): Promise<AdminWorkerVerificationResponse | void> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
     }
@@ -701,15 +715,27 @@ export class MockVerificationRepository implements IVerificationRepository {
     }
 
     let found = false;
+    let targetDossier: VerificationDossier | undefined;
     for (const dossier of this.dossiers) {
       for (const check of Object.values(dossier.checks)) {
         if (check.id === cleanCheckId || (checkType && check.type === checkType && dossier.checkId === cleanCheckId)) {
           found = true;
+          targetDossier = dossier;
           check.status = 'APPROVED';
           check.verifiedAt = new Date().toISOString();
           check.verifiedBy = 'Verification Executive';
-          if (notes && check.contactDetails) {
+          if (metadata?.callNotes && check.contactDetails) {
+            check.contactDetails.callNotes = metadata.callNotes;
+          } else if (notes && check.contactDetails) {
             check.contactDetails.callNotes = notes;
+          }
+          if (check.documentMetadata) {
+            if (metadata?.referenceNumber) {
+              check.documentMetadata.docNumberMasked = metadata.referenceNumber;
+            }
+            if (metadata?.expiresOn) {
+              check.documentMetadata.expiryDate = metadata.expiresOn;
+            }
           }
 
           // Check if all 5 checks are approved + pre-check is passed
@@ -731,9 +757,29 @@ export class MockVerificationRepository implements IVerificationRepository {
       if (found) break;
     }
 
-    if (!found) {
+    if (!found || !targetDossier) {
       throw new ValidationError(`Verification check with ID '${checkId}' not found.`);
     }
+
+    const checksArray: AdminCheckView[] = Object.values(targetDossier.checks).map((chk) => ({
+      checkId: chk.id || '',
+      checkType: chk.type,
+      status: chk.status as AdminCheckView['status'],
+      required: true,
+      submittedAt: targetDossier!.submissionTime || null,
+      reviewedAt: chk.verifiedAt || null,
+      remarks: chk.rejectionRemarks || null,
+      recheckAt: chk.recheckDueDate || null,
+      reviewerUserId: targetDossier!.reviewerUserId || null,
+      claimedAt: targetDossier!.claimedAt || null,
+    }));
+
+    return {
+      workerId: targetDossier.workerId,
+      level: targetDossier.status === 'APPROVED' ? 'VERIFIED' : 'IN_PROGRESS',
+      requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
+      checks: checksArray,
+    };
   }
 
   async rejectCheck(
@@ -776,6 +822,52 @@ export class MockVerificationRepository implements IVerificationRepository {
 
     if (!found) {
       throw new ValidationError(`Verification check with ID '${checkId}' not found.`);
+    }
+  }
+
+  async releaseReview(checkId: string): Promise<void> {
+    for (const dossier of this.dossiers) {
+      for (const check of Object.values(dossier.checks)) {
+        if (check.id === checkId) {
+          check.status = 'PENDING';
+          return;
+        }
+      }
+    }
+  }
+
+  async reassignReview(checkId: string, reviewerUserId: string, _reason?: string): Promise<void> {
+    for (const dossier of this.dossiers) {
+      for (const check of Object.values(dossier.checks)) {
+        if (check.id === checkId) {
+          dossier.reviewerUserId = reviewerUserId;
+          return;
+        }
+      }
+    }
+  }
+
+  async addCheckNote(checkId: string, note: string, _kind: 'CALL' | 'REVIEW' = 'REVIEW'): Promise<void> {
+    for (const dossier of this.dossiers) {
+      for (const check of Object.values(dossier.checks)) {
+        if (check.id === checkId) {
+          if (!check.notes) check.notes = [];
+          check.notes.push(note);
+          return;
+        }
+      }
+    }
+  }
+
+  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void> {
+    for (const dossier of this.dossiers) {
+      for (const check of Object.values(dossier.checks)) {
+        if (check.id === checkId) {
+          if (details.documentNumber) check.referenceNumber = details.documentNumber;
+          if (details.expiresOn) check.expiresOn = details.expiresOn;
+          return;
+        }
+      }
     }
   }
 
@@ -858,6 +950,121 @@ export class MockVerificationRepository implements IVerificationRepository {
       url: signedUrl,
       expiresAt,
       expiresInSeconds,
+    };
+  }
+
+  async signOffVerification(
+    workerId: string,
+    remarks?: string
+  ): Promise<AdminWorkerVerificationResponse> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for verification sign-off.');
+    }
+    const cleanWorkerId = workerId.trim();
+    const dossier = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
+    if (!dossier) {
+      throw new NotFoundError(`Verification dossier for worker '${workerId}' not found.`);
+    }
+
+    const hasRejected = Object.values(dossier.checks).some((c) => c.status === 'REJECTED');
+    if (hasRejected) {
+      throw new ConcurrencyConflictError(
+        'Worker disqualified: application cannot be signed off due to a rejected check.',
+        undefined,
+        409,
+        'WORKER_DISQUALIFIED'
+      );
+    }
+
+    const allChecksApproved = Object.values(dossier.checks).every((c) => c.status === 'APPROVED');
+    const otpPassed = dossier.preCheckOtpVerified ?? true;
+    if (!allChecksApproved || !otpPassed) {
+      throw new ConcurrencyConflictError(
+        'Cannot sign off: all 5 mandatory KYC verification checks must be approved first.',
+        undefined,
+        409,
+        'NOT_FULLY_VERIFIED'
+      );
+    }
+
+    dossier.status = 'APPROVED';
+    dossier.level = 'VERIFIED';
+    dossier.overallRemarks = remarks || 'Verification signed off by supervisor';
+    dossier.signedOffAt = new Date().toISOString();
+    syncMockWorkerVerification(dossier.workerId, true);
+
+    return {
+      workerId: dossier.workerId,
+      level: 'VERIFIED',
+      requiredChecks: Object.keys(dossier.checks),
+      checks: Object.values(dossier.checks).map((c) => ({
+        checkId: c.id || `chk-${c.type.toLowerCase()}-${dossier.workerId}`,
+        checkType: c.type,
+        status: (c.status === 'APPROVED' ? 'APPROVED' : c.status === 'REJECTED' ? 'REJECTED' : c.status === 'RECHECK_DUE' ? 'RECHECK_DUE' : 'IN_REVIEW') as AdminCheckView['status'],
+        required: true,
+        reviewedAt: c.verifiedAt || new Date().toISOString(),
+        remarks: c.contactDetails?.callNotes || dossier.overallRemarks,
+      })),
+      status: 'APPROVED',
+      applicationStatus: 'VERIFIED',
+      signedOffAt: dossier.signedOffAt,
+    };
+  }
+
+  async activateWorker(
+    workerId: string
+  ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for activation.');
+    }
+    const cleanWorkerId = workerId.trim();
+    const dossier = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
+    if (!dossier) {
+      throw new NotFoundError(`Verification dossier for worker '${workerId}' not found.`);
+    }
+
+    if (dossier.status !== 'APPROVED' && dossier.level !== 'VERIFIED') {
+      throw new ConcurrencyConflictError(
+        'Worker must complete verification sign-off before platform activation.',
+        undefined,
+        409,
+        'NOT_SIGNED_OFF'
+      );
+    }
+
+    dossier.accountStatus = 'ACTIVE';
+    dossier.applicationStatus = 'ACTIVE';
+    dossier.activatedAt = new Date().toISOString();
+
+    return {
+      workerId: dossier.workerId,
+      level: 'VERIFIED',
+      requiredChecks: Object.keys(dossier.checks),
+      checks: Object.values(dossier.checks).map((c) => ({
+        checkId: c.id || `chk-${c.type.toLowerCase()}-${dossier.workerId}`,
+        checkType: c.type,
+        status: (c.status === 'APPROVED' ? 'APPROVED' : c.status === 'REJECTED' ? 'REJECTED' : c.status === 'RECHECK_DUE' ? 'RECHECK_DUE' : 'IN_REVIEW') as AdminCheckView['status'],
+        required: true,
+      })),
+      status: 'APPROVED',
+      applicationStatus: 'ACTIVE',
+      activatedAt: dossier.activatedAt,
+    };
+  }
+
+  async approveApplicationAndOnboardWorker(
+    workerId: string,
+    notes?: string
+  ): Promise<FinalOnboardingResult> {
+    await this.signOffVerification(workerId, notes);
+    await this.activateWorker(workerId);
+    return {
+      success: true,
+      workerId,
+      status: 'ACTIVE',
+      message: 'Worker verification signed off and worker activated on platform roster.',
+      acceptedAt: new Date().toISOString(),
+      acceptedBy: 'CURRENT_SUPERVISOR',
     };
   }
 }
@@ -1447,7 +1654,12 @@ export class RealVerificationRepository implements IVerificationRepository {
     await this.claimCheck(checkId);
   }
 
-  async approveCheck(checkId: string, _checkType?: VerificationCheckType, notes?: string): Promise<void> {
+  async approveCheck(
+    checkId: string,
+    _checkType?: VerificationCheckType,
+    notes?: string,
+    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+  ): Promise<AdminWorkerVerificationResponse | void> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
     }
@@ -1462,9 +1674,34 @@ export class RealVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Invalid checkId: worker ID or dossier ID cannot be substituted for checkId.');
     }
     try {
-      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`, {
-        remarks: notes || 'Approved by admin',
-      });
+      // Build payload strictly adhering to ApproveCheckDto: { remarks?: string, recheckAt?: string }
+      // The backend returns 422 Unprocessable Entity if unwhitelisted fields (referenceNumber, expiresOn, callNotes) are sent
+      const trimmedNotes = typeof notes === 'string' && notes.trim() !== ''
+        ? notes.trim().slice(0, 1000)
+        : 'Verified and approved by Verification Executive';
+
+      const payload: { remarks: string; recheckAt?: string } = {
+        remarks: trimmedNotes,
+      };
+
+      // Handle recheck date if provided (format must be YYYY-MM-DD date string)
+      const rawRecheck = metadata?.recheckAt || (metadata?.expiresOn && /^\d{4}-\d{2}-\d{2}$/.test(metadata.expiresOn) ? metadata.expiresOn : undefined);
+      if (rawRecheck && typeof rawRecheck === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(rawRecheck.trim())) {
+        payload.recheckAt = rawRecheck.trim();
+      }
+
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(
+        `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
+        payload
+      );
+
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+
+      return resData;
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1473,7 +1710,7 @@ export class RealVerificationRepository implements IVerificationRepository {
   async rejectCheck(
     checkId: string,
     _checkType?: VerificationCheckType,
-    _category?: RejectionReasonCategory,
+    category?: RejectionReasonCategory,
     remarks?: string
   ): Promise<void> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
@@ -1490,9 +1727,107 @@ export class RealVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Invalid checkId: worker ID or dossier ID cannot be substituted for checkId.');
     }
     try {
-      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/reject`, {
-        remarks: remarks || 'Rejected by admin',
+      const validBackendCodes = [
+        'BLURRY_IMAGE',
+        'DOCUMENT_EXPIRED',
+        'NAME_MISMATCH',
+        'INCOMPLETE_DOCUMENT',
+        'INVALID_DOCUMENT_TYPE',
+        'SUSPECTED_TAMPERING',
+        'UNVERIFIABLE_REFERENCE',
+        'CRIMINAL_RECORD_DISQUALIFIED',
+        'OTHER',
+      ];
+
+      let reasonCode = 'OTHER';
+      if (category) {
+        if (validBackendCodes.includes(category)) {
+          reasonCode = category;
+        } else if (category === 'TAMPERED_DOC') {
+          reasonCode = 'SUSPECTED_TAMPERING';
+        } else if (category === 'EXPIRED_DOC') {
+          reasonCode = 'DOCUMENT_EXPIRED';
+        } else if (category === 'REFERENCE_UNREACHABLE' || category === 'REFERENCE_NEGATIVE') {
+          reasonCode = 'UNVERIFIABLE_REFERENCE';
+        } else if (category === 'ADDRESS_UNVERIFIABLE') {
+          reasonCode = 'INCOMPLETE_DOCUMENT';
+        }
+      }
+
+      const payload: { reasonCode: string; remarks?: string } = {
+        reasonCode,
+      };
+
+      if (remarks && remarks.trim()) {
+        payload.remarks = remarks.trim().slice(0, 1000);
+      } else if (reasonCode === 'OTHER') {
+        payload.remarks = 'Verification check rejected by administrative review';
+      }
+
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/reject`, payload);
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async releaseReview(checkId: string): Promise<void> {
+    if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
+      throw new ValidationError('A valid verification checkId is required to release review.');
+    }
+    const cleanCheckId = checkId.trim();
+    try {
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/release-review`);
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async reassignReview(checkId: string, reviewerUserId: string, reason?: string): Promise<void> {
+    if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
+      throw new ValidationError('A valid verification checkId is required for reassignment.');
+    }
+    if (!reviewerUserId || typeof reviewerUserId !== 'string' || reviewerUserId.trim() === '') {
+      throw new ValidationError('A valid reviewerUserId is required for reassignment.');
+    }
+    const cleanCheckId = checkId.trim();
+    try {
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/reassign-review`, {
+        reviewerUserId: reviewerUserId.trim(),
+        ...(reason && reason.trim() ? { reason: reason.trim().slice(0, 500) } : {}),
       });
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async addCheckNote(checkId: string, note: string, kind: 'CALL' | 'REVIEW' = 'REVIEW'): Promise<void> {
+    if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
+      throw new ValidationError('A valid verification checkId is required to add notes.');
+    }
+    if (!note || typeof note !== 'string' || note.trim() === '') {
+      throw new ValidationError('Note content cannot be empty.');
+    }
+    const cleanCheckId = checkId.trim();
+    try {
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/notes`, {
+        kind,
+        body: note.trim().slice(0, 2000),
+      });
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void> {
+    if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
+      throw new ValidationError('A valid verification checkId is required to update document details.');
+    }
+    const cleanCheckId = checkId.trim();
+    try {
+      const payload: { documentNumber?: string; expiresOn?: string } = {};
+      if (details.documentNumber) payload.documentNumber = details.documentNumber.trim();
+      if (details.expiresOn) payload.expiresOn = details.expiresOn.trim();
+      await httpClient.put(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/document-details`, payload);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1605,6 +1940,90 @@ export class RealVerificationRepository implements IVerificationRepository {
       }
       throw mapHttpErrorToDomainError(err);
     }
+  }
+
+  async signOffVerification(
+    workerId: string,
+    remarks?: string
+  ): Promise<AdminWorkerVerificationResponse> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for verification sign-off.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+
+    try {
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification/sign-off`, {
+        remarks: remarks || 'Verification sign-off completed by supervisor',
+      });
+
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+
+      return resData;
+    } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async activateWorker(
+    workerId: string
+  ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for activation.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+
+    try {
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/activate`, {});
+
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+
+      return resData;
+    } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async approveApplicationAndOnboardWorker(
+    workerId: string,
+    notes?: string
+  ): Promise<FinalOnboardingResult> {
+    const signOffRes = await this.signOffVerification(workerId, notes);
+    await this.activateWorker(workerId);
+    return {
+      success: true,
+      workerId: signOffRes.workerId || workerId,
+      status: 'ACTIVE',
+      message: 'Worker verification signed off and worker activated on platform roster.',
+      acceptedAt: new Date().toISOString(),
+    };
   }
 }
 
