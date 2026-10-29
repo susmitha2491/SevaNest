@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -123,6 +123,12 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
 
       // Dossier modal opens with verification checks
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
+      const dialog = await screen.findByRole('dialog');
+
+      // Navigate to Step 3: KYC Verification
+      fireEvent.click(within(dialog).getByRole('button', { name: /^Next/i }));
+      fireEvent.click(within(dialog).getByRole('button', { name: /^Next/i }));
+
       expect(screen.getAllByText(/Identity Proof/i).length).toBeGreaterThan(0);
 
       // Strictly verify: Operations Admin has oversight only, NO "Approve Check" or "Reject Check" decision buttons
@@ -130,7 +136,7 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.queryByRole('button', { name: /^Reject Check$/i })).not.toBeInTheDocument();
 
       // Operations Admin can request re-verification or inspect worker profile
-      expect(screen.getByRole('button', { name: /Request Re-Verification/i })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /Request Re-Verification/i }).length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: /Inspect Worker Profile/i })).toBeInTheDocument();
       expect(screen.getByText(/Verification decisions reserved for Verification Executives/i)).toBeInTheDocument();
     });
@@ -261,22 +267,21 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText(/audit\.view/i)).toBeInTheDocument();
     });
 
-    it('hides Control section (Configuration Masters and Audit Trail) from sidebar navigation', async () => {
+    it('hides Configuration and Audit Logs from sidebar navigation for Operations Admin', async () => {
       renderWithProviders(<AppShell />);
 
       // Operations Admin should see permitted sections
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
-      expect(screen.getByText('Verification Review')).toBeInTheDocument();
-      expect(screen.getByText('Booking Pipeline')).toBeInTheDocument();
-      expect(screen.getByText('Customers')).toBeInTheDocument();
-      expect(screen.getByText('Workers')).toBeInTheDocument();
-      expect(screen.getByText('Transactions & Fees')).toBeInTheDocument();
-      expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
+      expect(screen.getByText('Customer Management')).toBeInTheDocument();
+      expect(screen.getByText('Worker Management')).toBeInTheDocument();
+      expect(screen.getByText('Verification')).toBeInTheDocument();
+      expect(screen.getByText('Booking Management')).toBeInTheDocument();
+      expect(screen.getByText('Payments')).toBeInTheDocument();
+      expect(screen.getByText('Reports')).toBeInTheDocument();
 
       // Restricted items MUST NOT exist in navigation
-      expect(screen.queryByText('Configuration Masters')).not.toBeInTheDocument();
-      expect(screen.queryByText('Audit Trail')).not.toBeInTheDocument();
-      expect(screen.queryByText('Control')).not.toBeInTheDocument();
+      expect(screen.queryByText('Configuration')).not.toBeInTheDocument();
+      expect(screen.queryByText('Audit Logs')).not.toBeInTheDocument();
     });
   });
 });

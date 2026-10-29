@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
-import { X, FileSpreadsheet, FileText, CheckCircle2, Info } from 'lucide-react';
+import { X, FileSpreadsheet, FileText, CheckCircle2 } from 'lucide-react';
 import { ReportItem } from '../domain/types';
 import { reportRepository } from '../data/reportRepository';
-import { env } from '../../../core/config/env';
 
 interface ReportPreviewModalProps {
   report: ReportItem | null;
@@ -131,27 +130,6 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
         {/* Scrollable Content */}
         <div style={{ padding: 'var(--space-6)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-          {/* Mock Dataset Disclaimer */}
-          {env.VITE_USE_MOCK_AUTH && (
-            <div
-              style={{
-                padding: 'var(--space-3) var(--space-4)',
-                backgroundColor: 'var(--color-status-info-bg)',
-                border: '1px solid var(--color-status-info-border)',
-                borderRadius: 'var(--radius-md)',
-                fontSize: 'var(--font-size-xs)',
-                color: 'var(--color-status-info-text)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-              }}
-            >
-              <Info size={16} />
-              <span>
-                <strong>Simulated Analytics Snapshot:</strong> All metrics, conversions, and dataset rows are sample frontend mock data.
-              </span>
-            </div>
-          )}
 
           {exportFeedback && (
             <div

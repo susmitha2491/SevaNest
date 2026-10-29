@@ -103,4 +103,6 @@ export interface IWorkerRepository {
   updateWorkerCategories(workerId: string, categoryCodes: string[]): Promise<void>;
   requestReVerification(workerId: string, checkTypes: string[], remarks: string): Promise<void>;
   activateWorker(workerId: string): Promise<WorkerDetail>;
+  approveCheck(checkId: string, remarks?: string): Promise<void>;
+  rejectCheck(checkId: string, category: string, remarks: string): Promise<void>;
 }

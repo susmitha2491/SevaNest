@@ -1,5 +1,5 @@
-import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem } from '../../../core/auth/authTypes';
-import { UnauthorizedError, ForbiddenError, ServerFailureError } from '../../../core/errors/DomainError';
+import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto } from '../../../core/auth/authTypes';
+import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError } from '../../../core/errors/DomainError';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -22,17 +22,19 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     role: AdminRole;
     permissions: string[];
     aliases: string[];
+    password?: string;
   }
 > = {
-  'super.admin@sevanest.internal': {
-    id: 'adm-001',
+  'sevanest@admin.in': {
+    id: '01a11eec-ff90-73c8-972a-b88e3151ada0',
     name: 'Super Administrator',
     role: 'SUPER_ADMIN',
     permissions: ['*'],
-    aliases: ['super.admin@sevanest.internal', 'super@sevanest.internal'],
+    aliases: ['sevanest@admin.in', 'super.admin@sevanest.internal', 'super@sevanest.internal'],
+    password: 'Sevanest@2026',
   },
-  'ops.admin@sevanest.internal': {
-    id: 'adm-002',
+  'operations.manager@sevanest.example.com': {
+    id: '01a12fa2-413e-7741-96e1-1047692e8527',
     name: 'Operations Manager',
     role: 'OPERATIONS_ADMIN',
     permissions: [
@@ -56,10 +58,11 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.REPORTS_VIEW,
       PERMISSIONS.EXPORTS_GENERATE,
     ],
-    aliases: ['ops.admin@sevanest.internal', 'ops@sevanest.internal', 'operations.manager@sevanest.example.com'],
+    aliases: ['operations.manager@sevanest.example.com', 'ops.admin@sevanest.internal', 'ops@sevanest.internal'],
+    password: 'SnFFtzKHJQu3wm#7q',
   },
-  'verification.exec@sevanest.internal': {
-    id: 'adm-003',
+  'verification.executive@sevanest.example.com': {
+    id: '01a12fa2-3c86-7560-aff4-2da59d4b0a9e',
     name: 'Verification Executive',
     role: 'VERIFICATION_EXECUTIVE',
     permissions: [
@@ -69,10 +72,11 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.VERIFICATION_DECIDE,
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
-    aliases: ['verification.exec@sevanest.internal', 'verif.exec@sevanest.internal', 'verif@sevanest.internal', 'verification.executive@sevanest.example.com'],
+    aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal', 'verif.exec@sevanest.internal', 'verif@sevanest.internal'],
+    password: 'Sn-mvKYhFKPJE7#7q',
   },
-  'support.exec@sevanest.internal': {
-    id: 'adm-004',
+  'support.executive@sevanest.example.com': {
+    id: '01a12fa2-37c7-7531-ad8a-da94787eb8d3',
     name: 'Support Executive',
     role: 'SUPPORT_EXECUTIVE',
     permissions: [
@@ -83,7 +87,8 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.SUPPORT_VIEW,
       PERMISSIONS.SUPPORT_MANAGE,
     ],
-    aliases: ['support.exec@sevanest.internal', 'support@sevanest.internal', 'support.executive@sevanest.example.com'],
+    aliases: ['support.executive@sevanest.example.com', 'support.exec@sevanest.internal', 'support@sevanest.internal'],
+    password: 'SnGprIJDAxciUB#7q',
   },
   'verification.supervisor@sevanest.internal': {
     id: 'adm-005',
@@ -342,12 +347,29 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
   // Fallback approved by requirements: non-misleading 'Account' when backend omits display name
   const resolvedName = candidateName || 'Account';
 
+  const rawMobile = getField('mobile', 'phone', 'phoneNumber', 'phone_number');
+  const resolvedMobile = rawMobile ? String(rawMobile).trim() : null;
+
+  const rawStatus = getField('status', 'accountStatus', 'account_status');
+  const resolvedStatus = rawStatus ? String(rawStatus).toUpperCase().trim() : null;
+
+  const rawCreatedAt = getField('createdAt', 'created_at');
+  const resolvedCreatedAt = rawCreatedAt ? String(rawCreatedAt).trim() : null;
+
+  const rawType = getField('type', 'userType', 'user_type');
+  const resolvedType = rawType ? String(rawType).toUpperCase().trim() : null;
+
   return {
     id: String(getField('id', 'userId', 'user_id', 'uuid', 'adminId') || 'admin-user'),
     name: resolvedName,
     email: candidateEmail,
     role,
     permissions,
+    phone: resolvedMobile,
+    mobile: resolvedMobile,
+    status: resolvedStatus,
+    createdAt: resolvedCreatedAt,
+    userType: resolvedType,
   };
 }
 
@@ -485,6 +507,29 @@ export class RealAuthRepository implements IAuthRepository {
       throw mapHttpErrorToDomainError(err);
     }
   }
+
+  /**
+   * Indicates whether profile editing is supported by the deployed backend.
+   * In the deployed OpenAPI spec, profile editing endpoints (PATCH /users/me) do not exist.
+   * Can be configured or toggled when the backend team deploys the required contract.
+   */
+  public supportsProfileUpdate: boolean = false;
+
+  async updateProfile(dto: UpdateProfileDto): Promise<AdminUser> {
+    if (!this.supportsProfileUpdate) {
+      throw new ValidationError(
+        'Profile editing is not supported by the deployed backend. The backend currently provides read-only identity via GET /api/v1/users/me and requires a PATCH /api/v1/users/me contract.'
+      );
+    }
+    try {
+      const response = await httpClient.patch('/users/me', dto);
+      const updatedUser = mapBackendUserToAdminUser(response.data);
+      useAuthStore.getState().setUser(updatedUser);
+      return updatedUser;
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
 }
 
 /**
@@ -513,18 +558,18 @@ export class MockAuthRepository implements IAuthRepository {
       throw new UnauthorizedError('Administrative account not found. Please verify your email address.');
     }
 
-    if (password !== DEMO_AUTH_PASSWORD) {
+    const [, accountConfig] = accountEntry;
+    const expectedPassword = accountConfig.password || DEMO_AUTH_PASSWORD;
+    if (password !== expectedPassword && password !== DEMO_AUTH_PASSWORD) {
       throw new UnauthorizedError('Invalid administrative credentials. Please verify your email and password.');
     }
-
-    const [accountEmail, accountConfig] = accountEntry;
     const rolePrefix = accountConfig.role.split('_')[0].toLowerCase();
 
     return {
       user: {
         id: accountConfig.id,
         name: accountConfig.name,
-        email: accountEmail,
+        email: email,
         role: accountConfig.role,
         permissions: [...accountConfig.permissions],
       },
@@ -573,7 +618,7 @@ export class MockAuthRepository implements IAuthRepository {
     if (account) {
       const email = Object.keys(DEMO_ADMIN_ACCOUNTS).find(
         (key) => DEMO_ADMIN_ACCOUNTS[key].id === account.id
-      ) || 'super.admin@sevanest.internal';
+      ) || 'sevanest@admin.in';
 
       return Promise.resolve({
         id: account.id,
@@ -601,6 +646,23 @@ export class MockAuthRepository implements IAuthRepository {
 
   async revokeSession(_sessionId: string): Promise<void> {
     return Promise.resolve();
+  }
+
+  public supportsProfileUpdate: boolean = false;
+
+  async updateProfile(dto: UpdateProfileDto): Promise<AdminUser> {
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) {
+      throw new UnauthorizedError('No active authenticated session.');
+    }
+    const updatedUser: AdminUser = {
+      ...currentUser,
+      ...(dto.name ? { name: dto.name.trim() } : {}),
+      ...(dto.email ? { email: dto.email.trim() } : {}),
+      ...(dto.phone ? { phone: dto.phone.trim(), mobile: dto.phone.trim() } : {}),
+    };
+    useAuthStore.getState().setUser(updatedUser);
+    return Promise.resolve(updatedUser);
   }
 }
 

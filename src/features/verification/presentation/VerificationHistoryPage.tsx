@@ -18,7 +18,15 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { verificationRepository } from '../data/verificationRepository';
 import { VerificationDossier } from '../domain/types';
 
-export const VerificationHistoryPage: React.FC = () => {
+export interface VerificationHistoryPageProps {
+  onSelectDossier?: (workerIdOrDossierId: string) => void;
+  hideHeader?: boolean;
+}
+
+export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = ({
+  onSelectDossier,
+  hideHeader = false,
+}) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [outcomeFilter, setOutcomeFilter] = useState<'ALL' | 'APPROVED' | 'REJECTED'>('ALL');
@@ -75,36 +83,38 @@ export const VerificationHistoryPage: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Authoritative Review History & Audit
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Historical decision records, compliance determinations, and review notes for approved and rejected domestic workers.
-          </p>
+      {!hideHeader && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
+          <div>
+            <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+              Authoritative Review History & Audit
+            </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
+              Historical decision records, compliance determinations, and review notes for approved and rejected domestic workers.
+            </p>
+          </div>
+          <button
+            onClick={() => refetch()}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: '1px solid var(--color-border)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <RefreshCw size={14} color="var(--color-primary)" />
+            <span>Refresh History</span>
+          </button>
         </div>
-        <button
-          onClick={() => refetch()}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: '8px 14px',
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: 'var(--color-bg-surface)',
-            color: 'var(--color-text-primary)',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
-            border: '1px solid var(--color-border)',
-            cursor: 'pointer',
-            boxShadow: 'var(--shadow-sm)',
-          }}
-        >
-          <RefreshCw size={14} color="var(--color-primary)" />
-          <span>Refresh History</span>
-        </button>
-      </div>
+      )}
 
       {/* Authoritative Audit Callout Banner */}
       <div
@@ -313,7 +323,13 @@ export const VerificationHistoryPage: React.FC = () => {
                       </td>
                       <td style={{ padding: '12px 16px', textAlign: 'right' }}>
                         <button
-                          onClick={() => navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`)}
+                          onClick={() => {
+                            if (onSelectDossier) {
+                              onSelectDossier(item.workerId || item.id);
+                            } else {
+                              navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                            }
+                          }}
                           style={{
                             display: 'inline-flex',
                             alignItems: 'center',

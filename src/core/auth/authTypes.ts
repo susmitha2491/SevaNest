@@ -6,6 +6,11 @@ export interface AdminUser {
   email: string;
   role: AdminRole;
   permissions: string[];
+  phone?: string | null;
+  mobile?: string | null;
+  status?: string | null;
+  createdAt?: string | null;
+  userType?: string | null;
 }
 
 export interface AuthSession {
@@ -32,6 +37,12 @@ export interface ActiveSessionItem {
   isCurrent?: boolean;
 }
 
+export interface UpdateProfileDto {
+  name?: string;
+  email?: string;
+  phone?: string;
+}
+
 export interface IAuthRepository {
   login(credentials: LoginCredentials): Promise<{ user: AdminUser; accessToken: string; refreshToken?: string }>;
   logout(): Promise<void>;
@@ -39,4 +50,6 @@ export interface IAuthRepository {
   getCurrentSession(accessToken?: string): Promise<AdminUser | null>;
   listSessions?(): Promise<ActiveSessionItem[]>;
   revokeSession?(sessionId: string): Promise<void>;
+  updateProfile(dto: UpdateProfileDto): Promise<AdminUser>;
+  supportsProfileUpdate: boolean;
 }

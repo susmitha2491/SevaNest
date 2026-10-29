@@ -7,6 +7,7 @@ export type VerificationCheckType =
 
 export type VerificationCheckStatus =
   | 'PENDING'
+  | 'SUBMITTED'
   | 'IN_REVIEW'
   | 'APPROVED'
   | 'REJECTED'
@@ -34,12 +35,23 @@ export const REJECTION_CATEGORIES: { key: RejectionReasonCategory; label: string
 ];
 
 export interface VerificationDocumentMetadata {
+  id?: string;
   documentId?: string;
   docNumberMasked?: string;
   nameOnDoc?: string;
   issueDate?: string;
   expiryDate?: string;
   documentTypeName: string;
+  contentType?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  status?: string;
+  availability?: string;
+  checkType?: VerificationCheckType;
+  checkTitle?: string;
+  checkId?: string;
+  createdAt?: string;
+  submittedAt?: string;
 }
 
 export interface VerificationContactDetails {
@@ -100,6 +112,7 @@ export interface VerificationDossier {
   level?: string;
   preCheckOtpVerified: boolean; // Automated pre-check
   checks: Record<VerificationCheckType, VerificationCheck>;
+  submittedDocuments?: VerificationDocumentMetadata[];
   overallRemarks?: string;
   address?: {
     line1?: string;

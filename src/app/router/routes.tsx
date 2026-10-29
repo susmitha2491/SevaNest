@@ -24,9 +24,6 @@ const WorkersListPage = React.lazy(() =>
 const VerificationQueuePage = React.lazy(() =>
   import('../../features/verification/presentation/VerificationQueuePage').then((m) => ({ default: m.VerificationQueuePage }))
 );
-const VerificationHistoryPage = React.lazy(() =>
-  import('../../features/verification/presentation/VerificationHistoryPage').then((m) => ({ default: m.VerificationHistoryPage }))
-);
 const VerificationInsightsPage = React.lazy(() =>
   import('../../features/verification/presentation/VerificationInsightsPage').then((m) => ({ default: m.VerificationInsightsPage }))
 );
@@ -135,7 +132,7 @@ export const routes: RouteObject[] = [
         element: (
           <ProtectedRoute permission={PERMISSIONS.VERIFICATION_REVIEW}>
             <LazyRoute label="Loading verification decision history...">
-              <VerificationHistoryPage />
+              <VerificationQueuePage viewMode="history" />
             </LazyRoute>
           </ProtectedRoute>
         ),

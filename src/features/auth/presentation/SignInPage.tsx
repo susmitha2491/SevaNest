@@ -7,6 +7,9 @@ import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { authRepository } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
+import { isQuickLoginEnabled } from '../../../core/config/env';
+import { QuickLoginSection } from './QuickLoginSection';
+import { QuickLoginRole } from './quickLoginRoles';
 
 const signInSchema = z.object({
   email: z.string().email('Please enter a valid administrative email address'),
@@ -19,6 +22,8 @@ export const SignInPage: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const showQuickLogin = isQuickLoginEnabled();
   const user = useAuthStore((state) => state.user);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setSession = useAuthStore((state) => state.setSession);
@@ -45,6 +50,14 @@ export const SignInPage: React.FC = () => {
     },
   });
 
+  const handleSelectRole = (role: QuickLoginRole) => {
+    // Populate form fields with role email and credentials without auto-submitting
+    setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
+    setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
+    setAuthError(null);
+    setSelectedRoleId(role.id);
+  };
+
   const onSubmit = async (values: SignInFormValues) => {
     if (isSubmitting) return;
     try {
@@ -61,13 +74,14 @@ export const SignInPage: React.FC = () => {
       setAuthError(errorMessage);
       // Security: Clear password input on failed login attempt while preserving entered email
       setValue('password', '');
+      setSelectedRoleId(null);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <div>
         <h2 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
           Staff Sign In
@@ -82,7 +96,7 @@ export const SignInPage: React.FC = () => {
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 'var(--space-2)',
+            gap: 'var(--space-1)',
             backgroundColor: 'var(--color-status-danger-bg)',
             border: '1px solid var(--color-status-danger-border)',
             color: 'var(--color-status-danger-text)',
@@ -97,7 +111,8 @@ export const SignInPage: React.FC = () => {
         </div>
       )}
 
-      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {/* 1. Email and Password fields at the top */}
+      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
           <label htmlFor="admin-email" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
             Admin Email Address
@@ -106,7 +121,7 @@ export const SignInPage: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 'var(--space-2)',
+              gap: 'var(--space-1)',
               backgroundColor: 'var(--color-bg-app)',
               border: `1px solid ${errors.email ? 'var(--color-error)' : 'var(--color-border)'}`,
               borderRadius: 'var(--radius-md)',
@@ -119,7 +134,12 @@ export const SignInPage: React.FC = () => {
               id="admin-email"
               type="email"
               autoComplete="username"
-              {...register('email', { onChange: () => setAuthError(null) })}
+              {...register('email', {
+                onChange: () => {
+                  setAuthError(null);
+                  setSelectedRoleId(null);
+                },
+              })}
               disabled={isSubmitting}
               placeholder="name@sevanest.internal"
               style={{
@@ -147,7 +167,7 @@ export const SignInPage: React.FC = () => {
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: 'var(--space-2)',
+              gap: 'var(--space-1)',
               backgroundColor: 'var(--color-bg-app)',
               border: `1px solid ${errors.password ? 'var(--color-error)' : 'var(--color-border)'}`,
               borderRadius: 'var(--radius-md)',
@@ -160,7 +180,12 @@ export const SignInPage: React.FC = () => {
               id="admin-password"
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
-              {...register('password', { onChange: () => setAuthError(null) })}
+              {...register('password', {
+                onChange: () => {
+                  setAuthError(null);
+                  setSelectedRoleId(null);
+                },
+              })}
               disabled={isSubmitting}
               placeholder="Enter password"
               style={{
@@ -208,21 +233,49 @@ export const SignInPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 'var(--space-2)',
+            gap: 'var(--space-1)',
             backgroundColor: isSubmitting ? 'var(--color-bg-disabled)' : 'var(--color-primary)',
             color: isSubmitting ? 'var(--color-text-disabled)' : '#ffffff',
-            padding: '12px',
+            padding: '11px',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-base)',
             fontWeight: 600,
-            marginTop: 'var(--space-2)',
+            marginTop: 0,
             cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            transition: 'background-color var(--transition-fast)',
           }}
         >
           <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Operations Console'}</span>
           <ArrowRight size={16} />
         </button>
       </form>
+
+      {/* 2. Quick Login Section below the Sign In form */}
+      {showQuickLogin && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 'var(--space-1) 0' }}>
+          <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border)' }} />
+          <span
+            style={{
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-text-muted)',
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            or quick login
+          </span>
+          <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border)' }} />
+        </div>
+      )}
+
+      {showQuickLogin && (
+        <QuickLoginSection
+          selectedRoleId={selectedRoleId}
+          onSelectRole={handleSelectRole}
+          disabled={isSubmitting}
+        />
+      )}
     </div>
   );
 };

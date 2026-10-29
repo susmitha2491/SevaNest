@@ -10,6 +10,7 @@ import {
   FinalOnboardingResult,
   AdminWorkerVerificationResponse,
   AdminCheckView,
+  VerificationDocumentMetadata,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -621,7 +622,19 @@ export class MockVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Invalid workerId: checkId cannot be substituted for workerId.');
     }
     const item = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
-    return item ? JSON.parse(JSON.stringify(item)) : null;
+    if (!item) return null;
+    const copy = JSON.parse(JSON.stringify(item)) as VerificationDossier;
+    if (!copy.submittedDocuments || copy.submittedDocuments.length === 0) {
+      copy.submittedDocuments = Object.values(copy.checks)
+        .filter((c) => c.documentMetadata?.documentId)
+        .map((c) => ({
+          ...c.documentMetadata!,
+          checkType: c.type,
+          checkTitle: c.title,
+          checkId: c.id,
+        }));
+    }
+    return copy;
   }
 
   async claimCheck(checkId: string): Promise<void> {
@@ -643,16 +656,17 @@ export class MockVerificationRepository implements IVerificationRepository {
     let targetCheck: VerificationCheck | undefined;
 
     for (const dossier of this.dossiers) {
-      if (dossier.checkId === cleanCheckId) {
-        targetDossier = dossier;
-        break;
-      }
       for (const check of Object.values(dossier.checks)) {
         if (check.id === cleanCheckId) {
           targetDossier = dossier;
           targetCheck = check;
           break;
         }
+      }
+      if (!targetDossier && dossier.checkId === cleanCheckId) {
+        targetDossier = dossier;
+        targetCheck = Object.values(dossier.checks).find((c) => c.id === cleanCheckId) || dossier.checks.IDENTITY;
+        break;
       }
       if (targetDossier) break;
     }
@@ -721,6 +735,9 @@ export class MockVerificationRepository implements IVerificationRepository {
         if (check.id === cleanCheckId || (checkType && check.type === checkType && dossier.checkId === cleanCheckId)) {
           found = true;
           targetDossier = dossier;
+          if (check.status === 'SUBMITTED') {
+            check.status = 'IN_REVIEW';
+          }
           check.status = 'APPROVED';
           check.verifiedAt = new Date().toISOString();
           check.verifiedBy = 'Verification Executive';
@@ -1110,6 +1127,8 @@ export function mapCheckStatus(rawStatus: unknown): VerificationCheckStatus {
     case 'RECHECK_DUE':
     case 'NEEDS_RECHECK':
       return 'RECHECK_DUE';
+    case 'SUBMITTED':
+      return 'SUBMITTED';
     case 'PENDING':
     default:
       return 'PENDING';
@@ -1121,7 +1140,12 @@ function defaultCheck(type: VerificationCheckType, title: string): VerificationC
     type,
     title,
     status: 'PENDING',
-    evaluationMethod: (type === 'EMERGENCY_CONTACT' || type === 'REFERENCE') ? 'TELEPHONIC_VETTING' : 'DOCUMENT_INSPECTION',
+    evaluationMethod:
+      type === 'EMERGENCY_CONTACT' || type === 'REFERENCE'
+        ? 'TELEPHONIC_VETTING'
+        : type === 'POLICE_CLEARANCE'
+        ? 'CERTIFICATE_TRACKING'
+        : 'DOCUMENT_INSPECTION',
   };
 }
 
@@ -1149,25 +1173,51 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
     let expiryDate: string | undefined;
     let documentTypeName = 'Document';
 
+    const checkDocs: VerificationDocumentMetadata[] = [];
+    if (Array.isArray(item.documents)) {
+      item.documents.forEach((docItem, idx) => {
+        if (docItem && typeof docItem === 'object') {
+          const docObj = docItem as Record<string, unknown>;
+          const docId = String(docObj.documentId || docObj.id || '').trim();
+          if (docId) {
+            checkDocs.push({
+              id: docId,
+              documentId: docId,
+              docNumberMasked: String(item.maskedDocumentNumber || docObj.documentNumber || docObj.docNumberMasked || ''),
+              nameOnDoc: String(docObj.nameOnDoc || docObj.name || ''),
+              issueDate: docObj.issueDate ? String(docObj.issueDate) : undefined,
+              expiryDate: item.documentExpiresOn ? String(item.documentExpiresOn) : (docObj.expiryDate ? String(docObj.expiryDate) : undefined),
+              documentTypeName: String(docObj.documentTypeName || docObj.documentType || docObj.type || typeKey || `Document ${idx + 1}`),
+              contentType: docObj.contentType ? String(docObj.contentType) : (docObj.mimeType ? String(docObj.mimeType) : undefined),
+              sizeBytes: typeof docObj.sizeBytes === 'number' ? docObj.sizeBytes : undefined,
+              status: docObj.status ? String(docObj.status) : undefined,
+              availability: docObj.availability ? String(docObj.availability) : undefined,
+              checkType: typeKey,
+              checkTitle: String(item.title || result[typeKey].title),
+              checkId: typeof item.id === 'string' ? item.id.trim() : (typeof item.checkId === 'string' ? item.checkId.trim() : undefined),
+              submittedAt: docObj.createdAt ? String(docObj.createdAt) : undefined,
+            });
+          }
+        }
+      });
+    }
+
     // 1. Extract from backend document records: documents: [{ id: "..." }]
-    if (Array.isArray(item.documents) && item.documents.length > 0 && item.documents[0] && typeof item.documents[0] === 'object') {
-      const firstDoc = item.documents[0] as Record<string, unknown>;
-      if (typeof firstDoc.id === 'string' && firstDoc.id.trim() !== '') {
-        rawDocId = firstDoc.id.trim();
-      } else if (typeof firstDoc.documentId === 'string' && firstDoc.documentId.trim() !== '') {
-        rawDocId = firstDoc.documentId.trim();
-      }
-      if (firstDoc.documentNumber || firstDoc.docNumberMasked) {
-        docNumberMasked = String(firstDoc.documentNumber || firstDoc.docNumberMasked);
-      }
-      if (firstDoc.nameOnDoc || firstDoc.name) {
-        nameOnDoc = String(firstDoc.nameOnDoc || firstDoc.name);
-      }
-      if (firstDoc.issueDate) issueDate = String(firstDoc.issueDate);
-      if (firstDoc.expiryDate) expiryDate = String(firstDoc.expiryDate);
-      if (firstDoc.documentTypeName || firstDoc.documentType || firstDoc.type) {
-        documentTypeName = String(firstDoc.documentTypeName || firstDoc.documentType || firstDoc.type);
-      }
+    if (checkDocs.length > 0) {
+      const firstDoc = checkDocs[0];
+      rawDocId = firstDoc.documentId;
+      if (firstDoc.docNumberMasked) docNumberMasked = firstDoc.docNumberMasked;
+      if (firstDoc.nameOnDoc) nameOnDoc = firstDoc.nameOnDoc;
+      if (firstDoc.issueDate) issueDate = firstDoc.issueDate;
+      if (firstDoc.expiryDate) expiryDate = firstDoc.expiryDate;
+      if (firstDoc.documentTypeName) documentTypeName = firstDoc.documentTypeName;
+    }
+
+    if (!docNumberMasked && item.maskedDocumentNumber) {
+      docNumberMasked = String(item.maskedDocumentNumber);
+    }
+    if (!expiryDate && item.documentExpiresOn) {
+      expiryDate = String(item.documentExpiresOn);
     }
 
     // 2. Extract from documentMetadata if present
@@ -1197,12 +1247,14 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
     let docMeta: VerificationCheck['documentMetadata'] = undefined;
     if (rawDocId || docNumberMasked || nameOnDoc || issueDate || expiryDate || documentTypeName !== 'Document') {
       docMeta = {
+        id: rawDocId,
         documentId: rawDocId,
         docNumberMasked,
         nameOnDoc,
         issueDate,
         expiryDate,
         documentTypeName,
+        checkType: typeKey,
       };
     }
 
@@ -1219,12 +1271,18 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
       status: mapCheckStatus(item.status),
       evaluationMethod: (item.evaluationMethod as VerificationCheck['evaluationMethod']) || result[typeKey].evaluationMethod,
       documentMetadata: docMeta,
+      documents: checkDocs.length > 0 ? checkDocs : (docMeta?.documentId ? [docMeta] : undefined),
       contactDetails: item.contactDetails as VerificationCheck['contactDetails'],
       rejectionCategory: item.rejectionCategory as VerificationCheck['rejectionCategory'],
       rejectionRemarks: (item.rejectionRemarks || item.remarks) ? String(item.rejectionRemarks || item.remarks) : undefined,
       verifiedAt: (item.verifiedAt || item.reviewedAt) ? String(item.verifiedAt || item.reviewedAt) : undefined,
       verifiedBy: (item.verifiedBy || item.reviewerUserId) ? String(item.verifiedBy || item.reviewerUserId) : undefined,
       recheckDueDate: (item.recheckDueDate || item.recheckAt) ? String(item.recheckDueDate || item.recheckAt) : undefined,
+      referenceNumber: item.maskedDocumentNumber ? String(item.maskedDocumentNumber) : undefined,
+      expiresOn: item.documentExpiresOn ? String(item.documentExpiresOn) : undefined,
+      notes: Array.isArray(item.notes)
+        ? item.notes.map((n) => typeof n === 'string' ? n : (n as { body?: string })?.body || JSON.stringify(n))
+        : undefined,
       history: Array.isArray(item.history)
         ? (item.history as VerificationCheck['history'])
         : Array.isArray(item.events)
@@ -1585,6 +1643,71 @@ export class RealVerificationRepository implements IVerificationRepository {
       const emergencyContact = (workerData?.emergencyContact || raw.emergencyContact) as VerificationDossier['emergencyContact'];
       const previousEmployer = (workerData?.previousEmployer || workerData?.employerReference || raw.previousEmployer) as VerificationDossier['previousEmployer'];
 
+      const mappedChecks = mapChecks(raw.checks);
+
+      // Collect all submitted documents across checks
+      const submittedDocuments: VerificationDocumentMetadata[] = [];
+      const seenDocIds = new Set<string>();
+
+      // 1. Collect from mapped checks
+      Object.values(mappedChecks).forEach((chk) => {
+        if (Array.isArray(chk.documents)) {
+          chk.documents.forEach((d) => {
+            if (d.documentId && !seenDocIds.has(d.documentId)) {
+              seenDocIds.add(d.documentId);
+              submittedDocuments.push(d);
+            }
+          });
+        } else if (chk.documentMetadata?.documentId && !seenDocIds.has(chk.documentMetadata.documentId)) {
+          seenDocIds.add(chk.documentMetadata.documentId);
+          submittedDocuments.push({
+            ...chk.documentMetadata,
+            checkType: chk.type,
+            checkTitle: chk.title,
+            checkId: chk.id,
+          });
+        }
+      });
+
+      // 2. Also inspect raw.checks for any additional document types (e.g. SKILL_CERTIFICATE, LICENSE)
+      const rawChecksList = Array.isArray(raw.checks)
+        ? (raw.checks as Record<string, unknown>[])
+        : Array.isArray((raw.verification as Record<string, unknown>)?.checks)
+        ? ((raw.verification as Record<string, unknown>).checks as Record<string, unknown>[])
+        : [];
+
+      rawChecksList.forEach((rawChk) => {
+        if (Array.isArray(rawChk.documents)) {
+          rawChk.documents.forEach((docItem) => {
+            if (docItem && typeof docItem === 'object') {
+              const docObj = docItem as Record<string, unknown>;
+              const docId = String(docObj.documentId || docObj.id || '').trim();
+              if (docId && !seenDocIds.has(docId)) {
+                seenDocIds.add(docId);
+                const rawType = String(rawChk.checkType || rawChk.type || docObj.documentType || 'DOCUMENT');
+                submittedDocuments.push({
+                  id: docId,
+                  documentId: docId,
+                  docNumberMasked: String(rawChk.maskedDocumentNumber || docObj.documentNumber || docObj.docNumberMasked || ''),
+                  nameOnDoc: String(docObj.nameOnDoc || docObj.name || ''),
+                  issueDate: docObj.issueDate ? String(docObj.issueDate) : undefined,
+                  expiryDate: rawChk.documentExpiresOn ? String(rawChk.documentExpiresOn) : (docObj.expiryDate ? String(docObj.expiryDate) : undefined),
+                  documentTypeName: String(docObj.documentTypeName || docObj.documentType || rawType),
+                  contentType: docObj.contentType ? String(docObj.contentType) : (docObj.mimeType ? String(docObj.mimeType) : undefined),
+                  sizeBytes: typeof docObj.sizeBytes === 'number' ? docObj.sizeBytes : undefined,
+                  status: docObj.status ? String(docObj.status) : undefined,
+                  availability: docObj.availability ? String(docObj.availability) : undefined,
+                  checkType: normalizeCheckType(rawType) || undefined,
+                  checkTitle: String(rawChk.title || rawType),
+                  checkId: rawChk.checkId ? String(rawChk.checkId) : (rawChk.id ? String(rawChk.id) : undefined),
+                  submittedAt: docObj.createdAt ? String(docObj.createdAt) : undefined,
+                });
+              }
+            }
+          });
+        }
+      });
+
       return {
         id: returnedWorkerId,
         checkId,
@@ -1595,6 +1718,9 @@ export class RealVerificationRepository implements IVerificationRepository {
         locality: String(raw.locality || raw.area || worker?.locality || workerData?.locality || 'Hyderabad'),
         experienceYears: Number(raw.experienceYears ?? raw.experience ?? worker?.experienceYears ?? workerData?.experienceYears ?? 0),
         phoneMasked: String(raw.phoneMasked || worker?.phoneMasked || workerData?.phoneMasked || '+91 *****'),
+        phone: (workerData?.phone || raw.phone || worker?.phone || workerData?.mobile || raw.mobile || workerData?.mobileNumber || raw.mobileNumber)
+          ? String(workerData?.phone || raw.phone || worker?.phone || workerData?.mobile || raw.mobile || workerData?.mobileNumber || raw.mobileNumber)
+          : undefined,
         submissionTime,
         applicationSubmittedAt,
         status,
@@ -1603,7 +1729,8 @@ export class RealVerificationRepository implements IVerificationRepository {
         claimedAt,
         level,
         preCheckOtpVerified: Boolean(raw.preCheckOtpVerified ?? true),
-        checks: mapChecks(raw.checks),
+        checks: mappedChecks,
+        submittedDocuments,
         address,
         languages,
         skills,
@@ -1690,19 +1817,54 @@ export class RealVerificationRepository implements IVerificationRepository {
         payload.recheckAt = rawRecheck.trim();
       }
 
-      const response = await httpClient.post<
-        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
-      >(
-        `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
-        payload
-      );
+      try {
+        const response = await httpClient.post<
+          AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+        >(
+          `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
+          payload
+        );
 
-      const resData = (response.data && 'data' in response.data && response.data.data
-        ? response.data.data
-        : response.data) as AdminWorkerVerificationResponse;
+        const resData = (response.data && 'data' in response.data && response.data.data
+          ? response.data.data
+          : response.data) as AdminWorkerVerificationResponse;
 
-      return resData;
+        return resData;
+      } catch (err) {
+        const domainErr = mapHttpErrorToDomainError(err);
+        const msgUpper = domainErr.message.toUpperCase();
+        if (msgUpper.includes('SUBMITTED') && (msgUpper.includes('CANNOT MOVE TO APPROVED') || msgUpper.includes('APPROVED'))) {
+          await this.claimCheck(cleanCheckId);
+          const retryResponse = await httpClient.post<
+            AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+          >(
+            `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
+            payload
+          );
+          const retryResData = (retryResponse.data && 'data' in retryResponse.data && retryResponse.data.data
+            ? retryResponse.data.data
+            : retryResponse.data) as AdminWorkerVerificationResponse;
+          return retryResData;
+        }
+
+        // Clarify specific backend 422 error messages for caller clarity
+        if (msgUpper.includes('CALLNOTE') || domainErr.message.includes('check: callNote')) {
+          throw new ValidationError(
+            'This check cannot be approved yet: telephonic call notes are required (check: callNote). Please record call outcome notes before approval.'
+          );
+        }
+        if (msgUpper.includes('APPROVAL_REQUIREMENTS_MISSING') || domainErr.message.includes('APPROVAL_REQUIREMENTS_MISSING')) {
+          throw new ValidationError(
+            'This check cannot be approved yet: document reference number and future validity date are required before approval.'
+          );
+        }
+
+        throw domainErr;
+      }
     } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }

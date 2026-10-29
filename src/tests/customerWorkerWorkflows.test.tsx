@@ -155,8 +155,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('opens worker dossier modal and displays the 6-point verification breakdown', async () => {
       renderApp('/workers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
+      fireEvent.click(approveButtons[0]);
 
       expect(await screen.findByText('6-Point Trust & Verification Status')).toBeInTheDocument();
       expect(await screen.findByText('1. Mobile OTP Pre-Check')).toBeInTheDocument();
@@ -174,8 +174,11 @@ describe('Customer & Worker Management Workflows', () => {
     it('executes worker disciplinary suspension with mandatory operational remarks', async () => {
       renderApp('/workers');
 
-      const disciplineButtons = await screen.findAllByText('Discipline');
-      fireEvent.click(disciplineButtons[0]);
+      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
+      fireEvent.click(approveButtons[0]);
+
+      const suspendBtn = await screen.findByRole('button', { name: /Suspend Worker/i });
+      fireEvent.click(suspendBtn);
 
       expect(await screen.findByText(/Disciplinary Status Mutation/i)).toBeInTheDocument();
 

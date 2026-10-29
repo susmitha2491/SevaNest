@@ -155,10 +155,11 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       renderApp('/verification');
 
       // Authorized items must be present in navigation
-      expect(await screen.findByRole('link', { name: /Verification (Review|Queue)/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Workers( Directory)?/i })).toBeInTheDocument();
+      expect(await screen.findByText(/^Verification Queue$/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
 
-      // Prohibited items MUST NOT be rendered in navigation
+      // Prohibited / removed items MUST NOT be rendered in navigation
+      expect(screen.queryByRole('link', { name: /Workers( Directory)?/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Booking Pipeline/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Support Tickets/i })).not.toBeInTheDocument();
@@ -189,8 +190,9 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       renderApp('/verification');
 
       expect(await screen.findByRole('link', { name: /Dashboard/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Verification (Review|Queue)/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Workers( Directory)?/i })).toBeInTheDocument();
+      expect(screen.getByText(/^Verification Queue$/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Workers( Directory)?/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });
   });
@@ -297,10 +299,11 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(screen.getByTestId('header-user-role')).toHaveTextContent('Super Admin');
       expect(screen.getByTestId('sidebar-user-role')).toHaveTextContent('Super Admin');
 
-      // Super Admin sees all navigation modules
-      expect(screen.getByRole('link', { name: /Customers/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Configuration Masters/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Audit Trail/i })).toBeInTheDocument();
+      // Super Admin sees all navigation modules in Section 7 PRD
+      expect(screen.getByRole('link', { name: /^Customer Management$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Booking Management$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Configuration$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Audit Logs$/i })).not.toBeInTheDocument();
     });
 
     it('displays "Operations Admin" and operational navigation for Operations Admin', async () => {
@@ -327,11 +330,11 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(screen.getByTestId('header-user-role')).toHaveTextContent('Operations Admin');
       expect(screen.getByTestId('sidebar-user-role')).toHaveTextContent('Operations Admin');
 
-      // Operations Admin sees Customers, Bookings, Payments, but NOT Configuration or Audit
-      expect(screen.getByRole('link', { name: /Customers/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Booking Pipeline/i })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /Configuration Masters/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /Audit Trail/i })).not.toBeInTheDocument();
+      // Operations Admin sees Customer Management, Booking Management, Payments, but NOT Configuration or Audit Logs
+      expect(screen.getByRole('link', { name: /^Customer Management$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Booking Management$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Configuration$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Audit Logs$/i })).not.toBeInTheDocument();
     });
 
     it('displays "Support Executive" and support navigation for Support Executive', async () => {
@@ -355,8 +358,8 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(await screen.findByTestId('header-user-name')).toHaveTextContent('Support Executive');
       expect(screen.getByTestId('header-user-role')).toHaveTextContent('Support Executive');
       expect(screen.getByTestId('sidebar-user-role')).toHaveTextContent('Support Executive');
-      expect(screen.getByRole('link', { name: /Support Tickets/i })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /Verification (Review|Queue)/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Support$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Verification/i })).not.toBeInTheDocument();
     });
   });
 

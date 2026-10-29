@@ -149,7 +149,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
           value={kpis.avgProcessingTimeMinutes !== null && kpis.avgProcessingTimeMinutes !== undefined ? `${kpis.avgProcessingTimeMinutes}m` : 'Unavailable'}
           subtitle={kpis.avgProcessingTimeMinutes !== null && kpis.avgProcessingTimeMinutes !== undefined ? 'Average cycle duration' : 'Duration telemetry pending backend contract'}
           icon={Clock}
-          onClick={() => navigate('/verification/insights')}
+          onClick={() => navigate('/verification')}
         />
       </div>
 

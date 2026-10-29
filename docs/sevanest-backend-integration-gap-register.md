@@ -1671,20 +1671,116 @@ An intensive end-to-end audit of the Worker Application Verification, Document I
 
 ---
 
-### 15.5 Live Environment & Verification State
+## 16. PRD Section 7 Nine Business Modules Integration & Verification Audit (October 2026)
 
-1. **Remote Deployed Backend:** `https://sevanest-backend.onrender.com/api/v1`
-   - `POST /admin/verification/checks/{checkId}/approve`: **Active (returns 401 UNAUTHENTICATED without token)**.
-   - `POST /admin/workers/{workerId}/verification/sign-off`: **Active (returns 401 UNAUTHENTICATED without token)**.
-   - `POST /admin/workers/{workerId}/activate`: **Active (returns 401 UNAUTHENTICATED without token)**.
-   - `POST /auth/admin/login`: **Active (returns 401 INVALID_CREDENTIALS / 429 ADMIN_LOGIN_LOCKED)** due to unseeded test accounts in PostgreSQL on Render.
-2. **Local Production Container Validation:**
-   - Built with `docker build -t sevanest-admin-portal:latest .`
-   - Running container: `sevanest-admin` on port 8080 (`http://localhost:8080`).
-   - Healthcheck: `GET http://localhost:8080/healthz` -> **200 OK**.
-   - Quality Gates: **Typecheck: 0 errors**, **ESLint: 0 warnings**, **Vite Build: Succeeded (5.89s)**, **Vitest: 45 passed (45), 573 passed (573)**.
+### 16.1 Exact Nine Modules Retained
 
+In strict compliance with PRD Section 7 ("Admin & Operations Portal") and Section 2 ("Exact Sidebar Requirements"), the Super Admin portal retains exactly nine business modules in this authoritative order:
 
+1. **Dashboard** (`/dashboard`)
+2. **Customer Management** (`/customers`)
+3. **Worker Management** (`/workers`)
+4. **Verification** (`/verification`)
+5. **Booking Management** (`/bookings`)
+6. **Payments** (`/payments`)
+7. **Support** (`/support`)
+8. **Reports** (`/reports`)
+9. **Configuration** (`/configuration`)
 
+**Sidebar Navigation Cleanup:**
+- Exact labels enforced: `"Dashboard"`, `"Customer Management"`, `"Worker Management"`, `"Verification"`, `"Booking Management"`, `"Payments"`, `"Support"`, `"Reports"`, `"Configuration"`.
+- Removed separate `"Audit Trail"` / `"Audit Logs"` navigation entry from the business module list in the sidebar. Audit logging is maintained as a cross-cutting security requirement, preserving immutable audit logs for critical actions (verification sign-off, activation, status changes, refunds, and role delegation).
+- Account profile controls and Sign Out remain standard application shell controls.
+- No duplicate modules, alternate pages for the same capability, or extraneous business modules exist in navigation.
+
+---
+
+### 16.2 Capability Integration & Live Backend Contract Matrix
+
+| # | PRD Module | PRD Section 7 Capabilities | Actual Backend Endpoints Integrated | HTTP Method & Contract | Integration Status |
+|---|---|---|---|---|---|
+| 1 | **Dashboard** | Bookings, active workers, pending KYC, complaints, replacements, collections | `/api/v1/admin/dashboard` | `GET`: Returns `kpis` (`grossBookings`, `activeWorkforce`, `verificationQueue`, `activeGrievances`, `replacementVolume`, `platformRevenueINR`) and `sections` (`bookings`, `workers`, `pendingKyc`, `complaints`, `replacements`, `collections`) | **Fully Integrated** (Genuine backend metrics; honest unavailable states when fields missing; zero dummy counts) |
+| 2 | **Customer Management** | Customer profiles, customer status, bookings, history, complaints, notes | `/api/v1/admin/customers`<br>`/api/v1/admin/customers/{id}`<br>`/api/v1/admin/customers/{id}/verification-status`<br>`/api/v1/admin/users/{userId}/status`<br>`/api/v1/admin/audit-logs` | `GET /admin/customers`: Query customer accounts with masked PII<br>`GET /admin/customers/{id}`: Customer dossier with bookings & complaints<br>`PATCH /admin/users/{userId}/status`: Account suspension/reactivation<br>`PATCH /admin/customers/{id}/verification-status`: Verification flag<br>`POST /admin/audit-logs`: Audited customer notes | **Fully Integrated** |
+| 3 | **Worker Management** | Worker profiles, documents, availability, skills, ratings, blacklist/status | `/api/v1/admin/workers`<br>`/api/v1/admin/workers/{workerId}`<br>`/api/v1/admin/workers/{workerId}/verification`<br>`/api/v1/admin/workers/{workerId}/availability`<br>`/api/v1/admin/ratings/workers/{workerId}/summary`<br>`/api/v1/admin/verification/documents/{documentId}/link`<br>`/api/v1/admin/workers/{workerId}/verification/sign-off`<br>`/api/v1/admin/workers/{workerId}/activate` | `GET /admin/workers`: Worker roster with verification badge and skills<br>`GET /admin/workers/{id}`: Detailed profile with availability and ratings<br>`PATCH /admin/workers/{id}/availability`: Availability schedule updates<br>`GET /admin/verification/documents/{id}/link`: Restricted KYC doc vault URL (`verification.document.view`)<br>`POST /admin/workers/{id}/verification/sign-off`: Final supervisor sign-off<br>`POST /admin/workers/{id}/activate`: Commercial activation | **Fully Integrated** (Sensitive document access strictly guarded by RBAC) |
+| 4 | **Verification** | Document review, verification status, expiry/recheck, remarks | `/api/v1/admin/verification/queue`<br>`/api/v1/admin/verification/requirements`<br>`/api/v1/admin/verification/checks/{checkId}/start-review`<br>`/api/v1/admin/verification/checks/{checkId}/approve`<br>`/api/v1/admin/verification/checks/{checkId}/reject`<br>`/api/v1/admin/verification/checks/{checkId}/recheck`<br>`/api/v1/admin/verification/checks/{checkId}/notes`<br>`/api/v1/admin/verification/documents/{documentId}/link`<br>`/api/v1/admin/workers/{workerId}/verification/sign-off` | `GET /admin/verification/queue`: Ordered verification applications<br>`POST /admin/verification/checks/{id}/start-review`: Claim review<br>`POST /admin/verification/checks/{id}/approve`: Step approval<br>`POST /admin/verification/checks/{id}/reject`: Check rejection with remarks<br>`POST /admin/verification/checks/{id}/recheck`: Re-verification with instructions<br>`POST /admin/verification/checks/{id}/notes`: Operational notes<br>`POST /admin/workers/{id}/verification/sign-off`: Supervisor sign-off | **Fully Integrated** (5-point sequential check workflow, real status transitions, no fake sign-offs) |
+| 5 | **Booking Management** | New requests, matching, interviews, trials, confirmation, cancellation, replacement | `/api/v1/admin/bookings`<br>`/api/v1/admin/bookings/{id}`<br>`/api/v1/admin/bookings/{id}/{action}`<br>`/api/v1/admin/bookings/{id}/interviews`<br>`/api/v1/admin/bookings/{id}/replacement-chain`<br>`/api/v1/admin/replacement-requests`<br>`/api/v1/admin/replacement-requests/{id}/candidates`<br>`/api/v1/admin/replacement-requests/{id}/approve`<br>`/api/v1/admin/replacement-requests/{id}/reject` | `GET /admin/bookings`: Booking pipeline with lifecycle status filters<br>`POST /admin/bookings/{id}/{action}`: Supported actions (`match`, `schedule`, `interview-complete`, `confirm-worker`, `cancel`)<br>`GET /admin/replacement-requests`: Replacement queue<br>`GET /admin/replacement-requests/{id}/candidates`: Matched candidate scoring<br>`POST /admin/replacement-requests/{id}/approve`: Rematch authorization | **Fully Integrated** (Lifecycle rules preserved, booking history maintained) |
+| 6 | **Payments** | Transaction status, fee records, refunds, invoice/reference exports | `/api/v1/admin/payments`<br>`/api/v1/admin/payments/{id}`<br>`/api/v1/admin/payments/{id}/refund`<br>`/api/v1/admin/payments/{id}/reconcile`<br>`/api/v1/admin/payments-export` | `GET /admin/payments`: Real-time transaction ledgers and status breakdown<br>`GET /admin/payments/{id}`: Fee & tax itemization<br>`POST /admin/payments/{id}/refund`: Audited refund dispatch with idempotency key<br>`GET /admin/payments-export`: Financial ledger export to CSV/PDF | **Fully Integrated** (No simulated transactions or client-side fake refunds) |
+| 7 | **Support** | Ticket creation (evaluated), assignment, escalation, resolution SLA | `/api/v1/admin/support/tickets`<br>`/api/v1/admin/support/tickets/{id}`<br>`/api/v1/admin/support/tickets/{id}/assign`<br>`/api/v1/admin/support/tickets/{id}/priority`<br>`/api/v1/admin/support/tickets/{id}/escalate`<br>`/api/v1/admin/support/tickets/{id}/close`<br>`/api/v1/admin/support/tickets/{id}/messages`<br>`/api/v1/admin/support/categories` | `GET /admin/support/tickets`: Grievance queue with SLA timers<br>`POST /admin/support/tickets/{id}/assign`: Desk assignment<br>`POST /admin/support/tickets/{id}/priority`: Priority adjustment<br>`POST /admin/support/tickets/{id}/escalate`: Dispute escalation with rationale<br>`POST /admin/support/tickets/{id}/close`: Ticket resolution with remarks<br>`POST /admin/support/tickets/{id}/messages`: Staff case notes timeline | **Partially Available** (Administrative ticket creation blocked by backend; ticket assignment, escalation, notes, and resolution fully integrated) |
+| 8 | **Reports** | Bookings, conversion, category demand, location demand, worker utilization | `/api/v1/admin/reports`<br>`/api/v1/admin/reports/booking-funnel`<br>`/api/v1/admin/reports/interview-conversion`<br>`/api/v1/admin/reports/demand-by-category`<br>`/api/v1/admin/reports/demand-by-area`<br>`/api/v1/admin/reports/worker-utilization`<br>`/api/v1/admin/reports/export/{report}` | `GET /admin/reports`: Standard business analytics catalogue<br>`GET /admin/reports/booking-funnel`: Booking demand funnel<br>`GET /admin/reports/interview-conversion`: Interview to confirmation conversion<br>`GET /admin/reports/demand-by-category`: Category demand distribution<br>`GET /admin/reports/demand-by-area`: Area/cluster demand distribution<br>`GET /admin/reports/worker-utilization`: Active staff utilization rates<br>`GET /admin/reports/export/{report}`: Raw CSV export stream | **Fully Integrated** (Actual backend datasets and exports; zero fabricated statistics) |
+| 9 | **Configuration** | Categories, areas, fees, plans, notification templates, roles | `/api/v1/admin/service-categories`<br>`/api/v1/admin/service-categories/{id}`<br>`/api/v1/admin/service-areas`<br>`/api/v1/admin/service-areas/{id}`<br>`/api/v1/admin/fees`<br>`/api/v1/admin/fees/{code}`<br>`/api/v1/admin/fees/booking-fee`<br>`/api/v1/admin/notification-templates`<br>`/api/v1/admin/notification-templates/{id}`<br>`/api/v1/admin/roles`<br>`/api/v1/admin/roles/{roleCode}`<br>`/api/v1/admin/roles/{roleCode}/permissions`<br>`/api/v1/admin/permissions`<br>`/api/v1/admin/users` | `GET /admin/service-categories`: Service taxonomy<br>`PATCH /admin/service-categories/{id}`: Category updates<br>`GET, POST /admin/service-areas`: Operational clusters and pincodes<br>`PATCH /admin/service-areas/{id}`: Area cluster status & metadata<br>`GET, POST /admin/fees`: Fee parameters & plan classifications<br>`PUT /admin/fees/{code}`: Live fee parameter modifications<br>`GET, POST /admin/notification-templates`: Templates across Push, SMS, WhatsApp<br>`PATCH /admin/notification-templates/{id}`: Template revisions<br>`GET /admin/roles`: Administrative roles and accounts count<br>`PUT /admin/roles/{roleCode}/permissions`: Role permission matrix updates<br>`GET /admin/users`: Admin account roster | **Fully Integrated** (Dedicated subscription plans master partially available via fee classification) |
+
+---
+
+### 16.3 Missing or Blocked Backend Capabilities & Endpoints
+
+#### 1. Support Module: Administrative Ticket Creation (`POST /api/v1/admin/support/tickets`)
+- **Module & Capability:** Support — Ticket Creation
+- **Expected Operation:** Allow administrative staff to raise a formal grievance or dispute ticket on behalf of a customer or worker from the Support console.
+- **Actual Deployed Backend Contract:**
+  - `POST /api/v1/support/tickets` exists for authenticated customer/worker mobile apps.
+  - `GET /api/v1/admin/support/tickets` exists for admin staff to query and view tickets.
+  - `POST /api/v1/admin/support/tickets` **does not exist** (returns `404 Not Found`).
+- **Observed Failure / Blocker:** Administrative staff cannot originate a ticket directly through `/api/v1/admin/support/tickets`.
+- **Required Backend Change:** Expose `POST /api/v1/admin/support/tickets` accepting `{ complainantId, complainantType, serviceCategory, disputeCategory, bookingId?, description, priority }` protected by `support.manage`.
+- **Frontend Status:** **Partially Available**. Administrative ticket creation UI honestly surfaces backend dependency without creating fake local records. Existing tickets can be assigned, escalated, commented on, and resolved.
+
+#### 2. Configuration Module: Dedicated Subscription Plans Master (`/api/v1/admin/plans`)
+- **Module & Capability:** Configuration — Plans
+- **Expected Operation:** Master management for recurring customer membership plans and placement packages.
+- **Actual Deployed Backend Contract:**
+  - `GET /api/v1/admin/fees` and `PUT /api/v1/admin/fees/{code}` support fee structures with classifications (`ONE_TIME_FEE`, `MONTHLY_COMMISSION`, `SUBSCRIPTION`, `GUARANTEE_ADDON`).
+  - No independent `/api/v1/admin/plans` or `/api/v1/admin/subscriptions` endpoints exist in the deployed OpenAPI specification.
+- **Observed Failure / Blocker:** Dedicated subscription tier management (e.g. bundling, renewal periods, tier limits) is not modeled as a first-class entity.
+- **Required Backend Change:** Provide `/api/v1/admin/plans` CRUD API for recurring packages when subscription tier customization is needed.
+- **Frontend Status:** **Partially Available** via the commercial Fee Schedule master, which classifies and publishes subscription pricing parameters.
+
+---
+
+### 16.4 Strict No-Dummy-Data Compliance Summary
+
+1. **Zero Mock Business Records in Production:** Production build artifacts do not contain synthetic customer profiles, worker dossiers, or payment ledgers.
+2. **Honest Loading, Empty, and Error States:** When data is fetching, a spinner renders. When the database has 0 records, a clear empty state displays with actionable guidance. When requests return 4xx/5xx or network errors, honest domain error banners render with retry triggers.
+3. **Missing Telemetry Disclosed:** Unavailable backend metrics (e.g. Turnaround SLA timestamp, time-to-decision duration) are explicitly labeled as unavailable rather than populated with placeholder numbers.
+
+---
+
+## 17. Worker Verification & Onboarding Wizard Integration & Contract Mapping (ARCH-VERIF-02)
+
+### 17.1 Objective & Architecture Redesign
+The complex legacy worker verification dossier layout has been completely redesigned into a simple, guided, 5-step sequential wizard with connected circular progress bubbles:
+1. **Step 1 — Worker Application Details:** Displays genuine backend worker metadata (full name, worker ID, full unmasked mobile number, service category, skills/experience tags, locality/service area, availability, application submission date, and current verification status). Honest unavailable states are displayed for any missing fields without data fabrication.
+2. **Step 2 — Documents Review:** Renders submitted compliance documents (Identity Proof, Address Proof, Police Clearance) with actual backend status, document ID, and masked document numbers. Secure document viewing requests authorized signed URLs via `GET /api/v1/admin/verification/documents/{documentId}/link`. When document retrieval fails, a clear error banner and a retry action are displayed. No fake document previews or simulated verification decisions are permitted.
+3. **Step 3 — KYC Verification:** Displays the automated mobile OTP pre-check (using actual backend registration vetting status) and all 5 mandatory operational checks (Identity Proof, Address Proof, Emergency Contact, Employer Reference, Police Clearance). Each check displays its evaluation method, submitted details, and authorized operational actions (`Approve Check`, `Reject Check` with mandatory category and remarks, `Request Re-Verification`). Forward navigation is strictly blocked until all 5 checks and the mobile OTP pre-check have passed.
+4. **Step 4 — Verification Summary:** Comprehensive pre-approval summary detailing the worker overview, full unmasked mobile number, 6 check results (completed vs pending), and any rejection/correction remarks. Final approval is disabled with clear remediation guidance if any check remains incomplete.
+5. **Step 5 — Final Approval:** Displays final identity confirmation and the single `Approve Verification Worker` button. Enabled only when all 6 checks are approved, the authenticated user holds `verification.signoff` or `verification.decide` permission, and the application is eligible. Submitting opens a confirmation modal, prevents duplicate submissions (`isPending`), and dispatches backend sign-off followed by worker activation.
+6. **Success Screen ("Worker Successfully Onboarded"):** Upon confirmed backend response, displays the confirmed worker name, ID, verification status (`APPROVED`), and activation status (`ACTIVE`), with an action to return to the Verification Queue.
+
+### 17.2 Visual Progress Bubbles Stepper
+At the top of the wizard, a horizontal stepper with 5 circular connected bubbles is rendered:
+- Bubble 1: `Application`
+- Bubble 2: `Documents`
+- Bubble 3: `KYC Verification`
+- Bubble 4: `Summary`
+- Bubble 5: `Final Approval`
+- **Completed Step:** Filled bubble with checkmark icon (`var(--color-success)`) and completed connecting line.
+- **Current Step:** Highlighted bubble with application primary teal background (`var(--color-primary)`) and distinctive focus ring.
+- **Upcoming Step:** Neutral bubble with subtle border.
+- **Blocked Step:** Visibly incomplete with informative tooltip explaining prerequisite checks.
+- Jumping ahead past unverified steps is strictly prevented.
+
+### 17.3 Mobile Number Visibility
+Unmasked worker mobile numbers (`dossier.phone`) are displayed directly in Step 1 (Application Details), Step 4 (Verification Summary), and Step 5 (Final Approval). When the phone field is missing from backend response, a clear `Unavailable` state is rendered rather than fabricating digits.
+
+### 17.4 Endpoint & Contract Mapping Matrix
+| Step | Operation | Backend Endpoint & Contract | Payload / Parameters | Frontend Enforcement |
+|---|---|---|---|---|
+| Step 1 | Application Details | `GET /api/v1/admin/workers/{workerId}/verification` or `getDossierById` | Worker ID | Read genuine backend data; unmasked phone; no dummy fields |
+| Step 2 | Signed Document Link | `GET /api/v1/admin/verification/documents/{documentId}/link` | `documentId` (requires `verification.document.view`) | Expiration handling; error state with retry button; no fake preview |
+| Step 3 | Claim Review | `POST /api/v1/admin/verification/checks/{checkId}/start-review` | `checkId` | Claim ownership resolution; conflict detection (`409`) |
+| Step 3 | Approve Check | `POST /api/v1/admin/verification/checks/{checkId}/approve` | NestJS `ApproveCheckDto`: `{ remarks?, recheckAt? }` | Approval confirmation; cache invalidation across entities |
+| Step 3 | Reject Check | `POST /api/v1/admin/verification/checks/{checkId}/reject` | `{ category, remarks }` (min 5 chars) | Confirmation dialog with category `<select>` and mandatory remarks |
+| Step 3 | Request Recheck | `POST /api/v1/admin/verification/checks/{checkId}/recheck` | `{ checkTypes, instructions }` | Re-verification instructions modal |
+| Step 5 | Verification Sign-Off | `POST /api/v1/admin/workers/{workerId}/verification/sign-off` | `{ remarks? }` (requires `verification.signoff`) | Blocked if checks incomplete; prevents duplicate submissions |
+| Step 5 | Worker Activation | `POST /api/v1/admin/workers/{workerId}/activate` | Worker ID | Activated on roster; confirmed before showing success screen |
 
 

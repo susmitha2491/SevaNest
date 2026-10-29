@@ -8,7 +8,6 @@ import { ReportPreviewModal } from './ReportPreviewModal';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
-import { env } from '../../../core/config/env';
 
 export const ReportsDashboardPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
@@ -75,7 +74,7 @@ export const ReportsDashboardPage: React.FC = () => {
   if (isLoading) return <LoadingSpinner message="Loading marketplace analytics engine..." />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
@@ -100,7 +99,7 @@ export const ReportsDashboardPage: React.FC = () => {
           }}
         >
           <Info size={16} />
-          <span>{env.VITE_USE_MOCK_AUTH ? 'Simulated Reporting Engine — Sample Datasets' : 'Business Intelligence & Reporting Catalogue'}</span>
+          <span>Business Intelligence & Reporting Catalogue</span>
         </div>
       </div>
 

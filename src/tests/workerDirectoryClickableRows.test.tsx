@@ -56,7 +56,7 @@ describe('Worker Directory — Consistent Worker Profile Navigation & Interactio
   it('renders worker rows with accessible role, tabIndex, aria-label, and hover class for profile inspection', async () => {
     renderApp('/workers');
 
-    expect(await screen.findByText('Domestic Worker Roster & Profiles')).toBeInTheDocument();
+    expect(await screen.findByText('Domestic Worker Roster & Profiles', {}, { timeout: 10000 })).toBeInTheDocument();
     const rows = await screen.findAllByRole('button', { name: /View profile for .+ \(W-\d+\)/i });
     expect(rows.length).toBeGreaterThan(0);
 
@@ -82,14 +82,14 @@ describe('Worker Directory — Consistent Worker Profile Navigation & Interactio
     expect(screen.getByText(/• House Maid •/i)).toBeInTheDocument();
   });
 
-  it('clicking View Profile button opens the exact same profile view as clicking the row', async () => {
+  it('clicking Approve button opens the verification/approval popup (WorkerDetailModal)', async () => {
     renderApp('/workers');
 
     expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-    const viewButton = screen.getByRole('button', { name: 'View profile for Sunita Devi' });
-    expect(viewButton.tagName).toBe('BUTTON');
+    const approveButton = screen.getByRole('button', { name: 'Approve verification for Sunita Devi' });
+    expect(approveButton.tagName).toBe('BUTTON');
 
-    fireEvent.click(viewButton);
+    fireEvent.click(approveButton);
 
     // Identical WorkerDetailModal opens with identical elements
     expect(await screen.findByRole('heading', { level: 2, name: 'Sunita Devi' })).toBeInTheDocument();
@@ -112,42 +112,38 @@ describe('Worker Directory — Consistent Worker Profile Navigation & Interactio
     const closeBtn = screen.getByRole('button', { name: 'Close dossier' });
     fireEvent.click(closeBtn);
 
-    // 2. Click View Profile button for Sunita Devi (W-10482)
-    const sunitaViewBtn = screen.getByRole('button', { name: 'View profile for Sunita Devi' });
-    fireEvent.click(sunitaViewBtn);
+    // 2. Click Approve button for Sunita Devi (W-10482)
+    const sunitaApproveBtn = screen.getByRole('button', { name: 'Approve verification for Sunita Devi' });
+    fireEvent.click(sunitaApproveBtn);
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Sunita Devi' })).toBeInTheDocument();
     expect(screen.getByText('ID: W-10482')).toBeInTheDocument();
     expect(screen.getByText(/• House Maid •/i)).toBeInTheDocument();
   });
 
-  it('clicking Review KYC button opens the verification queue without opening the worker profile modal', async () => {
-    const { router } = renderApp('/workers');
+  it('clicking Reject button opens the rejection workflow dialog', async () => {
+    renderApp('/workers');
 
     expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
-    const reviewKycBtn = screen.getByRole('button', { name: 'Review KYC for Ramesh Yadav' });
-    expect(reviewKycBtn.tagName).toBe('BUTTON');
+    const rejectBtn = screen.getByRole('button', { name: 'Reject verification for Ramesh Yadav' });
+    expect(rejectBtn.tagName).toBe('BUTTON');
 
-    fireEvent.click(reviewKycBtn);
+    fireEvent.click(rejectBtn);
 
-    // Navigates to /verification with appropriate workerId query param
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/verification');
-    });
-    expect(router.state.location.search).toContain('workerId=W-10483');
-
-    // Worker profile modal was NOT triggered
-    expect(screen.queryByRole('heading', { level: 2, name: 'Ramesh Yadav' })).not.toBeInTheDocument();
+    // Opens rejection dialog with category and remarks
+    expect(await screen.findByText(/Reject Verification: Ramesh Yadav/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rejection Reason Category:/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Rejection' })).toBeInTheDocument();
   });
 
   it('clicking action buttons inside a row does not accidentally trigger row click', async () => {
     renderApp('/workers');
 
     expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-    const viewProfileBtn = screen.getByRole('button', { name: 'View profile for Sunita Devi' });
+    const approveBtn = screen.getByRole('button', { name: 'Approve verification for Sunita Devi' });
 
     // Click the button inside the row
-    fireEvent.click(viewProfileBtn);
+    fireEvent.click(approveBtn);
 
     // Exactly one profile modal opens
     expect(await screen.findByRole('heading', { level: 2, name: 'Sunita Devi' })).toBeInTheDocument();

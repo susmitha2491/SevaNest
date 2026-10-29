@@ -84,33 +84,33 @@
   --color-status-neutral-text: #64748B;
 
   /* Layout Dimensions */
-  --sidebar-width: 260px;
-  --sidebar-collapsed-width: 72px;
-  --header-height: 64px;
+  --sidebar-width: 236px;
+  --sidebar-collapsed-width: 68px;
+  --header-height: 54px;
 
   /* 2. Official Typography Scale (Font: Inter) */
   --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-size-xs: 0.75rem;     /* 12px - Caption and metadata: minimum 12px */
-  --font-size-sm: 0.875rem;    /* 14px - Body text, Input labels */
-  --font-size-base: 1rem;      /* 16px - Body text, Button labels, Card titles */
-  --font-size-md: 1rem;        /* 16px */
-  --font-size-lg: 1.125rem;    /* 18px - Card titles: 16-18px */
-  --font-size-xl: 1.25rem;     /* 20px - Subsection / H3: 20px, weight 600 */
-  --font-size-2xl: 1.5rem;     /* 24px - Section title / H2: 24px, weight 700 */
-  --font-size-3xl: 2rem;       /* 32px - Web page title / H1: 32px, weight 700 */
-  --font-size-kpi: 1.875rem;   /* 30px - Dashboard KPI values: 28-36px, weight 700 */
+  --font-size-sm: 0.8125rem;   /* 13px - Body text, Input labels */
+  --font-size-base: 0.875rem;  /* 14px - Body text, Button labels, Card titles */
+  --font-size-md: 0.875rem;    /* 14px */
+  --font-size-lg: 1rem;        /* 16px - Card titles */
+  --font-size-xl: 1.125rem;    /* 18px - Subsection / H3: 18px, weight 600 */
+  --font-size-2xl: 1.25rem;    /* 20px - Section title / H2: 20px, weight 700 */
+  --font-size-3xl: 1.4375rem;  /* 23px - Web page title / H1: 23px, weight 700 */
+  --font-size-kpi: 1.625rem;   /* 26px - Dashboard KPI values: 24-28px, weight 700 */
 
-  /* 3. Official Spacing Grid: 4, 8, 16, 24, 32, 40, 48, 64px */
-  --space-1: 0.25rem;  /* 4px */
-  --space-2: 0.5rem;   /* 8px */
-  --space-3: 0.75rem;  /* 12px */
-  --space-4: 1rem;     /* 16px */
-  --space-5: 1.25rem;  /* 20px */
-  --space-6: 1.5rem;   /* 24px */
-  --space-8: 2rem;     /* 32px */
-  --space-10: 2.5rem;  /* 40px */
-  --space-12: 3rem;    /* 48px */
-  --space-16: 4rem;    /* 64px */
+  /* 3. Official Spacing Grid: 4, 8, 10, 14, 18, 20, 24, 32px */
+  --space-1: 0.25rem;   /* 4px */
+  --space-2: 0.5rem;    /* 8px */
+  --space-3: 0.625rem;  /* 10px */
+  --space-4: 0.875rem;  /* 14px */
+  --space-5: 1.125rem;  /* 18px */
+  --space-6: 1.25rem;   /* 20px */
+  --space-8: 1.5rem;    /* 24px */
+  --space-10: 2rem;     /* 32px */
+  --space-12: 2.5rem;   /* 40px */
+  --space-16: 3rem;     /* 48px */
 
   /* 4. Official Corner Radii: ~8px inputs/buttons, ~12px cards, ~16px dialogs */
   --radius-sm: 4px;      /* Small indicators & tags */
@@ -143,7 +143,7 @@ html, body {
   color: var(--color-text-primary);
   font-family: var(--font-family-base);
   font-size: 16px;
-  line-height: 1.5;
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -157,21 +157,21 @@ html, body {
 
 /* Typography Hierarchy Standards */
 h1 {
-  font-size: var(--font-size-3xl); /* 32px */
+  font-size: var(--font-size-3xl); /* 23px */
   font-weight: 700;
   color: var(--color-navy);        /* Deep Navy for page titles */
   line-height: 1.25;
 }
 
 h2 {
-  font-size: var(--font-size-2xl); /* 24px */
+  font-size: var(--font-size-2xl); /* 20px */
   font-weight: 700;
   color: var(--color-navy);        /* Deep Navy for section titles */
   line-height: 1.3;
 }
 
 h3 {
-  font-size: var(--font-size-xl);  /* 20px */
+  font-size: var(--font-size-xl);  /* 18px */
   font-weight: 600;
   color: var(--color-navy);        /* Deep Navy for subsections */
   line-height: 1.4;
@@ -211,6 +211,7 @@ nav a:hover:not([class*="active"]) {
 input, select, textarea {
   font-family: inherit;
   color: var(--color-text-primary);
+  font-size: var(--font-size-xs);
 }
 
 input::placeholder, textarea::placeholder {
@@ -240,24 +241,51 @@ table {
   border-collapse: collapse;
 }
 
-th {
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  background-color: var(--color-bg-app);
-  border-bottom: 1px solid var(--color-border);
-  padding: var(--space-3) var(--space-4);
+table th {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: var(--color-text-secondary) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  background-color: var(--color-bg-subtle) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  padding: 8px 12px !important;
   text-align: left;
+  white-space: nowrap;
 }
 
-td {
-  padding: var(--space-4);
-  font-size: var(--font-size-sm);
+table td {
+  padding: 8px 12px !important;
+  font-size: var(--font-size-xs) !important;
   color: var(--color-text-primary);
   border-bottom: 1px solid var(--color-border);
   vertical-align: middle;
+}
+
+table td[colspan] {
+  padding: var(--space-8) var(--space-4) !important;
+}
+
+table th:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+table td:last-child > div {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+  white-space: nowrap !important;
+}
+
+table td button {
+  white-space: nowrap !important;
 }
 
 tbody tr:hover {
@@ -458,6 +486,82 @@ tbody tr:hover {
     gap: var(--space-4);
     padding: var(--space-4);
   }
+}
+
+/* Header Profile Menu & Popover */
+.header-profile-menu-container {
+  position: relative;
+}
+
+.header-profile-trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  color: inherit;
+}
+
+.header-profile-trigger:hover,
+.header-profile-trigger:focus-visible {
+  background-color: var(--color-bg-surface-elevated);
+  border-color: var(--color-border-subtle);
+  outline: none;
+}
+
+.header-profile-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  max-width: calc(100vw - 32px);
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+  z-index: 50;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.header-profile-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+  text-align: left;
+  width: 100%;
+}
+
+.header-profile-dropdown-item:hover,
+.header-profile-dropdown-item:focus-visible {
+  background-color: var(--color-bg-subtle);
+  color: var(--color-primary);
+  outline: none;
+}
+
+.header-profile-dropdown-item.danger {
+  color: var(--color-status-danger-text);
+}
+
+.header-profile-dropdown-item.danger:hover,
+.header-profile-dropdown-item.danger:focus-visible {
+  background-color: var(--color-status-danger-bg);
+  color: var(--color-status-danger-text);
 }
 
 

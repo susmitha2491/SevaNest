@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -33,6 +33,7 @@ describe('Worker Verification & Trust Workstation', () => {
         permissions: [
           PERMISSIONS.DASHBOARD_VIEW,
           PERMISSIONS.VERIFICATION_REVIEW,
+          PERMISSIONS.VERIFICATION_DECIDE,
           PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED,
           PERMISSIONS.WORKERS_VIEW,
         ],
@@ -57,7 +58,7 @@ describe('Worker Verification & Trust Workstation', () => {
     expect(screen.getByText(/W-10482/i)).toBeInTheDocument();
   });
 
-  it('opens split-screen inspection dossier when Inspect Dossier is clicked', async () => {
+  it('opens redesigned verification review modal when Inspect Dossier is clicked', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
@@ -68,36 +69,56 @@ describe('Worker Verification & Trust Workstation', () => {
     // Check dossier header
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Check automated Pre-Check banner
-    expect(screen.getByText(/Tier 1 Automated Onboarding Pre-Check: Mobile OTP/i)).toBeInTheDocument();
+    // Check Step 1: Worker Application Details
+    expect(screen.getByRole('heading', { name: /Step 1 — Worker Application Details/i })).toBeInTheDocument();
+    expect(screen.getAllByText('Sunita Devi').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('W-10482').length).toBeGreaterThan(0);
 
-    // Check 5 Operations Check Tabs
-    expect(screen.getByRole('button', { name: /1\. Identity Proof/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /2\. Address Proof/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /3\. Emergency Contact/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /4\. Employer Reference/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /5\. Police Certificate/i })).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+
+    // Navigate to Step 2: Documents Review
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
 
     // Check document viewer authorized container
-    expect(screen.getByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
+    expect(await screen.findByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
     expect(screen.getByText(/Authorized Document Vault Record • Watermarked for Confidential Inspection/i)).toBeInTheDocument();
+
+    // Navigate to Step 3: KYC Verification
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
+    expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+    // Check automated Pre-Check banner
+    expect(screen.getAllByText(/Mobile OTP Pre-Check/i).length).toBeGreaterThan(0);
+
+    // Check all required operational checks
+    expect(screen.getAllByText('Identity Proof').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Address Proof').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Emergency Contact').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Employer Reference').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Police Clearance').length).toBeGreaterThan(0);
   });
 
-  it('allows switching between document inspection and telephonic vetting tabs', async () => {
+  it('allows viewing emergency contact details and telephonic vetting notes in top-to-bottom layout', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
     const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
     await user.click(inspectButtons[0]);
 
-    // Click on Emergency Contact tab
-    const emergencyTab = await screen.findByRole('button', { name: /3\. Emergency Contact/i });
-    await user.click(emergencyTab);
+    const dialog = await screen.findByRole('dialog');
 
-    // Verify telephonic vetting container rendered
-    expect(await screen.findByText(/Telephonic Vetting Contact Record/i)).toBeInTheDocument();
-    expect(screen.getByText('Rajesh Devi')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText(/Record detailed notes from phone conversation/i)).toBeInTheDocument();
+    // Advance to Step 3 (KYC Verification)
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+    // Verify contact record rendered in Emergency Contact check
+    expect((await screen.findAllByText(/Emergency Contact/i)).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Rajesh Devi/i)).toBeInTheDocument();
   });
 
   it('approves an individual verification check', async () => {
@@ -107,9 +128,17 @@ describe('Worker Verification & Trust Workstation', () => {
     const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
     await user.click(inspectButtons[0]);
 
-    const approveButton = await screen.findByRole('button', { name: /Approve Check/i });
-    expect(approveButton).toBeInTheDocument();
-    await user.click(approveButton);
+    const dialog = await screen.findByRole('dialog');
+
+    // Advance to Step 3 (KYC Verification)
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+    const approveButtons = await within(dialog).findAllByRole('button', { name: /Approve Check/i });
+    expect(approveButtons.length).toBeGreaterThan(0);
+    await user.click(approveButtons[0]);
     const confirmButton = await screen.findByRole('button', { name: /Confirm Approval/i });
     await user.click(confirmButton);
   });
@@ -121,11 +150,20 @@ describe('Worker Verification & Trust Workstation', () => {
     const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
     await user.click(inspectButtons[0]);
 
-    const rejectButton = await screen.findByRole('button', { name: /Reject Check/i });
-    await user.click(rejectButton);
+    const dialog = await screen.findByRole('dialog');
+
+    // Advance to Step 3 (KYC Verification)
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+    const rejectButtons = await within(dialog).findAllByRole('button', { name: /Reject Check/i });
+    expect(rejectButtons.length).toBeGreaterThan(0);
+    await user.click(rejectButtons[0]);
 
     // Verify ConfirmDialog opens with category selection
-    expect(await screen.findByText(/Reject Identity Proof/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Reject (Identity|Address) Proof/i)).toBeInTheDocument();
     expect(screen.getByText(/Rejection Category:/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Enter mandatory operational remarks/i)).toBeInTheDocument();
 

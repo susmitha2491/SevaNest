@@ -83,37 +83,37 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
     });
 
-    it('provides both Suspend and Blacklist disciplinary mutations with mandatory remarks in ConfirmDialog', async () => {
+    it('provides Reject action triggering the rejection workflow dialog with mandatory remarks in ConfirmDialog', async () => {
       renderApp('/workers');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      // Verify both Suspend and Blacklist buttons are rendered for active workers
-      const disciplineBtn = screen.getByRole('button', { name: /Discipline worker Sunita Devi/i });
-      const blacklistBtn = screen.getByRole('button', { name: /Blacklist worker Sunita Devi/i });
-      expect(disciplineBtn).toBeInTheDocument();
-      expect(blacklistBtn).toBeInTheDocument();
+      // Verify both Approve and Reject buttons are rendered in Actions column
+      const approveBtn = screen.getByRole('button', { name: /Approve verification for Sunita Devi/i });
+      const rejectBtn = screen.getByRole('button', { name: /Reject verification for Sunita Devi/i });
+      expect(approveBtn).toBeInTheDocument();
+      expect(rejectBtn).toBeInTheDocument();
 
-      // Trigger Blacklist action
-      fireEvent.click(blacklistBtn);
+      // Trigger Reject action
+      fireEvent.click(rejectBtn);
 
-      expect(await screen.findByText(/Disciplinary Status Mutation: BLACKLISTED/i)).toBeInTheDocument();
-      expect(screen.getByText(/Permanently blacklist worker W-10482/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Reject Verification: Sunita Devi/i)).toBeInTheDocument();
+      expect(screen.getByText(/Rejection Reason Category:/i)).toBeInTheDocument();
 
-      // Submitting without remarks is rejected by requirement
-      const remarksInput = screen.getByPlaceholderText(/Enter mandatory operational reason/i);
-      fireEvent.change(remarksInput, { target: { value: 'Severe safety breach during trial' } });
+      // Enter mandatory operational remarks
+      const remarksInput = screen.getByPlaceholderText(/Enter mandatory operational remarks/i);
+      fireEvent.change(remarksInput, { target: { value: 'Verification document name does not match record' } });
 
       // Check operational guidelines confirmation checkbox
       const checkbox = screen.getByRole('checkbox');
       fireEvent.click(checkbox);
 
-      const confirmBtn = screen.getByRole('button', { name: 'Confirm' });
+      const confirmBtn = screen.getByRole('button', { name: 'Confirm Rejection' });
       fireEvent.click(confirmBtn);
 
       // Dialog closes and mutation is dispatched
       await waitFor(() => {
-        expect(screen.queryByText(/Disciplinary Status Mutation: BLACKLISTED/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Reject Verification: Sunita Devi/i)).not.toBeInTheDocument();
       });
     });
 
@@ -121,8 +121,8 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       renderApp('/workers');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-      const viewProfileBtn = screen.getByRole('button', { name: /^View profile for Sunita Devi$/i });
-      fireEvent.click(viewProfileBtn);
+      const approveBtn = screen.getByRole('button', { name: /Approve verification for Sunita Devi/i });
+      fireEvent.click(approveBtn);
 
       // Modal opens
       expect(await screen.findByText('Sunita Devi', { selector: 'h2' })).toBeInTheDocument();
@@ -337,8 +337,9 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      // View Profile is accessible
-      expect(screen.getByRole('button', { name: /^View profile for Sunita Devi$/i })).toBeInTheDocument();
+      // Approve and Reject are accessible
+      expect(screen.getByRole('button', { name: /Approve verification for Sunita Devi/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Reject verification for Sunita Devi/i })).toBeInTheDocument();
 
       // Disciplinary buttons (Suspend / Blacklist / Reinstate) are blocked by PermissionGate
       expect(screen.queryByRole('button', { name: /Discipline worker Sunita Devi/i })).not.toBeInTheDocument();

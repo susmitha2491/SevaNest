@@ -57,32 +57,64 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       useAuthStore.getState().setSession(VERIFICATION_EXECUTIVE_USER, 'token-ve-77');
     });
 
-    it('organizes sidebar into the 5 required sections with all working destinations', async () => {
-      renderApp('/dashboard');
+    it('renders Verification Queue as a non-clickable section heading with shield icon and 5 flat navigation links below it', async () => {
+      const { router } = renderApp('/dashboard');
 
-      // Overview section
-      expect(await screen.findByText('Overview', {}, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Dashboard/i })).toBeInTheDocument();
+      // Dashboard link must be present
+      expect(await screen.findByRole('link', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // Verification Operations section
-      expect(screen.getByText('Verification Operations')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Verification Queue/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /My Reviews/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Rechecks & Expiry/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Corrections Required/i })).toBeInTheDocument();
+      // Verification Queue is a non-clickable section heading with its shield icon, not a link
+      expect(screen.getByText('Verification Queue')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Verification Queue$/i })).not.toBeInTheDocument();
 
-      // Worker Records section
-      expect(screen.getByText('Worker Records')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Workers Directory/i })).toBeInTheDocument();
+      // Flat navigation links under Verification Queue must be present
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^My Reviews$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
 
-      // Insights section
-      expect(screen.getByText('Insights')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Review History/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Verification Insights/i })).toBeInTheDocument();
+      // Removed separate sidebar modules must NOT be rendered in navigation
+      expect(screen.queryByText('Verification Operations')).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Verification Insights$/i })).not.toBeInTheDocument();
 
-      // Account section
-      expect(screen.getByText('Account')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /My Account/i })).toBeInTheDocument();
+      // Account information and Sign Out are standard application utilities at the bottom
+      expect(screen.getByRole('link', { name: /^My Account$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Sign Out$/i })).toBeInTheDocument();
+
+      // Clicking submenu items navigates to the respective views
+      fireEvent.click(screen.getByRole('link', { name: /^My Reviews$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification/my-reviews');
+      });
+
+      fireEvent.click(screen.getByRole('link', { name: /^Rechecks & Expiry$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification/rechecks');
+      });
+
+      fireEvent.click(screen.getByRole('link', { name: /^Corrections Required$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification/corrections');
+      });
+
+      fireEvent.click(screen.getByRole('link', { name: /^Review History$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification/history');
+      });
+
+      fireEvent.click(screen.getByRole('link', { name: /^All Applications$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification');
+      });
+    });
+
+    it('removes duplicate horizontal tabs from the Verification Queue page', async () => {
+      renderApp('/verification');
+
+      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
     });
 
     it('strictly hides unauthorized platform modules from the Verification Executive sidebar', async () => {
@@ -154,18 +186,15 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       expect(screen.getByText('Operational Turnaround SLA Assessment')).toBeInTheDocument();
     });
 
-    it('navigates to /account and displays authenticated staff profile, canonical role, and server permissions', async () => {
+    it('navigates to /account and displays authenticated staff profile and canonical role', async () => {
       renderApp('/account');
 
       expect(await screen.findByRole('heading', { name: /My Account & Staff Profile/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Profile Information/i })).toBeInTheDocument();
       expect(screen.getAllByText('Pooja Nair').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('pooja.nair@sevanest.internal')).toBeInTheDocument();
       expect(screen.getByText(/Staff ID:\s*usr-verif-77/i)).toBeInTheDocument();
       expect(screen.getAllByText('Verification Executive').length).toBeGreaterThanOrEqual(1);
-
-      // Verify granted permissions matrix
-      expect(screen.getByText(PERMISSIONS.VERIFICATION_REVIEW)).toBeInTheDocument();
-      expect(screen.getByText(PERMISSIONS.WORKER_VIEW)).toBeInTheDocument();
     });
 
     it('blocks unauthorized access to /verification/history when role lacks verification.review', async () => {
@@ -262,10 +291,9 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
 
       renderApp('/dashboard');
 
-      expect(await screen.findByText('Operations', {}, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Customers$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Workers$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Booking Pipeline/i })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: /^Customer Management$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Worker Management$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Booking Management$/i })).toBeInTheDocument();
 
       // Verification Executive specific section titles should NOT be rendered
       expect(screen.queryByText('Verification Operations')).not.toBeInTheDocument();

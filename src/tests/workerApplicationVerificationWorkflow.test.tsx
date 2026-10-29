@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -93,9 +93,11 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const eligibleBadges = screen.getAllByText('Eligible');
       expect(eligibleBadges.length).toBeGreaterThan(0);
 
-      // Review KYC CTA link exists for unverified workers
-      const reviewKycButtons = screen.getAllByRole('button', { name: /Review KYC/i });
-      expect(reviewKycButtons.length).toBeGreaterThan(0);
+      // Action buttons: Approve and Reject exist in the Actions column
+      const approveButtons = screen.getAllByRole('button', { name: /Approve/i });
+      expect(approveButtons.length).toBeGreaterThan(0);
+      const rejectButtons = screen.getAllByRole('button', { name: /Reject/i });
+      expect(rejectButtons.length).toBeGreaterThan(0);
     });
 
     it('enforces matching ineligibility in WorkerDetailModal with explanatory callout and verification link', async () => {
@@ -144,7 +146,14 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
-      const approveBtn = await screen.findByRole('button', { name: /Approve Check/i });
+      // Navigate through wizard to Step 3: KYC Verification
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn1);
+      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn2);
+
+      const approveBtn = (await screen.findAllByRole('button', { name: /Approve Check/i }))[0];
       expect(approveBtn).toBeInTheDocument();
 
       await user.click(approveBtn);
@@ -164,7 +173,14 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
-      const rejectBtn = await screen.findByRole('button', { name: /Reject Check/i });
+      // Navigate to Step 3: KYC Verification
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn1);
+      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn2);
+
+      const rejectBtn = (await screen.findAllByRole('button', { name: /Reject Check/i }))[0];
       await user.click(rejectBtn);
 
       expect(await screen.findByText(/Reject Identity Proof/i)).toBeInTheDocument();
@@ -198,7 +214,14 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
-      const recheckBtn = await screen.findByRole('button', { name: /Request Re-Verification/i });
+      // Navigate to Step 3: KYC Verification
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn1);
+      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn2);
+
+      const recheckBtn = (await screen.findAllByRole('button', { name: /Request Re-Verification/i }))[0];
       await user.click(recheckBtn);
 
       expect(await screen.findByText(/Request Document Re-Verification/i)).toBeInTheDocument();
@@ -244,6 +267,13 @@ describe('Worker Application & Verification Complete Workflow', () => {
       // Can view queue and inspect dossier
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
+
+      // Navigate to Step 3
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn1);
+      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn2);
 
       // Approve and Reject buttons are NOT rendered
       expect(screen.queryByRole('button', { name: /Approve Check/i })).not.toBeInTheDocument();
@@ -302,6 +332,11 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
+
       expect(
         await screen.findByText(/Restricted Personal Document \(KYC\)/i)
       ).toBeInTheDocument();
@@ -322,6 +357,11 @@ describe('Worker Application & Verification Complete Workflow', () => {
 
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
+
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
       expect(
         await screen.findByText(/Failed to load document attachment/i)

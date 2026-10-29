@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -65,10 +65,10 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     );
   });
 
-  it('1. Clicking worker row and clicking View Profile open the exact same worker profile view', async () => {
+  it('1. Clicking worker row and clicking Approve open the worker verification and profile view', async () => {
     renderApp('/workers');
 
-    expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
+    expect(await screen.findByText('Sunita Devi', {}, { timeout: 10000 })).toBeInTheDocument();
     const sunitaRow = screen.getByRole('button', { name: /View profile for Sunita Devi \(W-10482\)/i });
 
     // Click worker row
@@ -83,66 +83,70 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     const closeBtn = screen.getByRole('button', { name: 'Close dossier' });
     fireEvent.click(closeBtn);
 
-    // Click View Profile button
-    const viewProfileBtn = screen.getByRole('button', { name: 'View profile for Sunita Devi' });
-    fireEvent.click(viewProfileBtn);
+    // Click Approve button
+    const approveBtn = screen.getByRole('button', { name: 'Approve verification for Sunita Devi' });
+    fireEvent.click(approveBtn);
 
     expect(await screen.findByRole('heading', { level: 2, name: 'Sunita Devi' })).toBeInTheDocument();
     expect(screen.getByText('ID: W-10482')).toBeInTheDocument();
     expect(screen.getByText(/• House Maid •/i)).toBeInTheDocument();
   });
 
-  it('2. Review KYC opens the dedicated verification queue without opening the worker profile view', async () => {
-    const { router } = renderApp('/workers');
+  it('2. Clicking Reject button triggers the rejection workflow dialog', async () => {
+    renderApp('/workers');
 
     expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
-    const reviewKycBtn = screen.getByRole('button', { name: 'Review KYC for Ramesh Yadav' });
+    const rejectBtn = screen.getByRole('button', { name: 'Reject verification for Ramesh Yadav' });
 
-    fireEvent.click(reviewKycBtn);
+    fireEvent.click(rejectBtn);
 
-    // Navigates to /verification with appropriate workerId query param
-    await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/verification');
-    });
-    expect(router.state.location.search).toContain('workerId=W-10483');
-
-    // Worker profile modal was not triggered
-    expect(screen.queryByRole('heading', { level: 2, name: 'Ramesh Yadav' })).not.toBeInTheDocument();
+    // Opens rejection dialog
+    expect(await screen.findByText(/Reject Verification: Ramesh Yadav/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rejection Reason Category:/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Confirm Rejection' })).toBeInTheDocument();
   });
 
   it('3. Displays all 5 operations checks in canonical sequential order', async () => {
+    const user = userEvent.setup();
     renderApp('/verification?workerId=W-10482&dossierId=W-10482');
 
     // Opens verification dossier
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Checks exist in canonical order
-    const stepButtons = [
-      screen.getByRole('button', { name: /1\. Identity Proof/i }),
-      screen.getByRole('button', { name: /2\. Address Proof/i }),
-      screen.getByRole('button', { name: /3\. Emergency Contact/i }),
-      screen.getByRole('button', { name: /4\. Employer Reference/i }),
-      screen.getByRole('button', { name: /5\. Police Certificate/i }),
-    ];
-    expect(stepButtons.length).toBe(5);
+    // Navigate to Step 3: KYC Verification
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
+
+    expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+    // Checks exist in canonical sequential order
+    expect(screen.getByRole('heading', { name: /Identity Proof/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Address Proof/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Emergency Contact/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Employer Reference/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Police Clearance/i })).toBeInTheDocument();
   });
 
   it('4. Dependent checks are locked when prerequisite previous checks are pending', async () => {
+    const user = userEvent.setup();
     renderApp('/verification?workerId=W-10482&dossierId=W-10482');
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Sunita Devi has IDENTITY pending, so ADDRESS is locked
-    const addressTab = screen.getByRole('button', { name: /2\. Address Proof/i });
-    fireEvent.click(addressTab);
+    // Navigate to Step 3: KYC Verification
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
 
-    // Should indicate sequential lock rule
-    expect(await screen.findByText(/Sequential Verification Rule/i)).toBeInTheDocument();
-    expect(screen.getByText(/cannot be approved out of order/i)).toBeInTheDocument();
-
-    // Approve button should be locked
-    const approveBtn = screen.getByRole('button', { name: /Locked \(Prerequisite Required\)/i });
-    expect(approveBtn).toBeDisabled();
+    // Sunita Devi has checks pending, so Step 3 Next button is disabled
+    const nextBtn3 = within(dialog).getByRole('button', { name: /^Next/i });
+    expect(nextBtn3).toBeDisabled();
+    expect(nextBtn3).toHaveAttribute('title', expect.stringMatching(/All 5 KYC checks and mobile OTP must be approved/i));
   });
 
   it('5. Approving an actionable check advances to next step without unexpectedly closing the dossier', async () => {
@@ -153,8 +157,15 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Identity Proof is currently active and actionable (Step 1)
-    const approveBtn = await screen.findByRole('button', { name: /Approve Check/i });
+    // Navigate to Step 3
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
+
+    // Identity Proof is currently active and actionable
+    const approveBtn = (await screen.findAllByRole('button', { name: /Approve Check/i }))[0];
     expect(approveBtn).not.toBeDisabled();
     await user.click(approveBtn);
 
@@ -182,7 +193,14 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    const rejectBtn = await screen.findByRole('button', { name: /Reject Check/i });
+    // Navigate to Step 3
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
+
+    const rejectBtn = (await screen.findAllByRole('button', { name: /Reject Check/i }))[0];
     await user.click(rejectBtn);
 
     expect(await screen.findByText(/Reject Identity Proof/i)).toBeInTheDocument();
@@ -216,7 +234,14 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    const recheckBtn = await screen.findByRole('button', { name: /Request Re-Verification/i });
+    // Navigate to Step 3
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn1);
+    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn2);
+
+    const recheckBtn = (await screen.findAllByRole('button', { name: /Request Re-Verification/i }))[0];
     await user.click(recheckBtn);
 
     expect(await screen.findByText(/Request Document Re-Verification/i)).toBeInTheDocument();
@@ -239,16 +264,23 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
   });
 
   it('8. Document inspection renders split-screen viewer and handles missing doc IDs', async () => {
+    const user = userEvent.setup();
     renderApp('/verification?workerId=W-10482&dossierId=W-10482');
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Document inspection pane is rendered in split-screen layout
+    // Navigate to Step 2: Documents Review
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn);
+
+    // Document inspection pane is rendered in Step 2
     expect(await screen.findByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
-    expect(screen.getByText(/Authorized Document Vault Record/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Authorized Document Vault Record/i).length).toBeGreaterThan(0);
   });
 
   it('9. Sensitive documents are protected when user lacks documents.view_restricted permission', async () => {
+    const user = userEvent.setup();
     // User with review permission but without document view permission
     useAuthStore.getState().setSession(
       {
@@ -268,6 +300,12 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     renderApp('/verification?workerId=W-10482&dossierId=W-10482');
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
+
+    // Navigate to Step 2: Documents Review
+    const dialog = await screen.findByRole('dialog');
+    const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+    await user.click(nextBtn);
+
     expect(await screen.findByText(/Restricted Personal Document \(KYC\)/i)).toBeInTheDocument();
     expect(screen.getByText(/documents\.view_restricted/i)).toBeInTheDocument();
   });

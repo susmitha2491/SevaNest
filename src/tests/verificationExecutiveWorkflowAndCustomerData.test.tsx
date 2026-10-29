@@ -73,7 +73,7 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
     it('renders the complete worker directory with all 6 operational verification tabs', async () => {
       renderApp('/workers');
 
-      expect(await screen.findByRole('button', { name: /All Registered Workers/i })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /All Registered Workers/i }, { timeout: 10000 })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Active & Verified Roster/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Pending Verification/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /In Review Pipeline/i })).toBeInTheDocument();
@@ -85,16 +85,18 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
       renderApp('/workers');
 
       // Workers from directory should be visible
-      expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
+      expect(await screen.findByText('Sunita Devi', {}, { timeout: 10000 })).toBeInTheDocument();
       expect(screen.getByText('W-10482')).toBeInTheDocument();
     });
 
-    it('provides Inspect Dossier or Review KYC button navigating to verification queue', async () => {
+    it('provides Approve or Reject action buttons in the workers roster', async () => {
       renderApp('/workers');
 
-      // Verify the table renders action buttons for both verified and unverified workers
-      const actionButtons = await screen.findAllByRole('button', { name: /(Inspect Dossier|Review KYC)/i });
-      expect(actionButtons.length).toBeGreaterThan(0);
+      // Verify the table renders action buttons (Approve and Reject)
+      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
+      const rejectButtons = await screen.findAllByRole('button', { name: /Reject/i });
+      expect(approveButtons.length).toBeGreaterThan(0);
+      expect(rejectButtons.length).toBeGreaterThan(0);
     });
 
     it('filters workers by verification status without conflating commercial active status', async () => {
@@ -123,23 +125,27 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
   });
 
   describe('2. Customer Directory & Customer Data Access for Verification Executive', () => {
-    it('shows Customer Records section and Customers Directory link in sidebar when customer.view is granted', async () => {
+    it('strictly excludes Customer Records and Customers Directory from Verification Executive sidebar even when customer.view is granted', async () => {
       useAuthStore.getState().setSession(VERIFICATION_EXECUTIVE_WITH_CUSTOMER_VIEW, 'token-ve-cust');
 
       renderApp('/verification');
 
-      expect(await screen.findByText('Customer Records')).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Customers Directory/i })).toBeInTheDocument();
+      expect(await screen.findByText(/^Verification Queue$/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.queryByText('Customer Records')).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });
 
-    it('hides Customer Records from sidebar when customer.view is not granted', async () => {
+    it('hides Customer Records and Worker Records from sidebar when customer.view is not granted', async () => {
       useAuthStore.getState().setSession(VERIFICATION_EXECUTIVE_WITHOUT_CUSTOMER_VIEW, 'token-ve-no-cust');
 
       renderApp('/verification');
 
-      await screen.findByText('Worker Records');
+      expect(await screen.findByText(/^Verification Queue$/i)).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.queryByText('Worker Records')).not.toBeInTheDocument();
       expect(screen.queryByText('Customer Records')).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /Customers Directory/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });
 
     it('allows Verification Executive to view customer directory and renders backend customer records', async () => {

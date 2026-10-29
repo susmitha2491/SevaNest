@@ -5,13 +5,13 @@ export const PublicLayout: React.FC = () => {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        minHeight: '100dvh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'var(--color-bg-app)',
-        padding: 'var(--space-4)',
+        padding: 'var(--space-1)',
       }}
     >
       <div
@@ -49,7 +49,7 @@ export const PublicLayout: React.FC = () => {
       <div
         style={{
           width: '100%',
-          maxWidth: '420px',
+          maxWidth: '480px',
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-xl)',

@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+/* global HTMLDivElement, HTMLButtonElement, KeyboardEvent, HTMLElement */
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -80,6 +81,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
+  // Modal accessibility refs
+  const modalContentRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
   // Role permissions
   const canViewWorker =
     hasPermission(user?.permissions, PERMISSIONS.WORKERS_VIEW) ||
@@ -150,6 +155,79 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [categoryUpdateSuccess, setCategoryUpdateSuccess] = useState(false);
+
+  // Focus close button on mount
+  useEffect(() => {
+    if (closeButtonRef.current) {
+      closeButtonRef.current.focus();
+    }
+  }, []);
+
+  // Modal accessibility: body scroll lock and Escape key listener
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (
+          !isApproveDialogOpen &&
+          !isRejectDialogOpen &&
+          !isRecheckModalOpen &&
+          !isDisciplineOpen &&
+          !isSignOffDialogOpen &&
+          !isActivateDialogOpen &&
+          !isCategoryModalOpen
+        ) {
+          onClose();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [
+    isApproveDialogOpen,
+    isRejectDialogOpen,
+    isRecheckModalOpen,
+    isDisciplineOpen,
+    isSignOffDialogOpen,
+    isActivateDialogOpen,
+    isCategoryModalOpen,
+    onClose,
+  ]);
+
+  // Trap keyboard focus within modal
+  const handleModalKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Tab') {
+      const modalEl = modalContentRef.current;
+      if (!modalEl) return;
+      const focusables = Array.from(
+        modalEl.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      );
+      if (focusables.length === 0) return;
+      const firstEl = focusables[0];
+      const lastEl = focusables[focusables.length - 1];
+
+      if (e.shiftKey) {
+        if (document.activeElement === firstEl) {
+          e.preventDefault();
+          lastEl.focus();
+        }
+      } else {
+        if (document.activeElement === lastEl) {
+          e.preventDefault();
+          firstEl.focus();
+        }
+      }
+    }
+  };
 
   // Query worker data
   const {
@@ -449,22 +527,26 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   if (!canViewWorker) {
     return (
       <div
+        className="worker-detail-modal-backdrop"
         style={{
           position: 'fixed',
           inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.65)',
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(3px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 1000,
+          zIndex: 950,
           padding: 'var(--space-4)',
         }}
         onClick={onClose}
       >
         <div
           style={{
-            backgroundColor: 'var(--color-bg-surface)',
+            backgroundColor: 'var(--color-surface)',
             borderRadius: 'var(--radius-xl)',
+            border: '1px solid var(--color-border)',
+            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--color-border)',
             padding: 'var(--space-6)',
             maxWidth: '520px',
             width: '100%',
@@ -476,7 +558,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             <button
               onClick={onClose}
               style={{
-                padding: '8px 16px',
+                padding: 'var(--space-2) var(--space-4)',
                 borderRadius: 'var(--radius-md)',
                 backgroundColor: 'var(--color-bg-subtle)',
                 border: '1px solid var(--color-border)',
@@ -496,24 +578,49 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   if (isWorkerLoading || isDossierLoading) {
     return (
       <div
+        className="worker-detail-modal-backdrop"
         style={{
           position: 'fixed',
           inset: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
+          backgroundColor: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(3px)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 1000,
+          zIndex: 950,
+          padding: 'var(--space-4)',
         }}
+        onClick={onClose}
       >
         <div
           style={{
-            backgroundColor: 'var(--color-bg-surface)',
+            backgroundColor: 'var(--color-surface)',
             padding: 'var(--space-8)',
-            borderRadius: 'var(--radius-lg)',
+            borderRadius: 'var(--radius-xl)',
+            border: '1px solid var(--color-border)',
+            boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 'var(--space-4)',
           }}
+          onClick={(e) => e.stopPropagation()}
         >
-          <LoadingSpinner message="Loading worker dossier and verification workstation..." />
+          <LoadingSpinner message="Loading worker profile and verification details..." />
+          <button
+            onClick={onClose}
+            style={{
+              padding: 'var(--space-2) var(--space-4)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-bg-subtle)',
+              fontSize: 'var(--font-size-xs)',
+              cursor: 'pointer',
+              fontWeight: 600,
+            }}
+          >
+            Close
+          </button>
         </div>
       </div>
     );
@@ -659,157 +766,157 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
   return (
     <div
+      aria-labelledby="worker-detail-modal-title"
+      className="worker-detail-modal-backdrop"
+      onClick={onClose}
+      onKeyDown={handleModalKeyDown}
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.65)',
+        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        backdropFilter: 'blur(3px)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: 950,
         padding: 'var(--space-4)',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) {
-          onClose();
-        }
       }}
     >
       <div
+        ref={modalContentRef}
+        className="worker-detail-modal-content"
+        onClick={(e) => e.stopPropagation()}
         style={{
-          backgroundColor: 'var(--color-bg-surface)',
+          backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
-          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--color-border-subtle)',
-          width: '100%',
-          maxWidth: '1240px',
-          height: '92vh',
+          boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--color-border)',
+          border: '1px solid var(--color-border)',
+          width: '94%',
+          maxWidth: '1000px',
           maxHeight: '92vh',
+          height: '92vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          border: '1px solid var(--color-border-subtle)',
           position: 'relative',
         }}
-        onClick={(e) => e.stopPropagation()}
       >
-        {/* Header Banner */}
+        {/* Modal Header */}
         <div
           style={{
             flexShrink: 0,
-            padding: '16px 24px',
-            borderBottom: '1px solid var(--color-border-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            padding: 'var(--space-3) var(--space-6)',
+            borderBottom: '1px solid var(--color-border)',
             backgroundColor: 'var(--color-bg-subtle)',
-            gap: '16px',
-            flexWrap: 'wrap',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-2)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-primary-subtle)',
-                color: 'var(--color-accent)',
-                fontWeight: 800,
-                fontSize: '20px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: '2px solid var(--color-border-subtle)',
-                flexShrink: 0,
-              }}
-            >
-              {worker.name.charAt(0)}
-            </div>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <h2 style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, letterSpacing: '-0.01em' }}>
-                  {worker.name}
-                </h2>
-                <VerificationBadge isFullyVerified={worker.isFullyVerified} />
-                <StatusBadge status={worker.status} />
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    backgroundColor: currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-bg)' : currentAppStatus === 'VERIFIED' ? '#eff6ff' : 'var(--color-status-warning-bg)',
-                    color: currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-text)' : currentAppStatus === 'VERIFIED' ? '#1d4ed8' : 'var(--color-status-warning-text)',
-                    border: `1px solid ${currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-border)' : currentAppStatus === 'VERIFIED' ? '#93c5fd' : 'var(--color-status-warning-border)'}`,
-                  }}
-                >
-                  App: {currentAppStatus}
-                </span>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    backgroundColor: isMatchingEligible ? 'var(--color-status-success-bg)' : 'var(--color-status-warning-bg)',
-                    color: isMatchingEligible ? 'var(--color-status-success-text)' : 'var(--color-status-warning-text)',
-                    border: `1px solid ${isMatchingEligible ? 'var(--color-status-success-border)' : 'var(--color-status-warning-border)'}`,
-                  }}
-                >
-                  {isMatchingEligible ? <CheckCircle2 size={12} /> : <Clock size={12} />}
-                  <span>{isMatchingEligible ? 'Matching: ELIGIBLE' : 'Matching: INELIGIBLE'}</span>
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', fontSize: '12px', flexWrap: 'wrap' }}>
-                <span style={{ backgroundColor: '#ffffff', border: '1px solid var(--color-border-subtle)', padding: '2px 8px', borderRadius: '4px', color: 'var(--color-accent)', fontFamily: 'monospace', fontWeight: 700 }}>
-                  ID: {worker.id}
-                </span>
-                <span style={{ backgroundColor: '#ffffff', border: '1px solid var(--color-border-subtle)', padding: '2px 8px', borderRadius: '4px', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                  • App ID: {worker.applicationId || dossier?.applicationId || worker.id}
-                </span>
-                <span style={{ backgroundColor: '#ffffff', border: '1px solid var(--color-border-subtle)', padding: '2px 8px', borderRadius: '4px', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
-                  • {worker.category} • {worker.experienceYears} Yrs Exp • {worker.locality}
-                </span>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close dossier"
+          <div
             style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: '#ffffff',
-              cursor: 'pointer',
-              color: 'var(--color-text-muted)',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0',
-              transition: 'all 0.15s ease',
-              flexShrink: 0,
+              justifyContent: 'space-between',
+              gap: 'var(--space-3)',
+              flexWrap: 'wrap',
             }}
           >
-            <X size={18} />
-          </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <h2
+                id="worker-detail-modal-title"
+                style={{
+                  fontSize: 'var(--font-size-base)',
+                  fontWeight: 800,
+                  color: 'var(--color-text-primary)',
+                  margin: 0,
+                }}
+              >
+                {worker.name}
+              </h2>
+              <StatusBadge status={worker.status} />
+              <VerificationBadge isFullyVerified={worker.isFullyVerified} />
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  backgroundColor: currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-bg)' : currentAppStatus === 'VERIFIED' ? '#eff6ff' : 'var(--color-status-warning-bg)',
+                  color: currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-text)' : currentAppStatus === 'VERIFIED' ? '#1d4ed8' : 'var(--color-status-warning-text)',
+                  border: `1px solid ${currentAppStatus === 'ACTIVE' ? 'var(--color-status-success-border)' : currentAppStatus === 'VERIFIED' ? '#93c5fd' : 'var(--color-status-warning-border)'}`,
+                }}
+              >
+                App: {currentAppStatus}
+              </span>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  backgroundColor: isMatchingEligible ? 'var(--color-status-success-bg)' : 'var(--color-status-warning-bg)',
+                  color: isMatchingEligible ? 'var(--color-status-success-text)' : 'var(--color-status-warning-text)',
+                  border: `1px solid ${isMatchingEligible ? 'var(--color-status-success-border)' : 'var(--color-status-warning-border)'}`,
+                }}
+              >
+                {isMatchingEligible ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                <span>{isMatchingEligible ? 'Matching: ELIGIBLE' : 'Matching: INELIGIBLE'}</span>
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <button
+                ref={closeButtonRef}
+                onClick={onClose}
+                aria-label="Close dossier"
+                title="Close profile"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-secondary)',
+                  padding: '6px',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background-color 0.15s ease',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+          </div>
+
+          {/* Worker Identity Sub-row */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--font-size-xs)', flexWrap: 'wrap' }}>
+            <span style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: '2px 8px', borderRadius: 'var(--radius-sm)', color: 'var(--color-primary)', fontFamily: 'monospace', fontWeight: 700 }}>
+              ID: {worker.id}
+            </span>
+            <span style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: '2px 8px', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+              • App ID: {worker.applicationId || dossier?.applicationId || worker.id}
+            </span>
+            <span style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', padding: '2px 8px', borderRadius: 'var(--radius-sm)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+              • {worker.category} • {worker.experienceYears} Yrs Exp • {worker.locality}
+            </span>
+          </div>
         </div>
 
         {/* Matching Eligibility Callout Banner */}
-        <div style={{ flexShrink: 0, padding: '10px 24px', backgroundColor: '#ffffff', borderBottom: '1px solid var(--color-border-subtle)' }}>
+        <div style={{ flexShrink: 0, padding: 'var(--space-2) var(--space-6)', backgroundColor: 'var(--color-surface)', borderBottom: '1px solid var(--color-border)' }}>
           {isMatchingEligible ? (
             <div
               style={{
-                padding: '10px 16px',
+                padding: 'var(--space-2) var(--space-3)',
                 backgroundColor: 'var(--color-status-success-bg)',
-                border: '1px solid var(--color-status-success-text)',
+                border: '1px solid var(--color-status-success-border)',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -833,7 +940,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     navigate(`/verification?search=${encodeURIComponent(worker.id)}&dossierId=${encodeURIComponent(worker.id)}`);
                   }}
                   style={{
-                    padding: '4px 12px',
+                    padding: '4px 10px',
                     borderRadius: 'var(--radius-sm)',
                     backgroundColor: 'var(--color-status-success-text)',
                     color: '#ffffff',
@@ -855,9 +962,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           ) : !worker.isFullyVerified ? (
             <div
               style={{
-                padding: '10px 16px',
+                padding: 'var(--space-2) var(--space-3)',
                 backgroundColor: 'var(--color-status-warning-bg)',
-                border: '1px solid var(--color-status-warning-text)',
+                border: '1px solid var(--color-status-warning-border)',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
                 justifyContent: 'space-between',
@@ -881,7 +988,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     navigate(`/verification?workerId=${encodeURIComponent(worker.id)}&search=${encodeURIComponent(worker.id)}&dossierId=${encodeURIComponent(worker.id)}`);
                   }}
                   style={{
-                    padding: '4px 12px',
+                    padding: '4px 10px',
                     borderRadius: 'var(--radius-sm)',
                     backgroundColor: 'var(--color-brand-600, var(--color-primary))',
                     color: '#ffffff',
@@ -903,9 +1010,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           ) : (
             <div
               style={{
-                padding: '10px 16px',
+                padding: 'var(--space-2) var(--space-3)',
                 backgroundColor: 'var(--color-status-danger-bg)',
-                border: '1px solid var(--color-status-danger-text)',
+                border: '1px solid var(--color-status-danger-border)',
                 borderRadius: 'var(--radius-md)',
                 display: 'flex',
                 alignItems: 'center',
@@ -927,10 +1034,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           style={{
             flexShrink: 0,
             display: 'flex',
-            gap: '8px',
-            borderBottom: '1px solid var(--color-border-subtle)',
-            padding: '4px 24px 0 24px',
-            backgroundColor: 'var(--color-bg-subtle)',
+            gap: 'var(--space-1)',
+            borderBottom: '1px solid var(--color-border)',
+            padding: '0 var(--space-6)',
+            backgroundColor: 'var(--color-surface)',
             overflowX: 'auto',
           }}
         >
@@ -946,19 +1053,20 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             return (
               <button
                 key={tab.key}
+                type="button"
                 onClick={() => setActiveTab(tab.key as TabKey)}
                 style={{
-                  padding: '10px 16px',
+                  padding: 'var(--space-3) var(--space-3)',
                   border: 'none',
-                  borderBottom: isActive ? '3px solid var(--color-brand-600, var(--color-primary))' : '3px solid transparent',
+                  borderBottom: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
                   backgroundColor: 'transparent',
-                  color: isActive ? 'var(--color-brand-600, var(--color-primary))' : 'var(--color-text-secondary)',
+                  color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
                   fontWeight: isActive ? 700 : 500,
                   fontSize: 'var(--font-size-xs)',
                   cursor: 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: 'var(--space-2)',
                   whiteSpace: 'nowrap',
                   transition: 'all 0.15s ease',
                 }}
@@ -973,14 +1081,14 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         {/* Content Body */}
         <div
           style={{
-            padding: '24px 28px',
+            padding: 'var(--space-6)',
             overflowY: 'auto',
             flex: 1,
             minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
-            gap: 'var(--space-5)',
-            backgroundColor: 'var(--color-bg-app, #f8fafc)',
+            gap: 'var(--space-6)',
+            backgroundColor: 'var(--color-bg-app)',
           }}
         >
           {/* TAB 1: GUIDED VERIFICATION WORKSTATION */}
@@ -1013,81 +1121,192 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     overflowX: 'auto',
                   }}
                 >
-                  {STEPS.map((s) => {
-                    const isStepActive = currentStep === s.step;
-                    const isStepComplete =
-                      (s.step === 1 && Boolean(worker.id)) ||
-                      (s.step === 2 && (worker.documents?.length || 0) > 0) ||
-                      (s.step === 3 && allMandatoryChecksApproved) ||
-                      (s.step === 4 && Boolean(authoritativeLevel)) ||
-                      (s.step === 5 && Boolean(worker.status));
-
-                    return (
-                      <button
-                        key={s.step}
-                        onClick={() => setCurrentStep(s.step)}
-                        style={{
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'flex-start',
-                          padding: '10px 12px',
-                          borderRadius: 'var(--radius-md)',
-                          border: isStepActive
-                            ? '2px solid var(--color-brand-600)'
-                            : isStepComplete
-                            ? '1px solid #86efac'
-                            : '1px solid var(--color-border-subtle)',
-                          backgroundColor: isStepActive
-                            ? 'var(--color-brand-50, #eff6ff)'
-                            : isStepComplete
-                            ? '#f0fdf4'
-                            : '#ffffff',
-                          cursor: 'pointer',
-                          textAlign: 'left',
-                          transition: 'all 0.15s ease',
-                          minHeight: '66px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginBottom: '4px' }}>
-                          <span
-                            style={{
-                              width: '20px',
-                              height: '20px',
-                              borderRadius: '50%',
-                              backgroundColor: isStepComplete
-                                ? 'var(--color-status-success-text)'
-                                : isStepActive
-                                ? 'var(--color-brand-600)'
-                                : 'var(--color-border)',
-                              color: '#fff',
-                              fontSize: '10px',
-                              fontWeight: 700,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {isStepComplete ? <Check size={12} /> : s.step}
-                          </span>
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: isStepActive ? 800 : 700,
-                              color: isStepActive ? 'var(--color-brand-700, #1d4ed8)' : isStepComplete ? '#15803d' : 'var(--color-text-primary)',
-                              whiteSpace: 'normal',
-                              lineHeight: 1.25,
-                            }}
-                          >
-                            {s.title}
-                          </span>
-                        </div>
-                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', paddingLeft: '26px' }}>
-                          {s.desc}
-                        </span>
-                      </button>
+                  {/* Step Completion Statuses derived from actual backend data sequentially */}
+                  {(() => {
+                    // Step 1: Application Overview - worker intake application record exists
+                    const isStep1Complete = Boolean(
+                      worker.id &&
+                        (worker.onboardingStatus ||
+                          worker.applicationStatus ||
+                          worker.registeredAt ||
+                          worker.createdAt ||
+                          dossier?.submissionTime)
                     );
-                  })}
+
+                    // Step 2: Documents & Evidence - uploaded documents exist in vault or all checks approved
+                    const hasUploadedDocuments =
+                      displayDocuments.length > 0 ||
+                      (worker.documents?.length || 0) > 0 ||
+                      (dossier?.submittedDocuments?.length || 0) > 0;
+                    const isStep2Complete =
+                      isStep1Complete && (hasUploadedDocuments || allMandatoryChecksApproved);
+
+                    // Step 3: Verification Checklist - all 5 KYC checks + OTP pre-check approved, or worker verified by backend
+                    const isStep3Complete =
+                      isStep2Complete &&
+                      (allMandatoryChecksApproved || worker.isFullyVerified || dossier?.status === 'APPROVED');
+
+                    // Step 4: Verification Summary - authoritative sign-off completed by supervisor (requires step 3)
+                    const isStep4Complete =
+                      isStep3Complete &&
+                      Boolean(
+                        dossier?.signedOffAt ||
+                          worker?.signedOffAt ||
+                          dossier?.applicationStatus === 'VERIFIED' ||
+                          worker?.applicationStatus === 'VERIFIED' ||
+                          worker.verificationStatus === 'VERIFIED' ||
+                          worker.isFullyVerified ||
+                          dossier?.status === 'APPROVED' ||
+                          (isSignedOff && (allMandatoryChecksApproved || worker.isFullyVerified)) ||
+                          (authoritativeLevel &&
+                            ['VERIFIED', 'APPROVED'].includes(authoritativeLevel.toUpperCase()) &&
+                            (allMandatoryChecksApproved || worker.isFullyVerified))
+                      );
+
+                    // Step 5: Platform & Roster Status - commercial platform activation and live matching eligibility (requires step 4)
+                    const isStep5Complete =
+                      isStep4Complete &&
+                      Boolean(
+                        isOnboarded ||
+                          isMatchingEligible ||
+                          worker.onboardingStatus === 'VERIFIED' ||
+                          (worker.status === 'ACTIVE' &&
+                            Boolean(
+                              dossier?.activatedAt ||
+                                worker.activatedAt ||
+                                dossier?.applicationStatus === 'ACTIVE' ||
+                                worker.applicationStatus === 'ACTIVE' ||
+                                worker.isFullyVerified
+                            ))
+                      );
+
+                    const getStepStatus = (stepNum: 1 | 2 | 3 | 4 | 5) => {
+                      switch (stepNum) {
+                        case 1:
+                          return isStep1Complete;
+                        case 2:
+                          return isStep2Complete;
+                        case 3:
+                          return isStep3Complete;
+                        case 4:
+                          return isStep4Complete;
+                        case 5:
+                          return isStep5Complete;
+                        default:
+                          return false;
+                      }
+                    };
+
+                    return STEPS.map((s) => {
+                      const isStepActive = currentStep === s.step;
+                      const isStepComplete = getStepStatus(s.step);
+                      const isPending = !isStepComplete && !isStepActive;
+
+                      return (
+                        <button
+                          key={s.step}
+                          onClick={() => setCurrentStep(s.step)}
+                          aria-current={isStepActive ? 'step' : undefined}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            padding: '10px 12px',
+                            borderRadius: 'var(--radius-md)',
+                            border: isStepActive
+                              ? '2px solid var(--color-brand-600)'
+                              : isStepComplete
+                              ? '1px solid #86efac'
+                              : '1px solid var(--color-border-subtle)',
+                            backgroundColor: isStepActive
+                              ? 'var(--color-brand-50, #eff6ff)'
+                              : isStepComplete
+                              ? '#f0fdf4'
+                              : '#ffffff',
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                            transition: 'all 0.15s ease',
+                            minHeight: '74px',
+                            boxShadow: isStepActive ? '0 1px 3px rgba(37, 99, 235, 0.15)' : 'none',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%', marginBottom: '4px' }}>
+                            <span
+                              style={{
+                                width: '22px',
+                                height: '22px',
+                                borderRadius: '50%',
+                                backgroundColor: isStepComplete
+                                  ? 'var(--color-status-success-text)'
+                                  : isStepActive
+                                  ? 'var(--color-brand-600)'
+                                  : '#e2e8f0',
+                                color: isPending ? '#64748b' : '#ffffff',
+                                border: isStepActive
+                                  ? '2px solid var(--color-brand-600)'
+                                  : isStepComplete
+                                  ? '1px solid #16a34a'
+                                  : '1px solid #cbd5e1',
+                                boxShadow: isStepActive && isStepComplete
+                                  ? '0 0 0 2px #eff6ff, 0 0 0 4px var(--color-brand-600)'
+                                  : 'none',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              {isStepComplete ? <Check size={13} strokeWidth={2.5} /> : s.step}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: isStepActive ? 800 : isStepComplete ? 700 : 600,
+                                color: isStepActive
+                                  ? 'var(--color-brand-700, #1d4ed8)'
+                                  : isStepComplete
+                                  ? '#15803d'
+                                  : 'var(--color-text-secondary)',
+                                whiteSpace: 'normal',
+                                lineHeight: 1.25,
+                              }}
+                            >
+                              {s.title}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', paddingLeft: '28px', marginTop: '2px' }}>
+                            <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                              {s.desc}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: '9px',
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: '4px',
+                                textTransform: 'uppercase',
+                                letterSpacing: '0.025em',
+                                backgroundColor: isStepActive
+                                  ? 'var(--color-brand-100, #dbeafe)'
+                                  : isStepComplete
+                                  ? '#dcfce7'
+                                  : '#f1f5f9',
+                                color: isStepActive
+                                  ? 'var(--color-brand-800, #1e40af)'
+                                  : isStepComplete
+                                  ? '#166534'
+                                  : '#64748b',
+                              }}
+                            >
+                              {isStepActive ? 'Current' : isStepComplete ? 'Completed' : 'Pending'}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
 
@@ -1252,7 +1471,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       </span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                         <strong style={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                          {isPhoneRevealed ? (worker.phoneMasked?.replace('*****', '43210') || '+91 98765 43210') : worker.phoneMasked}
+                          {isPhoneRevealed
+                            ? (worker.phone || worker.mobile || (worker.phoneMasked ? `${worker.phoneMasked} (Full number not supplied by backend)` : 'Not available'))
+                            : (worker.phoneMasked || '+91 ••••• •••••')}
                         </strong>
                         {canRevealPii ? (
                           <button
@@ -2800,48 +3021,73 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
           {/* TAB 2: PERSONAL & CONTACT */}
           {activeTab === 'personal' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-              <div style={{ borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)' }}>
-                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
-                  Personal & Contact Information
+            <div
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                padding: 'var(--space-6)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-5)',
+              }}
+            >
+              <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-3)' }}>
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
+                  Personal & Contact Details
                 </h3>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                  Official applicant identity, residential address, verified communication channels, and coverage parameters.
+                </p>
               </div>
+
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                   gap: 'var(--space-4)',
-                  padding: 'var(--space-4)',
-                  backgroundColor: 'var(--color-bg-subtle)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border-subtle)',
-                  fontSize: 'var(--font-size-xs)',
                 }}
               >
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Full Registered Name</span>
-                  <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>{worker.name}</strong>
+                {/* Full Registered Name */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <User size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Full Registered Name
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {worker.name}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Worker ID: <strong style={{ fontFamily: 'monospace', color: 'var(--color-primary)' }}>{worker.id}</strong>
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Worker ID & Unique Code</span>
-                  <strong style={{ fontFamily: 'monospace', color: 'var(--color-brand-700)' }}>{worker.id}</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Primary Locality</span>
-                  <strong style={{ color: 'var(--color-text-primary)' }}>
-                    <MapPin size={12} style={{ display: 'inline', marginRight: '4px' }} />
-                    {worker.locality}
-                  </strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Maximum Service Radius</span>
-                  <strong style={{ color: 'var(--color-text-primary)' }}>{worker.serviceRadiusKm} km from locality base</strong>
-                </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Contact Number</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                    <strong style={{ fontFamily: 'monospace', color: 'var(--color-text-primary)' }}>
-                      <Phone size={12} style={{ display: 'inline', marginRight: '4px' }} />
+
+                {/* Contact Information */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <Phone size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Contact Information
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <strong style={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
                       {isPhoneRevealed
                         ? (worker.phone || worker.mobile || (worker.phoneMasked ? `${worker.phoneMasked} (Full number not supplied by backend)` : 'Not available'))
                         : (worker.phoneMasked || '+91 ••••• •••••')}
@@ -2854,8 +3100,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                           padding: '2px 8px',
                           fontSize: '11px',
                           borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border-subtle)',
-                          backgroundColor: 'var(--color-bg-surface)',
+                          border: '1px solid var(--color-border)',
+                          backgroundColor: 'var(--color-surface)',
                           color: 'var(--color-text-secondary)',
                           cursor: 'pointer',
                           display: 'inline-flex',
@@ -2869,13 +3115,78 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       </button>
                     )}
                   </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {isPhoneRevealed ? 'Authorized contact reveal active' : 'Secure communication channel'}
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Initial Registration Date</span>
-                  <strong style={{ color: 'var(--color-text-secondary)' }}>
-                    <Calendar size={12} style={{ display: 'inline', marginRight: '4px' }} />
+
+                {/* Primary Locality */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <MapPin size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Primary Locality
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {worker.locality}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Base locality for household matching
+                  </div>
+                </div>
+
+                {/* Maximum Service Radius */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <MapPin size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Maximum Service Radius
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {worker.serviceRadiusKm} km from locality base
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Operational perimeter for household dispatch
+                  </div>
+                </div>
+
+                {/* Initial Registration Date */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <Calendar size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Initial Registration Date
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                     {worker.registeredAt}
-                  </strong>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Application intake timestamp
+                  </div>
                 </div>
               </div>
             </div>
@@ -2883,48 +3194,44 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
           {/* TAB 3: PROFESSIONAL PROFILE */}
           {activeTab === 'professional' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                padding: 'var(--space-6)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-5)',
+              }}
+            >
               <div
                 style={{
+                  borderBottom: '1px solid var(--color-border)',
+                  paddingBottom: 'var(--space-3)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  padding: 'var(--space-4)',
-                  backgroundColor: 'var(--color-bg-subtle)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border-subtle)',
+                  flexWrap: 'wrap',
+                  gap: 'var(--space-2)',
                 }}
               >
                 <div>
-                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block' }}>
-                    Assigned Service Categories
-                  </span>
-                  <div style={{ display: 'flex', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                    {(worker.categories && worker.categories.length > 0 ? worker.categories : [worker.category]).map((c) => (
-                      <span
-                        key={c}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: 'var(--color-brand-100, #e0f2fe)',
-                          color: 'var(--color-brand-700, #0369a1)',
-                          fontSize: '11px',
-                          fontWeight: 700,
-                        }}
-                      >
-                        {c}
-                      </span>
-                    ))}
-                  </div>
+                  <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
+                    Professional Qualifications & Capabilities
+                  </h3>
+                  <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                    Domestic work capabilities, household experience, language proficiencies, and wage preferences.
+                  </p>
                 </div>
 
                 <PermissionGate permission={PERMISSIONS.WORKERS_MANAGE}>
                   <button
                     onClick={openCategoryModal}
                     style={{
-                      padding: '6px 12px',
+                      padding: 'var(--space-2) var(--space-4)',
                       borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--color-brand-600, var(--color-primary))',
+                      backgroundColor: 'var(--color-primary)',
                       color: '#ffffff',
                       border: 'none',
                       fontSize: 'var(--font-size-xs)',
@@ -2932,64 +3239,177 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       cursor: 'pointer',
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: '4px',
+                      gap: '6px',
                     }}
                   >
-                    <Sliders size={13} />
+                    <Sliders size={14} />
                     <span>Manage Categories</span>
                   </button>
                 </PermissionGate>
               </div>
 
-              {/* Skills, Languages, & Wages */}
+              {/* Assigned Service Categories Card */}
+              <div
+                style={{
+                  padding: 'var(--space-4)',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                  <Briefcase size={16} color="var(--color-primary)" />
+                  <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                    Assigned Service Categories
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  {(worker.categories && worker.categories.length > 0 ? worker.categories : [worker.category]).map((c) => (
+                    <span
+                      key={c}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--color-surface)',
+                        border: '1px solid var(--color-border)',
+                        color: 'var(--color-primary)',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {c}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Skills, Languages, & Compensation Grid */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
                   gap: 'var(--space-4)',
-                  padding: 'var(--space-4)',
-                  backgroundColor: 'var(--color-bg-subtle)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border-subtle)',
-                  fontSize: 'var(--font-size-xs)',
                 }}
               >
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Experience Duration</span>
-                  <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                    {worker.experienceYears} Years Household Experience
-                  </strong>
+                {/* Experience Duration */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <Briefcase size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Experience Duration
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {worker.experienceYears !== undefined ? `${worker.experienceYears} Years Household Experience` : 'Not specified'}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Documented domestic work experience
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Languages Spoken</span>
-                  <strong style={{ color: 'var(--color-text-primary)' }}>
-                    <Languages size={12} style={{ display: 'inline', marginRight: '4px' }} />
+
+                {/* Languages Spoken */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <Languages size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Languages Spoken
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                     {worker.languages && worker.languages.length > 0 ? worker.languages.join(', ') : 'Not specified'}
-                  </strong>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Household communication capability
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Current Allocation Availability</span>
-                  <strong style={{ color: 'var(--color-status-success-text)' }}>{worker.availability || (worker.status === 'ACTIVE' ? 'Available for Allocation' : 'Unavailable')}</strong>
+
+                {/* Current Allocation Availability */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <Clock size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Current Allocation Availability
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-status-success-text)' }}>
+                    {worker.availability || (worker.status === 'ACTIVE' ? 'Available for Immediate Allocation' : 'Unavailable')}
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Customer allocation readiness
+                  </div>
                 </div>
-                <div>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block' }}>Expected Monthly Compensation</span>
-                  <strong style={{ color: 'var(--color-accent)' }}>
-                    <DollarSign size={12} style={{ display: 'inline', marginRight: '4px' }} />
+
+                {/* Expected Monthly Compensation */}
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <DollarSign size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Expected Monthly Compensation
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
                     {worker.expectedCompensation || 'Not specified'}
-                  </strong>
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    Benchmark compensation expectation
+                  </div>
                 </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block', marginBottom: '4px' }}>Skill Competencies</span>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+
+                {/* Skill Competencies */}
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <CheckCircle2 size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Skill Competencies
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                     {(worker.skills && worker.skills.length > 0 ? worker.skills : [worker.category]).map((s) => (
                       <span
                         key={s}
                         style={{
-                          padding: '3px 8px',
+                          padding: '4px 10px',
                           borderRadius: 'var(--radius-sm)',
                           backgroundColor: 'var(--color-surface)',
-                          border: '1px solid var(--color-border-subtle)',
+                          border: '1px solid var(--color-border)',
                           fontSize: '11px',
+                          fontWeight: 600,
                           color: 'var(--color-text-primary)',
                         }}
                       >
@@ -2998,9 +3418,24 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     ))}
                   </div>
                 </div>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <span style={{ color: 'var(--color-text-muted)', display: 'block', marginBottom: '2px' }}>Professional Biography & Overview</span>
-                  <p style={{ margin: 0, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+
+                {/* Professional Biography & Overview */}
+                <div
+                  style={{
+                    gridColumn: '1 / -1',
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
+                    <FileText size={16} color="var(--color-primary)" />
+                    <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                      Professional Biography & Overview
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
                     {worker.bio || 'No biography provided by applicant.'}
                   </p>
                 </div>
@@ -3010,7 +3445,26 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
           {/* TAB 4: KYC DOCUMENTS VAULT */}
           {activeTab === 'documents' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                padding: 'var(--space-6)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-5)',
+              }}
+            >
+              <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-3)' }}>
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
+                  Document Archive & Compliance Vault
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                  Encrypted storage and compliance audit trail for official worker verification documents.
+                </p>
+              </div>
+
               <div
                 style={{
                   padding: 'var(--space-3) var(--space-4)',
@@ -3030,34 +3484,34 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 </span>
               </div>
 
-              <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+              <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
-                  <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)' }}>
-                      <th style={{ padding: '8px 12px' }}>Document Type</th>
-                      <th style={{ padding: '8px 12px' }}>Document ID / Reference</th>
-                      <th style={{ padding: '8px 12px' }}>Verification State</th>
-                      <th style={{ padding: '8px 12px' }}>Submission Timestamp</th>
-                      <th style={{ padding: '8px 12px', textAlign: 'right' }}>Security Action</th>
+                  <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
+                    <tr style={{ textAlign: 'left', color: 'var(--color-text-secondary)' }}>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>Document Type</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>Document ID / Reference</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>Verification State</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700 }}>Submission Timestamp</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700, textAlign: 'right' }}>Security Action</th>
                     </tr>
                   </thead>
                   <tbody>
                     {!worker.documents || worker.documents.length === 0 ? (
                       <tr>
-                        <td colSpan={5} style={{ textAlign: 'center', padding: 'var(--space-6)', color: 'var(--color-text-muted)' }}>
+                        <td colSpan={5} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-secondary)' }}>
                           No KYC documents submitted or available in vault for this worker.
                         </td>
                       </tr>
                     ) : (
                       worker.documents.map((doc, idx) => (
-                      <tr key={doc.id || idx} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                        <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      <tr key={doc.id || idx} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                           {doc.documentTypeName}
                         </td>
-                        <td style={{ padding: '10px 12px', fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>
+                        <td style={{ padding: '12px 14px', fontFamily: 'monospace', color: 'var(--color-text-secondary)' }}>
                           {doc.docNumberMasked || 'XXXX-XXXX-MASKED'}
                         </td>
-                        <td style={{ padding: '10px 12px' }}>
+                        <td style={{ padding: '12px 14px' }}>
                           <span
                             style={{
                               padding: '2px 8px',
@@ -3076,15 +3530,22 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                   : doc.status === 'REJECTED'
                                   ? 'var(--color-status-danger-text)'
                                   : 'var(--color-status-warning-text)',
+                              border: `1px solid ${
+                                doc.status === 'VERIFIED'
+                                  ? 'var(--color-status-success-border)'
+                                  : doc.status === 'REJECTED'
+                                  ? 'var(--color-status-danger-border)'
+                                  : 'var(--color-status-warning-border)'
+                              }`,
                             }}
                           >
                             {doc.status}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>
+                        <td style={{ padding: '12px 14px', color: 'var(--color-text-secondary)' }}>
                           {doc.submittedAt ? formatDateTimeIST(doc.submittedAt) : 'Recorded'}
                         </td>
-                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
                           {canViewDocuments ? (
                             <button
                               onClick={() => {
@@ -3092,11 +3553,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 setCurrentStep(2);
                               }}
                               style={{
-                                padding: '3px 8px',
+                                padding: '4px 10px',
                                 borderRadius: 'var(--radius-sm)',
                                 backgroundColor: 'var(--color-surface)',
-                                border: '1px solid var(--color-border-subtle)',
-                                color: 'var(--color-brand-600)',
+                                border: '1px solid var(--color-border)',
+                                color: 'var(--color-primary)',
                                 fontSize: '11px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
@@ -3105,7 +3566,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                 gap: '4px',
                               }}
                             >
-                              <ExternalLink size={11} />
+                              <ExternalLink size={12} />
                               <span>Inspect in Workstation</span>
                             </button>
                           ) : (
@@ -3125,34 +3586,96 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
           {/* TAB 5: OPERATIONAL ENGAGEMENTS */}
           {activeTab === 'operational' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                padding: 'var(--space-6)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-5)',
+              }}
+            >
+              <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-3)' }}>
+                <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', margin: '0 0 4px 0' }}>
+                  Operational Engagements & Metrics
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                  Real-time household ratings, completed jobs, live engagements, and operational service history.
+                </p>
+              </div>
+
               {/* Quick Metrics */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: 'var(--space-3)',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                  gap: 'var(--space-4)',
                 }}
               >
-                <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Rating Score</div>
-                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: '#b45309', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Star size={18} fill="#f59e0b" color="#f59e0b" />
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-1)' }}>
+                    Rating Score
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: '#b45309', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Star size={20} fill="#f59e0b" color="#f59e0b" />
                     <span>{worker.ratingAverage}</span>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>({worker.totalReviews})</span>
+                    <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>({worker.totalReviews})</span>
                   </div>
                 </div>
-                <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Completed Jobs</div>
-                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-text-primary)' }}>{worker.completedBookingsCount}</div>
+
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-1)' }}>
+                    Completed Jobs
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                    {worker.completedBookingsCount}
+                  </div>
                 </div>
-                <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Active Engagements</div>
-                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-accent)' }}>{worker.activeEngagementsCount}</div>
+
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-1)' }}>
+                    Active Engagements
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-primary)' }}>
+                    {worker.activeEngagementsCount}
+                  </div>
                 </div>
-                <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border-subtle)' }}>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Replacements</div>
-                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: worker.replacementsIncurred > 0 ? 'var(--color-status-warning-text)' : 'var(--color-status-success-text)' }}>
+
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-1)' }}>
+                    Replacements
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: worker.replacementsIncurred > 0 ? 'var(--color-status-warning-text)' : 'var(--color-status-success-text)' }}>
                     {worker.replacementsIncurred}
                   </div>
                 </div>
@@ -3160,38 +3683,38 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
               {/* Recent Household Engagements */}
               <div>
-                <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 'var(--space-2)' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)', margin: '0 0 var(--space-3) 0' }}>
                   Recent Household Engagements
-                </h3>
+                </h4>
                 {worker.recentEngagements.length > 0 ? (
-                  <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
-                      <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                        <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)' }}>
-                          <th style={{ padding: '8px 12px' }}>Booking Ref</th>
-                          <th style={{ padding: '8px 12px' }}>Customer Name</th>
-                          <th style={{ padding: '8px 12px' }}>Service Category</th>
-                          <th style={{ padding: '8px 12px' }}>Operational Status</th>
-                          <th style={{ padding: '8px 12px' }}>Engagement Period</th>
+                      <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
+                        <tr style={{ textAlign: 'left', color: 'var(--color-text-secondary)' }}>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Booking Ref</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Customer Name</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Service Category</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Operational Status</th>
+                          <th style={{ padding: '10px 14px', fontWeight: 700 }}>Engagement Period</th>
                         </tr>
                       </thead>
                       <tbody>
                         {worker.recentEngagements.map((eng) => (
-                          <tr key={eng.bookingId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>{eng.bookingId}</td>
-                            <td style={{ padding: '10px 12px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{eng.customerName}</td>
-                            <td style={{ padding: '10px 12px', color: 'var(--color-text-secondary)' }}>{eng.serviceCategory}</td>
-                            <td style={{ padding: '10px 12px' }}>
+                          <tr key={eng.bookingId} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                            <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>{eng.bookingId}</td>
+                            <td style={{ padding: '12px 14px', fontWeight: 500, color: 'var(--color-text-primary)' }}>{eng.customerName}</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--color-text-secondary)' }}>{eng.serviceCategory}</td>
+                            <td style={{ padding: '12px 14px' }}>
                               <StatusBadge status={eng.status} />
                             </td>
-                            <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>{eng.period}</td>
+                            <td style={{ padding: '12px 14px', color: 'var(--color-text-secondary)' }}>{eng.period}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 ) : (
-                  <div style={{ padding: 'var(--space-4)', textAlign: 'center', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs)' }}>
+                  <div style={{ padding: 'var(--space-6)', textAlign: 'center', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
                     No prior commercial household engagements recorded.
                   </div>
                 )}
@@ -3204,18 +3727,18 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         <div
           style={{
             flexShrink: 0,
-            padding: '14px 24px',
-            borderTop: '1px solid var(--color-border-subtle)',
+            padding: 'var(--space-3) var(--space-6)',
+            borderTop: '1px solid var(--color-border)',
             backgroundColor: 'var(--color-bg-subtle)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '12px',
+            gap: 'var(--space-3)',
             zIndex: 10,
           }}
         >
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
             <PermissionGate permission={PERMISSIONS.WORKERS_MANAGE_STATUS}>
               {worker.status === 'ACTIVE' && (
                 <>
@@ -3225,11 +3748,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       setIsDisciplineOpen(true);
                     }}
                     style={{
-                      padding: '8px 14px',
+                      padding: 'var(--space-2) var(--space-3)',
                       borderRadius: 'var(--radius-md)',
                       backgroundColor: 'var(--color-status-warning-bg)',
                       color: 'var(--color-status-warning-text)',
-                      border: '1px solid var(--color-status-warning-text)',
+                      border: '1px solid var(--color-status-warning-border)',
                       fontSize: 'var(--font-size-xs)',
                       fontWeight: 600,
                       cursor: 'pointer',
@@ -3248,11 +3771,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       setIsDisciplineOpen(true);
                     }}
                     style={{
-                      padding: '8px 14px',
+                      padding: 'var(--space-2) var(--space-3)',
                       borderRadius: 'var(--radius-md)',
                       backgroundColor: 'var(--color-status-danger-bg)',
                       color: 'var(--color-status-danger-text)',
-                      border: '1px solid var(--color-status-danger-text)',
+                      border: '1px solid var(--color-status-danger-border)',
                       fontSize: 'var(--font-size-xs)',
                       fontWeight: 600,
                       cursor: 'pointer',
@@ -3274,11 +3797,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     setIsDisciplineOpen(true);
                   }}
                   style={{
-                    padding: '8px 16px',
+                    padding: 'var(--space-2) var(--space-4)',
                     borderRadius: 'var(--radius-md)',
                     backgroundColor: 'var(--color-status-success-bg)',
                     color: 'var(--color-status-success-text)',
-                    border: '1px solid var(--color-status-success-text)',
+                    border: '1px solid var(--color-status-success-border)',
                     fontSize: 'var(--font-size-xs)',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -3300,11 +3823,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   setIsRecheckModalOpen(true);
                 }}
                 style={{
-                  padding: '8px 14px',
+                  padding: 'var(--space-2) var(--space-3)',
                   borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-primary-subtle)',
-                  color: 'var(--color-accent)',
-                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-primary)',
+                  border: '1px solid var(--color-border)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -3322,15 +3845,14 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           <button
             onClick={onClose}
             style={{
-              padding: '8px 20px',
+              padding: 'var(--space-2) var(--space-5)',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: '#ffffff',
+              backgroundColor: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
               color: 'var(--color-text-primary)',
               fontSize: 'var(--font-size-xs)',
-              fontWeight: 700,
+              fontWeight: 600,
               cursor: 'pointer',
-              boxShadow: 'var(--shadow-sm)',
             }}
           >
             Close

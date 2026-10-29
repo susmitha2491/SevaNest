@@ -8,6 +8,7 @@ export interface AuthState extends AuthSession {
   isInitialized: boolean;
   isRestoring: boolean;
   setSession: (user: AdminUser, accessToken: string, refreshToken?: string | null) => void;
+  setUser: (user: AdminUser) => void;
   setAccessToken: (accessToken: string) => void;
   setTokens: (accessToken: string, refreshToken?: string | null) => void;
   clearSession: (broadcast?: boolean) => void;
@@ -44,6 +45,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       isInitialized: true,
       isRestoring: false,
     });
+  },
+
+  setUser: (user: AdminUser) => {
+    set({ user });
   },
 
   setAccessToken: (accessToken: string) => {

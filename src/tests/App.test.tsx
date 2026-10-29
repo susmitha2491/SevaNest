@@ -33,14 +33,14 @@ describe('Application Bootstrap & Foundational Shell', () => {
     expect(await screen.findByText('Sign In to Operations Console')).toBeInTheDocument();
   });
 
-  it('does not render quick persona selectors on the login page', async () => {
+  it('renders quick login section for the four admin roles', async () => {
     renderWithRouter('/auth/login');
     expect(await screen.findByText('Staff Sign In', {}, { timeout: 4000 })).toBeInTheDocument();
-    expect(screen.queryByText('Quick Persona Testing Selectors:')).not.toBeInTheDocument();
-    expect(screen.queryByText('Super Admin')).not.toBeInTheDocument();
-    expect(screen.queryByText('Operations Admin')).not.toBeInTheDocument();
-    expect(screen.queryByText('Verification Exec')).not.toBeInTheDocument();
-    expect(screen.queryByText('Support Exec')).not.toBeInTheDocument();
+    expect(screen.getByText('Quick Login — Select Your Role')).toBeInTheDocument();
+    expect(screen.getByText('Super Admin')).toBeInTheDocument();
+    expect(screen.getByText('Operations Admin')).toBeInTheDocument();
+    expect(screen.getByText('Verification Executive')).toBeInTheDocument();
+    expect(screen.getByText('Support Executive')).toBeInTheDocument();
   });
 
   it('renders 404 Not Found view for non-existent routes when authenticated', async () => {

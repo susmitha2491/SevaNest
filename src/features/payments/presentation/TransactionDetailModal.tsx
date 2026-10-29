@@ -4,13 +4,11 @@ import {
   Receipt,
   User,
   RotateCcw,
-  ShieldCheck,
   CreditCard,
 } from 'lucide-react';
 import { PaymentTransaction } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
-import { env } from '../../../core/config/env';
 
 interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
@@ -232,26 +230,6 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 <span>Authorized by: <strong>{transaction.refund.processedBy}</strong> ({transaction.refund.processedAt})</span>
                 <span style={{ fontFamily: 'monospace' }}>Idempotency Key: {transaction.refund.idempotencyKey || transaction.refund.mockIdempotencyKey}</span>
               </div>
-            </div>
-          )}
-
-          {/* Mock Mode Safety Notice */}
-          {env.VITE_USE_MOCK_AUTH && (
-            <div
-              style={{
-                padding: 'var(--space-2) var(--space-3)',
-                backgroundColor: '#f8fafc',
-                borderRadius: 'var(--radius-md)',
-                border: '1px dashed var(--color-border)',
-                fontSize: '11px',
-                color: 'var(--color-text-secondary)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <ShieldCheck size={14} color="var(--color-brand-600)" />
-              <span>Mock Ledger Mode: Real payment gateway credentials and financial webhooks are simulated.</span>
             </div>
           )}
         </div>

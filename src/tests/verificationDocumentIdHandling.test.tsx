@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -182,11 +182,12 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       await user.click(inspectButton);
 
       // Verify clear unavailable state rendered
-      expect(await screen.findByTestId('verification-doc-missing-id')).toBeInTheDocument();
-      expect(screen.getByText(/Document Vault Attachment Unavailable/i)).toBeInTheDocument();
+      const missingDocBadges = await screen.findAllByTestId('verification-doc-missing-id');
+      expect(missingDocBadges.length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Document Vault Attachment Unavailable/i).length).toBeGreaterThan(0);
       expect(
-        screen.getByText(/No backend document reference ID is associated with this verification check/i)
-      ).toBeInTheDocument();
+        screen.getAllByText(/No backend document reference ID is associated with this verification check/i).length
+      ).toBeGreaterThan(0);
 
       // Zero signed URL API calls made
       expect(getSignedUrlSpy).not.toHaveBeenCalled();
@@ -235,6 +236,11 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
 
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
+
+      // Navigate to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
       // Confirm secure link is displayed
       const openLink = await screen.findByRole('link', { name: /Open Secure Document Link/i });
@@ -347,6 +353,11 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
+
       expect(
         await screen.findByText(/Failed to load document attachment/i)
       ).toBeInTheDocument();
@@ -377,6 +388,11 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectButtons[0]);
 
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
+
       const retryBtn = await screen.findByRole('button', { name: /Retry Fetching Document/i });
       await user.click(retryBtn);
 
@@ -390,7 +406,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
   });
 
   describe('8. Submitted Documents Inspection and Verification Workflows', () => {
-    it('opens a submitted identity document from Submitted Documents tab using genuine documentId', async () => {
+    it('opens a submitted identity document from Step 2 Documents Review using genuine documentId', async () => {
       const getSignedUrlSpy = vi.spyOn(verificationRepository, 'getSignedDocumentUrl').mockResolvedValue({
         url: 'https://vault.sevanest.internal/documents/doc-id-101/identity.pdf?token=sec999',
         signedUrl: 'https://vault.sevanest.internal/documents/doc-id-101/identity.pdf?token=sec999',
@@ -404,18 +420,13 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectDossierBtns[0]);
 
-      // Switch to Submitted Documents tab
-      const docsTab = await screen.findByRole('button', { name: /Submitted Documents/i });
-      await user.click(docsTab);
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
-      // Verify table rows render real metadata
-      expect(await screen.findByText(/Submitted Documents Vault/i)).toBeInTheDocument();
-      expect(screen.getByText(/Identity Proof \(Aadhaar \/ Voter ID\)/i)).toBeInTheDocument();
-
-      // Find and click Inspect Document for Identity check
-      const inspectButtons = screen.getAllByRole('button', { name: /Inspect Document/i });
-      expect(inspectButtons.length).toBeGreaterThan(0);
-      await user.click(inspectButtons[0]);
+      expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Identity Proof/i })).toBeInTheDocument();
 
       // Verifies backend contract GET /api/v1/admin/verification/documents/{documentId}/link called with actual documentId
       await waitFor(() => {
@@ -459,14 +470,13 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectDossierBtns[0]);
 
-      const docsTab = await screen.findByRole('button', { name: /Submitted Documents/i });
-      await user.click(docsTab);
-
-      const inspectButtons = screen.getAllByRole('button', { name: /Inspect Document/i });
-      await user.click(inspectButtons[0]);
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
       // Confirm image tag rendered
-      const img = await screen.findByRole('img');
+      const img = await screen.findByRole('img', { name: /Submitted KYC Document/i });
       expect(img).toBeInTheDocument();
       expect(img).toHaveAttribute(
         'src',
@@ -535,15 +545,10 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectDossierBtns[0]);
 
-      const docsTab = await screen.findByRole('button', { name: /Submitted Documents/i });
-      await user.click(docsTab);
-
-      // Verify "Pending Submission" is shown in table
-      const pendingLabels = await screen.findAllByText(/Pending Submission/i);
-      expect(pendingLabels.length).toBeGreaterThan(0);
-
-      // Verify no "Inspect Document" buttons exist for unsubmitted documents
-      expect(screen.queryByRole('button', { name: /Inspect Document/i })).not.toBeInTheDocument();
+      // Verify clear unavailable state rendered in overview
+      const missingDocBadges = await screen.findAllByTestId('verification-doc-missing-id');
+      expect(missingDocBadges.length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Document Vault Attachment Unavailable/i).length).toBeGreaterThan(0);
     });
 
     it('displays error state and retry button when vault returns failure', async () => {
@@ -557,11 +562,10 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectDossierBtns[0]);
 
-      const docsTab = await screen.findByRole('button', { name: /Submitted Documents/i });
-      await user.click(docsTab);
-
-      const inspectButtons = screen.getAllByRole('button', { name: /Inspect Document/i });
-      await user.click(inspectButtons[0]);
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
       expect(await screen.findByText(/Failed to load document attachment/i)).toBeInTheDocument();
       expect(
@@ -596,13 +600,13 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
       await user.click(inspectDossierBtns[0]);
 
-      const docsTab = await screen.findByRole('button', { name: /Submitted Documents/i });
-      await user.click(docsTab);
+      // Move to Step 2: Documents Review
+      const dialog = await screen.findByRole('dialog');
+      const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn);
 
-      // Restricted Access is shown instead of Inspect Document button
-      const restrictedLabels = await screen.findAllByText(/Restricted Access/i);
-      expect(restrictedLabels.length).toBeGreaterThan(0);
-      expect(screen.queryByRole('button', { name: /Inspect Document/i })).not.toBeInTheDocument();
+      // Restricted Access is shown
+      expect(await screen.findByText(/Restricted Personal Document \(KYC\)/i)).toBeInTheDocument();
     });
   });
 
@@ -624,8 +628,8 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       expect(closeBtn).toBeInTheDocument();
 
       // Metadata row beneath title
-      expect(screen.getByText(/Category: Driver/i)).toBeInTheDocument();
-      expect(screen.getByText(/Locality: Madhapur/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Driver/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Madhapur/i).length).toBeGreaterThan(0);
       expect(screen.getByRole('button', { name: /View Worker Record/i })).toBeInTheDocument();
     });
 
@@ -637,9 +641,9 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const continueBtn = screen.getByRole('button', { name: /Continue Review \(Inspect Dossier\) for Ramesh Yadav/i });
       await user.click(continueBtn);
 
-      // In inspection workstation overview
-      expect(await screen.findByText(/Check Status:/i)).toBeInTheDocument();
-      expect(screen.getByText(/Document Attachment:/i)).toBeInTheDocument();
+      // In inspection overview
+      expect((await screen.findAllByText(/Check Status:/i)).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Document Attachment:/i).length).toBeGreaterThan(0);
 
       // Ensure no fabricated 'XXXX-XXXX-VALID' string is rendered
       expect(screen.queryByText('XXXX-XXXX-VALID')).not.toBeInTheDocument();

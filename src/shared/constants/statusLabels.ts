@@ -13,6 +13,7 @@ export interface StatusDescriptor {
 export const STATUS_MAPPINGS: Record<string, StatusDescriptor> = {
   // Verification Domain
   PENDING_REVIEW: { label: 'Pending review', variant: 'warning' },
+  SUBMITTED: { label: 'Submitted', variant: 'warning' },
   IN_REVIEW: { label: 'In review', variant: 'info' },
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'danger' },

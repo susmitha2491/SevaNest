@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 const isTestEnv = import.meta.env.MODE === 'test';
 const isDev = import.meta.env.DEV && !isTestEnv;
-const defaultApiBaseUrl = isDev ? '/api/v1' : 'https://sevanest-backend.onrender.com/api/v1';
+const defaultApiBaseUrl = '/api/v1';
 
 const envSchema = z.object({
   VITE_API_BASE_URL: z.string().min(1, 'API Base URL is required').default(defaultApiBaseUrl),
@@ -13,6 +13,10 @@ const envSchema = z.object({
   ).default(isTestEnv),
   VITE_API_TIMEOUT_MS: z.coerce.number().default(15000),
   VITE_ENABLE_TELEMETRY: z.coerce.boolean().default(false),
+  VITE_ENABLE_QUICK_LOGIN: z.preprocess(
+    (val) => (val !== undefined ? val === 'true' || val === true : undefined),
+    z.boolean().optional()
+  ),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -31,7 +35,23 @@ export const env: AppEnv = parsedEnv.success
       VITE_USE_MOCK_AUTH: isTestEnv,
       VITE_API_TIMEOUT_MS: 15000,
       VITE_ENABLE_TELEMETRY: false,
+      VITE_ENABLE_QUICK_LOGIN: undefined,
     };
+
+/**
+ * Returns true if the Quick Login role selector should be enabled and rendered.
+ * Enabled by default in development, test, and mock-auth modes, or when explicitly
+ * activated via VITE_ENABLE_QUICK_LOGIN=true. Disabled in production environments.
+ */
+export function isQuickLoginEnabled(): boolean {
+  if (env.VITE_ENABLE_QUICK_LOGIN !== undefined) {
+    return env.VITE_ENABLE_QUICK_LOGIN;
+  }
+  if (env.VITE_USE_MOCK_AUTH) {
+    return true;
+  }
+  return isDev || isTestEnv || env.VITE_APP_ENV === 'development' || env.VITE_APP_ENV === 'test';
+}
 
 /**
  * Validates that the API configuration is present and structurally sound.

@@ -57,7 +57,7 @@ export const VERIFICATION_CHECK_ORDER: VerificationStepDefinition[] = [
     title: 'Police Certificate',
     shortTitle: '5. Police Certificate',
     evaluationMethod: 'CERTIFICATE_TRACKING',
-    isDocumentRequired: true,
+    isDocumentRequired: false,
   },
 ];
 

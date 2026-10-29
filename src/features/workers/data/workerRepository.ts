@@ -856,6 +856,30 @@ export class RealWorkerRepository implements IWorkerRepository {
     }
   }
 
+  async approveCheck(checkId: string, remarks?: string): Promise<void> {
+    try {
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(checkId.trim())}/approve`, {
+        remarks: remarks || 'Check approved by administrator',
+      });
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async rejectCheck(checkId: string, category: string, remarks: string): Promise<void> {
+    try {
+      if (remarks.length < 5) {
+        throw new ValidationError('Rejection remarks must be at least 5 characters', undefined, undefined, 'REMARKS_TOO_SHORT');
+      }
+      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(checkId.trim())}/reject`, {
+        category,
+        remarks,
+      });
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async activateWorker(workerId: string): Promise<WorkerDetail> {
     if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
       throw new ValidationError('A valid workerId is required for activation.');
@@ -948,6 +972,20 @@ export class MockWorkerRepository implements IWorkerRepository {
     const worker = MOCK_WORKERS.find((w) => w.id === workerId);
     if (worker) {
       worker.internalNotes.push(`[RE-VERIFICATION REQUESTED: ${checkTypes.join(', ')}] ${remarks}`);
+    }
+  }
+
+  async approveCheck(checkId: string, remarks?: string): Promise<void> {
+    const worker = MOCK_WORKERS.find((w) => w.id === checkId);
+    if (worker) {
+      worker.internalNotes.push(`[CHECK APPROVED] ${remarks || 'Check approved by administrator'}`);
+    }
+  }
+
+  async rejectCheck(checkId: string, category: string, remarks: string): Promise<void> {
+    const worker = MOCK_WORKERS.find((w) => w.id === checkId);
+    if (worker) {
+      worker.internalNotes.push(`[CHECK REJECTED: ${category}] ${remarks}`);
     }
   }
 

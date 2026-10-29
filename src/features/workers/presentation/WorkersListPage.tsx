@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
   Filter,
@@ -9,13 +9,18 @@ import {
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  User,
   Clock,
   CheckCircle2,
   ExternalLink,
   XCircle,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
+import { verificationRepository } from '../../verification/data/verificationRepository';
+import {
+  RejectionReasonCategory,
+  REJECTION_CATEGORIES,
+  VerificationCheckType,
+} from '../../verification/domain/types';
 import { Worker } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
@@ -52,12 +57,85 @@ export const WorkersListPage: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [detailModalId, setDetailModalId] = useState<string | null>(
     () => searchParams.get('workerId') || searchParams.get('applicationId') || null
   );
-  const [isDisciplineOpen, setIsDisciplineOpen] = useState(false);
-  const [targetStatus, setTargetStatus] = useState<'SUSPENDED' | 'BLACKLISTED' | 'ACTIVE'>('SUSPENDED');
+
+  const queryClient = useQueryClient();
+  const [rejectWorker, setRejectWorker] = useState<Worker | null>(null);
+  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
+  const [rejectCategory, setRejectCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
+  const [rejectRemarks, setRejectRemarks] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [isRejecting, setIsRejecting] = useState(false);
+
+  const handleOpenReject = (worker: Worker) => {
+    setRejectWorker(worker);
+    setRejectCategory('BLURRY_IMAGE');
+    setRejectRemarks('');
+    setRejectError(null);
+    setIsRejectDialogOpen(true);
+  };
+
+  const handleRejectConfirm = async (remarksFromDialog?: string) => {
+    const remarks = (remarksFromDialog || rejectRemarks || '').trim();
+    if (!rejectWorker) return;
+
+    if (remarks.length < 5) {
+      setRejectError('Rejection remarks must be at least 5 characters');
+      return;
+    }
+
+    try {
+      setIsRejecting(true);
+      setRejectError(null);
+
+      let targetCheckId: string | undefined;
+      let targetCheckType: VerificationCheckType | undefined;
+
+      try {
+        const dossier = await verificationRepository.getDossierById(rejectWorker.id);
+        if (dossier?.checks) {
+          const activeCheck =
+            Object.values(dossier.checks).find((c) => c.status === 'IN_REVIEW' || c.status === 'PENDING') ||
+            Object.values(dossier.checks).find((c) => c.status !== 'APPROVED') ||
+            Object.values(dossier.checks)[0];
+          if (activeCheck?.id) {
+            targetCheckId = activeCheck.id;
+            targetCheckType = activeCheck.type;
+          } else if (dossier.checkId) {
+            targetCheckId = dossier.checkId;
+          }
+        } else if (dossier?.checkId) {
+          targetCheckId = dossier.checkId;
+        }
+      } catch {
+        // Fall back if dossier lookup fails
+      }
+
+      if (targetCheckId) {
+        await verificationRepository.rejectCheck(targetCheckId, targetCheckType, rejectCategory, remarks);
+      } else {
+        await workerRepository.rejectCheck(rejectWorker.id, rejectCategory, remarks);
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['workers'] }),
+        queryClient.invalidateQueries({ queryKey: ['verification'] }),
+        refetch(),
+      ]);
+
+      setIsRejectDialogOpen(false);
+      setRejectWorker(null);
+      setRejectRemarks('');
+      setRejectError(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to reject worker verification';
+      setRejectError(msg);
+    } finally {
+      setIsRejecting(false);
+    }
+  };
 
   useEffect(() => {
     const wid = searchParams.get('workerId') || searchParams.get('applicationId');
@@ -178,14 +256,6 @@ export const WorkersListPage: React.FC = () => {
     return filteredAndSortedWorkers.slice(start, start + ITEMS_PER_PAGE);
   }, [filteredAndSortedWorkers, currentPage]);
 
-  const handleDisciplineConfirm = async (remarks?: string) => {
-    if (selectedWorkerId) {
-      await workerRepository.updateWorkerStatus(selectedWorkerId, targetStatus, remarks || 'Operational disciplinary status mutation');
-      setIsDisciplineOpen(false);
-      refetch();
-    }
-  };
-
   const categories = useMemo(() => {
     const set = new Set(workers.map((w) => w.category));
     return ['ALL', ...Array.from(set)];
@@ -224,7 +294,7 @@ export const WorkersListPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -241,18 +311,18 @@ export const WorkersListPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            padding: '8px 14px',
+            padding: '6px 12px',
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
-            fontSize: 'var(--font-size-sm)',
+            fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
+          <RefreshCw size={13} color="var(--color-primary)" />
           <span>Refresh Roster</span>
         </button>
       </div>
@@ -554,37 +624,37 @@ export const WorkersListPage: React.FC = () => {
         }}
       >
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
               <tr>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Worker ID
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Worker Name
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Primary Skill
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   KYC Status
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Matching Eligibility
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Experience
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Rating
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Cluster
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Account Status
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
                 </th>
               </tr>
@@ -703,50 +773,26 @@ export const WorkersListPage: React.FC = () => {
                       <StatusBadge status={worker.status} />
                     </td>
                     <td
-                      style={{ padding: '14px 16px', textAlign: 'right' }}
+                      style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <div
-                        style={{ display: 'inline-flex', gap: 'var(--space-2)' }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenDetailModal(worker.id);
-                          }}
-                          aria-label={`View profile for ${worker.name}`}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'var(--color-bg-surface-elevated)',
-                            color: 'var(--color-text-primary)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          <User size={13} />
-                          <span>View Profile</span>
-                        </button>
-
                         <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/verification?workerId=${encodeURIComponent(worker.id)}&search=${encodeURIComponent(worker.id)}&dossierId=${encodeURIComponent(worker.id)}`);
+                              handleOpenDetailModal(worker.id);
                             }}
-                            aria-label={`${worker.isFullyVerified ? 'Inspect dossier' : 'Review KYC'} for ${worker.name}`}
+                            aria-label={`Approve verification for ${worker.name}`}
                             style={{
                               padding: '4px 8px',
                               borderRadius: 'var(--radius-sm)',
                               border: '1px solid var(--color-border-subtle)',
                               backgroundColor: 'var(--color-bg-subtle)',
-                              color: 'var(--color-brand-600, var(--color-primary))',
+                              color: 'var(--color-status-success-text)',
                               fontSize: 'var(--font-size-xs)',
                               fontWeight: 600,
                               cursor: 'pointer',
@@ -755,89 +801,35 @@ export const WorkersListPage: React.FC = () => {
                               gap: '4px',
                             }}
                           >
-                            <ShieldAlert size={13} />
-                            <span>{worker.isFullyVerified ? 'Inspect Dossier' : 'Review KYC'}</span>
+                            <CheckCircle2 size={13} />
+                            <span>Approve</span>
                           </button>
-                        </PermissionGate>
 
-                        <PermissionGate permission={PERMISSIONS.WORKERS_MANAGE_STATUS}>
-                          {worker.status === 'ACTIVE' ? (
-                            <>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedWorkerId(worker.id);
-                                  setTargetStatus('SUSPENDED');
-                                  setIsDisciplineOpen(true);
-                                }}
-                                aria-label={`Discipline worker ${worker.name}`}
-                                style={{
-                                  padding: '4px 8px',
-                                  borderRadius: 'var(--radius-sm)',
-                                  border: '1px solid var(--color-border-subtle)',
-                                  backgroundColor: 'var(--color-bg-surface)',
-                                  color: 'var(--color-status-warning-text)',
-                                  fontSize: 'var(--font-size-xs)',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                }}
-                              >
-                                <ShieldAlert size={13} />
-                                <span>Discipline</span>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedWorkerId(worker.id);
-                                  setTargetStatus('BLACKLISTED');
-                                  setIsDisciplineOpen(true);
-                                }}
-                                aria-label={`Blacklist worker ${worker.name}`}
-                                style={{
-                                  padding: '4px 8px',
-                                  borderRadius: 'var(--radius-sm)',
-                                  border: '1px solid var(--color-border-subtle)',
-                                  backgroundColor: 'var(--color-bg-surface)',
-                                  color: 'var(--color-status-danger-text)',
-                                  fontSize: 'var(--font-size-xs)',
-                                  cursor: 'pointer',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '4px',
-                                }}
-                              >
-                                <XCircle size={13} />
-                                <span>Blacklist</span>
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelectedWorkerId(worker.id);
-                                setTargetStatus('ACTIVE');
-                                setIsDisciplineOpen(true);
-                              }}
-                              aria-label={`Reinstate worker ${worker.name}`}
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-border-subtle)',
-                                backgroundColor: 'var(--color-bg-surface)',
-                                color: 'var(--color-status-success-text)',
-                                fontSize: 'var(--font-size-xs)',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                              }}
-                            >
-                              <CheckCircle2 size={13} />
-                              <span>Reinstate</span>
-                            </button>
-                          )}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReject(worker);
+                            }}
+                            disabled={worker.verificationStatus === 'REJECTED'}
+                            aria-label={`Reject verification for ${worker.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border-subtle)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
+                            }}
+                          >
+                            <XCircle size={13} />
+                            <span>Reject</span>
+                          </button>
                         </PermissionGate>
                       </div>
                     </td>
@@ -920,23 +912,61 @@ export const WorkersListPage: React.FC = () => {
         />
       )}
 
-      {/* Disciplinary Confirmation Dialog */}
+      {/* Reject Worker Verification Dialog */}
       <ConfirmDialog
-        isOpen={isDisciplineOpen}
-        title={`Disciplinary Status Mutation: ${targetStatus}`}
-        description={
-          targetStatus === 'ACTIVE'
-            ? `Reinstate active operational state for worker ${selectedWorkerId}. This restores matching eligibility if verification is complete.`
-            : targetStatus === 'BLACKLISTED'
-            ? `Permanently blacklist worker ${selectedWorkerId}. This action revokes account access and permanently disables matching eligibility.`
-            : `Suspend worker ${selectedWorkerId}. This action temporarily revokes active matching eligibility.`
-        }
-        isDestructive={targetStatus !== 'ACTIVE'}
+        isOpen={isRejectDialogOpen}
+        title={`Reject Verification: ${rejectWorker?.name || ''}`}
+        description="Select an operational rejection reason category and provide mandatory remarks. The applicant will be notified to re-upload or rectify."
+        confirmLabel="Confirm Rejection"
+        isDestructive={true}
         requireRemarks={true}
-        remarksPlaceholder="Enter mandatory operational reason (e.g., Safety breach, Chronic absenteeism)..."
-        onConfirm={handleDisciplineConfirm}
-        onCancel={() => setIsDisciplineOpen(false)}
-      />
+        remarksPlaceholder="Enter mandatory operational remarks (e.g., Image is blurred, name mismatch with registration records)..."
+        isLoading={isRejecting}
+        errorMessage={rejectError || undefined}
+        onConfirm={handleRejectConfirm}
+        onCancel={() => {
+          setIsRejectDialogOpen(false);
+          setRejectWorker(null);
+          setRejectRemarks('');
+          setRejectError(null);
+        }}
+      >
+        <div style={{ marginBottom: 'var(--space-3)' }}>
+          <label
+            htmlFor="rejection-category-select"
+            style={{
+              display: 'block',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              color: 'var(--color-text-secondary)',
+              marginBottom: 'var(--space-1)',
+            }}
+          >
+            Rejection Reason Category:
+          </label>
+          <select
+            id="rejection-category-select"
+            aria-label="Rejection Reason Category"
+            value={rejectCategory}
+            onChange={(e) => setRejectCategory(e.target.value as RejectionReasonCategory)}
+            style={{
+              width: '100%',
+              padding: 'var(--space-2)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              fontSize: 'var(--font-size-xs)',
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+            }}
+          >
+            {REJECTION_CATEGORIES.map((cat) => (
+              <option key={cat.key} value={cat.key}>
+                {cat.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 };

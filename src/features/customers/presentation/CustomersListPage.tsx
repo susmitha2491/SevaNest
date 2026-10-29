@@ -165,7 +165,7 @@ export const CustomersListPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -182,18 +182,18 @@ export const CustomersListPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            padding: '8px 14px',
+            padding: '6px 12px',
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
-            fontSize: 'var(--font-size-sm)',
+            fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
             cursor: 'pointer',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
+          <RefreshCw size={13} color="var(--color-primary)" />
           <span>Refresh Directory</span>
         </button>
       </div>
@@ -203,10 +203,10 @@ export const CustomersListPage: React.FC = () => {
         style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-3)',
+          gap: 'var(--space-2)',
           alignItems: 'center',
           backgroundColor: 'var(--color-bg-surface)',
-          padding: 'var(--space-4)',
+          padding: 'var(--space-3)',
           borderRadius: 'var(--radius-lg)',
           border: '1px solid var(--color-border-subtle)',
         }}
@@ -243,12 +243,13 @@ export const CustomersListPage: React.FC = () => {
             }}
             style={{
               width: '100%',
-              padding: '8px 12px 8px 36px',
+              padding: '6px 10px 6px 34px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-sm)',
+              fontSize: 'var(--font-size-xs)',
               color: 'var(--color-text-primary)',
+              height: '34px',
             }}
           />
         </div>
@@ -274,13 +275,14 @@ export const CustomersListPage: React.FC = () => {
             }}
             aria-label="Filter by account status"
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
               fontSize: 'var(--font-size-xs)',
               fontWeight: 600,
               color: 'var(--color-text-primary)',
+              height: '34px',
             }}
           >
             <option value="ALL">Status: All</option>
@@ -309,13 +311,14 @@ export const CustomersListPage: React.FC = () => {
             }}
             aria-label="Filter by cluster locality"
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
               fontSize: 'var(--font-size-xs)',
               fontWeight: 600,
               color: 'var(--color-text-primary)',
+              height: '34px',
             }}
           >
             {localities.map((loc) => (
@@ -337,13 +340,14 @@ export const CustomersListPage: React.FC = () => {
             }}
             aria-label="Sort customer records"
             style={{
-              padding: '8px 12px',
+              padding: '6px 10px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
               fontSize: 'var(--font-size-xs)',
               fontWeight: 600,
               color: 'var(--color-text-primary)',
+              height: '34px',
             }}
           >
             <option value="name-asc">Sort: Name (A-Z)</option>
@@ -365,31 +369,31 @@ export const CustomersListPage: React.FC = () => {
         }}
       >
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
               <tr>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Customer ID
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Customer Name
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Contact (PII Masked)
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Cluster Locality
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   KYC Verification
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Account Status
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'center', whiteSpace: 'nowrap' }}>
                   Bookings
                 </th>
-                <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
+                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
                 </th>
               </tr>
@@ -404,37 +408,37 @@ export const CustomersListPage: React.FC = () => {
               ) : (
                 paginatedCustomers.map((customer: Customer) => (
                   <tr key={customer.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace' }}>
+                    <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                       {customer.id}
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{customer.name}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>Registered: {customer.registeredDate}</div>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>{customer.name}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {customer.registeredDate}</div>
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                       <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
                     </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                    <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                       {customer.locality}
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                       <VerificationBadge
                         isFullyVerified={customer.verificationStatus === 'VERIFIED'}
                         status={customer.verificationStatus || 'PENDING'}
                       />
                     </td>
-                    <td style={{ padding: '14px 16px' }}>
+                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                       <StatusBadge status={customer.status} />
                     </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-primary)', fontWeight: 600 }}>
+                    <td style={{ padding: '8px 12px', color: 'var(--color-text-primary)', fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
                       {customer.totalBookings}
                     </td>
-                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: 'var(--space-2)' }}>
+                    <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
                         <button
                           onClick={() => handleOpenDetailModal(customer.id)}
                           style={{
-                            padding: '4px 10px',
+                            padding: '4px 8px',
                             borderRadius: 'var(--radius-sm)',
                             border: '1px solid var(--color-border-subtle)',
                             backgroundColor: 'var(--color-bg-surface-elevated)',
@@ -445,6 +449,7 @@ export const CustomersListPage: React.FC = () => {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: '4px',
+                            whiteSpace: 'nowrap',
                           }}
                         >
                           <User size={13} />
@@ -470,6 +475,7 @@ export const CustomersListPage: React.FC = () => {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
+                                whiteSpace: 'nowrap',
                               }}
                             >
                               <Ban size={13} />
@@ -490,6 +496,7 @@ export const CustomersListPage: React.FC = () => {
                                 display: 'inline-flex',
                                 alignItems: 'center',
                                 gap: '4px',
+                                whiteSpace: 'nowrap',
                               }}
                             >
                               <CheckCircle size={13} />

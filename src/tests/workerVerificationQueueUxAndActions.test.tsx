@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
@@ -46,6 +46,62 @@ const mockQueueItems: VerificationDossier[] = [
         title: 'Identity Proof (Aadhaar)',
         status: 'PENDING',
         evaluationMethod: 'DOCUMENT_INSPECTION',
+        documentMetadata: {
+          documentId: 'doc-id-101',
+          documentTypeName: 'Aadhaar Card',
+          docNumberMasked: 'XXXX-XXXX-8921',
+          nameOnDoc: 'Sunita Devi',
+        },
+      },
+      ADDRESS: {
+        id: 'chk-address-101',
+        type: 'ADDRESS',
+        title: 'Address Proof',
+        status: 'PENDING',
+        evaluationMethod: 'DOCUMENT_INSPECTION',
+        documentMetadata: {
+          documentId: 'doc-addr-101',
+          documentTypeName: 'Electricity Bill',
+          docNumberMasked: 'ELEC-HYD-49201',
+          nameOnDoc: 'Sunita Devi',
+        },
+      },
+      EMERGENCY_CONTACT: {
+        id: 'chk-emergency-101',
+        type: 'EMERGENCY_CONTACT',
+        title: 'Emergency Contact Vetting',
+        status: 'PENDING',
+        evaluationMethod: 'TELEPHONIC_VETTING',
+        contactDetails: {
+          contactName: 'Rajesh Devi',
+          relationshipOrRole: 'Spouse',
+          phoneMasked: '+91 98450 *****',
+        },
+      },
+      REFERENCE: {
+        id: 'chk-reference-101',
+        type: 'REFERENCE',
+        title: 'Employer Reference',
+        status: 'PENDING',
+        evaluationMethod: 'TELEPHONIC_VETTING',
+        contactDetails: {
+          contactName: 'Mrs. S. Sharma',
+          relationshipOrRole: 'Prior Employer',
+          phoneMasked: '+91 99881 *****',
+        },
+      },
+      POLICE_CLEARANCE: {
+        id: 'chk-police-101',
+        type: 'POLICE_CLEARANCE',
+        title: 'Police Clearance',
+        status: 'PENDING',
+        evaluationMethod: 'CERTIFICATE_TRACKING',
+        documentMetadata: {
+          documentId: 'doc-pcc-101',
+          documentTypeName: 'Police Clearance Certificate',
+          docNumberMasked: 'PCC-CYB-2024-8891',
+          nameOnDoc: 'Sunita Devi',
+        },
       },
     } as unknown as Record<VerificationCheckType, VerificationCheck>,
   },
@@ -456,8 +512,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
 
       expect(await screen.findByRole('dialog')).toBeInTheDocument();
       expect(screen.getByText(/Verification Dossier: Ramesh Yadav/i)).toBeInTheDocument();
-      expect(screen.getByText(/Category: Driver/i)).toBeInTheDocument();
-      expect(screen.getByText(/Locality: Madhapur/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Driver/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Madhapur/i).length).toBeGreaterThanOrEqual(1);
       expect(screen.getAllByText('W-10483').length).toBeGreaterThanOrEqual(1);
     });
 
@@ -608,35 +664,38 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       expect(claimCheckSpy).not.toHaveBeenCalled();
     });
 
-    it('12. existing dossier functionality, tabs, and pre-checks continue working in modal', async () => {
+    it('12. redesigned dossier displays step-by-step wizard workflow with Application Details, Documents, and KYC Checks', async () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
       await user.click(inspectBtn);
 
-      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      const dialog = await screen.findByRole('dialog');
 
-      // Tier 1 Pre-Check banner
-      expect(screen.getByText(/Tier 1 Automated Onboarding Pre-Check: Mobile OTP/i)).toBeInTheDocument();
+      // Step 1: Worker Application Details
+      expect(screen.getByText(/Step 1 — Worker Application Details/i)).toBeInTheDocument();
+      expect(screen.getAllByText('W-10482').length).toBeGreaterThan(0);
 
-      // Check section switcher tabs
-      expect(screen.getByRole('button', { name: /Inspection Workstation/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Personal Details/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Work Profile/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Submitted Documents/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /6-Point Checklist/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Review History/i })).toBeInTheDocument();
+      // Navigate to Step 2: Documents Review
+      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn1);
+      expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
 
-      // 5 operations check tabs
-      expect(screen.getByRole('button', { name: /1\. Identity Proof/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /2\. Address Proof/i })).toBeInTheDocument();
+      // Navigate to Step 3: KYC Verification
+      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
+      await user.click(nextBtn2);
+      expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-      // Switch to Personal Details tab
-      const personalTab = screen.getByRole('button', { name: /Personal Details/i });
-      await user.click(personalTab);
+      // Mobile OTP Pre-Check
+      expect(screen.getAllByText(/Mobile OTP Pre-Check/i).length).toBeGreaterThan(0);
 
-      expect(await screen.findByText(/Applicant Personal Details/i)).toBeInTheDocument();
+      // Operational checks rendered in Step 3
+      expect(screen.getAllByText('Identity Proof').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Address Proof').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Emergency Contact').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Employer Reference').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Police Clearance').length).toBeGreaterThan(0);
     });
   });
 });
