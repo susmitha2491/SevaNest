@@ -271,7 +271,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
 
       // Navigate to Documents & Evidence step
       const step2Btn = await screen.findByRole('button', {
-        name: /Proceed to Step 2: Documents & Evidence/i,
+        name: /Next: Verify KYC/i,
       });
       await user.click(step2Btn);
 

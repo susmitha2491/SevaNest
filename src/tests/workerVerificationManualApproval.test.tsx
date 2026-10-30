@@ -374,7 +374,7 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
     expect(within(polCard).queryByText(/Check Approved & Verified/i)).not.toBeInTheDocument();
   });
 
-  it('RealVerificationRepository.approveCheck intercepts SUBMITTED cannot move to APPROVED and automatically retries after start-review', async () => {
+  it('RealVerificationRepository.approveCheck does not retry decisions blindly and surfaces backend error on transition failure', async () => {
     const repo = new RealVerificationRepository();
     const axiosError = Object.assign(
       new Error('A check that is SUBMITTED cannot move to APPROVED. Please retry.'),
@@ -389,35 +389,17 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
 
     const postSpy = vi
       .spyOn(httpClient, 'post')
-      .mockRejectedValueOnce(axiosError)
-      .mockResolvedValueOnce({
-        data: { success: true },
-      } as unknown as { data: { success: boolean } })
-      .mockResolvedValueOnce({
-        data: {
-          workerId: 'W-TEST-001',
-          level: 'VERIFIED',
-          checks: [],
-        },
-      } as unknown as { data: { workerId: string; level: string; checks: [] } });
+      .mockRejectedValueOnce(axiosError);
 
-    const result = await repo.approveCheck('chk-reference-881', 'REFERENCE', 'Verified with prior employer');
+    await expect(
+      repo.approveCheck('chk-reference-881', 'REFERENCE', 'Verified with prior employer')
+    ).rejects.toThrow('A check that is SUBMITTED cannot move to APPROVED. Please retry.');
 
-    expect(postSpy).toHaveBeenCalledTimes(3);
-    expect(postSpy).toHaveBeenNthCalledWith(
-      1,
+    // Crucial rule: RealVerificationRepository must NOT blindly retry without user intent
+    expect(postSpy).toHaveBeenCalledTimes(1);
+    expect(postSpy).toHaveBeenCalledWith(
       '/admin/verification/checks/chk-reference-881/approve',
       { remarks: 'Verified with prior employer' }
     );
-    expect(postSpy).toHaveBeenNthCalledWith(
-      2,
-      '/admin/verification/checks/chk-reference-881/start-review'
-    );
-    expect(postSpy).toHaveBeenNthCalledWith(
-      3,
-      '/admin/verification/checks/chk-reference-881/approve',
-      { remarks: 'Verified with prior employer' }
-    );
-    expect(result).toBeDefined();
   });
 });

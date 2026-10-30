@@ -191,11 +191,11 @@ describe('Phase 1: Worker Verification Integration Fixes', () => {
       expect(normalizeCheckType('EMERGENCY_CONTACT')).toBe('EMERGENCY_CONTACT');
       expect(normalizeCheckType('REFERENCE')).toBe('REFERENCE');
       expect(normalizeCheckType('POLICE_CLEARANCE')).toBe('POLICE_CLEARANCE');
+      expect(normalizeCheckType('SKILL_CERTIFICATE')).toBe('SKILL_CERTIFICATE');
+      expect(normalizeCheckType('LICENSE')).toBe('LICENSE');
     });
 
     it('explicitly rejects unknown enums and does not silently assign to unrelated checks', () => {
-      expect(normalizeCheckType('SKILL_CERTIFICATE')).toBeNull();
-      expect(normalizeCheckType('LICENSE')).toBeNull();
       expect(normalizeCheckType('DRIVING_LICENSE')).toBeNull();
       expect(normalizeCheckType('RANDOM_UNKNOWN')).toBeNull();
       expect(normalizeCheckType(undefined)).toBeNull();

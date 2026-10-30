@@ -182,21 +182,41 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   // Dynamic submitted documents list for Step 2
   const submittedDocs: VerificationDocumentMetadata[] = useMemo(() => {
     if (dossier?.submittedDocuments && dossier.submittedDocuments.length > 0) {
-      return dossier.submittedDocuments;
+      return dossier.submittedDocuments.filter(
+        (d) =>
+          d.reviewable === true &&
+          d.available !== false &&
+          d.availability !== 'DISCARDED' &&
+          d.status !== 'PENDING_UPLOAD'
+      );
     }
     const docs: VerificationDocumentMetadata[] = [];
     if (dossier?.checks) {
       Object.values(dossier.checks).forEach((c) => {
         if (Array.isArray(c.documents) && c.documents.length > 0) {
           c.documents.forEach((d) => {
-            if (d.documentId) docs.push(d);
+            if (
+              d.documentId &&
+              d.reviewable === true &&
+              d.available !== false &&
+              d.availability !== 'DISCARDED' &&
+              d.status !== 'PENDING_UPLOAD'
+            ) {
+              docs.push(d);
+            }
           });
-        } else if (c.documentMetadata?.documentId) {
+        } else if (
+          c.documentMetadata?.documentId &&
+          c.documentMetadata.reviewable === true &&
+          c.documentMetadata.available !== false &&
+          c.documentMetadata.availability !== 'DISCARDED'
+        ) {
           docs.push({
             ...c.documentMetadata,
             checkType: c.type,
             checkTitle: c.title,
             checkId: c.id,
+            reviewable: true,
           });
         }
       });
@@ -1975,8 +1995,17 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             </div>
 
                             {/* Genuine Document Display */}
-                            {signedDocUrlData.signedUrl && (
-                              signedDocUrlData.signedUrl.match(/\.(jpg|jpeg|png|webp)($|\?)/i) ? (
+                            {signedDocUrlData.signedUrl && (() => {
+                              const docMimeType = (
+                                signedDocUrlData.mimeType ||
+                                activeDocMetadata?.mimeType ||
+                                activeDocMetadata?.contentType ||
+                                ''
+                              ).toLowerCase();
+                              const isImage =
+                                docMimeType.startsWith('image/') ||
+                                Boolean(signedDocUrlData.signedUrl.match(/\.(jpg|jpeg|png|webp|gif|svg)($|\?)/i));
+                              return isImage ? (
                                 <img
                                   src={signedDocUrlData.signedUrl}
                                   alt="Submitted KYC Document"
@@ -1985,13 +2014,13 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               ) : (
                                 <object
                                   data={signedDocUrlData.signedUrl}
-                                  type="application/pdf"
+                                  type={docMimeType || 'application/pdf'}
                                   style={{ width: '100%', height: '360px', borderRadius: 'var(--radius-sm)', marginTop: 'var(--space-2)' }}
                                 >
                                   <p>PDF document preview</p>
                                 </object>
-                              )
-                            )}
+                              );
+                            })()}
                           </div>
                         </div>
                       )}

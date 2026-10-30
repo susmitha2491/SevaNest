@@ -34,8 +34,19 @@ export class ForbiddenError extends DomainError {
 
 export class NotFoundError extends DomainError {
   public readonly code = 'NOT_FOUND';
-  constructor(message = 'The requested record could not be found.', correlationId?: string) {
-    super(message, correlationId);
+  public readonly errorCode?: string;
+  constructor(
+    message = 'The requested record could not be found.',
+    correlationId?: string | { correlationId?: string; errorCode?: string },
+    errorCode?: string
+  ) {
+    if (typeof correlationId === 'object' && correlationId !== null) {
+      super(message, correlationId.correlationId);
+      this.errorCode = correlationId.errorCode ?? errorCode;
+    } else {
+      super(message, correlationId);
+      this.errorCode = errorCode;
+    }
   }
 }
 
@@ -45,13 +56,19 @@ export class ConcurrencyConflictError extends DomainError {
   public readonly errorCode?: string;
   constructor(
     message = 'This record was modified by another user. Please reload the latest data.',
-    correlationId?: string,
+    correlationId?: string | { correlationId?: string; statusCode?: number; errorCode?: string },
     statusCode?: number,
     errorCode?: string
   ) {
-    super(message, correlationId);
-    this.statusCode = statusCode;
-    this.errorCode = errorCode;
+    if (typeof correlationId === 'object' && correlationId !== null) {
+      super(message, correlationId.correlationId);
+      this.statusCode = correlationId.statusCode ?? statusCode;
+      this.errorCode = correlationId.errorCode ?? errorCode;
+    } else {
+      super(message, correlationId);
+      this.statusCode = statusCode;
+      this.errorCode = errorCode;
+    }
   }
 }
 
@@ -63,15 +80,27 @@ export class ValidationError extends DomainError {
 
   constructor(
     message = 'Validation failed. Please review the highlighted fields.',
-    fieldErrors?: Record<string, string[]>,
+    fieldErrors?: Record<string, string[]> | { correlationId?: string; errorCode?: string; details?: unknown; fieldErrors?: Record<string, string[]> },
     correlationId?: string,
     errorCode?: string,
     details?: unknown
   ) {
-    super(message, correlationId);
-    this.fieldErrors = fieldErrors;
-    this.errorCode = errorCode;
-    this.details = details;
+    if (
+      typeof fieldErrors === 'object' &&
+      fieldErrors !== null &&
+      ('errorCode' in fieldErrors || 'details' in fieldErrors || 'correlationId' in fieldErrors)
+    ) {
+      const opts = fieldErrors as { correlationId?: string; errorCode?: string; details?: unknown; fieldErrors?: Record<string, string[]> };
+      super(message, opts.correlationId ?? correlationId);
+      this.fieldErrors = opts.fieldErrors;
+      this.errorCode = opts.errorCode ?? errorCode;
+      this.details = opts.details ?? details;
+    } else {
+      super(message, correlationId);
+      this.fieldErrors = fieldErrors as Record<string, string[]> | undefined;
+      this.errorCode = errorCode;
+      this.details = details;
+    }
   }
 }
 
@@ -84,8 +113,19 @@ export class RateLimitExceededError extends DomainError {
 
 export class ServerFailureError extends DomainError {
   public readonly code = 'SERVER_FAILURE';
-  constructor(message = 'A server error occurred. Please try again later.', correlationId?: string) {
-    super(message, correlationId);
+  public readonly errorCode?: string;
+  constructor(
+    message = 'A server error occurred. Please try again later.',
+    correlationId?: string | { correlationId?: string; errorCode?: string },
+    errorCode?: string
+  ) {
+    if (typeof correlationId === 'object' && correlationId !== null) {
+      super(message, correlationId.correlationId);
+      this.errorCode = correlationId.errorCode ?? errorCode;
+    } else {
+      super(message, correlationId);
+      this.errorCode = errorCode;
+    }
   }
 }
 

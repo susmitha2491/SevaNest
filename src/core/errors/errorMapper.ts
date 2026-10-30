@@ -65,10 +65,26 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
       case 403:
         return new ForbiddenError(serverMessage || 'Action forbidden by server authorization policy.', undefined, correlationId);
       case 404:
-        return new NotFoundError(serverMessage || 'Resource not found.', correlationId);
+        if (payload?.code === 'DOCUMENT_OBJECT_MISSING') {
+          return new NotFoundError(
+            serverMessage || 'The document file is missing from storage. Please request the worker to re-upload.',
+            correlationId,
+            payload.code
+          );
+        }
+        return new NotFoundError(serverMessage || 'Resource not found.', correlationId, payload?.code);
       case 409:
         if (payload?.code === 'CHECK_ALREADY_ASSIGNED') {
           return new ConcurrencyConflictError(serverMessage || 'Check is already assigned to another reviewer.', correlationId, 409, payload.code);
+        }
+        if (payload?.code === 'CHECK_NOT_ASSIGNED_TO_YOU') {
+          return new ConcurrencyConflictError(serverMessage || 'This check is assigned to another reviewer. You must be assigned to decide this check.', correlationId, 409, payload.code);
+        }
+        if (payload?.code === 'INVALID_TRANSITION') {
+          return new ConcurrencyConflictError(serverMessage || 'Invalid check transition. The check must be claimed and in review before a decision can be made.', correlationId, 409, payload.code);
+        }
+        if (payload?.code === 'DOCUMENT_NOT_AVAILABLE') {
+          return new ConcurrencyConflictError(serverMessage || 'The requested document is not currently available for inspection.', correlationId, 409, payload.code);
         }
         if (payload?.code === 'NOT_FULLY_VERIFIED') {
           return new ConcurrencyConflictError(serverMessage || 'Cannot sign off: all required verification checks must be approved first.', correlationId, 409, payload.code);
@@ -84,9 +100,28 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
         return new ConcurrencyConflictError(
           serverMessage || 'STALE_VERSION: This record was modified by another user or session. Please reload the latest data and retry.',
           correlationId,
-          412
+          412,
+          payload?.code
         );
       case 422:
+        if (payload?.code === 'APPROVAL_REQUIREMENTS_MISSING') {
+          return new ValidationError(
+            serverMessage || 'Approval requirements missing: required fields must be recorded before approval.',
+            fieldErrors,
+            correlationId,
+            payload.code,
+            payload.details
+          );
+        }
+        if (payload?.code === 'DOCUMENT_INTEGRITY_FAILED') {
+          return new ValidationError(
+            serverMessage || 'Document integrity check failed. The file may be corrupted.',
+            fieldErrors,
+            correlationId,
+            payload.code,
+            payload.details
+          );
+        }
         if (payload?.code === 'ACTIVATION_REQUIREMENTS_MISSING') {
           return new ValidationError(serverMessage || 'Missing authoritative prerequisites for worker activation.', fieldErrors, correlationId, payload.code, payload.details);
         }
@@ -98,7 +133,8 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
         return new ConcurrencyConflictError(
           serverMessage || 'PRECONDITION_REQUIRED: Concurrency version precondition (ETag/If-Match) is required for this mutation.',
           correlationId,
-          428
+          428,
+          payload?.code
         );
       case 429:
         return new RateLimitExceededError(serverMessage || 'Rate limit exceeded.', correlationId);
@@ -107,7 +143,21 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
       case 503:
       case 504:
       default:
-        return new ServerFailureError(serverMessage || 'Internal server error occurred.', correlationId);
+        if (payload?.code === 'STORAGE_NOT_CONFIGURED') {
+          return new ServerFailureError(
+            serverMessage || 'Storage service is not configured. Please contact the system administrator.',
+            correlationId,
+            payload.code
+          );
+        }
+        if (payload?.code === 'DOCUMENT_INTEGRITY_FAILED') {
+          return new ServerFailureError(
+            serverMessage || 'Document integrity check failed. The file may be corrupted.',
+            correlationId,
+            payload.code
+          );
+        }
+        return new ServerFailureError(serverMessage || 'Internal server error occurred.', correlationId, payload?.code);
     }
   }
 

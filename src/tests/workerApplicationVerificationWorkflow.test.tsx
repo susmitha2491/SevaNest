@@ -100,7 +100,8 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(rejectButtons.length).toBeGreaterThan(0);
     });
 
-    it('enforces matching ineligibility in WorkerDetailModal with explanatory callout and verification link', async () => {
+    it('enforces matching ineligibility in WorkerDetailModal with header badge and verification navigation', async () => {
+      const user = userEvent.setup();
       renderWithProviders(
         <WorkerDetailModal
           workerId="W-10483"
@@ -108,18 +109,18 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Check matching ineligibility callout banner
+      // Check matching ineligibility badge in header
       expect(
-        await screen.findByText(/Matching Eligibility: NOT ELIGIBLE/i)
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(/until every required verification check is approved/i)
+        await screen.findByText(/Matching: INELIGIBLE/i)
       ).toBeInTheDocument();
 
-      // Check review queue CTA button
-      expect(
-        screen.getByRole('button', { name: /Review in Verification Queue/i })
-      ).toBeInTheDocument();
+      // Check navigation to KYC verification
+      const nextBtn = screen.getByRole('button', { name: /Next: Verify KYC/i });
+      expect(nextBtn).toBeInTheDocument();
+      await user.click(nextBtn);
+
+      expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
+      expect(screen.getByText(/Activation is locked/i)).toBeInTheDocument();
     });
   });
 
@@ -387,7 +388,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
   });
 
   describe('6. Complete Worker Profile & Application Lifecycle', () => {
-    it('opens WorkerDetailModal across structured tabs: Verification, Personal, Professional, Documents Vault, and Operations', async () => {
+    it('opens WorkerDetailModal across simplified 2-step workflow: Worker Information and KYC Verification', async () => {
       const user = userEvent.setup();
       renderWithProviders(
         <WorkerDetailModal
@@ -396,36 +397,29 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Default is Verification tab
-      expect(await screen.findByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
-
-      // Switch to Personal & Contact tab
-      const personalTab = screen.getByRole('button', { name: /Personal & Contact/i });
-      await user.click(personalTab);
-      expect(await screen.findByText(/Contact Information/i)).toBeInTheDocument();
+      // Step 1: Worker Information is default
+      expect(await screen.findByRole('heading', { name: /Sunita Devi/i })).toBeInTheDocument();
+      expect(screen.getByText('1. Worker Information')).toBeInTheDocument();
+      expect(screen.getByText('2. KYC Verification')).toBeInTheDocument();
+      expect(screen.getByText('Primary Skill & Experience')).toBeInTheDocument();
+      expect(screen.getByText('Address & Locality')).toBeInTheDocument();
       expect(screen.getByText(/\+91 98765 \*\*\*\*\*/i)).toBeInTheDocument();
+      expect(screen.getByText(/Deep Cleaning/i)).toBeInTheDocument();
 
-      // Switch to Professional Profile tab
-      const profTab = screen.getByRole('button', { name: /Professional Profile/i });
-      await user.click(profTab);
-      expect(await screen.findByText(/Deep Cleaning/i)).toBeInTheDocument();
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = screen.getByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      // Switch to Documents Vault tab
-      const docsTab = screen.getByRole('button', { name: /Documents Vault/i });
-      await user.click(docsTab);
-      expect(await screen.findByText(/Aadhaar Card/i)).toBeInTheDocument();
-
-      // Switch to Operational Engagements tab
-      const opsTab = screen.getByRole('button', { name: /Operational Engagements/i });
-      await user.click(opsTab);
-      expect(await screen.findByText(/Active Engagements/i)).toBeInTheDocument();
+      expect(await screen.findByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Aadhaar Card/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: /Back to Worker Information/i })).toBeInTheDocument();
     });
 
     it('automatically opens worker detail modal when workerId is provided in URL query params', async () => {
       renderWithProviders(<WorkersListPage />, '/workers?workerId=W-10482');
 
-      expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-      expect(await screen.findByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
+      expect(await screen.findByText('1. Worker Information')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Next: Verify KYC/i })).toBeInTheDocument();
     });
   });
 
@@ -458,11 +452,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Navigate to Professional tab
-      const profTab = await screen.findByRole('button', { name: /Professional Profile/i });
-      await user.click(profTab);
-
-      // Find and click "Manage Categories"
+      // Find and click "Manage Categories" in modal footer
       const manageCatBtn = await screen.findByRole('button', { name: /Manage Categories/i });
       await user.click(manageCatBtn);
 
@@ -482,7 +472,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
   });
 
   describe('8. Guided Verification Workstation Lifecycle & Cross-Role Handoff', () => {
-    it('navigates through all 5 guided workstation steps with progress stepper controls', async () => {
+    it('navigates through the 2-step simplified workflow (Worker Info -> KYC Verification) and back', async () => {
       const user = userEvent.setup();
       renderWithProviders(
         <WorkerDetailModal
@@ -491,44 +481,34 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Step 1: Application Overview is displayed by default
-      expect(await screen.findByText(/Step 1: Application Overview/i)).toBeInTheDocument();
-      expect(screen.getByText(/1. Application Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/2. Operational Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/3. Verification Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/4. Matching Eligibility/i)).toBeInTheDocument();
+      // Step 1: Worker Information is displayed by default
+      expect(await screen.findByRole('heading', { name: 'Worker Information' })).toBeInTheDocument();
+      expect(screen.getByText(/Contact Number/i)).toBeInTheDocument();
+      expect(screen.getByText(/Address & Locality/i)).toBeInTheDocument();
+      expect(screen.getByText(/Primary Skill & Experience/i)).toBeInTheDocument();
 
       // Test PII Reveal toggle on Step 1
-      const revealBtn = screen.getByRole('button', { name: /Reveal Contact Number/i });
+      const revealBtn = screen.getByRole('button', { name: /Reveal contact number/i });
       await user.click(revealBtn);
-      expect(screen.getByText(/Contact revealed for telephonic vetting call/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Mask Phone/i })).toBeInTheDocument();
+      expect(screen.getByText(/Authorized contact reveal active/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Hide contact number/i })).toBeInTheDocument();
 
-      // Proceed to Step 2: Documents & Evidence
-      const step2Btn = screen.getByRole('button', { name: /Proceed to Step 2: Documents & Evidence/i });
-      await user.click(step2Btn);
-      expect(await screen.findByText(/Step 2: Documents & KYC Evidence Vault/i)).toBeInTheDocument();
-
-      // Proceed to Step 3: Verification Checklist
-      const step3Btn = screen.getByRole('button', { name: /Proceed to Step 3: Verification Checklist/i });
-      await user.click(step3Btn);
-      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      // Proceed to Step 2: KYC Verification
+      const nextBtn = screen.getByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
+      expect(screen.getByText(/Submitted KYC Documents/i)).toBeInTheDocument();
       expect(screen.getByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
+      expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
 
-      // Proceed to Step 4: Verification Summary
-      const step4Btn = screen.getByRole('button', { name: /Proceed to Step 4: Verification Summary/i });
-      await user.click(step4Btn);
-      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
-      expect(screen.getByText(/Individual Verification Checks Breakdown/i)).toBeInTheDocument();
-
-      // Proceed to Step 5: Platform Status
-      const step5Btn = screen.getByRole('button', { name: /Proceed to Step 5: Platform Status/i });
-      await user.click(step5Btn);
-      expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/Current Platform Matching State/i)).toBeInTheDocument();
+      // Return to Step 1: Worker Information
+      const backBtn = screen.getByRole('button', { name: /Back to Worker Information/i });
+      await user.click(backBtn);
+      expect(await screen.findByRole('heading', { name: 'Worker Information' })).toBeInTheDocument();
     });
 
-    it('displays authoritative overall verification level in Step 4 and does not expose unsupported decision controls', async () => {
+    it('displays authoritative overall verification level in Step 2 and does not expose unsupported decision controls', async () => {
       await verificationRepository.approveCheck('chk-identity-101', 'IDENTITY');
       await verificationRepository.approveCheck('chk-address-101', 'ADDRESS');
       await verificationRepository.approveCheck('chk-emergency-101', 'EMERGENCY_CONTACT');
@@ -544,13 +524,11 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Navigate to Step 4 directly via stepper pill
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      // Navigate to Step 2 via Next: Verify KYC
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
-      expect(screen.getByText(/Authoritative Overall Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
 
       // Ensure no unsupported final decision mutation buttons are exposed
       expect(screen.queryByRole('button', { name: /Submit Final Verification Approval/i })).not.toBeInTheDocument();
@@ -558,28 +536,10 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(screen.queryByRole('button', { name: /Issue Corrections Request/i })).not.toBeInTheDocument();
     });
 
-    it('displays unavailable state when authoritative verification level cannot be loaded and does not fabricate approval', async () => {
-      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValueOnce({
-        id: 'W-TEST-ERR',
-        applicationId: 'W-TEST-ERR',
-        workerId: 'W-TEST-ERR',
-        workerName: 'Test Worker',
-        category: 'Cook',
-        locality: 'Banjara Hills',
-        experienceYears: 3,
-        phoneMasked: '+91 99999 *****',
-        submissionTime: new Date().toISOString(),
-        status: 'PENDING_REVIEW',
-        level: undefined,
-        preCheckOtpVerified: true,
-        checks: {
-          IDENTITY: { type: 'IDENTITY', title: 'Identity Proof', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
-          ADDRESS: { type: 'ADDRESS', title: 'Address Proof', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
-          EMERGENCY_CONTACT: { type: 'EMERGENCY_CONTACT', title: 'Emergency Contact', status: 'APPROVED', evaluationMethod: 'TELEPHONIC_VETTING' },
-          REFERENCE: { type: 'REFERENCE', title: 'Reference', status: 'APPROVED', evaluationMethod: 'TELEPHONIC_VETTING' },
-          POLICE_CLEARANCE: { type: 'POLICE_CLEARANCE', title: 'Police Certificate', status: 'APPROVED', evaluationMethod: 'DOCUMENT_INSPECTION' },
-        },
-      });
+    it('displays error state when verification dossier fails to load and does not fabricate approval', async () => {
+      vi.spyOn(verificationRepository, 'getDossierById').mockRejectedValueOnce(
+        new Error('Network error loading dossier')
+      );
 
       const user = userEvent.setup();
 
@@ -590,15 +550,15 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      // Even if individual checks are approved, missing authoritative level must render unavailable error
-      expect(await screen.findByText(/Authoritative Verification Level Unavailable/i)).toBeInTheDocument();
-      expect(screen.getByText(/does not infer approval or compute final verification decisions/i)).toBeInTheDocument();
+      // When dossier fails to load, error banner is shown with retry
+      expect(await screen.findByText(/Failed to fetch verification dossier/i)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Retry$/i })).toBeInTheDocument();
     });
 
-    it('renders read-only platform status in Step 5 without exposing unconfirmed activation controls or calling updateWorkerStatus', async () => {
+    it('renders platform status card in Step 2 without exposing unconfirmed activation controls or calling updateWorkerStatus', async () => {
       const updateStatusSpy = vi.spyOn(workerRepository, 'updateWorkerStatus');
       const user = userEvent.setup();
 
@@ -609,14 +569,14 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      const step5Pill = await screen.findByRole('button', { name: /Platform Status/i });
-      await user.click(step5Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       expect(
-        await screen.findByText(/Step 5: Platform & Roster Status/i)
+        await screen.findByRole('heading', { name: 'Commercial Platform Activation' })
       ).toBeInTheDocument();
       expect(
-        screen.getByText(/Current Platform Matching State/i)
+        screen.getByText(/Activation is locked/i)
       ).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
       expect(updateStatusSpy).not.toHaveBeenCalled();
@@ -632,16 +592,16 @@ describe('Worker Application & Verification Complete Workflow', () => {
       );
 
       // Navigate to Step 2 via button
-      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
-      await user.click(step2Btn);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 2: Documents & KYC Evidence Vault/i)).toBeInTheDocument();
-      expect(screen.getByText(/Secure Vault Protocol:/i)).toBeInTheDocument();
+      expect(await screen.findByText(/Submitted KYC Documents/i)).toBeInTheDocument();
+      expect(screen.getByText(/Encrypted Cloud Storage/i)).toBeInTheDocument();
 
       // Verify documents table contains headers
       expect(screen.getByText('Document Type')).toBeInTheDocument();
-      expect(screen.getByText('Document ID / Reference')).toBeInTheDocument();
-      expect(screen.getByText('Verification State')).toBeInTheDocument();
+      expect(screen.getByText('Reference / Number')).toBeInTheDocument();
+      expect(screen.getByText('Status')).toBeInTheDocument();
 
       // W-10482 has Aadhaar card in documents
       expect((await screen.findAllByText(/Aadhaar Card/i)).length).toBeGreaterThan(0);
@@ -725,15 +685,15 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
-      await user.click(step2Btn);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       expect(await screen.findByTestId('no-documents-submitted')).toBeInTheDocument();
       expect(screen.getByText(/No verification documents submitted yet/i)).toBeInTheDocument();
       expect(screen.getByText(/Pending worker upload via the Worker Mobile App\./i)).toBeInTheDocument();
     });
 
-    it('Step 3 allows approving an active check, opening ConfirmDialog, and persisting decision through verificationRepository.approveCheck', async () => {
+    it('allows approving an active check in Step 2, opening ConfirmDialog, and persisting decision through verificationRepository.approveCheck', async () => {
       const approveSpy = vi.spyOn(verificationRepository, 'approveCheck').mockResolvedValueOnce();
       const user = userEvent.setup();
 
@@ -797,13 +757,10 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
-      await user.click(step2Btn);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      const step3Btn = await screen.findByRole('button', { name: /^Proceed to Step 3: Verification Checklist$/i });
-      await user.click(step3Btn);
-
-      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(await screen.findByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
 
       // Find the Approve Check button for the active Identity check
       const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
@@ -822,7 +779,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       );
     });
 
-    it('Step 3 enforces sequential locking where dependent check is locked until prerequisite is approved', async () => {
+    it('confirms later checks remain visible and their actions are not disabled solely because earlier checks are pending', async () => {
       const user = userEvent.setup();
 
       vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValueOnce({
@@ -885,16 +842,21 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      const step2Btn = await screen.findByRole('button', { name: /^Proceed to Step 2: Documents & Evidence$/i });
-      await user.click(step2Btn);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      const step3Btn = await screen.findByRole('button', { name: /^Proceed to Step 3: Verification Checklist$/i });
-      await user.click(step3Btn);
+      expect(await screen.findByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
 
-      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      // Later checks are visible without sequential lock messages or locked badges
+      expect(screen.queryByText(/is locked until preceding check\(s\)/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Locked$/i)).not.toBeInTheDocument();
 
-      // Address check is Step 2 and requires Identity (Step 1)
-      expect((await screen.findAllByText(/is locked until preceding check\(s\)/i)).length).toBeGreaterThan(0);
+      // Reviewers can inspect and attempt actions on any check in any order
+      const approveButtons = screen.getAllByRole('button', { name: /^Approve Check$/i });
+      expect(approveButtons.length).toBe(5);
+      approveButtons.forEach((btn) => {
+        expect(btn).toBeEnabled();
+      });
     });
   });
 });

@@ -137,11 +137,11 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 3: Verification Checklist
-      const step3Pill = await screen.findByRole('button', { name: /Verification Checklist/i });
-      await user.click(step3Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
 
       // Click Approve Check on the active Identity Check
       const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
@@ -170,7 +170,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Confirm modal popup is still fully rendered and active in DOM
       expect(screen.getByText(/Meena Sharma/i)).toBeInTheDocument();
-      expect(screen.getByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(screen.getByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
     });
 
     it('keeps popup open and displays error feedback when approval fails', async () => {
@@ -190,9 +190,9 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 3
-      const step3Pill = await screen.findByRole('button', { name: /Verification Checklist/i });
-      await user.click(step3Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       // Click Approve Check
       const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
@@ -212,7 +212,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Verify modal still open and retry is possible
       expect(screen.getByRole('heading', { name: /Meena Sharma/i })).toBeInTheDocument();
-      expect(screen.getByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(screen.getByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
     });
 
     it('transmits exact ApproveCheckDto payload ({ remarks, recheckAt? }) and strictly strips non-whitelisted fields', async () => {
@@ -296,9 +296,9 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 3: Verification Checklist
-      const step3Pill = await screen.findByRole('button', { name: /Verification Checklist/i });
-      await user.click(step3Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       // Click Approve Check
       const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
@@ -318,7 +318,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Verify modal is still active in the DOM
       expect(screen.getByRole('heading', { name: /Meena Sharma/i })).toBeInTheDocument();
-      expect(screen.getByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(screen.getByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
     });
 
     it('updates check status from authoritative backend AdminWorkerVerificationResponse and keeps popup open', async () => {
@@ -358,9 +358,9 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 3
-      const step3Pill = await screen.findByRole('button', { name: /Verification Checklist/i });
-      await user.click(step3Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       // Click Approve Check
       const approveButtons = await screen.findAllByRole('button', { name: /^Approve Check$/i });
@@ -382,7 +382,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       expect(screen.getByText(/Meena Sharma/i)).toBeInTheDocument();
     });
 
-    it('enforces sequential progression so step 2 is locked until step 1 is approved', async () => {
+    it('confirms later checks remain visible and their actions are not disabled solely because earlier checks are pending', async () => {
       const user = userEvent.setup();
       vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValue(mockWorkerBase);
       vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(mockDossierPending);
@@ -394,14 +394,21 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      const step3Pill = await screen.findByRole('button', { name: /Verification Checklist/i });
-      await user.click(step3Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 3: Verification Checklist & Operational Evaluation/i)).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
 
-      // Check 2 (Address Proof) is locked until Identity Proof is approved
-      const lockedBadges = await screen.findAllByText(/is locked until preceding check\(s\)/i);
-      expect(lockedBadges.length).toBeGreaterThan(0);
+      // Later checks are not locked by frontend UI locks
+      expect(screen.queryByText(/is locked until preceding check\(s\)/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Locked$/i)).not.toBeInTheDocument();
+
+      // Individual check cards (including Step 2, 3, 4, 5) remain visible and their actions are enabled
+      const approveButtons = screen.getAllByRole('button', { name: /^Approve Check$/i });
+      expect(approveButtons.length).toBeGreaterThan(0);
+      approveButtons.forEach((btn) => {
+        expect(btn).toBeEnabled();
+      });
     });
   });
 
@@ -434,11 +441,11 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 4
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
 
       // Sign-off button should NOT be available to Verification Executive
       expect(screen.queryByRole('button', { name: /Sign Off Verification/i })).not.toBeInTheDocument();
@@ -477,9 +484,9 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 4
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       // The sign-off button must be disabled
       const signOffBtn = screen.getByRole('button', { name: /Sign Off Verification/i });
@@ -531,9 +538,9 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      // Navigate to Step 4
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       const signOffBtn = screen.getByRole('button', { name: /Sign Off Verification/i });
       expect(signOffBtn).toBeEnabled();
@@ -596,8 +603,8 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       const signOffBtn = screen.getByRole('button', { name: /Sign Off Verification/i });
       await user.click(signOffBtn);
@@ -677,8 +684,8 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
         />
       );
 
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       // Activation button should be enabled because worker is signed off and user has worker.activate
       const activateBtn = screen.getByRole('button', { name: /Activate Worker on Platform/i });
@@ -749,11 +756,11 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       expect(await screen.findByText(/App: ACTIVE/i)).toBeInTheDocument();
       expect(screen.getByText(/Matching: ELIGIBLE/i)).toBeInTheDocument();
 
-      // Navigate to Step 5: Platform Status
-      const step5Pill = await screen.findByRole('button', { name: /Platform Status/i });
-      await user.click(step5Pill);
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
       expect(screen.getByText(/ACTIVE & ONBOARDED/i)).toBeInTheDocument();
       expect(screen.getByText(/Eligible for Customer Matching & Allocation/i)).toBeInTheDocument();
     });

@@ -117,45 +117,35 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       });
     });
 
-    it('opens WorkerDetailModal and renders all 5 structured tabs without route deviation', async () => {
+    it('opens WorkerDetailModal and renders the simplified 2-step workflow without route deviation', async () => {
       renderApp('/workers');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       const approveBtn = screen.getByRole('button', { name: /Approve verification for Sunita Devi/i });
       fireEvent.click(approveBtn);
 
-      // Modal opens
+      // Modal opens in Step 1: Worker Information
       expect(await screen.findByText('Sunita Devi', { selector: 'h2' })).toBeInTheDocument();
+      expect(screen.getByText('1. Worker Information')).toBeInTheDocument();
+      expect(screen.getByText('2. KYC Verification')).toBeInTheDocument();
 
-      // All 5 PRD tabs exist
-      expect(screen.getByText('1. Verification & Trust Workstation')).toBeInTheDocument();
-      expect(screen.getByText('2. Personal & Contact')).toBeInTheDocument();
-      expect(screen.getByText('3. Professional Profile')).toBeInTheDocument();
-      expect(screen.getByText('4. Documents Vault')).toBeInTheDocument();
-      expect(screen.getByText('5. Operational Engagements')).toBeInTheDocument();
-
-      // Tab 3: Professional Profile
-      fireEvent.click(screen.getByText('3. Professional Profile'));
-      expect(await screen.findByText('Assigned Service Categories')).toBeInTheDocument();
-      expect(screen.getByText('5 Years Household Experience')).toBeInTheDocument();
+      // Step 1: Basic Information and profile details
+      expect(screen.getByText('Primary Skill & Experience')).toBeInTheDocument();
+      expect(screen.getByText('Address & Locality')).toBeInTheDocument();
+      expect(screen.getByText('5 Years Experience')).toBeInTheDocument();
       expect(screen.getByText('Hindi, Telugu')).toBeInTheDocument();
       expect(screen.getByText('Available for Immediate Allocation')).toBeInTheDocument();
       expect(screen.getByText('₹18,000 / month')).toBeInTheDocument();
       expect(screen.getByText('Deep Cleaning')).toBeInTheDocument();
 
-      // Tab 4: Documents Vault
-      fireEvent.click(screen.getByText('4. Documents Vault'));
-      expect(await screen.findByText('Strict Document Privacy Protocols:')).toBeInTheDocument();
-      expect(screen.getByText('Aadhaar Card (Front & Back)')).toBeInTheDocument();
-      expect(screen.getByText('XXXX-XXXX-8921')).toBeInTheDocument();
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = screen.getByRole('button', { name: /Next: Verify KYC/i });
+      fireEvent.click(nextBtn);
 
-      // Tab 5: Operational Engagements & Ratings
-      fireEvent.click(screen.getByText('5. Operational Engagements'));
-      expect(await screen.findByText('Rating Score')).toBeInTheDocument();
-      expect(screen.getByText('(28)')).toBeInTheDocument();
-      expect(screen.getByText('Completed Jobs')).toBeInTheDocument();
-      expect(screen.getByText('Active Engagements')).toBeInTheDocument();
-      expect(screen.getByText('Recent Household Engagements')).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
+      expect(screen.getAllByText('Aadhaar Card (Front & Back)').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('XXXX-XXXX-8921').length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: /Back to Worker Information/i })).toBeInTheDocument();
     });
   });
 
@@ -241,15 +231,14 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
 
       expect(await screen.findByText('Anita Sharma', { selector: 'h2' })).toBeInTheDocument();
 
-      // Check Tab 3: Professional Profile
-      fireEvent.click(screen.getByText('3. Professional Profile'));
+      // Check Step 1: Professional Profile details
       const notSpecifiedElements = await screen.findAllByText(/Not specified/);
       expect(notSpecifiedElements.length).toBeGreaterThan(0);
       expect(screen.getByText('No biography provided by applicant.')).toBeInTheDocument();
 
-      // Check Tab 4: Documents Vault
-      fireEvent.click(screen.getByText('4. Documents Vault'));
-      expect(await screen.findByText('No KYC documents submitted or available in vault for this worker.')).toBeInTheDocument();
+      // Check Step 2: Documents Vault via Next: Verify KYC
+      fireEvent.click(screen.getByRole('button', { name: /Next: Verify KYC/i }));
+      expect(await screen.findByText('No verification documents submitted yet')).toBeInTheDocument();
     });
 
     it('never reconstructs masked phone numbers with fake digits when revealing contact', async () => {
@@ -301,9 +290,7 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
 
       expect(await screen.findByText('Meena Bai', { selector: 'h2' })).toBeInTheDocument();
 
-      // Go to Personal & Contact tab
-      fireEvent.click(screen.getByText('2. Personal & Contact'));
-
+      // Contact details are rendered directly in Step 1
       expect(await screen.findByText('+91 99887 *****')).toBeInTheDocument();
       const revealBtn = screen.getByRole('button', { name: 'Reveal contact number' });
       fireEvent.click(revealBtn);

@@ -158,6 +158,10 @@ describe('Customer & Worker Management Workflows', () => {
       const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
       fireEvent.click(approveButtons[0]);
 
+      // Navigate to Step 2: KYC Verification
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      fireEvent.click(nextBtn);
+
       expect(await screen.findByText('6-Point Trust & Verification Status')).toBeInTheDocument();
       expect(await screen.findByText('1. Mobile OTP Pre-Check')).toBeInTheDocument();
       expect(await screen.findByText('2. Identity Proof (Aadhaar)')).toBeInTheDocument();

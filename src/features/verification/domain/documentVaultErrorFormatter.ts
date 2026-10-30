@@ -20,11 +20,54 @@ interface ErrorWithStatus {
 }
 
 export function formatDocumentVaultError(error: unknown): FormattedDocError {
-  const errObj = (typeof error === 'object' && error !== null ? error : {}) as ErrorWithStatus;
+  const errObj = (typeof error === 'object' && error !== null ? error : {}) as ErrorWithStatus & {
+    errorCode?: string;
+    code?: string;
+    details?: unknown;
+  };
+  const code = (errObj.errorCode || errObj.code || '').toUpperCase();
   const msg = errObj.message || (error instanceof Error ? error.message : '');
   const lower = msg.toLowerCase();
+  const codeUpper = (code + ' ' + msg).toUpperCase();
   const status = errObj.status ?? errObj.response?.status;
   const name = errObj.name;
+
+  // Specific document error codes from backend vault contract
+  if (codeUpper.includes('DOCUMENT_NOT_AVAILABLE')) {
+    return {
+      title: 'Document Not Available',
+      message: 'The requested document is not currently available for inspection.',
+      isPermissionError: false,
+      canRetry: true,
+    };
+  }
+
+  if (codeUpper.includes('DOCUMENT_OBJECT_MISSING')) {
+    return {
+      title: 'Document Missing from Storage',
+      message: 'The document file is missing from storage. Please request the worker to re-upload.',
+      isPermissionError: false,
+      canRetry: true,
+    };
+  }
+
+  if (codeUpper.includes('DOCUMENT_INTEGRITY_FAILED')) {
+    return {
+      title: 'Document Integrity Check Failed',
+      message: 'Document integrity check failed. The file may be corrupted.',
+      isPermissionError: false,
+      canRetry: false,
+    };
+  }
+
+  if (codeUpper.includes('STORAGE_NOT_CONFIGURED')) {
+    return {
+      title: 'Storage Service Not Configured',
+      message: 'Storage service is not configured. Please contact the system administrator.',
+      isPermissionError: false,
+      canRetry: false,
+    };
+  }
 
   const isAuthError =
     error instanceof UnauthorizedError ||

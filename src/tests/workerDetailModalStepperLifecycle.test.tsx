@@ -3,11 +3,11 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { WorkerDetailModal } from '../features/workers/presentation/WorkerDetailModal';
+import { WorkerDetailModal, WorkerModalWorkflowStep } from '../features/workers/presentation/WorkerDetailModal';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
 
-function renderModalWithProviders(workerId: string) {
+function renderModalWithProviders(workerId: string, initialStep: WorkerModalWorkflowStep = 'worker-info') {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0 },
@@ -17,13 +17,13 @@ function renderModalWithProviders(workerId: string) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <WorkerDetailModal workerId={workerId} onClose={() => {}} />
+        <WorkerDetailModal workerId={workerId} initialStep={initialStep} onClose={() => {}} />
       </MemoryRouter>
     </QueryClientProvider>
   );
 }
 
-describe('WorkerDetailModal Guided Verification Lifecycle Stepper', () => {
+describe('WorkerDetailModal Simplified 2-Step Workflow (Worker Info & KYC Verification)', () => {
   const setupAuth = () => {
     useAuthStore.getState().setSession(
       {
@@ -37,83 +37,74 @@ describe('WorkerDetailModal Guided Verification Lifecycle Stepper', () => {
           PERMISSIONS.VERIFICATION_DECIDE,
           PERMISSIONS.VERIFICATION_SIGNOFF,
           PERMISSIONS.WORKER_ACTIVATE,
+          PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
         ],
       },
       'token-ops'
     );
   };
 
-  it('In Step 1 for an in-review worker, later steps (Step 4 & 5) are NOT marked completed while earlier checks (Step 3) are incomplete', async () => {
+  it('Step 1: Worker Information renders clean basic info, contact, category, and Next: Verify KYC button', async () => {
     setupAuth();
 
-    // W-10483 (Ramesh Yadav) is an IN_REVIEW worker with pending KYC checks
+    // W-10483 (Ramesh Yadav)
     renderModalWithProviders('W-10483');
 
-    // Wait for Step 1 header to appear
-    expect(await screen.findByText(/Step 1: Application Overview/i)).toBeInTheDocument();
+    // Worker identity and category
+    expect(await screen.findByRole('heading', { name: /Ramesh Yadav/i })).toBeInTheDocument();
+    expect(await screen.findByText('Primary Skill & Experience')).toBeInTheDocument();
+    expect(await screen.findByText('Address & Locality')).toBeInTheDocument();
 
-    // Step 1 is Current
-    const step1Btn = screen.getByRole('button', { name: /Application Overview/i });
-    expect(step1Btn).toHaveAttribute('aria-current', 'step');
-    expect(step1Btn).toHaveTextContent(/Current/i);
+    // Verify clear Next: Verify KYC button is present
+    const nextBtn = screen.getByRole('button', { name: /Next: Verify KYC/i });
+    expect(nextBtn).toBeInTheDocument();
 
-    // Step 3 (Verification Checklist) is incomplete/pending
-    const step3Btn = screen.getByRole('button', { name: /Verification Checklist/i });
-    expect(step3Btn).toHaveTextContent(/Pending/i);
-    expect(step3Btn).not.toHaveTextContent(/Completed/i);
-
-    // Step 4 (Verification Summary) MUST NOT be marked completed!
-    const step4Btn = screen.getByRole('button', { name: /Verification Summary/i });
-    expect(step4Btn).toHaveTextContent(/Pending/i);
-    expect(step4Btn).not.toHaveTextContent(/Completed/i);
-
-    // Step 5 (Platform Status) MUST NOT be marked completed!
-    const step5Btn = screen.getByRole('button', { name: /Platform Status/i });
-    expect(step5Btn).toHaveTextContent(/Pending/i);
-    expect(step5Btn).not.toHaveTextContent(/Completed/i);
+    // Verify unnecessary 5-step stepper and unrelated operational tabs are NOT rendered
+    expect(screen.queryByText(/Step 1: Application Overview/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Step 2: Documents & KYC Evidence Vault/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Step 3: Verification Checklist & Operational Evaluation/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Step 4: Authoritative Verification Summary/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Step 5: Platform & Roster Status/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/5\. Historical Engagements/i)).not.toBeInTheDocument();
   });
 
-  it('Highlights current step distinctly as user navigates through steps', async () => {
+  it('Navigates to Step 2: KYC Verification on clicking Next, showing documents, checklist, and Back button', async () => {
     setupAuth();
     const user = userEvent.setup();
 
     renderModalWithProviders('W-10483');
 
-    expect(await screen.findByText(/Step 1: Application Overview/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Ramesh Yadav/i })).toBeInTheDocument();
 
-    // Navigate to Step 2 via stepper pill (the first button containing "Documents & Evidence")
-    const step2Btn = screen.getAllByRole('button', { name: /Documents & Evidence/i })[0];
-    await user.click(step2Btn);
+    // Click Next: Verify KYC
+    const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+    await user.click(nextBtn);
 
-    expect(await screen.findByText(/Step 2: Documents & KYC Evidence Vault/i)).toBeInTheDocument();
-    expect(step2Btn).toHaveAttribute('aria-current', 'step');
-    expect(step2Btn).toHaveTextContent(/Current/i);
+    // Step 2 header and Back button
+    expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
+    const backBtn = screen.getByRole('button', { name: /Back to Worker Information/i });
+    expect(backBtn).toBeInTheDocument();
 
-    // Step 1 now shows Completed
-    const step1Btn = screen.getAllByRole('button', { name: /Application Overview/i })[0];
-    expect(step1Btn).not.toHaveAttribute('aria-current', 'step');
-    expect(step1Btn).toHaveTextContent(/Completed/i);
+    // Submitted KYC Documents and 6-Point verification status
+    expect(screen.getByText(/Submitted KYC Documents/i)).toBeInTheDocument();
+    expect(screen.getByText('6-Point Trust & Verification Status')).toBeInTheDocument();
+    expect(screen.getByText('1. Mobile OTP Pre-Check')).toBeInTheDocument();
+    expect(screen.getByText('2. Identity Proof (Aadhaar)')).toBeInTheDocument();
+
+    // Click Back to Worker Information to return to Step 1
+    await user.click(backBtn);
+    expect(await screen.findByText('Primary Skill & Experience')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Next: Verify KYC/i })).toBeInTheDocument();
   });
 
-  it('Marks all steps completed for a fully verified worker', async () => {
+  it('Opens directly in Step 2 when initialStep is kyc-verification', async () => {
     setupAuth();
 
-    // W-10482 (Sunita Devi) is a fully verified, active worker
-    renderModalWithProviders('W-10482');
+    renderModalWithProviders('W-10482', 'kyc-verification');
 
-    expect(await screen.findByText(/Step 1: Application Overview/i)).toBeInTheDocument();
-
-    // In a fully verified worker, Step 2, Step 3, Step 4, and Step 5 are all satisfied
-    const step2Btn = screen.getAllByRole('button', { name: /Documents & Evidence/i })[0];
-    expect(step2Btn).toHaveTextContent(/Completed/i);
-
-    const step3Btn = screen.getByRole('button', { name: /Verification Checklist/i });
-    expect(step3Btn).toHaveTextContent(/Completed/i);
-
-    const step4Btn = screen.getByRole('button', { name: /Verification Summary/i });
-    expect(step4Btn).toHaveTextContent(/Completed/i);
-
-    const step5Btn = screen.getByRole('button', { name: /Platform Status/i });
-    expect(step5Btn).toHaveTextContent(/Completed/i);
+    // Opens directly in KYC Verification
+    expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Back to Worker Information/i })).toBeInTheDocument();
+    expect(screen.getByText('6-Point Trust & Verification Status')).toBeInTheDocument();
   });
 });

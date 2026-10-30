@@ -17,6 +17,9 @@ export interface WorkerVerificationDetail {
 
 export interface WorkerDocumentMetadata {
   id?: string;
+  documentId?: string;
+  checkId?: string;
+  checkType?: string;
   documentType: string;
   documentTypeName: string;
   docNumberMasked?: string;
@@ -26,6 +29,13 @@ export interface WorkerDocumentMetadata {
   recheckDueDate?: string;
   rejectionReason?: string;
   signedUrl?: string;
+  contentType?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  available?: boolean;
+  reviewable?: boolean;
+  availability?: string;
+  submitted?: boolean;
 }
 
 export interface WorkerEngagementSummary {

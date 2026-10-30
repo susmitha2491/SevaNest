@@ -19,7 +19,15 @@ export function validateDocumentSignedUrl(rawUrl: unknown): string {
 
   let parsed: InstanceType<typeof globalThis.URL>;
   try {
-    parsed = new globalThis.URL(trimmed);
+    if (trimmed.startsWith('/')) {
+      const base =
+        typeof window !== 'undefined' && window.location?.origin
+          ? window.location.origin
+          : 'http://localhost';
+      parsed = new globalThis.URL(trimmed, base);
+    } else {
+      parsed = new globalThis.URL(trimmed);
+    }
   } catch {
     throw new ServerFailureError('Authorized signed document URL returned by vault is malformed.');
   }

@@ -126,10 +126,10 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
         />
       );
 
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 4: Authoritative Verification Summary/i)).toBeInTheDocument();
+      expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
       expect(screen.getByText(/Level: LEVEL_3/i)).toBeInTheDocument();
       expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
     });
@@ -166,8 +166,8 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
         />
       );
 
-      const step4Pill = await screen.findByRole('button', { name: /Verification Summary/i });
-      await user.click(step4Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
       expect(await screen.findByText(/Authoritative Verification Level Unavailable/i)).toBeInTheDocument();
       expect(
@@ -178,7 +178,7 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
   });
 
   describe('3. Removal of Unsupported Activation Workflow', () => {
-    it('does not expose activation controls in Step 5', async () => {
+    it('does not expose activation controls in Step 2', async () => {
       const user = userEvent.setup();
 
       renderWithProviders(
@@ -188,15 +188,15 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
         />
       );
 
-      const step5Pill = await screen.findByRole('button', { name: /Platform Status/i });
-      await user.click(step5Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
-      expect(await screen.findByText(/Step 5: Platform & Roster Status/i)).toBeInTheDocument();
-      expect(screen.getByText(/Current Platform Matching State/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
+      expect(screen.getByText(/Activation is locked/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
     });
 
-    it('does not invoke workerRepository.updateWorkerStatus when viewing or navigating Step 5', async () => {
+    it('does not invoke workerRepository.updateWorkerStatus when viewing or navigating Step 2', async () => {
       const updateStatusSpy = vi.spyOn(workerRepository, 'updateWorkerStatus');
       const user = userEvent.setup();
 
@@ -207,9 +207,10 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
         />
       );
 
-      const step5Pill = await screen.findByRole('button', { name: /Platform Status/i });
-      await user.click(step5Pill);
+      const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
+      await user.click(nextBtn);
 
+      expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
       expect(updateStatusSpy).not.toHaveBeenCalled();
     });
   });

@@ -38,24 +38,31 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10482-01',
+        documentId: 'DOC-W10482-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card (Front & Back)',
         docNumberMasked: 'XXXX-XXXX-8921',
         status: 'VERIFIED',
         submittedAt: '2026-01-05T10:15:00Z',
         verifiedAt: '2026-01-06T11:30:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10482-02',
+        documentId: 'DOC-W10482-02',
         documentType: 'ADDRESS',
         documentTypeName: 'Electricity Utility Bill (Kondapur)',
         docNumberMasked: 'ELEC-HYD-49201',
         status: 'VERIFIED',
         submittedAt: '2026-01-05T10:18:00Z',
         verifiedAt: '2026-01-06T11:45:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10482-03',
+        documentId: 'DOC-W10482-03',
         documentType: 'POLICE_CLEARANCE',
         documentTypeName: 'Cyberabad Police Clearance Certificate',
         docNumberMasked: 'PCC-CYB-2024-8891',
@@ -63,6 +70,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
         submittedAt: '2026-01-05T10:25:00Z',
         verifiedAt: '2026-01-06T12:00:00Z',
         recheckDueDate: '2027-01-06T12:00:00Z',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -118,37 +127,49 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10483-01',
+        documentId: 'DOC-W10483-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card (Front & Back)',
         docNumberMasked: 'XXXX-XXXX-4491',
         status: 'VERIFIED',
         submittedAt: '2026-01-08T09:15:00Z',
         verifiedAt: '2026-01-09T10:00:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10483-02',
+        documentId: 'DOC-W10483-02',
         documentType: 'ADDRESS',
         documentTypeName: 'Rent Agreement (Gachibowli)',
         docNumberMasked: 'RENT-HYD-8812',
         status: 'VERIFIED',
         submittedAt: '2026-01-08T09:20:00Z',
         verifiedAt: '2026-01-09T10:15:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10483-03',
+        documentId: 'DOC-W10483-03',
         documentType: 'POLICE_CLEARANCE',
         documentTypeName: 'Police Clearance Certificate',
         docNumberMasked: 'PCC-CYB-PENDING',
         status: 'SUBMITTED',
         submittedAt: '2026-01-08T09:30:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10483-04',
+        documentId: 'DOC-W10483-04',
         documentType: 'SKILL_LICENSE',
         documentTypeName: 'Commercial Driver License (LMV)',
         docNumberMasked: 'DL-09-2016-77881',
         status: 'VERIFIED',
         submittedAt: '2026-01-08T09:35:00Z',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -199,18 +220,24 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10484-01',
+        documentId: 'DOC-W10484-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card',
         docNumberMasked: 'XXXX-XXXX-3312',
         status: 'VERIFIED',
         submittedAt: '2026-01-12T14:10:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10484-02',
+        documentId: 'DOC-W10484-02',
         documentType: 'ADDRESS',
         documentTypeName: 'Electricity Bill',
         status: 'SUBMITTED',
         submittedAt: '2026-01-12T14:15:00Z',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -259,19 +286,25 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10310-01',
+        documentId: 'DOC-W10310-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card',
         docNumberMasked: 'XXXX-XXXX-9901',
         status: 'VERIFIED',
         submittedAt: '2026-01-02T11:15:00Z',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10310-02',
+        documentId: 'DOC-W10310-02',
         documentType: 'SKILL_LICENSE',
         documentTypeName: 'Early Childhood Helper Cert',
         docNumberMasked: 'ECE-CERT-2022',
         status: 'VERIFIED',
         submittedAt: '2026-01-02T11:20:00Z',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -321,17 +354,23 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10200-01',
+        documentId: 'DOC-W10200-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card',
         docNumberMasked: 'XXXX-XXXX-1234',
         status: 'VERIFIED',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10200-02',
+        documentId: 'DOC-W10200-02',
         documentType: 'POLICE_CLEARANCE',
         documentTypeName: 'Police Clearance Certificate',
         status: 'REJECTED',
         rejectionReason: 'Adverse police verification record reported.',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -382,18 +421,24 @@ const MOCK_WORKERS: WorkerDetail[] = [
     documents: [
       {
         id: 'DOC-W10115-01',
+        documentId: 'DOC-W10115-01',
         documentType: 'IDENTITY',
         documentTypeName: 'Aadhaar Card',
         docNumberMasked: 'XXXX-XXXX-6671',
         status: 'VERIFIED',
+        reviewable: true,
+        available: true,
       },
       {
         id: 'DOC-W10115-02',
+        documentId: 'DOC-W10115-02',
         documentType: 'ADDRESS',
         documentTypeName: 'Utility Bill (Annual Renewal Due)',
         docNumberMasked: 'ELEC-HYD-11029',
         status: 'RECHECK_DUE',
         recheckDueDate: 'Annual Re-Verification Due',
+        reviewable: true,
+        available: true,
       },
     ],
     verification: {
@@ -535,11 +580,26 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   const documents: WorkerDocumentMetadata[] = [];
   const seenDocIds = new Set<string>();
 
-  const registerDoc = (d: Record<string, unknown>, fallbackType?: string) => {
-    const rawId = String(d.id || d.documentId || '').trim();
-    const docId = rawId || `doc-auto-${documents.length + 1}`;
-    if (rawId && seenDocIds.has(rawId)) return;
-    if (rawId) seenDocIds.add(rawId);
+  const registerDoc = (d: Record<string, unknown>, fallbackType?: string, checkId?: string) => {
+    // Render a document only when reviewable === true.
+    // Do not treat available === true as proof that a document is reviewable.
+    // Never show discarded or not-uploaded documents as reviewable.
+    if (d.reviewable !== true) {
+      return;
+    }
+    if (
+      d.available === false ||
+      d.availability === 'DISCARDED' ||
+      d.availability === 'NOT_UPLOADED' ||
+      d.status === 'PENDING_UPLOAD'
+    ) {
+      return;
+    }
+
+    const rawId = String(d.documentId || d.id || '').trim();
+    if (!rawId) return;
+    if (seenDocIds.has(rawId)) return;
+    seenDocIds.add(rawId);
 
     const docType = String(d.documentType || d.type || fallbackType || 'IDENTITY');
     const docTypeName = String(d.documentTypeName || d.name || d.title || `${docType} Document`);
@@ -553,7 +613,10 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
         : 'SUBMITTED';
 
     documents.push({
-      id: docId,
+      id: rawId,
+      documentId: rawId,
+      checkId: checkId || (d.checkId ? String(d.checkId) : undefined),
+      checkType: fallbackType || (d.checkType ? String(d.checkType) : undefined),
       documentType: docType,
       documentTypeName: docTypeName,
       docNumberMasked,
@@ -562,6 +625,14 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
       verifiedAt: d.verifiedAt ? String(d.verifiedAt) : undefined,
       recheckDueDate: d.recheckDueDate || d.expiryDate ? String(d.recheckDueDate || d.expiryDate) : undefined,
       rejectionReason: d.rejectionReason || d.remarks ? String(d.rejectionReason || d.remarks) : undefined,
+      signedUrl: d.signedUrl || d.url ? String(d.signedUrl || d.url) : undefined,
+      contentType: d.contentType ? String(d.contentType) : (d.mimeType ? String(d.mimeType) : undefined),
+      mimeType: d.mimeType ? String(d.mimeType) : (d.contentType ? String(d.contentType) : undefined),
+      sizeBytes: typeof d.sizeBytes === 'number' ? d.sizeBytes : undefined,
+      available: typeof d.available === 'boolean' ? d.available : d.availability !== 'DISCARDED',
+      availability: d.availability ? String(d.availability) : 'AVAILABLE',
+      submitted: d.submitted !== false,
+      reviewable: true,
     });
   };
 
@@ -580,31 +651,42 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   if (Array.isArray(checksSource)) {
     checksSource.forEach((chk: Record<string, unknown>) => {
       const checkType = String(chk.checkType || chk.type || '');
+      const checkId = chk.checkId ? String(chk.checkId) : (chk.id ? String(chk.id) : undefined);
       if (Array.isArray(chk.documents)) {
-        chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType));
+        chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType, checkId));
       }
       if (chk.documentMetadata && typeof chk.documentMetadata === 'object') {
         const meta = chk.documentMetadata as Record<string, unknown>;
         if (meta.documentId || meta.id || meta.docNumberMasked) {
           registerDoc({
             id: meta.documentId || meta.id,
+            documentId: meta.documentId || meta.id,
             documentType: meta.documentType || checkType,
             documentTypeName: meta.documentTypeName || chk.title,
             docNumberMasked: meta.docNumberMasked,
+            contentType: meta.contentType,
+            mimeType: meta.mimeType,
             status: chk.status === 'APPROVED' ? 'VERIFIED' : chk.status === 'REJECTED' ? 'REJECTED' : 'SUBMITTED',
             submittedAt: meta.submittedAt || chk.verifiedAt,
             verifiedAt: chk.verifiedAt,
-          }, checkType);
+            reviewable: meta.reviewable ?? chk.reviewable,
+            available: meta.available ?? chk.available,
+            availability: meta.availability ?? chk.availability,
+          }, checkType, checkId);
         }
       } else if (chk.documentId) {
         registerDoc({
           id: chk.documentId,
+          documentId: chk.documentId,
           documentType: checkType,
           documentTypeName: chk.documentTypeName || chk.title,
           docNumberMasked: chk.documentNumber || chk.docNumberMasked,
           status: chk.status === 'APPROVED' ? 'VERIFIED' : 'SUBMITTED',
           verifiedAt: chk.verifiedAt,
-        }, checkType);
+          reviewable: chk.reviewable,
+          available: chk.available,
+          availability: chk.availability,
+        }, checkType, checkId);
       }
     });
   } else if (checksSource && typeof checksSource === 'object') {
@@ -612,31 +694,42 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
       if (val && typeof val === 'object') {
         const chk = val as Record<string, unknown>;
         const checkType = String(chk.checkType || chk.type || key);
+        const checkId = chk.checkId ? String(chk.checkId) : (chk.id ? String(chk.id) : undefined);
         if (Array.isArray(chk.documents)) {
-          chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType));
+          chk.documents.forEach((d) => d && typeof d === 'object' && registerDoc(d as Record<string, unknown>, checkType, checkId));
         }
         if (chk.documentMetadata && typeof chk.documentMetadata === 'object') {
           const meta = chk.documentMetadata as Record<string, unknown>;
           if (meta.documentId || meta.id || meta.docNumberMasked) {
             registerDoc({
               id: meta.documentId || meta.id,
+              documentId: meta.documentId || meta.id,
               documentType: meta.documentType || checkType,
               documentTypeName: meta.documentTypeName || chk.title,
               docNumberMasked: meta.docNumberMasked,
+              contentType: meta.contentType,
+              mimeType: meta.mimeType,
               status: chk.status === 'APPROVED' ? 'VERIFIED' : chk.status === 'REJECTED' ? 'REJECTED' : 'SUBMITTED',
               submittedAt: meta.submittedAt || chk.verifiedAt,
               verifiedAt: chk.verifiedAt,
-            }, checkType);
+              reviewable: meta.reviewable ?? chk.reviewable,
+              available: meta.available ?? chk.available,
+              availability: meta.availability ?? chk.availability,
+            }, checkType, checkId);
           }
         } else if (chk.documentId) {
           registerDoc({
             id: chk.documentId,
+            documentId: chk.documentId,
             documentType: checkType,
             documentTypeName: chk.documentTypeName || chk.title,
             docNumberMasked: chk.documentNumber || chk.docNumberMasked,
             status: chk.status === 'APPROVED' ? 'VERIFIED' : 'SUBMITTED',
             verifiedAt: chk.verifiedAt,
-          }, checkType);
+            reviewable: chk.reviewable,
+            available: chk.available,
+            availability: chk.availability,
+          }, checkType, checkId);
         }
       }
     });

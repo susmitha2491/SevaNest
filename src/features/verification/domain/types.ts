@@ -3,7 +3,11 @@ export type VerificationCheckType =
   | 'ADDRESS'
   | 'EMERGENCY_CONTACT'
   | 'REFERENCE'
-  | 'POLICE_CLEARANCE';
+  | 'PREVIOUS_EMPLOYMENT'
+  | 'POLICE_CLEARANCE'
+  | 'POLICE_VERIFICATION'
+  | 'SKILL_CERTIFICATE'
+  | 'LICENSE';
 
 export type VerificationCheckStatus =
   | 'PENDING'
@@ -47,6 +51,9 @@ export interface VerificationDocumentMetadata {
   sizeBytes?: number;
   status?: string;
   availability?: string;
+  available?: boolean;
+  reviewable?: boolean;
+  submitted?: boolean;
   checkType?: VerificationCheckType;
   checkTitle?: string;
   checkId?: string;
@@ -111,7 +118,7 @@ export interface VerificationDossier {
   claimedAt?: string;
   level?: string;
   preCheckOtpVerified: boolean; // Automated pre-check
-  checks: Record<VerificationCheckType, VerificationCheck>;
+  checks: Record<string, VerificationCheck>;
   submittedDocuments?: VerificationDocumentMetadata[];
   overallRemarks?: string;
   address?: {
@@ -145,6 +152,8 @@ export interface VerificationDossier {
   activatedAt?: string;
   signedOffAt?: string;
   signedOffBy?: string;
+  requiredChecks?: string[];
+  pendingChecks?: string[];
 }
 
 export interface VerificationFilterCriteria {
@@ -181,6 +190,10 @@ export interface AdminCheckView {
     documentId: string;
     documentType: string;
     status: string;
+    reviewable?: boolean;
+    available?: boolean;
+    availability?: string;
+    mimeType?: string;
     fileName?: string;
     fileUrl?: string;
     uploadedAt?: string;
@@ -206,7 +219,7 @@ export interface IVerificationRepository {
   getVerificationQueue(filter?: VerificationFilterCriteria): Promise<PaginatedVerificationQueue>;
   getDossierById(workerId: string): Promise<VerificationDossier | null>;
   claimDossier(workerId: string, checkId?: string): Promise<void>;
-  claimCheck(checkId: string): Promise<void>;
+  claimCheck(checkId: string): Promise<AdminWorkerVerificationResponse | void>;
   approveCheck(
     checkId: string,
     checkType?: VerificationCheckType,
@@ -218,11 +231,11 @@ export interface IVerificationRepository {
     checkType?: VerificationCheckType,
     category?: RejectionReasonCategory,
     remarks?: string
-  ): Promise<void>;
+  ): Promise<AdminWorkerVerificationResponse | void>;
   releaseReview(checkId: string): Promise<void>;
   reassignReview(checkId: string, reviewerUserId: string, reason?: string): Promise<void>;
   addCheckNote(checkId: string, note: string, kind?: 'CALL' | 'REVIEW'): Promise<void>;
-  updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void>;
+  updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<AdminWorkerVerificationResponse | void>;
   requestReVerification(
     checkId: string,
     checkTypes?: VerificationCheckType[],
@@ -232,11 +245,11 @@ export interface IVerificationRepository {
     workerId: string,
     checkType: VerificationCheckType,
     documentId?: string
-  ): Promise<{ signedUrl: string; url?: string; expiresAt: string; expiresInSeconds?: number }>;
+  ): Promise<{ signedUrl: string; url?: string; mimeType?: string; expiresAt: string; expiresInSeconds?: number }>;
   signOffVerification(
     workerId: string,
     remarks?: string
-  ): Promise<AdminWorkerVerificationResponse>;
+  ): Promise<AdminWorkerVerificationResponse | void>;
   activateWorker(
     workerId: string
   ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult>;

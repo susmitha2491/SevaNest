@@ -629,15 +629,36 @@ export class MockVerificationRepository implements IVerificationRepository {
         .filter((c) => c.documentMetadata?.documentId)
         .map((c) => ({
           ...c.documentMetadata!,
+          reviewable: true,
+          available: true,
+          availability: 'AVAILABLE',
           checkType: c.type,
           checkTitle: c.title,
           checkId: c.id,
         }));
+    } else {
+      copy.submittedDocuments = copy.submittedDocuments.map((d) => ({
+        ...d,
+        reviewable: d.reviewable !== false,
+        available: d.available !== false,
+      }));
     }
+    Object.values(copy.checks).forEach((c) => {
+      if (c.documentMetadata) {
+        c.documentMetadata.reviewable = c.documentMetadata.reviewable !== false;
+        c.documentMetadata.available = c.documentMetadata.available !== false;
+      }
+      if (Array.isArray(c.documents)) {
+        c.documents.forEach((d) => {
+          d.reviewable = d.reviewable !== false;
+          d.available = d.available !== false;
+        });
+      }
+    });
     return copy;
   }
 
-  async claimCheck(checkId: string): Promise<void> {
+  async claimCheck(checkId: string): Promise<AdminWorkerVerificationResponse> {
     if (
       !checkId ||
       typeof checkId !== 'string' ||
@@ -690,6 +711,26 @@ export class MockVerificationRepository implements IVerificationRepository {
     if (targetCheck) {
       targetCheck.status = 'IN_REVIEW';
     }
+
+    const checksArray: AdminCheckView[] = Object.values(targetDossier.checks).map((chk) => ({
+      checkId: chk.id || '',
+      checkType: chk.type,
+      status: chk.status as AdminCheckView['status'],
+      required: true,
+      submittedAt: targetDossier!.submissionTime || null,
+      reviewedAt: chk.verifiedAt || null,
+      remarks: chk.rejectionRemarks || null,
+      recheckAt: chk.recheckDueDate || null,
+      reviewerUserId: targetDossier!.reviewerUserId || null,
+      claimedAt: targetDossier!.claimedAt || null,
+    }));
+
+    return {
+      workerId: targetDossier.workerId,
+      level: targetDossier.level || 'IN_PROGRESS',
+      requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
+      checks: checksArray,
+    };
   }
 
   async claimDossier(_dossierId: string, checkId?: string): Promise<void> {
@@ -713,7 +754,7 @@ export class MockVerificationRepository implements IVerificationRepository {
     checkType?: VerificationCheckType,
     notes?: string,
     metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
-  ): Promise<AdminWorkerVerificationResponse | void> {
+  ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
     }
@@ -804,7 +845,7 @@ export class MockVerificationRepository implements IVerificationRepository {
     checkType?: VerificationCheckType,
     category?: RejectionReasonCategory,
     remarks?: string
-  ): Promise<void> {
+  ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for rejection.');
     }
@@ -820,10 +861,12 @@ export class MockVerificationRepository implements IVerificationRepository {
     }
 
     let found = false;
+    let targetDossier: VerificationDossier | undefined;
     for (const dossier of this.dossiers) {
       for (const check of Object.values(dossier.checks)) {
         if (check.id === cleanCheckId || (checkType && check.type === checkType && dossier.checkId === cleanCheckId)) {
           found = true;
+          targetDossier = dossier;
           check.status = 'REJECTED';
           check.rejectionCategory = category || 'OTHER';
           check.rejectionRemarks = remarks || 'Rejected by executive';
@@ -837,9 +880,29 @@ export class MockVerificationRepository implements IVerificationRepository {
       if (found) break;
     }
 
-    if (!found) {
+    if (!found || !targetDossier) {
       throw new ValidationError(`Verification check with ID '${checkId}' not found.`);
     }
+
+    const checksArray: AdminCheckView[] = Object.values(targetDossier.checks).map((chk) => ({
+      checkId: chk.id || '',
+      checkType: chk.type,
+      status: chk.status as AdminCheckView['status'],
+      required: true,
+      submittedAt: targetDossier!.submissionTime || null,
+      reviewedAt: chk.verifiedAt || null,
+      remarks: chk.rejectionRemarks || null,
+      recheckAt: chk.recheckDueDate || null,
+      reviewerUserId: targetDossier!.reviewerUserId || null,
+      claimedAt: targetDossier!.claimedAt || null,
+    }));
+
+    return {
+      workerId: targetDossier.workerId,
+      level: 'IN_PROGRESS',
+      requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
+      checks: checksArray,
+    };
   }
 
   async releaseReview(checkId: string): Promise<void> {
@@ -931,7 +994,7 @@ export class MockVerificationRepository implements IVerificationRepository {
     workerId: string,
     checkType: VerificationCheckType,
     documentId?: string
-  ): Promise<{ signedUrl: string; url?: string; expiresAt: string; expiresInSeconds?: number }> {
+  ): Promise<{ signedUrl: string; url?: string; mimeType?: string; expiresAt: string; expiresInSeconds?: number }> {
     if (!documentId || typeof documentId !== 'string' || documentId.trim() === '') {
       throw new ValidationError(
         'A valid, non-empty backend documentId is required to request a signed document URL. Substitution with dossierId or workerId is prohibited.'
@@ -961,10 +1024,13 @@ export class MockVerificationRepository implements IVerificationRepository {
 
     const expiresInSeconds = 900;
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString();
-    const signedUrl = `https://storage.sevanest.internal/documents/vault/${cleanDocId}/${checkType.toLowerCase()}?token=access_token_${Date.now()}`;
+    const isPdf = checkType === 'POLICE_CLEARANCE' || checkType === 'POLICE_VERIFICATION';
+    const mimeType = isPdf ? 'application/pdf' : 'image/jpeg';
+    const signedUrl = `https://storage.sevanest.internal/documents/vault/${cleanDocId}/${checkType.toLowerCase()}${isPdf ? '.pdf' : '.jpg'}?token=access_token_${Date.now()}`;
     return {
       signedUrl,
       url: signedUrl,
+      mimeType,
       expiresAt,
       expiresInSeconds,
     };
@@ -1102,8 +1168,11 @@ export function normalizeCheckType(rawType: unknown): VerificationCheckType | nu
     case 'POLICE_VERIFICATION':
     case 'POLICE_CLEARANCE':
       return 'POLICE_CLEARANCE';
+    case 'SKILL_CERTIFICATE':
+      return 'SKILL_CERTIFICATE';
+    case 'LICENSE':
+      return 'LICENSE';
     default:
-      // Unknown enum values (e.g. SKILL_CERTIFICATE, LICENSE) are handled explicitly and not silently mapped
       return null;
   }
 }
@@ -1141,9 +1210,9 @@ function defaultCheck(type: VerificationCheckType, title: string): VerificationC
     title,
     status: 'PENDING',
     evaluationMethod:
-      type === 'EMERGENCY_CONTACT' || type === 'REFERENCE'
+      type === 'EMERGENCY_CONTACT' || type === 'REFERENCE' || type === 'PREVIOUS_EMPLOYMENT'
         ? 'TELEPHONIC_VETTING'
-        : type === 'POLICE_CLEARANCE'
+        : type === 'POLICE_CLEARANCE' || type === 'POLICE_VERIFICATION'
         ? 'CERTIFICATE_TRACKING'
         : 'DOCUMENT_INSPECTION',
   };
@@ -1155,7 +1224,11 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
     ADDRESS: defaultCheck('ADDRESS', 'Address Proof'),
     EMERGENCY_CONTACT: defaultCheck('EMERGENCY_CONTACT', 'Emergency Contact Vetting'),
     REFERENCE: defaultCheck('REFERENCE', 'Previous Employer Reference'),
+    PREVIOUS_EMPLOYMENT: defaultCheck('PREVIOUS_EMPLOYMENT', 'Previous Employer Reference'),
     POLICE_CLEARANCE: defaultCheck('POLICE_CLEARANCE', 'Police Clearance Certificate'),
+    POLICE_VERIFICATION: defaultCheck('POLICE_VERIFICATION', 'Police Clearance Certificate'),
+    SKILL_CERTIFICATE: defaultCheck('SKILL_CERTIFICATE', 'Skill Certificate Verification'),
+    LICENSE: defaultCheck('LICENSE', 'Commercial / Driving License Verification'),
   };
 
   const processItem = (item: Record<string, unknown>) => {
@@ -1165,6 +1238,12 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
       // Explicitly handle unknown enum values; do not assign to an unrelated check type
       return;
     }
+
+    const checkId = typeof item.checkId === 'string' && item.checkId.trim() !== ''
+      ? item.checkId.trim()
+      : typeof item.id === 'string' && item.id.trim() !== ''
+      ? item.id.trim()
+      : undefined;
 
     let rawDocId: string | undefined;
     let docNumberMasked: string | undefined;
@@ -1180,6 +1259,14 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
           const docObj = docItem as Record<string, unknown>;
           const docId = String(docObj.documentId || docObj.id || '').trim();
           if (docId) {
+            const isAvailable =
+              docObj.available !== false &&
+              docObj.availability !== 'DISCARDED' &&
+              docObj.availability !== 'NOT_UPLOADED' &&
+              docObj.status !== 'PENDING_UPLOAD';
+            const isSubmitted = docObj.submitted !== false;
+            const isReviewable = docObj.reviewable === true;
+
             checkDocs.push({
               id: docId,
               documentId: docId,
@@ -1189,12 +1276,16 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
               expiryDate: item.documentExpiresOn ? String(item.documentExpiresOn) : (docObj.expiryDate ? String(docObj.expiryDate) : undefined),
               documentTypeName: String(docObj.documentTypeName || docObj.documentType || docObj.type || typeKey || `Document ${idx + 1}`),
               contentType: docObj.contentType ? String(docObj.contentType) : (docObj.mimeType ? String(docObj.mimeType) : undefined),
+              mimeType: docObj.mimeType ? String(docObj.mimeType) : (docObj.contentType ? String(docObj.contentType) : undefined),
               sizeBytes: typeof docObj.sizeBytes === 'number' ? docObj.sizeBytes : undefined,
               status: docObj.status ? String(docObj.status) : undefined,
-              availability: docObj.availability ? String(docObj.availability) : undefined,
+              availability: docObj.availability ? String(docObj.availability) : (isAvailable ? 'AVAILABLE' : undefined),
+              available: isAvailable,
+              reviewable: isReviewable,
+              submitted: isSubmitted,
               checkType: typeKey,
               checkTitle: String(item.title || result[typeKey].title),
-              checkId: typeof item.id === 'string' ? item.id.trim() : (typeof item.checkId === 'string' ? item.checkId.trim() : undefined),
+              checkId,
               submittedAt: docObj.createdAt ? String(docObj.createdAt) : undefined,
             });
           }
@@ -1204,13 +1295,17 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
 
     // 1. Extract from backend document records: documents: [{ id: "..." }]
     if (checkDocs.length > 0) {
-      const firstDoc = checkDocs[0];
-      rawDocId = firstDoc.documentId;
-      if (firstDoc.docNumberMasked) docNumberMasked = firstDoc.docNumberMasked;
-      if (firstDoc.nameOnDoc) nameOnDoc = firstDoc.nameOnDoc;
-      if (firstDoc.issueDate) issueDate = firstDoc.issueDate;
-      if (firstDoc.expiryDate) expiryDate = firstDoc.expiryDate;
-      if (firstDoc.documentTypeName) documentTypeName = firstDoc.documentTypeName;
+      // Prioritize confirmed REVIEWABLE and available document over discarded draft attempts
+      const activeDoc =
+        checkDocs.find((d) => d.reviewable === true && d.available !== false && d.availability !== 'DISCARDED' && d.status !== 'PENDING_UPLOAD') ||
+        checkDocs.find((d) => d.available !== false && d.availability !== 'DISCARDED' && d.status !== 'PENDING_UPLOAD') ||
+        checkDocs[checkDocs.length - 1];
+      rawDocId = activeDoc.documentId;
+      if (activeDoc.docNumberMasked) docNumberMasked = activeDoc.docNumberMasked;
+      if (activeDoc.nameOnDoc) nameOnDoc = activeDoc.nameOnDoc;
+      if (activeDoc.issueDate) issueDate = activeDoc.issueDate;
+      if (activeDoc.expiryDate) expiryDate = activeDoc.expiryDate;
+      if (activeDoc.documentTypeName) documentTypeName = activeDoc.documentTypeName;
     }
 
     if (!docNumberMasked && item.maskedDocumentNumber) {
@@ -1246,6 +1341,8 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
 
     let docMeta: VerificationCheck['documentMetadata'] = undefined;
     if (rawDocId || docNumberMasked || nameOnDoc || issueDate || expiryDate || documentTypeName !== 'Document') {
+      const activeDoc = checkDocs.find((d) => d.documentId === rawDocId);
+      const isReviewable = activeDoc ? activeDoc.reviewable === true : (item.documentMetadata as Record<string, unknown>)?.reviewable === true;
       docMeta = {
         id: rawDocId,
         documentId: rawDocId,
@@ -1254,15 +1351,12 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
         issueDate,
         expiryDate,
         documentTypeName,
+        reviewable: isReviewable,
+        available: activeDoc ? activeDoc.available : true,
         checkType: typeKey,
+        checkId,
       };
     }
-
-    const checkId = typeof item.id === 'string' && item.id.trim() !== ''
-      ? item.id.trim()
-      : typeof item.checkId === 'string' && item.checkId.trim() !== ''
-      ? item.checkId.trim()
-      : undefined;
 
     result[typeKey] = {
       id: checkId,
@@ -1649,16 +1743,26 @@ export class RealVerificationRepository implements IVerificationRepository {
       const submittedDocuments: VerificationDocumentMetadata[] = [];
       const seenDocIds = new Set<string>();
 
-      // 1. Collect from mapped checks
+      // 1. Collect from mapped checks (only reviewable === true, never discarded or unuploaded)
       Object.values(mappedChecks).forEach((chk) => {
         if (Array.isArray(chk.documents)) {
           chk.documents.forEach((d) => {
-            if (d.documentId && !seenDocIds.has(d.documentId)) {
+            const isDiscarded =
+              d.available === false ||
+              d.availability === 'DISCARDED' ||
+              d.availability === 'NOT_UPLOADED' ||
+              d.status === 'PENDING_UPLOAD';
+            if (d.reviewable === true && !isDiscarded && d.documentId && !seenDocIds.has(d.documentId)) {
               seenDocIds.add(d.documentId);
-              submittedDocuments.push(d);
+              submittedDocuments.push({
+                ...d,
+                checkType: d.checkType || chk.type,
+                checkTitle: d.checkTitle || chk.title,
+                checkId: d.checkId || chk.id,
+              });
             }
           });
-        } else if (chk.documentMetadata?.documentId && !seenDocIds.has(chk.documentMetadata.documentId)) {
+        } else if (chk.documentMetadata?.documentId && chk.documentMetadata.reviewable === true && !seenDocIds.has(chk.documentMetadata.documentId)) {
           seenDocIds.add(chk.documentMetadata.documentId);
           submittedDocuments.push({
             ...chk.documentMetadata,
@@ -1682,7 +1786,13 @@ export class RealVerificationRepository implements IVerificationRepository {
             if (docItem && typeof docItem === 'object') {
               const docObj = docItem as Record<string, unknown>;
               const docId = String(docObj.documentId || docObj.id || '').trim();
-              if (docId && !seenDocIds.has(docId)) {
+              const isDiscarded =
+                docObj.available === false ||
+                docObj.availability === 'DISCARDED' ||
+                docObj.availability === 'NOT_UPLOADED' ||
+                docObj.status === 'PENDING_UPLOAD';
+              const isReviewable = docObj.reviewable === true;
+              if (docId && isReviewable && !isDiscarded && !seenDocIds.has(docId)) {
                 seenDocIds.add(docId);
                 const rawType = String(rawChk.checkType || rawChk.type || docObj.documentType || 'DOCUMENT');
                 submittedDocuments.push({
@@ -1694,9 +1804,12 @@ export class RealVerificationRepository implements IVerificationRepository {
                   expiryDate: rawChk.documentExpiresOn ? String(rawChk.documentExpiresOn) : (docObj.expiryDate ? String(docObj.expiryDate) : undefined),
                   documentTypeName: String(docObj.documentTypeName || docObj.documentType || rawType),
                   contentType: docObj.contentType ? String(docObj.contentType) : (docObj.mimeType ? String(docObj.mimeType) : undefined),
+                  mimeType: docObj.mimeType ? String(docObj.mimeType) : (docObj.contentType ? String(docObj.contentType) : undefined),
                   sizeBytes: typeof docObj.sizeBytes === 'number' ? docObj.sizeBytes : undefined,
                   status: docObj.status ? String(docObj.status) : undefined,
                   availability: docObj.availability ? String(docObj.availability) : undefined,
+                  available: true,
+                  reviewable: true,
                   checkType: normalizeCheckType(rawType) || undefined,
                   checkTitle: String(rawChk.title || rawType),
                   checkId: rawChk.checkId ? String(rawChk.checkId) : (rawChk.id ? String(rawChk.id) : undefined),
@@ -1745,7 +1858,7 @@ export class RealVerificationRepository implements IVerificationRepository {
     }
   }
 
-  async claimCheck(checkId: string): Promise<void> {
+  async claimCheck(checkId: string): Promise<AdminWorkerVerificationResponse> {
     if (
       !checkId ||
       typeof checkId !== 'string' ||
@@ -1759,7 +1872,13 @@ export class RealVerificationRepository implements IVerificationRepository {
       throw new ValidationError('A valid verification checkId is required to start review. Dossier or worker IDs cannot be used.');
     }
     try {
-      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(checkId.trim())}/start-review`);
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/verification/checks/${encodeURIComponent(checkId.trim())}/start-review`);
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+      return resData;
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1786,7 +1905,7 @@ export class RealVerificationRepository implements IVerificationRepository {
     _checkType?: VerificationCheckType,
     notes?: string,
     metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
-  ): Promise<AdminWorkerVerificationResponse | void> {
+  ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
     }
@@ -1802,7 +1921,6 @@ export class RealVerificationRepository implements IVerificationRepository {
     }
     try {
       // Build payload strictly adhering to ApproveCheckDto: { remarks?: string, recheckAt?: string }
-      // The backend returns 422 Unprocessable Entity if unwhitelisted fields (referenceNumber, expiresOn, callNotes) are sent
       const trimmedNotes = typeof notes === 'string' && notes.trim() !== ''
         ? notes.trim().slice(0, 1000)
         : 'Verified and approved by Verification Executive';
@@ -1817,50 +1935,18 @@ export class RealVerificationRepository implements IVerificationRepository {
         payload.recheckAt = rawRecheck.trim();
       }
 
-      try {
-        const response = await httpClient.post<
-          AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
-        >(
-          `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
-          payload
-        );
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(
+        `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
+        payload
+      );
 
-        const resData = (response.data && 'data' in response.data && response.data.data
-          ? response.data.data
-          : response.data) as AdminWorkerVerificationResponse;
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
 
-        return resData;
-      } catch (err) {
-        const domainErr = mapHttpErrorToDomainError(err);
-        const msgUpper = domainErr.message.toUpperCase();
-        if (msgUpper.includes('SUBMITTED') && (msgUpper.includes('CANNOT MOVE TO APPROVED') || msgUpper.includes('APPROVED'))) {
-          await this.claimCheck(cleanCheckId);
-          const retryResponse = await httpClient.post<
-            AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
-          >(
-            `/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/approve`,
-            payload
-          );
-          const retryResData = (retryResponse.data && 'data' in retryResponse.data && retryResponse.data.data
-            ? retryResponse.data.data
-            : retryResponse.data) as AdminWorkerVerificationResponse;
-          return retryResData;
-        }
-
-        // Clarify specific backend 422 error messages for caller clarity
-        if (msgUpper.includes('CALLNOTE') || domainErr.message.includes('check: callNote')) {
-          throw new ValidationError(
-            'This check cannot be approved yet: telephonic call notes are required (check: callNote). Please record call outcome notes before approval.'
-          );
-        }
-        if (msgUpper.includes('APPROVAL_REQUIREMENTS_MISSING') || domainErr.message.includes('APPROVAL_REQUIREMENTS_MISSING')) {
-          throw new ValidationError(
-            'This check cannot be approved yet: document reference number and future validity date are required before approval.'
-          );
-        }
-
-        throw domainErr;
-      }
+      return resData;
     } catch (err) {
       if (err instanceof DomainError) {
         throw err;
@@ -1874,7 +1960,7 @@ export class RealVerificationRepository implements IVerificationRepository {
     _checkType?: VerificationCheckType,
     category?: RejectionReasonCategory,
     remarks?: string
-  ): Promise<void> {
+  ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for rejection.');
     }
@@ -1926,8 +2012,17 @@ export class RealVerificationRepository implements IVerificationRepository {
         payload.remarks = 'Verification check rejected by administrative review';
       }
 
-      await httpClient.post(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/reject`, payload);
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/reject`, payload);
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+      return resData;
     } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }
@@ -2026,7 +2121,7 @@ export class RealVerificationRepository implements IVerificationRepository {
     workerId: string,
     checkType: VerificationCheckType,
     documentId?: string
-  ): Promise<{ signedUrl: string; url?: string; expiresAt: string; expiresInSeconds?: number }> {
+  ): Promise<{ signedUrl: string; url?: string; mimeType?: string; expiresAt: string; expiresInSeconds?: number }> {
     if (!documentId || typeof documentId !== 'string' || documentId.trim() === '') {
       throw new ValidationError(
         'A valid, non-empty backend documentId is required to request a signed document URL. Substitution with dossierId or workerId is prohibited.'
@@ -2060,9 +2155,10 @@ export class RealVerificationRepository implements IVerificationRepository {
     try {
       const res = await httpClient.get<{
         success?: boolean;
-        data?: { url?: string; signedUrl?: string; expiresAt?: string; expiresInSeconds?: number };
+        data?: { url?: string; signedUrl?: string; mimeType?: string; expiresAt?: string; expiresInSeconds?: number };
         url?: string;
         signedUrl?: string;
+        mimeType?: string;
         expiresAt?: string;
         expiresInSeconds?: number;
       }>(
@@ -2093,6 +2189,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       return {
         url: validatedUrl,
         signedUrl: validatedUrl,
+        mimeType: payload.mimeType,
         expiresAt: expiresAt || '',
         expiresInSeconds,
       };

@@ -1783,4 +1783,70 @@ Unmasked worker mobile numbers (`dossier.phone`) are displayed directly in Step 
 | Step 5 | Verification Sign-Off | `POST /api/v1/admin/workers/{workerId}/verification/sign-off` | `{ remarks? }` (requires `verification.signoff`) | Blocked if checks incomplete; prevents duplicate submissions |
 | Step 5 | Worker Activation | `POST /api/v1/admin/workers/{workerId}/activate` | Worker ID | Activated on roster; confirmed before showing success screen |
 
+---
+
+## 18. Worker KYC Workflow Alignment with Confirmed Backend Contract (Integration Audit & Gap Register)
+
+### 18.1 Context & Authority
+- **Primary Source of Truth (Integration Contract):** Backend team's latest KYC response contract specification and live response envelopes.
+- **Product Scope & Roles:** SevaNest PRD (Section 7, Section 8) and Frontend Architecture Document.
+- **Deployed OpenAPI vs Confirmed Contract:** The deployed OpenAPI document (`docs/openapi.json`) reflects earlier iterations of the verification schema, whereas the backend team's confirmed contract clarifies document reviewability (`reviewable === true`), mimeType inspection, sequential claim-then-decide transitions, missing requirement remediation, and three-stage lifecycle isolation.
+
+---
+
+### 18.2 Document Visibility & Vault Inspection Rules
+
+| Requirement | Backend Contract Specification | Frontend Implementation & Enforcement | Gap / Status |
+|---|---|---|---|
+| **Document Reviewability** | `reviewable: boolean` is explicitly emitted on documents. Discarded drafts or pending upload attempts emit `reviewable: false`. | A document is rendered ONLY when `reviewable === true`. `available === true` is **never** treated as proof of reviewability. Discarded (`availability === 'DISCARDED'`) and unuploaded (`availability === 'NOT_UPLOADED'` / `status === 'PENDING_UPLOAD'`) documents are strictly excluded. | **Aligned & Enforced** |
+| **Document Identification** | Backend emits genuine UUID `documentId` for each uploaded file. | Frontend uses exact backend `documentId` (never fabricating dummy IDs like `doc-auto-*` or substituting `workerId`). | **Aligned & Enforced** |
+| **Signed Vault Link** | `GET /api/v1/admin/verification/documents/{documentId}/link` returns `{ url, signedUrl, mimeType, expiresAt, expiresInSeconds }`. | Frontend requests signed link with `documentId` and uses the response's `mimeType` as primary indicator to render `<img />` for images (`image/*`) vs `<iframe />` / `<object />` for PDFs (`application/pdf`). | **Aligned & Enforced** |
+| **Document Vault Errors** | Backend emits specific error codes on vault failure: `DOCUMENT_NOT_AVAILABLE` (409), `DOCUMENT_OBJECT_MISSING` (404), `DOCUMENT_INTEGRITY_FAILED` (422/500), `STORAGE_NOT_CONFIGURED` (500/503). | Frontend maps each error code to actionable, user-friendly domain errors with clear retry guidance without crashing or fabricating fallback file contents. | **Aligned & Enforced** |
+
+---
+
+### 18.3 Check Decision Lifecycle & Transition State Machine
+
+| Stage | Operation / Endpoint | Contract & Transition Rules | Frontend Enforcement | Gap / Classification |
+|---|---|---|---|---|
+| **Claim Review** | `POST /api/v1/admin/verification/checks/{checkId}/start-review` | Must be called before approving or rejecting any `SUBMITTED` or `PENDING` check. Transitions check to `IN_REVIEW` and locks check to the requesting reviewer. | Frontend automatically executes `claimCheck(checkId)` prior to dispatching approve or reject for checks in `SUBMITTED` or `PENDING` status. Blind retries are prohibited. | **Aligned & Enforced** |
+| **Assignment Conflicts** | Returns HTTP 409 `CHECK_ALREADY_ASSIGNED` or `CHECK_NOT_ASSIGNED_TO_YOU`. | Occurs when another reviewer has claimed the check or current reviewer does not own the active review lease. | Frontend catches these codes, displays an informative message ("This check is assigned to another reviewer"), and immediately triggers `invalidateAll()` to reload authoritative backend check state. | **Aligned & Enforced** |
+| **Invalid State Transition** | Returns HTTP 409 `INVALID_TRANSITION`. | Check cannot move directly from `SUBMITTED` to `APPROVED` or `REJECTED` without being in `IN_REVIEW`. | Frontend catches `INVALID_TRANSITION`, claims the check when appropriate, and prompts the user for an explicit decision retry. | **Aligned & Enforced** |
+| **Missing Approval Requirements** | Returns HTTP 422 `APPROVAL_REQUIREMENTS_MISSING` with `details: string[]` (e.g. `['documentNumber', 'expiresOn']`). | Occurs when approving a license or police certificate check without recorded mandatory attributes. | Frontend extracts required field names from `details`, renders dedicated input controls in the approval dialog, collects values, and calls `PUT /api/v1/admin/verification/checks/{checkId}/document-details` before retrying approval. | **Aligned & Enforced** |
+| **Authoritative Dossier Refresh** | Decisions return `AdminWorkerVerificationResponse` containing the updated `checks: AdminCheckView[]` and `applicationStatus`. | Authoritative response must update client cache. | Frontend uses the full backend response envelope to update TanStack Query cache and triggers full background cache invalidation. | **Aligned & Enforced** |
+
+---
+
+### 18.4 Three Lifecycle Stages Isolation & Server Permissions
+
+The SevaNest KYC workflow strictly keeps three distinct lifecycle stages separate:
+1. **Stage 1 — Individual Check Decisions (`approveCheck` / `rejectCheck`):**
+   - Verification Executives review evidence per check (OTP, Identity, Address, Emergency, Reference, Police Clearance, Skill/License).
+   - Decisions transition individual checks between `IN_REVIEW`, `APPROVED`, `REJECTED`, and `RECHECK_DUE`.
+   - Requires `verification.decide` permission (or `VERIFICATION_EXECUTIVE` / `SUPER_ADMIN` role).
+2. **Stage 2 — Final Verification Sign-Off (`POST /api/v1/admin/workers/{workerId}/verification/sign-off`):**
+   - Independent supervisory sign-off gate.
+   - Transitions worker application status to `VERIFIED`.
+   - Strictly locked until all mandatory verification checks are approved.
+   - Requires server-issued `verification.signoff` permission. If unpermitted, sign-off controls are completely hidden.
+3. **Stage 3 — Worker Platform Activation (`POST /api/v1/admin/workers/{workerId}/activate`):**
+   - Commercial platform activation onto live customer matching roster.
+   - Strictly locked until Stage 2 (Sign-Off) is completed.
+   - Requires server-issued `workers.activate` permission. If unpermitted, activation controls are completely hidden.
+   - **Onboarded Status Condition:** Displayed ONLY when `applicationStatus === 'ACTIVE'` AND `activatedAt` is non-null. `worker.status === 'ACTIVE'` alone is never treated as proof of active onboarding.
+
+---
+
+### 18.5 Detailed Integration Gap & Evidence Register
+
+| ID | Endpoint | Expected Contract | Actual Observed Response / Error | Classification | Evidence & Root Cause | Action Needed / Responsible Team |
+|---|---|---|---|---|---|---|
+| **GAP-KYC-01** | `GET /api/v1/admin/verification/documents/{documentId}/link` | Return signed document URL with `{ url, signedUrl, mimeType, expiresAt }`. | On missing storage or unconfigured S3 bucket, returns HTTP 500 / 503 `STORAGE_NOT_CONFIGURED` or HTTP 404 `DOCUMENT_OBJECT_MISSING`. | **Backend / Deployment** | Tested on Render deployment: test documents without S3 attachments return storage errors. | **Backend Team:** Ensure AWS S3/MinIO bucket credentials and bucket existence are configured in production environment variables (`STORAGE_S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`). |
+| **GAP-KYC-02** | `GET /api/v1/admin/verification/documents/{documentId}/link` | For discarded drafts or draft attempts, return HTTP 409 `DOCUMENT_NOT_AVAILABLE`. | Backend correctly responds with HTTP 409 and code `DOCUMENT_NOT_AVAILABLE`. | **Backend (Working as Specified)** | Observed in backend contract test suite and error handler. | **Frontend Team:** Verified. Document vault error formatter specifically catches `DOCUMENT_NOT_AVAILABLE` and informs reviewer that the document draft was superseded or discarded. |
+| **GAP-KYC-03** | `POST /api/v1/admin/verification/checks/{checkId}/start-review` | Claim check and return updated check state or `AdminWorkerVerificationResponse`. | Returns HTTP 409 `CHECK_ALREADY_ASSIGNED` if claimed by another active reviewer. | **Backend (Working as Specified)** | Verified. Occurs when two verification executives concurrently review the same queue entry. | **Frontend Team:** Verified. Frontend catches conflict, displays clear notice, and refreshes check lease data immediately. |
+| **GAP-KYC-04** | `POST /api/v1/admin/verification/checks/{checkId}/approve` | Approve check when in `IN_REVIEW`. On missing attributes, return HTTP 422 `APPROVAL_REQUIREMENTS_MISSING` with field list. | In deployed OpenAPI, `ApproveCheckDto` only listed `remarks` and `recheckAt`. Backend team's confirmed contract returns `APPROVAL_REQUIREMENTS_MISSING` if license or police details are unrecorded. | **Backend Contract Realignment** | Documented in backend team's latest KYC response specification. | **Frontend Team:** Verified. Approval dialog dynamically collects missing fields and updates them before approval retry. |
+| **GAP-KYC-05** | `POST /api/v1/admin/workers/{workerId}/verification/sign-off` | Require all checks approved and `verification.signoff` permission. | Returns HTTP 409 `NOT_FULLY_VERIFIED` if any check is pending/rejected. Returns HTTP 403 `FORBIDDEN` if user lacks permission. | **Backend (Working as Specified)** | Confirmed against NestJS `WorkersVerificationController.signOff()`. | **Frontend Team:** Verified. Frontend enforces prerequisite check completeness and hides button without permission. |
+| **GAP-KYC-06** | `POST /api/v1/admin/workers/{workerId}/activate` | Require verified sign-off, category, locality, criminal self-declaration, and `workers.activate` permission. | Returns HTTP 422 `ACTIVATION_REQUIREMENTS_MISSING` with detailed checklist messages if prerequisites unmet. | **Backend (Working as Specified)** | Confirmed against NestJS `WorkersController.activate()`. | **Frontend Team:** Verified. Frontend surfaces missing prerequisites breakdown to operator and hides button without permission. |
+
+
 
