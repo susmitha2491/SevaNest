@@ -150,7 +150,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         status: selectedStatus as VerificationFilterCriteria['status'],
         category: selectedCategory,
         page: currentPage,
-        pageSize: 5,
+        pageSize: 10,
       }),
     enabled: canReview,
   });
@@ -493,6 +493,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
             <option value="Cook">Cook</option>
             <option value="Babysitter">Babysitter</option>
             <option value="Elderly Care Helper">Elderly Care Helper</option>
+            <option value="Cleaning Helper">Cleaning Helper</option>
           </select>
         </div>
       </div>

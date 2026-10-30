@@ -26,22 +26,23 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
       style={{
         display: 'flex',
         flexDirection: 'column',
-        gap: 'var(--space-1)',
-        padding: 'var(--space-1)',
+        gap: '4px',
+        padding: '6px 8px',
         backgroundColor: 'var(--color-bg-app)',
         borderRadius: 'var(--radius-lg)',
         border: '1px solid var(--color-border)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-1)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
-          <Zap size={15} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <Zap size={14} style={{ color: 'var(--color-primary)', flexShrink: 0 }} />
           <h3
             style={{
-              fontSize: 'var(--font-size-sm)',
+              fontSize: '12px',
               fontWeight: 700,
               color: 'var(--color-navy)',
               margin: 0,
+              lineHeight: 1.2,
             }}
           >
             Quick Login — Select Your Role
@@ -49,14 +50,15 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
         </div>
         <span
           style={{
-            fontSize: '11px',
+            fontSize: '10px',
             fontWeight: 600,
             color: 'var(--color-primary)',
             backgroundColor: 'var(--color-primary-subtle)',
             border: '1px solid var(--color-border-subtle)',
             borderRadius: 'var(--radius-full)',
-            padding: '1px 7px',
+            padding: '1px 6px',
             flexShrink: 0,
+            lineHeight: 1.2,
           }}
         >
           4 Roles
@@ -65,10 +67,10 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
 
       <p
         style={{
-          fontSize: 'var(--font-size-xs)',
+          fontSize: '11px',
           color: 'var(--color-text-secondary)',
           margin: 0,
-          lineHeight: 1.35,
+          lineHeight: 1.25,
         }}
       >
         Choose an administrative persona below to populate development credentials.
@@ -79,8 +81,8 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-          gap: 'var(--space-1)',
-          marginTop: 'var(--space-1)',
+          gap: '4px',
+          marginTop: '2px',
         }}
       >
         {QUICK_LOGIN_ROLES.map((role) => {
@@ -97,7 +99,7 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
-                padding: 'var(--space-1) var(--space-2)',
+                padding: '4px 6px',
                 backgroundColor: isSelected ? 'var(--color-primary-subtle)' : 'var(--color-bg-surface)',
                 border: `1.5px solid ${isSelected ? 'var(--color-primary)' : 'var(--color-border)'}`,
                 borderRadius: 'var(--radius-md)',
@@ -105,15 +107,15 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
                 transition: 'all var(--transition-fast)',
                 boxShadow: isSelected ? '0 0 0 1px var(--color-primary)' : 'var(--shadow-sm)',
                 outline: 'none',
-                gap: 'var(--space-1)',
+                gap: '2px',
               }}
             >
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '3px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '2px' }}>
                   <div
                     style={{
-                      width: '22px',
-                      height: '22px',
+                      width: '20px',
+                      height: '20px',
                       borderRadius: 'var(--radius-sm)',
                       backgroundColor: isSelected ? 'var(--color-primary)' : 'var(--color-bg-app)',
                       color: isSelected ? '#ffffff' : 'var(--color-primary)',
@@ -128,7 +130,7 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
                   </div>
                   <span
                     style={{
-                      fontSize: 'var(--font-size-xs)',
+                      fontSize: '11px',
                       fontWeight: 700,
                       color: 'var(--color-text-primary)',
                       lineHeight: 1.2,
@@ -143,12 +145,13 @@ export const QuickLoginSection: React.FC<QuickLoginSectionProps> = ({
 
                 <div
                   style={{
-                    fontSize: '11px',
+                    fontSize: '10px',
                     color: 'var(--color-text-secondary)',
                     fontFamily: 'monospace',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
+                    lineHeight: 1.2,
                   }}
                   title={role.email}
                 >

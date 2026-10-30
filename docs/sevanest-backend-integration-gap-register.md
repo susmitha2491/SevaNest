@@ -1847,6 +1847,103 @@ The SevaNest KYC workflow strictly keeps three distinct lifecycle stages separat
 | **GAP-KYC-04** | `POST /api/v1/admin/verification/checks/{checkId}/approve` | Approve check when in `IN_REVIEW`. On missing attributes, return HTTP 422 `APPROVAL_REQUIREMENTS_MISSING` with field list. | In deployed OpenAPI, `ApproveCheckDto` only listed `remarks` and `recheckAt`. Backend team's confirmed contract returns `APPROVAL_REQUIREMENTS_MISSING` if license or police details are unrecorded. | **Backend Contract Realignment** | Documented in backend team's latest KYC response specification. | **Frontend Team:** Verified. Approval dialog dynamically collects missing fields and updates them before approval retry. |
 | **GAP-KYC-05** | `POST /api/v1/admin/workers/{workerId}/verification/sign-off` | Require all checks approved and `verification.signoff` permission. | Returns HTTP 409 `NOT_FULLY_VERIFIED` if any check is pending/rejected. Returns HTTP 403 `FORBIDDEN` if user lacks permission. | **Backend (Working as Specified)** | Confirmed against NestJS `WorkersVerificationController.signOff()`. | **Frontend Team:** Verified. Frontend enforces prerequisite check completeness and hides button without permission. |
 | **GAP-KYC-06** | `POST /api/v1/admin/workers/{workerId}/activate` | Require verified sign-off, category, locality, criminal self-declaration, and `workers.activate` permission. | Returns HTTP 422 `ACTIVATION_REQUIREMENTS_MISSING` with detailed checklist messages if prerequisites unmet. | **Backend (Working as Specified)** | Confirmed against NestJS `WorkersController.activate()`. | **Frontend Team:** Verified. Frontend surfaces missing prerequisites breakdown to operator and hides button without permission. |
+| **GAP-KYC-07** | `GET /api/v1/admin/workers/{workerId}/verification` | Authoritative verification dossier must only return `level: VERIFIED` and `signedOffAt` when all 5 canonical checks are approved. | For worker Bharathi Gundla (`e2edc165-0965-41c6-bdaa-5da7fc455b8e`), backend returned `level: VERIFIED` and `signedOffAt` with only 1 check approved and 4 checks in `NOT_SUBMITTED`, while root `onboardingStatus` is `SUBMITTED`. | **Backend Data / Contract Inconsistency** | Discovered during audit of Bharathi Gundla. Root worker record indicates incomplete submission, but verification record claimed `VERIFIED`. | **Frontend Team:** Fixed & Enforced. Frontend validates all 5 canonical operational checks. If any is unapproved, status remains `PENDING_REVIEW` with an explicit Contract Inconsistency warning banner.<br/>**Backend Team:** Ensure sign-off validator enforces all 5 checks and repair inconsistent worker records. |
+| **GAP-KYC-08** | `GET /api/v1/admin/verification/documents/{documentId}/link` | Return signed document inspection URL with adequate TTL for manual document review. | Backend emits Supabase signed storage URL with short TTL: `expiresInSeconds: 120` (2 minutes). | **Backend Configuration / TTL Mismatch** | Verified via API inspection. Default TanStack Query cache `staleTime` of 5m caused expired links to remain rendered. | **Frontend Team:** Shortened query `staleTime` to 60s (1m) and added retry flow with `formatDocumentVaultError`.<br/>**Backend Team:** Recommend extending signed URL TTL to 300–600s for reviewer convenience. |
+
+---
+
+## 19. Super Admin Analytics Integration (PRD Section 14)
+
+### 19.1 Context & Authority
+- **Primary Source of Truth:** `SevaNest_PRD.pdf` (Section 14: Business Analytics & Reporting, Section 8: Core Lifecycle Journeys).
+- **Backend Base URL:** `https://sevanest-backend.onrender.com/api/v1`.
+- **Integration Scope:** Super Admin Executive Console (`src/features/dashboard/presentation/SuperAdminDashboard.tsx`).
+
+---
+
+### 19.2 Consolidated Analytics API Gap & Alignment Register (PRD Section 14)
+
+| Gap ID | PRD Reference | Analytics Requirement | Existing Endpoint | Available Fields | Missing Fields | Backend Requirement | Frontend Impact & Implementation | Priority | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| **GAP-ANA-01** | PRD §14.1 | Total Booking Requests & Confirmed Bookings | `GET /api/v1/admin/reports/booking-funnel` | `interval`, `requests`, `confirmed`, `confirmationRate`, `series` (`period`, `requests`, `confirmed`, `confirmationRate`) | None in report endpoint; omitted from `sections.bookings` in `/admin/dashboard` | Ensure `/admin/dashboard` sections include `grossBookings` if expected at root KPI level | Fully implemented via `bookingFunnel` in `AnalyticsChartsSection`; renders conversion funnel and rate | High | **Available** |
+| **GAP-ANA-02** | PRD §14.1 | Booking Conversion Rate | `GET /api/v1/admin/reports/booking-funnel` | `confirmationRate` (0 to 1 float) | None | Keep emitting decimal float | Rendered in `FunnelChart` and `DonutGauge` with percentage formatting; genuine 0 preserved | High | **Available** |
+| **GAP-ANA-03** | PRD §14.1 | Historical Booking Trends | `GET /api/v1/admin/reports/booking-funnel` | `series: [{ period, requests, confirmed, confirmationRate }]` | None | Interval parameters supported (`day`, `week`, `month`) | Available in domain model; series history plotted without synthetic extrapolation | Medium | **Available** |
+| **GAP-ANA-04** | PRD §14.4 | Category-Wise Demand | `GET /api/v1/admin/reports/demand-by-category` | `total`, `categories: [{ code, name, requests }]` | `categoryId` UUID is absent in category elements | Return `categoryId` alongside `code` and `name` if relational filtering is needed | Fully implemented via SVG `BarChart`; mapped via `code`; empty state handles 0 records | High | **Available** |
+| **GAP-ANA-05** | PRD §14.5 | Area-Wise Demand | `GET /api/v1/admin/reports/demand-by-area` | Array of `{ areaId, name, city, requests }` | None | Maintain locality name and city tagging | Fully implemented via `HorizontalBarChart` top hubs ranking with request counts | High | **Available** |
+| **GAP-ANA-06** | PRD §14.2 | Worker Registration Trends & Conversion | `GET /api/v1/admin/reports/worker-registrations` | `interval`, `registered`, `verified`, `verificationConversion`, `series: [...]` | None | None | Fully implemented in `DonutGauge` (Verification Conversion %) with numerator/denominator | High | **Available** |
+| **GAP-ANA-07** | PRD §14.2 | Worker Utilization | `GET /api/v1/admin/reports/worker-utilization` | `verifiedWorkers`, `workersWithActiveBooking`, `utilization` | None | Follow backend definition: `workersWithActiveBooking / verifiedWorkers` | Fully implemented in `DonutGauge` (Workforce Utilization %) | High | **Available** |
+| **GAP-ANA-08** | PRD §14.6 | Interview-to-Confirmation Conversion | `GET /api/v1/admin/reports/interview-conversion` | `interviewsHeld`, `confirmed`, `conversion` | None | None | Fully implemented in `DonutGauge` (Trial Conversion %) | High | **Available** |
+| **GAP-ANA-09** | PRD §14.7 | Cancellation Rate | `GET /api/v1/admin/reports/cancellation-rate` | `totalBookings`, `cancelled`, `cancellationRate` | None | Keep emitting genuine backend rate | Fully implemented in `DonutGauge` with inverse color scale (green for low, amber/red for high) | High | **Available** |
+| **GAP-ANA-10** | PRD §14.7 | Replacement Rate | `GET /api/v1/admin/reports/replacement-rate` | `activeBookings`, `replacementRequests`, `replacementRate` | None | Keep emitting genuine backend rate | Fully implemented in `DonutGauge` with inverse color scale | High | **Available** |
+| **GAP-ANA-11** | PRD §14.8 | Payment Collections by Fee Type & Trends | `GET /api/v1/admin/reports/payment-collections` | `interval`, `totalsByFeeType: [{ feeCode, currency, payments, grossMinor, refundedMinor }]`, `series: [...]` | None | Keep minor units (paise) accurate | Fully implemented; converts minor units (paise) to INR with currency formatting | High | **Available** |
+| **GAP-ANA-12** | PRD §14.9 | Support Ticket Volume & Average Resolution SLA | `GET /api/v1/admin/reports/support-tickets` | `interval`, `created`, `closed`, `averageResolutionSeconds`, `byStatus: [{ status, count }]`, `series: [...]` | None | Provide seconds as integer or null when no closed tickets exist | Fully implemented; formats average resolution seconds to hours/minutes; status breakdown in `BarChart` | High | **Available** |
+| **GAP-ANA-13** | PRD §14.2 | Top-Rated Workers | `GET /api/v1/admin/reports/top-rated-workers` | Array of `{ workerId, name, ratingCount, averageRating }` | None | Supports `limit` query parameter (default 10) | Fully implemented via `HorizontalBarChart` with star ratings and review counts | Medium | **Available** |
+| **GAP-ANA-14** | PRD §14.10 | Repeat Customers (Loyalty Metric) | `GET /api/v1/admin/reports/repeat-customers` | Array of `{ customerUserId, name, bookings }` | Requires mandatory `from` and `to` query parameters (`YYYY-MM-DD`). Rejects with 400 if omitted | Relax parameter validation to default to current reporting window if omitted | Frontend provides default `from=2026-01-01&to=2026-12-31&minBookings=2`; rendered in `HorizontalBarChart` | Medium | **Available (Query Bound)** |
+| **GAP-ANA-15** | PRD §14.1 | Root Gross Bookings KPI in Dashboard Envelope | `GET /api/v1/admin/dashboard` | `sections.bookings.byStatus` | Root `grossBookings` integer is absent in `sections.bookings` | Emit `grossBookings: number` in `sections.bookings` | Displayed as `—` (unavailable) when unprovided, or reads explicit property if backend supplies it | Medium | **Partial** |
+| **GAP-ANA-16** | PRD §14.3 | Police Verification Due in Dashboard Envelope | `GET /api/v1/admin/dashboard` | `sections.pendingKyc` | `policeVerifDue` count is absent from sections breakdown | Provide `policeVerifDue: number` in `sections.pendingKyc` or `sections.workers` | Truthfully rendered as `—` with explanatory note "Metric unavailable in backend response" | Medium | **Missing in Envelope** |
+
+---
+
+### 19.3 Architecture Note: Process Flow Visualizations
+The informational workflow diagrams for Customer Journey (PRD §8.1), Worker Journey (PRD §8.2), and Replacement Journey (PRD §8.3) were decoupled and removed from the active Super Admin Executive Console to maintain an exclusive focus on real-time operational data, live KPIs, and PRD Section 14 business intelligence charts. PRD Section 8 process workflows remain documented in product architecture specifications.
+
+---
+
+## 20. Worker KYC Uploads & Admin Verification Portal Integration Gap Register
+
+### 20.1 End-to-End KYC Document Flow Architecture
+The complete document flow spans the worker mobile upload pipeline to executive verification:
+```
+Worker Mobile App:
+  1. POST /workers/me/verification/checks/{checkType}/documents (Multipart Form / S3 upload)
+  2. POST /workers/me/verification/checks/{checkType}/submit (Transitions check to SUBMITTED and document reviewable: true)
+  ↓
+Backend Persistence & Vault:
+  - Document metadata persisted in `verification_documents` with workerId, checkId, checkType, mimeType, status, availability, reviewable
+  - Physical file persisted in Supabase S3 storage under `kyc-documents/kyc/{workerId}/{fileUuid}`
+  ↓
+Admin Portal Queue & Dossier:
+  - GET /admin/verification/queue returns active verification queue items (checkId, workerId, checkType, status, uploadedDocuments count)
+  - GET /admin/workers/{workerId}/verification returns full dossier with `checks[*].documents` array
+  - GET /admin/verification/documents/{documentId}/link generates signed 120-second Supabase S3 URL for confidential viewing
+  ↓
+Executive Review Workstation:
+  - Step 2 (Documents Review): Selectors for all reviewable documents; independent PDF and Image rendering; new tab viewing
+  - Step 3 (KYC Verification): Independent check actions (Claim, Approve, Reject, Re-verification)
+```
+
+### 20.2 Audit of Genuine Worker Records in Live Database
+
+1. **Worker 1: "Verification Test Worker" (`SEVA00000014` / `01a13eff-73b5-7447-aa0d-13bc25757935`)
+   - **Identity Proof:** `01a13f26-e5b5-7698-914b-62c277ec5c71` (`application/pdf`, `status: UPLOADED`, `available: true`, `reviewable: true`). Superseded 5 discarded draft attempts (`availability: DISCARDED`).
+   - **Address Proof:** `01a13f27-beca-74ba-bca2-88f5a7ea7eea` (`application/pdf`, `status: UPLOADED`, `available: true`, `reviewable: true`). Superseded 2 discarded drafts.
+   - **Police Clearance:** `01a13f27-c417-75aa-9ac3-535f1b196758` (`application/pdf`, `status: UPLOADED`, `available: true`, `reviewable: true`). Superseded 2 discarded drafts.
+   - **Skill Certificate:** `01a14311-3672-738d-9668-7da836be1e6e` (`image/jpeg`, `status: UPLOADED`, `available: true`, `reviewable: true`). Superseded 7 discarded drafts.
+   - **License:** `01a14311-6e37-7770-b809-7a7016c826bf` (`image/jpeg`, `status: UPLOADED`, `available: true`, `reviewable: true`). Superseded 2 discarded drafts.
+   - **Emergency Contact & Previous Employer:** Telephonic vetting checks without digital vault attachments.
+
+2. **Worker 2: "vaishhhh" (`SEVA00000015` / `01a166eb-8f68-7543-b394-a86124c4e66a`)
+   - **Identity Proof:** `01a166fb-4583-751a-9310-39d31abd59b9` (`image/jpeg`, `status: UPLOADED`, `available: true`, `reviewable: true`).
+   - **Address Proof:** `01a166fb-4fbd-71ff-b9e6-362ae8b031b9` (`image/jpeg`, `status: UPLOADED`, `available: true`, `reviewable: true`).
+   - **Police Verification:** `01a166fb-5760-7438-8c11-0ae172c50367` (`image/jpeg`, `status: UPLOADED`, `available: true`, `reviewable: true`).
+
+3. **Submitted Worker Roster Records (`/admin/workers`):**
+   - **Sarojini Kolla (`01a11ef1-66c8-7703-a9b6-4e54bd93cafc`):** Identity Proof `01a11ef4-e095-7049-b64e-f7cf18d8d3e9` (`application/pdf`, `available: true`, `reviewable: true`).
+   - **Shabana Begum (`01a11ef1-8007-7060-b86a-cf7685323be7`):** Identity Proof `01a11ef4-f197-763d-a357-f31887040ffb` (`application/pdf`, `available: true`, `reviewable: true`).
+   - **vaish (`01a12efb-8328-7799-902f-975646ec1128`):** Documents uploaded (`available: true`), but `reviewable: false` because check was not submitted via `/checks/{checkType}/submit`.
+
+### 20.3 Detailed Integration Gap & Defect Classification Matrix
+
+| Gap ID | Defect Classification | Affected Endpoint / Layer | Root Cause & Evidence | Resolution / Current Status | Action Needed / Ownership |
+|---|---|---|---|---|---|
+| **GAP-KYC-09** | **Frontend State Defect** | `WorkerVerificationReviewModal` & React Query | Passing `initialDossier` from queue item into React Query `initialData` without `initialDataUpdatedAt: 0` caused the modal to treat the initial queue record (which lacks `submittedDocuments`) as fresh data. Step 2 immediately evaluated `submittedDocs` as empty. | Replaced with `placeholderData: initialDossier` and `staleTime: 0`. Query always refetches genuine dossier from `/admin/workers/{workerId}/verification`. | **Frontend Fixed** |
+| **GAP-KYC-10** | **Frontend Selection Defect** | `WorkerVerificationReviewModal` Step 2 | `activeDocType` defaulted to `'IDENTITY'` while `selectedDocId` was null. In queue applications where Identity was already verified and only Police Verification or Skill Certificate had pending documents, Step 2 attempted to display Identity doc metadata, resulting in "Document Vault Attachment Unavailable". | Auto-select first reviewable document in `submittedDocs` when `selectedDocId` is null, and synchronize `activeDocType` and `activeDocId` dynamically. | **Frontend Fixed** |
+| **GAP-KYC-11** | **Backend Contract Discrepancy** | `GET /api/v1/admin/verification/queue` | Queue endpoint emits `uploadedDocuments: number` but does NOT embed the `documents: [...]` array. Detailed document metadata exists only in `/admin/workers/{workerId}/verification`. | Documented contract boundary: `/admin/verification/queue` is an aggregation queue; document inspection requires `/admin/workers/{workerId}/verification`. | **Documented Contract** (Backend may consider returning document summary array in queue for lower latency). |
+| **GAP-KYC-12** | **Backend / Supabase Storage TTL** | `GET /api/v1/admin/verification/documents/{documentId}/link` | Signed S3 link expires in `120s` (`expiresInSeconds: 120`). Long review sessions caused expired links. | Frontend shortened query cache `staleTime` to 60s and provided explicit error formatting and "Retry Document Access" buttons. | **Frontend Fixed** (Backend team requested to extend TTL to 300s). |
+| **GAP-KYC-13** | **Worker Flow Contract Rule** | `POST /workers/me/verification/checks/{checkType}/submit` | Draft document uploads remain `reviewable: false` until the worker mobile app explicitly executes check submission. | Verified in live database: Worker `01a12efb-8328-7799-902f-975646ec1128` has documents with `available: true` but `reviewable: false` because check submission was incomplete. Only submitted checks have `reviewable: true`. | **Behavior as Specified** |
+| **GAP-KYC-14** | **Backend Document Type Enum Alignment** | `mapChecks` & `normalizeCheckType` | Backend returns both `POLICE_CLEARANCE` and `POLICE_VERIFICATION`, plus non-canonical checks `SKILL_CERTIFICATE` and `LICENSE`. Mappers must capture all reviewable documents across both canonical checks and raw checks list. | Enhanced `getDossierById` and `mapChecks` to inspect all checks for reviewable documents and populate `submittedDocuments`. | **Frontend Fixed** |
+
+
 
 
 

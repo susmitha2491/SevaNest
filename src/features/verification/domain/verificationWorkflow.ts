@@ -96,15 +96,13 @@ export interface VerificationWorkflowEvaluation {
 }
 
 /**
- * Evaluates the sequential dependencies and current review state across all checks
- * for a given worker dossier.
+ * Evaluates the review state across all checks for a given worker dossier.
  *
  * Rules:
- * 1. Step 1 (Identity) is actionable first.
- * 2. Step N can only be approved if Steps 1..(N-1) are already APPROVED.
- * 3. If any preceding step is PENDING, IN_REVIEW, REJECTED, or RECHECK_DUE, subsequent steps are LOCKED.
- * 4. The current actionable step is the earliest unapproved step in sequence.
- * 5. Full verification eligibility requires all 5 operations checks to be APPROVED and OTP pre-check passed.
+ * 1. All reviewable documents and checks are independently accessible in any order (no frontend locking).
+ * 2. An individual check is actionable when not yet approved.
+ * 3. Full verification eligibility strictly requires all 5 operations checks to be APPROVED and OTP pre-check passed.
+ * 4. Final verification sign-off is gated on all mandatory checks being approved.
  */
 export function evaluateVerificationWorkflow(
   checks?: Record<VerificationCheckType, VerificationCheck> | null,
@@ -138,28 +136,15 @@ export function evaluateVerificationWorkflow(
       hasRecheckDue = true;
     }
 
-    // A step is locked if any preceding step in the sequence is NOT approved
-    let isLocked = false;
-    let prerequisiteStepNumber: number | undefined = undefined;
-    let prerequisiteTitle: string | undefined = undefined;
+    // Frontend sequential locking is removed. All reviewable documents and checks
+    // remain independently accessible and reviewable in any order.
+    const isLocked = false;
+    const prerequisiteStepNumber: number | undefined = undefined;
+    const prerequisiteTitle: string | undefined = undefined;
     const prerequisiteBlockers: string[] = [];
 
-    for (let j = 0; j < i; j++) {
-      const prevDef = VERIFICATION_CHECK_ORDER[j];
-      const prevCheck = safeChecks[prevDef.type];
-      const prevStatus = prevCheck?.status || 'PENDING';
-      if (prevStatus !== 'APPROVED') {
-        isLocked = true;
-        if (!prerequisiteStepNumber) {
-          prerequisiteStepNumber = prevDef.stepNumber;
-          prerequisiteTitle = prevDef.title;
-        }
-        prerequisiteBlockers.push(`${prevDef.stepNumber}. ${prevDef.title}`);
-      }
-    }
-
-    const isCurrentActionable = !firstUnapprovedFound && !isCompleted;
-    if (isCurrentActionable) {
+    const isCurrentActionable = !isCompleted;
+    if (isCurrentActionable && !firstUnapprovedFound) {
       firstUnapprovedFound = true;
       currentActionableType = stepDef.type;
       currentActionableStepNumber = stepDef.stepNumber;

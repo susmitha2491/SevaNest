@@ -106,8 +106,17 @@ export interface WorkerFilterCriteria {
   limit?: number;
 }
 
+export interface WorkerPageResult {
+  items: Worker[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
 export interface IWorkerRepository {
   getWorkers(filter?: WorkerFilterCriteria): Promise<Worker[]>;
+  getWorkersPage(filter?: WorkerFilterCriteria, page?: number, limit?: number): Promise<WorkerPageResult>;
   getWorkerById(id: string): Promise<WorkerDetail | null>;
   updateWorkerStatus(workerId: string, status: Worker['status'], remarks: string): Promise<void>;
   updateWorkerCategories(workerId: string, categoryCodes: string[]): Promise<void>;
@@ -116,3 +125,4 @@ export interface IWorkerRepository {
   approveCheck(checkId: string, remarks?: string): Promise<void>;
   rejectCheck(checkId: string, category: string, remarks: string): Promise<void>;
 }
+

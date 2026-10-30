@@ -24,6 +24,7 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
+import { AnalyticsChartsSection } from './analytics/AnalyticsChartsSection';
 
 function formatStatusLabel(status: string): string {
   return status
@@ -39,6 +40,25 @@ export const SuperAdminDashboard: React.FC = () => {
     queryKey: ['dashboard', 'super-admin'],
     queryFn: () => dashboardRepository.getSuperAdminDashboard(),
   });
+
+  const {
+    data: analyticsData,
+    isLoading: isAnalyticsLoading,
+    isError: isAnalyticsError,
+    error: analyticsError,
+    refetch: refetchAnalytics,
+    isFetching: isAnalyticsFetching,
+  } = useQuery({
+    queryKey: ['dashboard', 'super-admin-analytics'],
+    queryFn: () => dashboardRepository.getSuperAdminAnalytics(),
+  });
+
+  const isAnyFetching = isFetching || isAnalyticsFetching;
+
+  const handleRefreshAll = () => {
+    refetch();
+    refetchAnalytics();
+  };
 
   if (isLoading) {
     return <LoadingSpinner message="Loading Executive Platform Metrics..." />;
@@ -105,8 +125,8 @@ export const SuperAdminDashboard: React.FC = () => {
             </div>
           )}
           <button
-            onClick={() => refetch()}
-            disabled={isFetching}
+            onClick={handleRefreshAll}
+            disabled={isAnyFetching}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -118,13 +138,13 @@ export const SuperAdminDashboard: React.FC = () => {
               fontSize: 'var(--font-size-sm)',
               fontWeight: 600,
               border: '1px solid var(--color-border)',
-              cursor: isFetching ? 'not-allowed' : 'pointer',
+              cursor: isAnyFetching ? 'not-allowed' : 'pointer',
               boxShadow: 'var(--shadow-sm)',
-              opacity: isFetching ? 0.7 : 1,
+              opacity: isAnyFetching ? 0.7 : 1,
             }}
           >
-            <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
-            <span>{isFetching ? 'Refreshing...' : 'Refresh Metrics'}</span>
+            <RefreshCw size={14} color="var(--color-primary)" className={isAnyFetching ? 'animate-spin' : ''} />
+            <span>{isAnyFetching ? 'Refreshing...' : 'Refresh Metrics'}</span>
           </button>
         </div>
       </div>
@@ -723,6 +743,15 @@ export const SuperAdminDashboard: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* PRD Section 14: Business Analytics Visualizations */}
+      <AnalyticsChartsSection
+        analytics={analyticsData}
+        isLoading={isAnalyticsLoading}
+        isError={isAnalyticsError}
+        errorMessage={analyticsError instanceof Error ? analyticsError.message : undefined}
+        onRetry={() => refetchAnalytics()}
+      />
 
       {/* Executive Queues and Quick Governance Actions */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-6)' }}>

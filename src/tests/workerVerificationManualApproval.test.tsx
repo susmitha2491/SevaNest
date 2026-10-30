@@ -152,7 +152,7 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
     });
   });
 
-  it('keeps Police Certificate locked while Employer Reference is in SUBMITTED state', async () => {
+  it('allows Police Certificate to be reviewed independently even while Employer Reference is in SUBMITTED state', async () => {
     const dossier = createMockDossier();
     vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(dossier);
 
@@ -167,21 +167,18 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
 
     expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-    // Employer Reference is unlocked and shows Start Review + Approve Check
+    // Employer Reference is accessible and shows Start Review + Approve Check
     const refCard = screen.getByTestId('check-card-REFERENCE');
     expect(within(refCard).getByRole('button', { name: /Start Review/i })).toBeInTheDocument();
     expect(within(refCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
 
-    // Police Certificate must be LOCKED
+    // Police Certificate must NOT be locked and must be directly accessible
     const polCard = screen.getByTestId('check-card-POLICE_CLEARANCE');
-    expect(within(polCard).getByTestId('badge-locked-POLICE_CLEARANCE')).toBeInTheDocument();
-    expect(within(polCard).getByTestId('locked-notice-POLICE_CLEARANCE')).toHaveTextContent(
-      /Step 5 \(Police Certificate\) is locked until preceding check\(s\) \[Employer Reference\] are approved/i
-    );
+    expect(within(polCard).queryByTestId('badge-locked-POLICE_CLEARANCE')).not.toBeInTheDocument();
+    expect(within(polCard).queryByTestId('locked-notice-POLICE_CLEARANCE')).not.toBeInTheDocument();
 
-    // Police Certificate action buttons must NOT be present
-    expect(within(polCard).queryByRole('button', { name: /Approve Check/i })).not.toBeInTheDocument();
-    expect(within(polCard).queryByRole('button', { name: /Start Review/i })).not.toBeInTheDocument();
+    // Police Certificate action buttons MUST be present and reviewable
+    expect(within(polCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
   });
 
   it('allows executive to start review explicitly on Employer Reference transitioning to IN_REVIEW', async () => {

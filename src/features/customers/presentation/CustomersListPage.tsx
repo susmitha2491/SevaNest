@@ -1,7 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
+/* global HTMLDivElement, IntersectionObserver */
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Filter, Ban, RefreshCw, ChevronLeft, ChevronRight, User, CheckCircle } from 'lucide-react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { Search, Filter, Ban, RefreshCw, User, CheckCircle } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -11,8 +12,6 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { CustomerDetailModal } from './CustomerDetailModal';
-
-const ITEMS_PER_PAGE = 5;
 
 export const CustomersListPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -25,11 +24,13 @@ export const CustomersListPage: React.FC = () => {
   const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
   const [sortField, setSortField] = useState<'name' | 'id' | 'totalBookings'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [currentPage, setCurrentPage] = useState(1);
 
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [detailModalId, setDetailModalId] = useState<string | null>(() => searchParams.get('customerId') || null);
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const cid = searchParams.get('customerId');
@@ -68,14 +69,66 @@ export const CustomersListPage: React.FC = () => {
     }, { replace: true });
   };
 
-  const { data: customers = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ['customers', 'list'],
-    queryFn: () => customerRepository.getCustomers(),
+  // Continuous infinite scrolling query using documented pagination contract
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['customers', 'infinite', searchTerm, statusFilter, localityFilter],
+    queryFn: async ({ pageParam = 1 }) => {
+      if (typeof customerRepository.getCustomersPage === 'function') {
+        return customerRepository.getCustomersPage(
+          {
+            searchTerm,
+            status: statusFilter,
+            locality: localityFilter,
+          },
+          pageParam,
+          20
+        );
+      }
+      const all = await customerRepository.getCustomers({
+        searchTerm,
+        status: statusFilter,
+        locality: localityFilter,
+      });
+      return {
+        items: all,
+        total: all.length,
+        page: 1,
+        limit: all.length,
+        hasMore: false,
+      };
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 
-  // Client-side filtering and sorting
+  // Deduplicate customer records across loaded batches
+  const allCustomers = useMemo(() => {
+    if (!data?.pages) return [];
+    const seen = new Set<string>();
+    const list: Customer[] = [];
+    for (const page of data.pages) {
+      for (const customer of page.items) {
+        if (!seen.has(customer.id)) {
+          seen.add(customer.id);
+          list.push(customer);
+        }
+      }
+    }
+    return list;
+  }, [data?.pages]);
+
+  // Client-side filtering and sorting on accumulated records
   const filteredAndSortedCustomers = useMemo(() => {
-    let result = [...customers];
+    let result = [...allCustomers];
 
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -108,34 +161,58 @@ export const CustomersListPage: React.FC = () => {
     });
 
     return result;
-  }, [customers, searchTerm, statusFilter, localityFilter, sortField, sortOrder]);
+  }, [allCustomers, searchTerm, statusFilter, localityFilter, sortField, sortOrder]);
 
-  // Pagination calculation
-  const totalPages = Math.ceil(filteredAndSortedCustomers.length / ITEMS_PER_PAGE) || 1;
-  const paginatedCustomers = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredAndSortedCustomers.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredAndSortedCustomers, currentPage]);
+  const totalCount = data?.pages[0]?.total ?? filteredAndSortedCustomers.length;
+
+  // Scroll event listener on the scrollable table container
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      if (hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }
+  };
+
+  // IntersectionObserver for continuous background loading
+  useEffect(() => {
+    if (!sentinelRef.current || !hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      {
+        root: tableContainerRef.current,
+        rootMargin: '120px',
+      }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const handleSuspendConfirm = async (remarks?: string) => {
     if (selectedCustomerId) {
       await customerRepository.suspendCustomer(selectedCustomerId, remarks || 'Operational account suspension');
       setIsSuspendOpen(false);
       await refetch();
-      queryClient.invalidateQueries({ queryKey: ['customers', 'detail', selectedCustomerId] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
     }
   };
 
   const handleReactivateCustomer = async (id: string) => {
     await customerRepository.reactivateCustomer(id);
     await refetch();
-    queryClient.invalidateQueries({ queryKey: ['customers', 'detail', id] });
+    queryClient.invalidateQueries({ queryKey: ['customers'] });
   };
 
   const localities = useMemo(() => {
-    const set = new Set(customers.map((c) => c.locality));
+    const set = new Set(allCustomers.map((c) => c.locality));
     return ['ALL', ...Array.from(set)];
-  }, [customers]);
+  }, [allCustomers]);
 
   if (isLoading) {
     return <LoadingSpinner message="Loading customer directory..." />;
@@ -145,7 +222,7 @@ export const CustomersListPage: React.FC = () => {
     return (
       <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
         <p style={{ color: 'var(--color-status-danger-text)', marginBottom: 'var(--space-4)' }}>
-          Failed to load customer profiles.
+          {error instanceof Error ? error.message : 'Failed to load customer profiles.'}
         </p>
         <button
           onClick={() => refetch()}
@@ -230,7 +307,6 @@ export const CustomersListPage: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value;
               setSearchTerm(val);
-              setCurrentPage(1);
               setSearchParams((prev) => {
                 const next = new window.URLSearchParams(prev);
                 if (val) {
@@ -262,7 +338,6 @@ export const CustomersListPage: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED';
               setStatusFilter(val);
-              setCurrentPage(1);
               setSearchParams((prev) => {
                 const next = new window.URLSearchParams(prev);
                 if (val !== 'ALL') {
@@ -298,7 +373,6 @@ export const CustomersListPage: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value;
               setLocalityFilter(val);
-              setCurrentPage(1);
               setSearchParams((prev) => {
                 const next = new window.URLSearchParams(prev);
                 if (val !== 'ALL') {
@@ -358,222 +432,215 @@ export const CustomersListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Customer Directory Table */}
+      {/* Customer Directory Table with Continuous Scroll and Sticky Header */}
       <div
+        data-testid="customer-table-scroll-container"
+        ref={tableContainerRef}
+        onScroll={handleScroll}
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-sm)',
-          overflow: 'hidden',
           border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+          overflowY: 'auto',
+          maxHeight: '620px',
+          position: 'relative',
         }}
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-            <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+          <thead
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+              backgroundColor: 'var(--color-bg-subtle)',
+              borderBottom: '1px solid var(--color-border-subtle)',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+            }}
+          >
+            <tr>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Customer ID
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Customer Name
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Contact (PII Masked)
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Cluster Locality
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                KYC Verification
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Account Status
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                Bookings
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAndSortedCustomers.length === 0 ? (
               <tr>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Customer ID
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Customer Name
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Contact (PII Masked)
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Cluster Locality
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  KYC Verification
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Account Status
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  Bookings
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                  Actions
-                </th>
+                <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+                  No customer accounts match your search and filter criteria.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {paginatedCustomers.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
-                    No customer accounts match your search and filter criteria.
+            ) : (
+              filteredAndSortedCustomers.map((customer: Customer) => (
+                <tr key={customer.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                  <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                    {customer.id}
+                  </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>{customer.name}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {customer.registeredDate}</div>
+                  </td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
+                  </td>
+                  <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+                    {customer.locality}
+                  </td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    <VerificationBadge
+                      isFullyVerified={customer.verificationStatus === 'VERIFIED'}
+                      status={customer.verificationStatus || 'PENDING'}
+                    />
+                  </td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    <StatusBadge status={customer.status} />
+                  </td>
+                  <td style={{ padding: '8px 12px', color: 'var(--color-text-primary)', fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    {customer.totalBookings}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
+                      <button
+                        onClick={() => handleOpenDetailModal(customer.id)}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                          backgroundColor: 'var(--color-bg-surface-elevated)',
+                          color: 'var(--color-text-primary)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <User size={13} />
+                        <span>View Profile</span>
+                      </button>
+
+                      <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
+                        {customer.status === 'ACTIVE' ? (
+                          <button
+                            onClick={() => {
+                              setSelectedCustomerId(customer.id);
+                              setIsSuspendOpen(true);
+                            }}
+                            aria-label={`Suspend customer ${customer.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-status-danger-text)',
+                              backgroundColor: 'var(--color-status-danger-bg)',
+                              color: 'var(--color-status-danger-text)',
+                              fontSize: 'var(--font-size-xs)',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <Ban size={13} />
+                            <span>Suspend</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleReactivateCustomer(customer.id)}
+                            aria-label={`Reactivate customer ${customer.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-status-success-text)',
+                              backgroundColor: 'var(--color-status-success-bg)',
+                              color: 'var(--color-status-success-text)',
+                              fontSize: 'var(--font-size-xs)',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            <CheckCircle size={13} />
+                            <span>Reactivate</span>
+                          </button>
+                        )}
+                      </PermissionGate>
+                    </div>
                   </td>
                 </tr>
-              ) : (
-                paginatedCustomers.map((customer: Customer) => (
-                  <tr key={customer.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
-                    <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                      {customer.id}
-                    </td>
-                    <td style={{ padding: '8px 12px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>{customer.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {customer.registeredDate}</div>
-                    </td>
-                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                      <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
-                    </td>
-                    <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-                      {customer.locality}
-                    </td>
-                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                      <VerificationBadge
-                        isFullyVerified={customer.verificationStatus === 'VERIFIED'}
-                        status={customer.verificationStatus || 'PENDING'}
-                      />
-                    </td>
-                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                      <StatusBadge status={customer.status} />
-                    </td>
-                    <td style={{ padding: '8px 12px', color: 'var(--color-text-primary)', fontWeight: 600, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      {customer.totalBookings}
-                    </td>
-                    <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
-                        <button
-                          onClick={() => handleOpenDetailModal(customer.id)}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'var(--color-bg-surface-elevated)',
-                            color: 'var(--color-text-primary)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          <User size={13} />
-                          <span>View Profile</span>
-                        </button>
+              ))
+            )}
+          </tbody>
+        </table>
 
-                        <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
-                          {customer.status === 'ACTIVE' ? (
-                            <button
-                              onClick={() => {
-                                setSelectedCustomerId(customer.id);
-                                setIsSuspendOpen(true);
-                              }}
-                              aria-label={`Suspend customer ${customer.name}`}
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-status-danger-text)',
-                                backgroundColor: 'var(--color-status-danger-bg)',
-                                color: 'var(--color-status-danger-text)',
-                                fontSize: 'var(--font-size-xs)',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <Ban size={13} />
-                              <span>Suspend</span>
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleReactivateCustomer(customer.id)}
-                              aria-label={`Reactivate customer ${customer.name}`}
-                              style={{
-                                padding: '4px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-status-success-text)',
-                                backgroundColor: 'var(--color-status-success-bg)',
-                                color: 'var(--color-status-success-text)',
-                                fontSize: 'var(--font-size-xs)',
-                                cursor: 'pointer',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <CheckCircle size={13} />
-                              <span>Reactivate</span>
-                            </button>
-                          )}
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* Sentinel element for infinite scroll */}
+        <div ref={sentinelRef} style={{ height: '1px' }} />
 
-        {/* Pagination Bar */}
-        <div
-          style={{
-            padding: 'var(--space-3) var(--space-4)',
-            borderTop: '1px solid var(--color-border-subtle)',
-            backgroundColor: 'var(--color-bg-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-text-muted)',
-          }}
-        >
-          <div>
-            Showing <strong>{filteredAndSortedCustomers.length > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</strong> to{' '}
-            <strong>{Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedCustomers.length)}</strong> of{' '}
-            <strong>{filteredAndSortedCustomers.length}</strong> customers
+        {/* Loading indicator when fetching additional records */}
+        {isFetchingNextPage && (
+          <div
+            data-testid="loading-more-customers"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-3)',
+              color: 'var(--color-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              backgroundColor: 'var(--color-bg-subtle)',
+              borderTop: '1px dashed var(--color-border-subtle)',
+            }}
+          >
+            <RefreshCw size={14} className="animate-spin" />
+            <span>Loading more customer records...</span>
           </div>
+        )}
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              aria-label="Previous page"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-bg-surface)',
-                color: currentPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <ChevronLeft size={14} />
-            </button>
-
-            <span>
-              Page {currentPage} of {totalPages}
-            </span>
-
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              aria-label="Next page"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-bg-surface)',
-                color: currentPage === totalPages ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <ChevronRight size={14} />
-            </button>
+        {/* Continuous scroll status indicator when all records are loaded */}
+        {!hasNextPage && filteredAndSortedCustomers.length > 0 && (
+          <div
+            data-testid="continuous-scroll-footer"
+            style={{
+              padding: 'var(--space-2) var(--space-4)',
+              textAlign: 'center',
+              fontSize: '11px',
+              color: 'var(--color-text-muted)',
+              borderTop: '1px solid var(--color-border-subtle)',
+              backgroundColor: 'var(--color-bg-subtle)',
+            }}
+          >
+            All {totalCount} customer records loaded • Continuous scroll
           </div>
-        </div>
+        )}
       </div>
 
       {/* Customer Detail Modal */}

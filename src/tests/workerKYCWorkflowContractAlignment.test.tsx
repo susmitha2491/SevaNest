@@ -20,7 +20,7 @@ import {
   ValidationError,
   ServerFailureError,
 } from '../core/errors/DomainError';
-import { WorkerDetail } from '../features/workers/domain/types';
+import { WorkerDetail, WorkerDocumentMetadata } from '../features/workers/domain/types';
 import { VerificationDossier } from '../features/verification/domain/types';
 
 function renderWithProviders(ui: React.ReactElement) {
@@ -255,7 +255,7 @@ describe('Worker KYC Workflow Contract Alignment', () => {
             documentType: 'POLICE_CLEARANCE',
             documentTypeName: 'Unuploaded PCC Placeholder',
             docNumberMasked: 'XXXX-XXXX-3333',
-            status: 'PENDING_UPLOAD' as any,
+            status: 'PENDING_UPLOAD' as unknown as WorkerDocumentMetadata['status'],
             reviewable: true,
             available: false,
             availability: 'NOT_UPLOADED',

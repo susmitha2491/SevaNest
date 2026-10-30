@@ -278,7 +278,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         ? verificationRepository.getSignedDocumentUrl(workerId, inspectingDoc.checkType, inspectingDocId)
         : null,
     enabled: !!inspectingDoc && hasInspectingDocId && canViewDocuments,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 60 * 1000,
     retry: false,
   });
 

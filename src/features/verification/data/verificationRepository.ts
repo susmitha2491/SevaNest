@@ -1411,6 +1411,52 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
   return result;
 }
 
+interface WorkerEnrichmentInfo {
+  category: string;
+  phoneMasked?: string;
+  locality?: string;
+}
+
+let cachedWorkerEnrichment: Map<string, WorkerEnrichmentInfo> | null = null;
+let lastWorkerEnrichmentFetch = 0;
+
+async function getWorkerEnrichmentMap(): Promise<Map<string, WorkerEnrichmentInfo>> {
+  const now = Date.now();
+  if (cachedWorkerEnrichment && now - lastWorkerEnrichmentFetch < 60000) {
+    return cachedWorkerEnrichment;
+  }
+  try {
+    const res = await httpClient.get<{
+      data?: Array<{ id: string; name?: string; mobile?: string; categories?: Array<{ name?: string }>; locality?: string }>;
+      items?: Array<{ id: string; name?: string; mobile?: string; categories?: Array<{ name?: string }>; locality?: string }>;
+    }>('/admin/workers', { params: { limit: 100 } });
+
+    const list = Array.isArray(res?.data)
+      ? res.data
+      : Array.isArray(res?.data?.data)
+      ? res.data.data
+      : Array.isArray(res?.data?.items)
+      ? res.data.items
+      : [];
+
+    const map = new Map<string, WorkerEnrichmentInfo>();
+    for (const w of list) {
+      if (w && w.id) {
+        map.set(w.id, {
+          category: w.categories?.[0]?.name || 'General Help',
+          phoneMasked: w.mobile ? `${w.mobile.slice(0, 5)} *****` : undefined,
+          locality: w.locality || 'Hyderabad',
+        });
+      }
+    }
+    cachedWorkerEnrichment = map;
+    lastWorkerEnrichmentFetch = now;
+    return map;
+  } catch {
+    return cachedWorkerEnrichment || new Map();
+  }
+}
+
 export class RealVerificationRepository implements IVerificationRepository {
   async getVerificationQueue(
     filter?: VerificationFilterCriteria
@@ -1418,200 +1464,452 @@ export class RealVerificationRepository implements IVerificationRepository {
     try {
       const page = filter?.page || 1;
       const pageSize = filter?.pageSize || 10;
-      const params: Record<string, unknown> = {
-        page,
-        limit: pageSize,
+      const baseParams: Record<string, unknown> = {
         sortBy: filter?.sortBy || 'submittedAt',
         sortOrder: filter?.sortOrder || 'asc',
       };
-      if (filter?.status && filter.status !== 'ALL') {
-        params.status = filter.status === 'PENDING_REVIEW' ? 'SUBMITTED' : filter.status;
-      }
       if (filter?.searchTerm) {
-        params.search = filter.searchTerm;
+        baseParams.search = filter.searchTerm;
       }
       if (filter?.categoryId) {
-        params.categoryId = filter.categoryId;
+        baseParams.categoryId = filter.categoryId;
       } else if (filter?.category && filter.category !== 'ALL') {
-        params.category = filter.category;
+        baseParams.category = filter.category;
       }
 
       // Do not send assignedTo and reviewerId together. The backend returns HTTP 400 if both are supplied.
       if (filter?.assignedTo === 'me') {
-        params.assignedTo = 'me';
+        baseParams.assignedTo = 'me';
       } else if (filter?.reviewerId) {
-        params.reviewerId = filter.reviewerId;
+        baseParams.reviewerId = filter.reviewerId;
       }
 
-      const res = await httpClient.get<
-        | {
-            success?: boolean;
-            data?: Record<string, unknown>[];
-            items?: Record<string, unknown>[];
-            meta?: { totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number };
-            totalCount?: number;
+      let rawItems: Record<string, unknown>[] = [];
+      let serverReportedTotal: number | undefined = undefined;
+
+      if (filter?.status === 'ALL') {
+        // The backend /admin/verification/queue endpoint defaults to checks waiting for review (SUBMITTED & IN_REVIEW).
+        // It excludes APPROVED, REJECTED, and NOT_SUBMITTED checks unless explicitly queried.
+        // To display all worker applications across all applicable verification statuses,
+        // query the authorized queue across valid status buckets in parallel.
+        const fetchStatusQueue = async (st?: string) => {
+          const statusParams: Record<string, unknown> = {
+            ...baseParams,
+            limit: 100,
+            page: 1,
+          };
+          if (st) statusParams.status = st;
+
+          try {
+            const res = await httpClient.get<
+              | {
+                  success?: boolean;
+                  data?: Record<string, unknown>[];
+                  items?: Record<string, unknown>[];
+                  meta?: { total?: number; totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number };
+                  totalCount?: number;
+                }
+              | Record<string, unknown>[]
+            >('/admin/verification/queue', { params: statusParams });
+
+            const payload = res?.data;
+            const items: Record<string, unknown>[] = Array.isArray(payload)
+              ? payload
+              : Array.isArray(payload?.data)
+              ? payload.data
+              : Array.isArray(payload?.items)
+              ? payload.items
+              : [];
+
+            const total = !Array.isArray(payload)
+              ? (payload?.meta?.total ?? payload?.meta?.totalItems ?? payload?.totalCount)
+              : undefined;
+
+            if (typeof total === 'number' && total > 100) {
+              const pages = Math.ceil(total / 100);
+              for (let p = 2; p <= pages; p++) {
+                const nextRes = await httpClient.get<{ data?: Record<string, unknown>[] } | Record<string, unknown>[]>(
+                  '/admin/verification/queue',
+                  { params: { ...statusParams, page: p } }
+                ).catch(() => null);
+                if (nextRes?.data) {
+                  const more = Array.isArray(nextRes.data)
+                    ? nextRes.data
+                    : Array.isArray((nextRes.data as { data?: Record<string, unknown>[] }).data)
+                    ? (nextRes.data as { data: Record<string, unknown>[] }).data
+                    : [];
+                  items.push(...more);
+                }
+              }
+            }
+            return items;
+          } catch {
+            return [];
           }
-        | Record<string, unknown>[]
-      >('/admin/verification/queue', { params });
+        };
 
-      const payload = res.data;
-      const rawItems = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload.data)
-        ? payload.data
-        : Array.isArray(payload.items)
-        ? payload.items
-        : [];
+        const [activeChecks, approvedChecks, rejectedChecks, notSubmittedChecks] = await Promise.all([
+          fetchStatusQueue(undefined), // SUBMITTED & IN_REVIEW
+          fetchStatusQueue('APPROVED'),
+          fetchStatusQueue('REJECTED'),
+          fetchStatusQueue('NOT_SUBMITTED'),
+        ]);
 
-      const mapped: VerificationDossier[] = rawItems.map((raw: Record<string, unknown>) => {
+        rawItems = [...activeChecks, ...approvedChecks, ...rejectedChecks, ...notSubmittedChecks];
+      } else {
+        const params: Record<string, unknown> = {
+          ...baseParams,
+          page,
+          limit: pageSize,
+        };
+
+        if (filter?.status === 'PENDING_REVIEW') {
+          params.status = 'SUBMITTED';
+        } else if (filter?.status === 'RECHECK_DUE') {
+          // Backend returns 400 for RECHECK_DUE; rechecked items transition to IN_REVIEW
+          params.status = 'IN_REVIEW';
+        } else if (filter?.status) {
+          params.status = filter.status;
+        }
+
+        const res = await httpClient.get<
+          | {
+              success?: boolean;
+              data?: Record<string, unknown>[];
+              items?: Record<string, unknown>[];
+              meta?: { total?: number; totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number };
+              totalCount?: number;
+            }
+          | Record<string, unknown>[]
+        >('/admin/verification/queue', { params });
+
+        const payload = res?.data;
+        rawItems = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.items)
+          ? payload.items
+          : [];
+
+        serverReportedTotal = !Array.isArray(payload)
+          ? (payload?.meta?.total ?? payload?.meta?.totalItems ?? payload?.totalCount)
+          : undefined;
+
+        // If the backend has more checks and we are retrieving the queue for a status:
+        // Retrieve remaining checks so grouping by workerId does not omit workers
+        if (typeof serverReportedTotal === 'number' && serverReportedTotal > rawItems.length && page === 1 && pageSize <= 20) {
+          try {
+            const allRes = await httpClient.get<
+              | { data?: Record<string, unknown>[]; meta?: { total?: number } }
+              | Record<string, unknown>[]
+            >('/admin/verification/queue', { params: { ...params, page: 1, limit: 100 } });
+            if (allRes?.data) {
+              const fullItems = Array.isArray(allRes.data)
+                ? allRes.data
+                : Array.isArray((allRes.data as { data?: Record<string, unknown>[] }).data)
+                ? (allRes.data as { data: Record<string, unknown>[] }).data
+                : [];
+              if (fullItems.length > rawItems.length) {
+                rawItems = fullItems;
+              }
+            }
+          } catch {
+            // Keep initial rawItems on error
+          }
+        }
+      }
+
+      // Optional worker category / phone enrichment from worker directory
+      const workerEnrichment = await getWorkerEnrichmentMap().catch(() => new Map<string, WorkerEnrichmentInfo>());
+
+      // Group checks by workerId to form consolidated application dossiers
+      const workerGroups = new Map<string, {
+        id: string;
+        workerId: string;
+        workerName: string;
+        applicationId: string;
+        category: string;
+        locality: string;
+        experienceYears: number;
+        phoneMasked: string;
+        applicationSubmittedAt?: string;
+        submissionTime: string;
+        reviewerUserId?: string;
+        assignedReviewer?: string;
+        claimedAt?: string;
+        level?: string;
+        checksMap: Record<string, VerificationCheck>;
+        rawList: Record<string, unknown>[];
+      }>();
+
+      for (const raw of rawItems) {
         const worker = (raw.worker || raw.workerProfile || raw.applicant) as Record<string, unknown> | undefined;
         const reviewer = (raw.reviewer || raw.assignedTo || raw.assignedReviewer) as Record<string, unknown> | undefined;
 
-        // Real checkId from queue response if available
-        const rawCheckId = raw.checkId || (raw.check as Record<string, unknown>)?.id;
-        const checkId = rawCheckId ? String(rawCheckId) : undefined;
-
-        // Real workerId as application identity - never substitute checkId or fabricate APP-...
         const rawWorkerId = raw.workerId || worker?.id || raw.userId;
-        const workerId = rawWorkerId ? String(rawWorkerId) : '';
+        const workerId = rawWorkerId ? String(rawWorkerId) : (raw.id ? String(raw.id) : '');
+        if (!workerId) continue;
 
-        // If raw.id is provided and distinct from checkId, keep it; otherwise default to workerId
-        let id = String(raw.id || '');
-        if (!id || id === checkId || id.startsWith('chk-') || id.startsWith('check-')) {
-          id = workerId || (raw.id ? String(raw.id) : '');
+        if (!workerGroups.has(workerId)) {
+          const rawCheckId = raw.checkId || (raw.check as Record<string, unknown>)?.id;
+          const checkId = rawCheckId ? String(rawCheckId) : undefined;
+          let id = String(raw.id || '');
+          if (!id || id === checkId || id.startsWith('chk-') || id.startsWith('check-')) {
+            id = workerId;
+          }
+          const appRef = raw.applicationReference || (worker as Record<string, unknown>)?.applicationReference;
+          const applicationId = appRef ? String(appRef) : (workerId || id);
+
+          const enriched = workerEnrichment.get(workerId);
+
+          const workerName = String(
+            raw.workerName ||
+            worker?.fullName ||
+            worker?.name ||
+            raw.fullName ||
+            raw.applicantName ||
+            ''
+          ).trim() || 'Applicant Name Unavailable';
+
+          const category = String(
+            raw.category ||
+            raw.serviceCategory ||
+            raw.serviceType ||
+            worker?.category ||
+            worker?.primaryCategory ||
+            enriched?.category ||
+            'General'
+          );
+
+          const locality = String(
+            raw.locality ||
+            raw.area ||
+            raw.city ||
+            worker?.locality ||
+            worker?.area ||
+            worker?.city ||
+            enriched?.locality ||
+            'Hyderabad'
+          );
+
+          const experienceYears = Number(
+            raw.experienceYears ??
+            raw.experience ??
+            worker?.experienceYears ??
+            worker?.experience ??
+            0
+          );
+
+          const phoneMasked = String(
+            raw.phoneMasked ||
+            worker?.phoneMasked ||
+            enriched?.phoneMasked ||
+            (worker?.phone ? `${String(worker.phone).slice(0, 5)} *****` : '+91 *****')
+          );
+
+          const rawTimestamp = raw.applicationSubmittedAt || raw.submittedAt || raw.createdAt || raw.applicationDate || raw.submissionTime;
+          const submissionTime = rawTimestamp ? String(rawTimestamp) : '';
+          const applicationSubmittedAt = raw.applicationSubmittedAt ? String(raw.applicationSubmittedAt) : (rawTimestamp ? String(rawTimestamp) : undefined);
+
+          const reviewerUserId = (raw.reviewerUserId || raw.reviewerId || reviewer?.id || reviewer?.userId)
+            ? String(raw.reviewerUserId || raw.reviewerId || reviewer?.id || reviewer?.userId)
+            : undefined;
+          const claimedAt = (raw.claimedAt || raw.claimedTime || reviewer?.claimedAt || reviewer?.assignedAt)
+            ? String(raw.claimedAt || raw.claimedTime || reviewer?.claimedAt || reviewer?.assignedAt)
+            : undefined;
+          const assignedReviewer = reviewerUserId ? `Reviewer (${reviewerUserId})` : undefined;
+
+          const rawLevel = (raw.level ?? (raw.verification as Record<string, unknown>)?.level) as string | undefined;
+          const level = rawLevel !== undefined ? String(rawLevel) : undefined;
+
+          workerGroups.set(workerId, {
+            id,
+            workerId,
+            workerName,
+            applicationId,
+            category,
+            locality,
+            experienceYears,
+            phoneMasked,
+            applicationSubmittedAt,
+            submissionTime,
+            reviewerUserId,
+            assignedReviewer,
+            claimedAt,
+            level,
+            checksMap: {},
+            rawList: [],
+          });
         }
-        const applicationId = workerId || id;
 
-        // Real worker name - Never invent worker names or applicant details
-        const workerName = String(
-          raw.workerName ||
-          worker?.fullName ||
-          worker?.name ||
-          raw.fullName ||
-          raw.applicantName ||
-          ''
-        ).trim() || 'Applicant Name Unavailable';
+        const group = workerGroups.get(workerId)!;
+        group.rawList.push(raw);
 
-        // Service category
-        const category = String(
-          raw.category ||
-          raw.serviceCategory ||
-          raw.serviceType ||
-          worker?.category ||
-          worker?.primaryCategory ||
-          'General'
-        );
-
-        // Locality
-        const locality = String(
-          raw.locality ||
-          raw.area ||
-          raw.city ||
-          worker?.locality ||
-          worker?.area ||
-          worker?.city ||
-          'Hyderabad'
-        );
-
-        // Experience
-        const experienceYears = Number(
-          raw.experienceYears ??
-          raw.experience ??
-          worker?.experienceYears ??
-          worker?.experience ??
-          0
-        );
-
-        // Masked phone
-        const phoneMasked = String(
-          raw.phoneMasked ||
-          worker?.phoneMasked ||
-          (worker?.phone ? `${String(worker.phone).slice(0, 5)} *****` : '+91 *****')
-        );
-
-        // Genuine submission timestamp
-        const rawTimestamp = raw.applicationSubmittedAt || raw.submittedAt || raw.createdAt || raw.applicationDate || raw.submissionTime;
-        const submissionTime = rawTimestamp ? String(rawTimestamp) : '';
-        const applicationSubmittedAt = raw.applicationSubmittedAt ? String(raw.applicationSubmittedAt) : (rawTimestamp ? String(rawTimestamp) : undefined);
-
-        // Reviewer and assignment metadata
-        const reviewerUserId = (raw.reviewerUserId || raw.reviewerId || reviewer?.id || reviewer?.userId)
-          ? String(raw.reviewerUserId || raw.reviewerId || reviewer?.id || reviewer?.userId)
-          : undefined;
-        const claimedAt = (raw.claimedAt || raw.claimedTime || reviewer?.claimedAt || reviewer?.assignedAt)
-          ? String(raw.claimedAt || raw.claimedTime || reviewer?.claimedAt || reviewer?.assignedAt)
-          : undefined;
-        // Never fabricate reviewer profile names
-        const assignedReviewer = reviewerUserId
-          ? `Reviewer (${reviewerUserId})`
-          : undefined;
-
-        // Overall verification result from level field
-        const rawLevel = (raw.level ?? (raw.verification as Record<string, unknown>)?.level) as string | undefined;
-        const level = rawLevel !== undefined ? String(rawLevel) : undefined;
-
-        let status: VerificationDossier['status'] = 'PENDING_REVIEW';
-        const upperStatus = String(raw.status || '').toUpperCase();
-        if (upperStatus === 'APPROVED' || upperStatus === 'VERIFIED') status = 'APPROVED';
-        else if (upperStatus === 'REJECTED') status = 'REJECTED';
-        else if (upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS') status = 'IN_REVIEW';
-        else if (upperStatus === 'RECHECK_DUE') status = 'RECHECK_DUE';
-        else if (upperStatus === 'SUBMITTED' || upperStatus === 'PENDING_REVIEW' || upperStatus === 'PENDING') status = 'PENDING_REVIEW';
-        else if (level) {
-          const upperLevel = level.toUpperCase();
-          if (upperLevel === 'APPROVED' || upperLevel === 'VERIFIED') status = 'APPROVED';
-          else if (upperLevel === 'REJECTED') status = 'REJECTED';
-          else if (upperLevel === 'IN_REVIEW' || upperLevel === 'IN_PROGRESS') status = 'IN_REVIEW';
-          else if (upperLevel === 'RECHECK_DUE') status = 'RECHECK_DUE';
-          else status = 'PENDING_REVIEW';
+        if (raw.reviewerUserId && !group.reviewerUserId) {
+          group.reviewerUserId = String(raw.reviewerUserId);
+          group.assignedReviewer = `Reviewer (${group.reviewerUserId})`;
+          if (raw.claimedAt) group.claimedAt = String(raw.claimedAt);
         }
 
-        return {
-          id,
-          checkId,
-          applicationId,
-          workerId,
-          workerName,
-          category,
-          locality,
-          experienceYears,
-          phoneMasked,
-          submissionTime,
-          applicationSubmittedAt,
-          status,
-          assignedReviewer,
-          reviewerUserId,
-          claimedAt,
-          level,
-          preCheckOtpVerified: Boolean(raw.preCheckOtpVerified ?? true),
-          checks: mapChecks(raw.checks || (raw.checkType ? [raw] : undefined)),
-        };
-      });
-
-      // Deduplicate applications by unique application reference/id to prevent duplicate rows
-      const seenIds = new Set<string>();
-      const deduped: VerificationDossier[] = [];
-      for (const item of mapped) {
-        const uniqueKey = item.workerId || item.id;
-        if (!seenIds.has(uniqueKey)) {
-          seenIds.add(uniqueKey);
-          deduped.push(item);
+        if (raw.checks && typeof raw.checks === 'object') {
+          const mappedSubChecks = mapChecks(raw.checks);
+          Object.assign(group.checksMap, mappedSubChecks);
+        } else if (raw.checkType) {
+          const singleMapped = mapChecks([raw]);
+          Object.assign(group.checksMap, singleMapped);
         }
       }
 
+      const deduped: VerificationDossier[] = Array.from(workerGroups.values()).map((g) => {
+        const rawChecks = g.rawList;
+        const chkMap = g.checksMap;
+
+        const hasIdentityApproved = chkMap.IDENTITY?.status === 'APPROVED';
+        const hasAddressApproved = chkMap.ADDRESS?.status === 'APPROVED';
+        const hasEmergencyApproved = chkMap.EMERGENCY_CONTACT?.status === 'APPROVED';
+        const hasReferenceApproved =
+          chkMap.REFERENCE?.status === 'APPROVED' ||
+          chkMap.PREVIOUS_EMPLOYMENT?.status === 'APPROVED';
+        const hasPoliceApproved =
+          chkMap.POLICE_CLEARANCE?.status === 'APPROVED' ||
+          chkMap.POLICE_VERIFICATION?.status === 'APPROVED';
+        const allFiveChecksApproved =
+          hasIdentityApproved &&
+          hasAddressApproved &&
+          hasEmergencyApproved &&
+          hasReferenceApproved &&
+          hasPoliceApproved;
+
+        const hasRejected = rawChecks.some(
+          (c) => String(c.status || '').toUpperCase() === 'REJECTED'
+        );
+        const hasInReview = rawChecks.some((c) => {
+          const s = String(c.status || '').toUpperCase();
+          return s === 'IN_REVIEW' || s === 'IN_PROGRESS';
+        });
+        const hasRecheck = rawChecks.some(
+          (c) => String(c.status || '').toUpperCase() === 'RECHECK_DUE'
+        );
+
+        let status: VerificationDossier['status'] = 'PENDING_REVIEW';
+        let contractInconsistency: string | undefined = undefined;
+        let hasContractInconsistency = false;
+
+        const upperLevel = g.level ? g.level.toUpperCase() : '';
+        const backendClaimsApproved =
+          upperLevel === 'APPROVED' || upperLevel === 'VERIFIED';
+
+        if (hasRejected || upperLevel === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (hasInReview || upperLevel === 'IN_REVIEW') {
+          status = 'IN_REVIEW';
+        } else if (hasRecheck || upperLevel === 'RECHECK_DUE') {
+          status = 'RECHECK_DUE';
+        } else if (allFiveChecksApproved) {
+          status = 'APPROVED';
+        } else if (backendClaimsApproved && !allFiveChecksApproved) {
+          hasContractInconsistency = true;
+          contractInconsistency = `Contract Inconsistency: Backend reports verification level as ${g.level}, but required checks remain incomplete. Full KYC approval requires all mandatory checks to be approved.`;
+          status = 'PENDING_REVIEW';
+        } else {
+          status = 'PENDING_REVIEW';
+        }
+
+        const actionableRaw =
+          rawChecks.find((c) => {
+            const s = String(c.status || '').toUpperCase();
+            return s === 'SUBMITTED' || s === 'IN_REVIEW';
+          }) || rawChecks[0];
+        const rawCheckId = actionableRaw?.checkId || (actionableRaw?.check as Record<string, unknown>)?.id;
+        const checkId = rawCheckId ? String(rawCheckId) : undefined;
+
+        const queueSubmittedDocs: VerificationDocumentMetadata[] = [];
+        const queueDocIds = new Set<string>();
+        Object.values(g.checksMap).forEach((chk) => {
+          if (Array.isArray(chk.documents)) {
+            chk.documents.forEach((d) => {
+              if (d.reviewable === true && d.available !== false && d.availability !== 'DISCARDED' && d.status !== 'PENDING_UPLOAD' && d.documentId && !queueDocIds.has(d.documentId)) {
+                queueDocIds.add(d.documentId);
+                queueSubmittedDocs.push({
+                  ...d,
+                  checkType: d.checkType || chk.type,
+                  checkTitle: d.checkTitle || chk.title,
+                  checkId: d.checkId || chk.id,
+                });
+              }
+            });
+          } else if (chk.documentMetadata?.documentId && chk.documentMetadata.reviewable === true && !queueDocIds.has(chk.documentMetadata.documentId)) {
+            queueDocIds.add(chk.documentMetadata.documentId);
+            queueSubmittedDocs.push({
+              ...chk.documentMetadata,
+              checkType: chk.type,
+              checkTitle: chk.title,
+              checkId: chk.id,
+            });
+          }
+        });
+
+        return {
+          id: g.id,
+          checkId,
+          applicationId: g.applicationId,
+          workerId: g.workerId,
+          workerName: g.workerName,
+          category: g.category,
+          locality: g.locality,
+          experienceYears: g.experienceYears,
+          phoneMasked: g.phoneMasked,
+          submissionTime: g.submissionTime,
+          applicationSubmittedAt: g.applicationSubmittedAt,
+          status,
+          contractInconsistency,
+          hasContractInconsistency,
+          assignedReviewer: g.assignedReviewer,
+          reviewerUserId: g.reviewerUserId,
+          claimedAt: g.claimedAt,
+          level: g.level,
+          preCheckOtpVerified: true,
+          checks: g.checksMap,
+          submittedDocuments: queueSubmittedDocs,
+        };
+      });
+
+      let filtered = deduped;
+
+      // Filter by category if category was passed
+      if (filter?.category && filter.category !== 'ALL') {
+        const catLower = filter.category.toLowerCase();
+        filtered = filtered.filter((item) => item.category.toLowerCase().includes(catLower));
+      }
+
+      // Filter by searchTerm if passed
+      if (filter?.searchTerm) {
+        const q = filter.searchTerm.toLowerCase();
+        filtered = filtered.filter(
+          (item) =>
+            item.workerName.toLowerCase().includes(q) ||
+            item.workerId.toLowerCase().includes(q) ||
+            item.applicationId?.toLowerCase().includes(q) ||
+            item.locality.toLowerCase().includes(q)
+        );
+      }
+
       // Confirm oldest-first ordering uses real submission timestamp
-      deduped.sort((a, b) => {
+      filtered.sort((a, b) => {
         const timeA = a.submissionTime ? new Date(a.submissionTime).getTime() : Infinity;
         const timeB = b.submissionTime ? new Date(b.submissionTime).getTime() : Infinity;
         return timeA - timeB;
       });
 
-      const serverTotal = !Array.isArray(payload) ? (payload.meta?.totalItems ?? payload.totalCount) : undefined;
-      const totalCount = typeof serverTotal === 'number' ? serverTotal : deduped.length;
-      const serverTotalPages = !Array.isArray(payload) ? payload.meta?.totalPages : undefined;
-      const totalPages = typeof serverTotalPages === 'number' ? serverTotalPages : (Math.ceil(totalCount / pageSize) || 1);
+      const totalCount = filtered.length;
+      const totalPages = Math.ceil(totalCount / pageSize) || 1;
+      const paginated = (filter?.status === 'ALL' || totalCount > pageSize)
+        ? filtered.slice((page - 1) * pageSize, page * pageSize)
+        : filtered;
+
       return {
-        items: deduped,
+        items: paginated,
         totalCount,
         page,
         pageSize,
@@ -1688,20 +1986,91 @@ export class RealVerificationRepository implements IVerificationRepository {
       const rawLevel = (raw.level ?? (raw.verification as Record<string, unknown>)?.level) as string | undefined;
       const level = rawLevel !== undefined ? String(rawLevel) : undefined;
 
+      // Map checks first to verify individual check completeness
+      const mappedChecks = mapChecks(raw.checks);
+
+      const hasIdentityApproved = mappedChecks.IDENTITY?.status === 'APPROVED';
+      const hasAddressApproved = mappedChecks.ADDRESS?.status === 'APPROVED';
+      const hasEmergencyApproved = mappedChecks.EMERGENCY_CONTACT?.status === 'APPROVED';
+      const hasReferenceApproved =
+        mappedChecks.REFERENCE?.status === 'APPROVED' ||
+        mappedChecks.PREVIOUS_EMPLOYMENT?.status === 'APPROVED';
+      const hasPoliceApproved =
+        mappedChecks.POLICE_CLEARANCE?.status === 'APPROVED' ||
+        mappedChecks.POLICE_VERIFICATION?.status === 'APPROVED';
+      const allFiveChecksApproved =
+        hasIdentityApproved &&
+        hasAddressApproved &&
+        hasEmergencyApproved &&
+        hasReferenceApproved &&
+        hasPoliceApproved;
+
+      const incompleteChecks: string[] = [];
+      if (!hasIdentityApproved) incompleteChecks.push('Identity Proof');
+      if (!hasAddressApproved) incompleteChecks.push('Address Proof');
+      if (!hasEmergencyApproved) incompleteChecks.push('Emergency Contact');
+      if (!hasReferenceApproved) incompleteChecks.push('Employer Reference');
+      if (!hasPoliceApproved) incompleteChecks.push('Police Certificate');
+
+      const checksList = Object.values(mappedChecks);
+      const hasRejected = checksList.some((c) => c.status === 'REJECTED');
+      const hasInReview = checksList.some((c) => c.status === 'IN_REVIEW');
+      const hasRecheck = checksList.some((c) => c.status === 'RECHECK_DUE');
+
       let status: VerificationDossier['status'] = 'PENDING_REVIEW';
+      let contractInconsistency: string | undefined = undefined;
+      let hasContractInconsistency = false;
+
       const upperStatus = String(raw.status || '').toUpperCase();
-      if (upperStatus === 'APPROVED' || upperStatus === 'VERIFIED') status = 'APPROVED';
-      else if (upperStatus === 'REJECTED') status = 'REJECTED';
-      else if (upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS') status = 'IN_REVIEW';
-      else if (upperStatus === 'RECHECK_DUE') status = 'RECHECK_DUE';
-      else if (upperStatus === 'SUBMITTED' || upperStatus === 'PENDING_REVIEW' || upperStatus === 'PENDING') status = 'PENDING_REVIEW';
-      else if (level) {
-        const upperLevel = level.toUpperCase();
-        if (upperLevel === 'APPROVED' || upperLevel === 'VERIFIED') status = 'APPROVED';
-        else if (upperLevel === 'REJECTED') status = 'REJECTED';
-        else if (upperLevel === 'IN_REVIEW' || upperLevel === 'IN_PROGRESS') status = 'IN_REVIEW';
-        else if (upperLevel === 'RECHECK_DUE') status = 'RECHECK_DUE';
-        else status = 'PENDING_REVIEW';
+      const upperLevel = level ? level.toUpperCase() : '';
+      const backendClaimsApproved =
+        upperStatus === 'APPROVED' ||
+        upperStatus === 'VERIFIED' ||
+        upperLevel === 'APPROVED' ||
+        upperLevel === 'VERIFIED' ||
+        upperLevel === 'LEVEL_3' ||
+        Boolean(raw.signedOffAt);
+
+      const rawChecksGiven = raw.checks !== undefined && raw.checks !== null &&
+        (Array.isArray(raw.checks) ? raw.checks.length > 0 : Object.keys(raw.checks).length > 0);
+
+      const workerOnboardingSubmitted =
+        workerData?.onboardingStatus === 'SUBMITTED' ||
+        workerData?.onboardingStatus === 'IN_REVIEW' ||
+        workerData?.onboardingStatus === 'APPLIED';
+
+      if (rawChecksGiven) {
+        if (allFiveChecksApproved && backendClaimsApproved && !workerOnboardingSubmitted) {
+          status = 'APPROVED';
+        } else if (backendClaimsApproved && (!allFiveChecksApproved || workerOnboardingSubmitted)) {
+          hasContractInconsistency = true;
+          contractInconsistency = `Contract Inconsistency: Backend reports application as ${level || raw.applicationStatus || 'VERIFIED'} / signed-off, but required KYC checks (${incompleteChecks.join(', ')}) remain incomplete. In compliance with SevaNest verification rules, full approval is withheld until all required checks are verified.`;
+          status = hasRejected ? 'REJECTED' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
+        } else if (hasRejected || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW') {
+          status = 'IN_REVIEW';
+        } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
+          status = 'RECHECK_DUE';
+        } else {
+          status = 'PENDING_REVIEW';
+        }
+      } else {
+        if (workerOnboardingSubmitted) {
+          hasContractInconsistency = true;
+          contractInconsistency = `Contract Inconsistency: Worker onboarding status is ${workerData?.onboardingStatus}, but verification level is reported as ${level}. Full approval requires completed onboarding and verification.`;
+          status = 'PENDING_REVIEW';
+        } else if (backendClaimsApproved) {
+          status = 'APPROVED';
+        } else if (hasRejected || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW') {
+          status = 'IN_REVIEW';
+        } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
+          status = 'RECHECK_DUE';
+        } else {
+          status = 'PENDING_REVIEW';
+        }
       }
 
       // Address mapping
@@ -1737,7 +2106,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       const emergencyContact = (workerData?.emergencyContact || raw.emergencyContact) as VerificationDossier['emergencyContact'];
       const previousEmployer = (workerData?.previousEmployer || workerData?.employerReference || raw.previousEmployer) as VerificationDossier['previousEmployer'];
 
-      const mappedChecks = mapChecks(raw.checks);
+      // (mappedChecks already mapped above)
 
       // Collect all submitted documents across checks
       const submittedDocuments: VerificationDocumentMetadata[] = [];
@@ -1837,6 +2206,8 @@ export class RealVerificationRepository implements IVerificationRepository {
         submissionTime,
         applicationSubmittedAt,
         status,
+        contractInconsistency,
+        hasContractInconsistency,
         assignedReviewer,
         reviewerUserId,
         claimedAt,
@@ -1852,6 +2223,11 @@ export class RealVerificationRepository implements IVerificationRepository {
         emergencyContact,
         previousEmployer,
         accountStatus: (workerData?.status as 'ACTIVE' | 'SUSPENDED') || 'ACTIVE',
+        applicationStatus: (raw.applicationStatus ? String(raw.applicationStatus) : undefined) as VerificationDossier['applicationStatus'],
+        activatedAt: raw.activatedAt ? String(raw.activatedAt) : undefined,
+        signedOffAt: raw.signedOffAt ? String(raw.signedOffAt) : undefined,
+        signedOffBy: raw.signedOffBy ? String(raw.signedOffBy) : undefined,
+        requiredChecks: Array.isArray(raw.requiredChecks) ? (raw.requiredChecks as string[]) : undefined,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

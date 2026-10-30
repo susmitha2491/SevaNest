@@ -154,6 +154,8 @@ export interface VerificationDossier {
   signedOffBy?: string;
   requiredChecks?: string[];
   pendingChecks?: string[];
+  contractInconsistency?: string;
+  hasContractInconsistency?: boolean;
 }
 
 export interface VerificationFilterCriteria {

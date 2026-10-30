@@ -51,7 +51,7 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
       );
     });
 
-    it('renders customer directory table with masked PII and pagination controls', async () => {
+    it('renders customer directory table with masked PII and continuous scrollable container without pagination buttons', async () => {
       renderApp('/customers');
 
       expect(await screen.findByText('Customer Accounts & Households', {}, { timeout: 4000 })).toBeInTheDocument();
@@ -67,9 +67,16 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
       expect(screen.getAllByText('Kondapur').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Gachibowli').length).toBeGreaterThan(0);
 
-      // Pagination elements
-      expect(screen.getByText(/Page 1 of \d+/)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Previous/i })).toBeDisabled();
+      // Verify scrollable table container exists
+      const scrollContainer = screen.getByTestId('customer-table-scroll-container');
+      expect(scrollContainer).toBeInTheDocument();
+      expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
+
+      // Verify pagination buttons are completely removed
+      expect(screen.queryByText(/Page 1 of \d+/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Previous/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Next page/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/Showing \d+ to \d+ of \d+ customers/)).not.toBeInTheDocument();
     });
 
     it('filters customer directory by search query and locality', async () => {

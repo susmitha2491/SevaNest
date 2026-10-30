@@ -81,12 +81,12 @@ export const SignInPage: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <div>
-        <h2 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+        <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.2 }}>
           Staff Sign In
         </h2>
-        <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
+        <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', lineHeight: 1.3 }}>
           Enter your administrative credentials to access operations queues.
         </p>
       </div>
@@ -100,21 +100,21 @@ export const SignInPage: React.FC = () => {
             backgroundColor: 'var(--color-status-danger-bg)',
             border: '1px solid var(--color-status-danger-border)',
             color: 'var(--color-status-danger-text)',
-            padding: 'var(--space-3)',
+            padding: '6px 10px',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-xs)',
           }}
           role="alert"
         >
-          <AlertCircle size={16} />
+          <AlertCircle size={15} />
           <span>{authError}</span>
         </div>
       )}
 
       {/* 1. Email and Password fields at the top */}
-      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-          <label htmlFor="admin-email" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <label htmlFor="admin-email" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
             Admin Email Address
           </label>
           <div
@@ -125,11 +125,11 @@ export const SignInPage: React.FC = () => {
               backgroundColor: 'var(--color-bg-app)',
               border: `1px solid ${errors.email ? 'var(--color-error)' : 'var(--color-border)'}`,
               borderRadius: 'var(--radius-md)',
-              padding: '0 var(--space-3)',
-              height: '42px',
+              padding: '0 10px',
+              height: '36px',
             }}
           >
-            <Mail size={16} style={{ color: 'var(--color-text-muted)' }} />
+            <Mail size={15} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
             <input
               id="admin-email"
               type="email"
@@ -147,20 +147,20 @@ export const SignInPage: React.FC = () => {
                 border: 'none',
                 outline: 'none',
                 color: 'var(--color-text-primary)',
-                fontSize: 'var(--font-size-sm)',
+                fontSize: '13px',
                 width: '100%',
               }}
             />
           </div>
           {errors.email && (
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-status-danger-text)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
               {errors.email.message}
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-          <label htmlFor="admin-password" style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <label htmlFor="admin-password" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
             Password
           </label>
           <div
@@ -171,11 +171,11 @@ export const SignInPage: React.FC = () => {
               backgroundColor: 'var(--color-bg-app)',
               border: `1px solid ${errors.password ? 'var(--color-error)' : 'var(--color-border)'}`,
               borderRadius: 'var(--radius-md)',
-              padding: '0 var(--space-3)',
-              height: '42px',
+              padding: '0 10px',
+              height: '36px',
             }}
           >
-            <Lock size={16} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+            <Lock size={15} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
             <input
               id="admin-password"
               type={showPassword ? 'text' : 'password'}
@@ -193,7 +193,7 @@ export const SignInPage: React.FC = () => {
                 border: 'none',
                 outline: 'none',
                 color: 'var(--color-text-primary)',
-                fontSize: 'var(--font-size-sm)',
+                fontSize: '13px',
                 width: '100%',
               }}
             />
@@ -216,11 +216,11 @@ export const SignInPage: React.FC = () => {
                 flexShrink: 0,
               }}
             >
-              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           </div>
           {errors.password && (
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-status-danger-text)' }}>
+            <span style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
               {errors.password.message}
             </span>
           )}
@@ -233,16 +233,18 @@ export const SignInPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 'var(--space-1)',
+            gap: '6px',
             backgroundColor: isSubmitting ? 'var(--color-bg-disabled)' : 'var(--color-primary)',
             color: isSubmitting ? 'var(--color-text-disabled)' : '#ffffff',
-            padding: '11px',
+            padding: '0 12px',
+            height: '38px',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-base)',
             fontWeight: 600,
-            marginTop: 0,
+            marginTop: '2px',
             cursor: isSubmitting ? 'not-allowed' : 'pointer',
             transition: 'background-color var(--transition-fast)',
+            border: 'none',
           }}
         >
           <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Operations Console'}</span>
@@ -252,11 +254,11 @@ export const SignInPage: React.FC = () => {
 
       {/* 2. Quick Login Section below the Sign In form */}
       {showQuickLogin && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 'var(--space-1) 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: '4px 0' }}>
           <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border)' }} />
           <span
             style={{
-              fontSize: 'var(--font-size-xs)',
+              fontSize: '11px',
               color: 'var(--color-text-muted)',
               fontWeight: 600,
               textTransform: 'uppercase',

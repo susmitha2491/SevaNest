@@ -10,6 +10,19 @@ import {
   VerificationDashboardQueueItem,
   SupportExecutiveKPIs,
   SupportDashboardQueueItem,
+  SuperAdminAnalyticsData,
+  BookingFunnelData,
+  CategoryDemandData,
+  AreaDemandItem,
+  WorkerRegistrationsData,
+  WorkerUtilizationData,
+  InterviewConversionData,
+  CancellationRateData,
+  ReplacementRateData,
+  PaymentCollectionsData,
+  SupportTicketsAnalyticsData,
+  TopRatedWorkerItem,
+  RepeatCustomerItem,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -123,6 +136,123 @@ export class MockDashboardRepository implements IDashboardRepository {
           },
         ],
       },
+    };
+  }
+
+  async getSuperAdminAnalytics(): Promise<SuperAdminAnalyticsData> {
+    return {
+      bookingFunnel: {
+        interval: 'month',
+        requests: 1420,
+        confirmed: 890,
+        confirmationRate: 0.6268,
+        series: [
+          { period: '2026-05', requests: 220, confirmed: 135, confirmationRate: 0.6136 },
+          { period: '2026-06', requests: 280, confirmed: 172, confirmationRate: 0.6143 },
+          { period: '2026-07', requests: 310, confirmed: 195, confirmationRate: 0.6290 },
+          { period: '2026-08', requests: 340, confirmed: 215, confirmationRate: 0.6324 },
+          { period: '2026-09', requests: 270, confirmed: 173, confirmationRate: 0.6407 },
+        ],
+      },
+      categoryDemand: {
+        total: 1420,
+        categories: [
+          { categoryId: 'cat-maid', code: 'HOUSE_MAID', name: 'House Maid', requests: 520 },
+          { categoryId: 'cat-cook', code: 'COOK', name: 'Cook', requests: 340 },
+          { categoryId: 'cat-babysitter', code: 'BABYSITTER', name: 'Babysitter / Nanny', requests: 210 },
+          { categoryId: 'cat-elderly', code: 'ELDERLY_CARE', name: 'Elderly Care', requests: 160 },
+          { categoryId: 'cat-driver', code: 'DRIVER', name: 'Driver', requests: 130 },
+          { categoryId: 'cat-allrounder', code: 'ALL_ROUNDER', name: 'All-Rounder', requests: 60 },
+        ],
+      },
+      areaDemand: [
+        { areaId: 'area-gachibowli', name: 'Gachibowli', city: 'Hyderabad', requests: 380 },
+        { areaId: 'area-hiteccity', name: 'HITEC City', city: 'Hyderabad', requests: 340 },
+        { areaId: 'area-madhapur', name: 'Madhapur', city: 'Hyderabad', requests: 290 },
+        { areaId: 'area-kondapur', name: 'Kondapur', city: 'Hyderabad', requests: 240 },
+        { areaId: 'area-jubileehills', name: 'Jubilee Hills', city: 'Hyderabad', requests: 170 },
+      ],
+      workerRegistrations: {
+        interval: 'month',
+        registered: 385,
+        verified: 320,
+        verificationConversion: 0.8312,
+        series: [
+          { period: '2026-05', registered: 60, verified: 48, verificationConversion: 0.8 },
+          { period: '2026-06', registered: 75, verified: 62, verificationConversion: 0.8267 },
+          { period: '2026-07', registered: 85, verified: 71, verificationConversion: 0.8353 },
+          { period: '2026-08', registered: 90, verified: 76, verificationConversion: 0.8444 },
+          { period: '2026-09', registered: 75, verified: 63, verificationConversion: 0.84 },
+        ],
+      },
+      workerUtilization: {
+        verifiedWorkers: 320,
+        workersWithActiveBooking: 245,
+        utilization: 0.7656,
+      },
+      interviewConversion: {
+        interviewsHeld: 410,
+        confirmed: 295,
+        conversion: 0.7195,
+      },
+      cancellationRate: {
+        totalBookings: 1420,
+        cancelled: 85,
+        cancellationRate: 0.0599,
+      },
+      replacementRate: {
+        activeBookings: 348,
+        replacementRequests: 14,
+        replacementRate: 0.0402,
+      },
+      paymentCollections: {
+        interval: 'month',
+        totalsByFeeType: [
+          { feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 890, grossMinor: 38500000, refundedMinor: 0 },
+          { feeCode: 'REGISTRATION_FEE', currency: 'INR', payments: 385, grossMinor: 19250000, refundedMinor: 0 },
+        ],
+        series: [
+          { period: '2026-05', feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 135, grossMinor: 7425000, refundedMinor: 0 },
+          { period: '2026-06', feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 172, grossMinor: 9460000, refundedMinor: 0 },
+          { period: '2026-07', feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 195, grossMinor: 10725000, refundedMinor: 0 },
+          { period: '2026-08', feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 215, grossMinor: 11825000, refundedMinor: 0 },
+          { period: '2026-09', feeCode: 'PLATFORM_FEE', currency: 'INR', payments: 173, grossMinor: 9515000, refundedMinor: 0 },
+        ],
+      },
+      supportTickets: {
+        interval: 'month',
+        created: 148,
+        closed: 135,
+        averageResolutionSeconds: 7200,
+        byStatus: [
+          { status: 'OPEN', count: 7 },
+          { status: 'IN_PROGRESS', count: 4 },
+          { status: 'RESOLVED', count: 120 },
+          { status: 'CLOSED', count: 15 },
+          { status: 'ESCALATED', count: 3 },
+        ],
+        series: [
+          { period: '2026-05', count: 24 },
+          { period: '2026-06', count: 32 },
+          { period: '2026-07', count: 38 },
+          { period: '2026-08', count: 30 },
+          { period: '2026-09', count: 24 },
+        ],
+      },
+      topRatedWorkers: [
+        { workerId: 'W-10482', name: 'Sunita Devi', ratingCount: 48, averageRating: 4.9 },
+        { workerId: 'W-10484', name: 'Meena Bai', ratingCount: 39, averageRating: 4.85 },
+        { workerId: 'W-10483', name: 'Ramesh Yadav', ratingCount: 42, averageRating: 4.8 },
+        { workerId: 'W-10488', name: 'Anil Rao', ratingCount: 31, averageRating: 4.75 },
+        { workerId: 'W-10490', name: 'Lakshmi K', ratingCount: 27, averageRating: 4.7 },
+      ],
+      repeatCustomers: [
+        { customerUserId: 'C-901', name: 'Anand Sharma', bookings: 6 },
+        { customerUserId: 'C-902', name: 'Priya Reddy', bookings: 5 },
+        { customerUserId: 'C-903', name: 'Rajesh Kumar', bookings: 4 },
+        { customerUserId: 'C-904', name: 'Sneha Patel', bookings: 4 },
+        { customerUserId: 'C-905', name: 'Vikram Verma', bookings: 3 },
+      ],
     };
   }
 
@@ -272,6 +402,16 @@ function parseOptionalMetric(val: unknown, fieldName: string): number | null {
     throw new ServerFailureError(`Dashboard contract violation: invalid metric value for "${fieldName}".`);
   }
   return num;
+}
+
+function unwrapReportData<T>(rawPayload: unknown): T | null {
+  if (rawPayload === undefined || rawPayload === null) {
+    return null;
+  }
+  if (typeof rawPayload === 'object' && !Array.isArray(rawPayload) && 'data' in (rawPayload as Record<string, unknown>)) {
+    return ((rawPayload as { data: T }).data ?? null) as T | null;
+  }
+  return rawPayload as T;
 }
 
 export class RealDashboardRepository implements IDashboardRepository {
@@ -555,6 +695,251 @@ export class RealDashboardRepository implements IDashboardRepository {
           policeVerifDue,
         },
         queues,
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getSuperAdminAnalytics(from = '2026-01-01', to = '2026-12-31'): Promise<SuperAdminAnalyticsData> {
+    try {
+      const params = { from, to };
+      const [
+        bookingFunnelRes,
+        categoryDemandRes,
+        areaDemandRes,
+        workerRegRes,
+        workerUtilRes,
+        interviewConvRes,
+        cancellationRateRes,
+        replacementRateRes,
+        paymentColRes,
+        supportTicketsRes,
+        topWorkersRes,
+        repeatCustRes,
+      ] = await Promise.allSettled([
+        httpClient.get<unknown>('/admin/reports/booking-funnel', { params: { ...params, interval: 'month' } }),
+        httpClient.get<unknown>('/admin/reports/demand-by-category', { params }),
+        httpClient.get<unknown>('/admin/reports/demand-by-area', { params }),
+        httpClient.get<unknown>('/admin/reports/worker-registrations', { params: { ...params, interval: 'month' } }),
+        httpClient.get<unknown>('/admin/reports/worker-utilization', { params }),
+        httpClient.get<unknown>('/admin/reports/interview-conversion', { params }),
+        httpClient.get<unknown>('/admin/reports/cancellation-rate', { params }),
+        httpClient.get<unknown>('/admin/reports/replacement-rate', { params }),
+        httpClient.get<unknown>('/admin/reports/payment-collections', { params: { ...params, interval: 'month' } }),
+        httpClient.get<unknown>('/admin/reports/support-tickets', { params: { ...params, interval: 'month' } }),
+        httpClient.get<unknown>('/admin/reports/top-rated-workers', { params: { limit: 10 } }),
+        httpClient.get<unknown>('/admin/reports/repeat-customers', { params: { ...params, minBookings: 2 } }),
+      ]);
+
+      let bookingFunnel: BookingFunnelData | null = null;
+      if (bookingFunnelRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(bookingFunnelRes.value.data);
+        if (raw && typeof raw === 'object') {
+          const rawSeries = Array.isArray(raw.series) ? raw.series : [];
+          bookingFunnel = {
+            interval: String(raw.interval || 'month'),
+            requests: Number(raw.requests ?? 0),
+            confirmed: Number(raw.confirmed ?? 0),
+            confirmationRate: Number(raw.confirmationRate ?? 0),
+            series: rawSeries.map((s: Record<string, unknown>) => ({
+              period: String(s.period || ''),
+              requests: Number(s.requests ?? 0),
+              confirmed: Number(s.confirmed ?? 0),
+              confirmationRate: Number(s.confirmationRate ?? 0),
+            })),
+          };
+        }
+      }
+
+      let categoryDemand: CategoryDemandData | null = null;
+      if (categoryDemandRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(categoryDemandRes.value.data);
+        if (raw && typeof raw === 'object') {
+          const rawCats = Array.isArray(raw.categories) ? raw.categories : [];
+          categoryDemand = {
+            total: Number(raw.total ?? 0),
+            categories: rawCats.map((c: Record<string, unknown>) => ({
+              categoryId: String(c.categoryId || c.code || ''),
+              code: String(c.code || ''),
+              name: String(c.name || c.code || ''),
+              requests: Number(c.requests ?? 0),
+            })),
+          };
+        }
+      }
+
+      let areaDemand: AreaDemandItem[] | null = null;
+      if (areaDemandRes.status === 'fulfilled') {
+        const raw = unwrapReportData<unknown>(areaDemandRes.value.data);
+        if (Array.isArray(raw)) {
+          areaDemand = raw.map((a: Record<string, unknown>) => ({
+            areaId: String(a.areaId || a.id || ''),
+            name: String(a.name || ''),
+            city: String(a.city || ''),
+            requests: Number(a.requests ?? 0),
+          }));
+        }
+      }
+
+      let workerRegistrations: WorkerRegistrationsData | null = null;
+      if (workerRegRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(workerRegRes.value.data);
+        if (raw && typeof raw === 'object') {
+          const rawSeries = Array.isArray(raw.series) ? raw.series : [];
+          workerRegistrations = {
+            interval: String(raw.interval || 'month'),
+            registered: Number(raw.registered ?? 0),
+            verified: Number(raw.verified ?? 0),
+            verificationConversion: Number(raw.verificationConversion ?? 0),
+            series: rawSeries.map((s: Record<string, unknown>) => ({
+              period: String(s.period || ''),
+              registered: Number(s.registered ?? 0),
+              verified: Number(s.verified ?? 0),
+              verificationConversion: Number(s.verificationConversion ?? 0),
+            })),
+          };
+        }
+      }
+
+      let workerUtilization: WorkerUtilizationData | null = null;
+      if (workerUtilRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(workerUtilRes.value.data);
+        if (raw && typeof raw === 'object') {
+          workerUtilization = {
+            verifiedWorkers: Number(raw.verifiedWorkers ?? 0),
+            workersWithActiveBooking: Number(raw.workersWithActiveBooking ?? 0),
+            utilization: Number(raw.utilization ?? 0),
+          };
+        }
+      }
+
+      let interviewConversion: InterviewConversionData | null = null;
+      if (interviewConvRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(interviewConvRes.value.data);
+        if (raw && typeof raw === 'object') {
+          interviewConversion = {
+            interviewsHeld: Number(raw.interviewsHeld ?? 0),
+            confirmed: Number(raw.confirmed ?? 0),
+            conversion: Number(raw.conversion ?? 0),
+          };
+        }
+      }
+
+      let cancellationRate: CancellationRateData | null = null;
+      if (cancellationRateRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(cancellationRateRes.value.data);
+        if (raw && typeof raw === 'object') {
+          cancellationRate = {
+            totalBookings: Number(raw.totalBookings ?? 0),
+            cancelled: Number(raw.cancelled ?? 0),
+            cancellationRate: Number(raw.cancellationRate ?? 0),
+          };
+        }
+      }
+
+      let replacementRate: ReplacementRateData | null = null;
+      if (replacementRateRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(replacementRateRes.value.data);
+        if (raw && typeof raw === 'object') {
+          replacementRate = {
+            activeBookings: Number(raw.activeBookings ?? 0),
+            replacementRequests: Number(raw.replacementRequests ?? 0),
+            replacementRate: Number(raw.replacementRate ?? 0),
+          };
+        }
+      }
+
+      let paymentCollections: PaymentCollectionsData | null = null;
+      if (paymentColRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(paymentColRes.value.data);
+        if (raw && typeof raw === 'object') {
+          const rawTotals = Array.isArray(raw.totalsByFeeType) ? raw.totalsByFeeType : [];
+          const rawSeries = Array.isArray(raw.series) ? raw.series : [];
+          paymentCollections = {
+            interval: String(raw.interval || 'month'),
+            totalsByFeeType: rawTotals.map((t: Record<string, unknown>) => ({
+              feeCode: String(t.feeCode || ''),
+              currency: String(t.currency || 'INR'),
+              payments: Number(t.payments ?? 0),
+              grossMinor: Number(t.grossMinor ?? 0),
+              refundedMinor: Number(t.refundedMinor ?? 0),
+            })),
+            series: rawSeries.map((s: Record<string, unknown>) => ({
+              period: String(s.period || ''),
+              feeCode: String(s.feeCode || ''),
+              currency: String(s.currency || 'INR'),
+              payments: Number(s.payments ?? 0),
+              grossMinor: Number(s.grossMinor ?? 0),
+              refundedMinor: Number(s.refundedMinor ?? 0),
+            })),
+          };
+        }
+      }
+
+      let supportTickets: SupportTicketsAnalyticsData | null = null;
+      if (supportTicketsRes.status === 'fulfilled') {
+        const raw = unwrapReportData<Record<string, unknown>>(supportTicketsRes.value.data);
+        if (raw && typeof raw === 'object') {
+          const rawByStatus = Array.isArray(raw.byStatus) ? raw.byStatus : [];
+          const rawSeries = Array.isArray(raw.series) ? raw.series : [];
+          supportTickets = {
+            interval: String(raw.interval || 'month'),
+            created: Number(raw.created ?? 0),
+            closed: Number(raw.closed ?? 0),
+            averageResolutionSeconds: raw.averageResolutionSeconds !== null && raw.averageResolutionSeconds !== undefined
+              ? Number(raw.averageResolutionSeconds)
+              : null,
+            byStatus: rawByStatus.map((b: Record<string, unknown>) => ({
+              status: String(b.status || ''),
+              count: Number(b.count ?? 0),
+            })),
+            series: rawSeries.map((s: Record<string, unknown>) => ({
+              period: String(s.period || ''),
+              count: Number(s.count ?? 0),
+            })),
+          };
+        }
+      }
+
+      let topRatedWorkers: TopRatedWorkerItem[] | null = null;
+      if (topWorkersRes.status === 'fulfilled') {
+        const raw = unwrapReportData<unknown>(topWorkersRes.value.data);
+        if (Array.isArray(raw)) {
+          topRatedWorkers = raw.map((w: Record<string, unknown>) => ({
+            workerId: String(w.workerId || ''),
+            name: String(w.name || ''),
+            ratingCount: Number(w.ratingCount ?? 0),
+            averageRating: Number(w.averageRating ?? 0),
+          }));
+        }
+      }
+
+      let repeatCustomers: RepeatCustomerItem[] | null = null;
+      if (repeatCustRes.status === 'fulfilled') {
+        const raw = unwrapReportData<unknown>(repeatCustRes.value.data);
+        if (Array.isArray(raw)) {
+          repeatCustomers = raw.map((c: Record<string, unknown>) => ({
+            customerUserId: String(c.customerUserId || ''),
+            name: String(c.name || ''),
+            bookings: Number(c.bookings ?? 0),
+          }));
+        }
+      }
+
+      return {
+        bookingFunnel,
+        categoryDemand,
+        areaDemand,
+        workerRegistrations,
+        workerUtilization,
+        interviewConversion,
+        cancellationRate,
+        replacementRate,
+        paymentCollections,
+        supportTickets,
+        topRatedWorkers,
+        repeatCustomers,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

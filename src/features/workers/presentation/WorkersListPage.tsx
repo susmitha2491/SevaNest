@@ -1,18 +1,18 @@
-import React, { useState, useMemo, useEffect } from 'react';
+/* global HTMLDivElement, IntersectionObserver */
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Search,
   Filter,
   ShieldAlert,
   Star,
   RefreshCw,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   CheckCircle2,
   ExternalLink,
   XCircle,
+  User,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { verificationRepository } from '../../verification/data/verificationRepository';
@@ -21,7 +21,7 @@ import {
   REJECTION_CATEGORIES,
   VerificationCheckType,
 } from '../../verification/domain/types';
-import { Worker } from '../domain/types';
+import { Worker, WorkerFilterCriteria } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -29,8 +29,6 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { WorkerDetailModal } from './WorkerDetailModal';
-
-const ITEMS_PER_PAGE = 5;
 
 export const WorkersListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -55,7 +53,6 @@ export const WorkersListPage: React.FC = () => {
   const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
   const [sortField, setSortField] = useState<'ratingAverage' | 'experienceYears' | 'name' | 'id'>('ratingAverage');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [currentPage, setCurrentPage] = useState(1);
 
   const [detailModalId, setDetailModalId] = useState<string | null>(
     () => searchParams.get('workerId') || searchParams.get('applicationId') || null
@@ -68,6 +65,9 @@ export const WorkersListPage: React.FC = () => {
   const [rejectRemarks, setRejectRemarks] = useState('');
   const [rejectError, setRejectError] = useState<string | null>(null);
   const [isRejecting, setIsRejecting] = useState(false);
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleOpenReject = (worker: Worker) => {
     setRejectWorker(worker);
@@ -186,14 +186,77 @@ export const WorkersListPage: React.FC = () => {
     }, { replace: true });
   };
 
-  const { data: workers = [], isLoading, isError, refetch } = useQuery({
-    queryKey: ['workers', 'list'],
-    queryFn: () => workerRepository.getWorkers(),
+  // Continuous infinite scrolling query using documented worker-list pagination contract
+  const {
+    data,
+    isLoading,
+    isError,
+    refetch,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: [
+      'workers',
+      'infinite',
+      searchTerm,
+      categoryFilter,
+      verificationFilter,
+      statusFilter,
+      localityFilter,
+    ],
+    queryFn: async ({ pageParam = 1 }) => {
+      let verifiedParam: boolean | undefined = undefined;
+      if (verificationFilter === 'VERIFIED') {
+        verifiedParam = true;
+      } else if (verificationFilter === 'PENDING') {
+        verifiedParam = false;
+      }
+
+      const criteria: WorkerFilterCriteria = {
+        searchTerm,
+        category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+        locality: localityFilter !== 'ALL' ? localityFilter : undefined,
+        status: statusFilter !== 'ALL' ? statusFilter : undefined,
+        verified: verifiedParam,
+      };
+
+      if (typeof workerRepository.getWorkersPage === 'function') {
+        return workerRepository.getWorkersPage(criteria, pageParam, 20);
+      }
+      const all = await workerRepository.getWorkers(criteria);
+      return {
+        items: all,
+        total: all.length,
+        page: 1,
+        limit: all.length,
+        hasMore: false,
+      };
+    },
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   });
 
-  // Client-side filtering and sorting
+  // Deduplicate worker records across loaded batches using genuine worker ID
+  const allWorkers = useMemo(() => {
+    if (!data?.pages) return [];
+    const seen = new Set<string>();
+    const list: Worker[] = [];
+    for (const page of data.pages) {
+      for (const worker of page.items) {
+        if (!seen.has(worker.id)) {
+          seen.add(worker.id);
+          list.push(worker);
+        }
+      }
+    }
+    return list;
+  }, [data?.pages]);
+
+  // Client-side filtering and sorting across all accumulated records
   const filteredAndSortedWorkers = useMemo(() => {
-    let result = [...workers];
+    let result = [...allWorkers];
 
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
@@ -207,7 +270,7 @@ export const WorkersListPage: React.FC = () => {
     }
 
     if (categoryFilter !== 'ALL') {
-      result = result.filter((w) => w.category === categoryFilter);
+      result = result.filter((w) => w.category === categoryFilter || (w.categories && w.categories.includes(categoryFilter)));
     }
 
     if (verificationFilter !== 'ALL') {
@@ -247,26 +310,50 @@ export const WorkersListPage: React.FC = () => {
     });
 
     return result;
-  }, [workers, searchTerm, categoryFilter, verificationFilter, statusFilter, localityFilter, sortField, sortOrder]);
+  }, [allWorkers, searchTerm, categoryFilter, verificationFilter, statusFilter, localityFilter, sortField, sortOrder]);
 
-  // Pagination calculation
-  const totalPages = Math.ceil(filteredAndSortedWorkers.length / ITEMS_PER_PAGE) || 1;
-  const paginatedWorkers = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filteredAndSortedWorkers.slice(start, start + ITEMS_PER_PAGE);
-  }, [filteredAndSortedWorkers, currentPage]);
+  const totalCount = data?.pages[0]?.total ?? filteredAndSortedWorkers.length;
 
   const categories = useMemo(() => {
-    const set = new Set(workers.map((w) => w.category));
+    const set = new Set(allWorkers.map((w) => w.category));
     return ['ALL', ...Array.from(set)];
-  }, [workers]);
+  }, [allWorkers]);
 
   const localities = useMemo(() => {
-    const set = new Set(workers.map((w) => w.locality));
+    const set = new Set(allWorkers.map((w) => w.locality));
     return ['ALL', ...Array.from(set)];
-  }, [workers]);
+  }, [allWorkers]);
 
-  if (isLoading) {
+  // Scroll event listener on the scrollable table container
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop - clientHeight < 150) {
+      if (hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
+    }
+  };
+
+  // IntersectionObserver for continuous background loading
+  useEffect(() => {
+    if (!sentinelRef.current || !hasNextPage || isFetchingNextPage) return;
+    if (typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
+      {
+        root: tableContainerRef.current,
+        rootMargin: '120px',
+      }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  if (isLoading && !data) {
     return <LoadingSpinner message="Loading domestic worker roster..." />;
   }
 
@@ -345,7 +432,6 @@ export const WorkersListPage: React.FC = () => {
                 setVerificationFilter(
                   tab.key as 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
                 );
-                setCurrentPage(1);
               }}
               style={{
                 padding: '8px 16px',
@@ -446,7 +532,6 @@ export const WorkersListPage: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value;
               setSearchTerm(val);
-              setCurrentPage(1);
               setSearchParams((prev) => {
                 const next = new window.URLSearchParams(prev);
                 if (val) {
@@ -463,7 +548,7 @@ export const WorkersListPage: React.FC = () => {
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-sm)',
+              fontSize: 'var(--font-size-xs)',
               color: 'var(--color-text-primary)',
             }}
           />
@@ -476,10 +561,9 @@ export const WorkersListPage: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value;
               setCategoryFilter(val);
-              setCurrentPage(1);
               setSearchParams((prev) => {
                 const next = new window.URLSearchParams(prev);
-                if (val && val !== 'ALL') {
+                if (val !== 'ALL') {
                   next.set('category', val);
                 } else {
                   next.delete('category');
@@ -506,14 +590,23 @@ export const WorkersListPage: React.FC = () => {
           </select>
         </div>
 
-        {/* Verification Badge Filter */}
+        {/* Verification Status Filter */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
           <Filter size={14} color="var(--color-text-muted)" />
           <select
             value={verificationFilter}
             onChange={(e) => {
-              setVerificationFilter(e.target.value as 'ALL' | 'VERIFIED' | 'PENDING');
-              setCurrentPage(1);
+              const val = e.target.value as 'ALL' | 'VERIFIED' | 'PENDING';
+              setVerificationFilter(val);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val !== 'ALL') {
+                  next.set('verificationStatus', val);
+                } else {
+                  next.delete('verificationStatus');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by verification state"
             style={{
@@ -537,8 +630,17 @@ export const WorkersListPage: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => {
-              setStatusFilter(e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED');
-              setCurrentPage(1);
+              const val = e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
+              setStatusFilter(val);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val !== 'ALL') {
+                  next.set('status', val);
+                } else {
+                  next.delete('status');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by account status"
             style={{
@@ -563,8 +665,17 @@ export const WorkersListPage: React.FC = () => {
           <select
             value={localityFilter}
             onChange={(e) => {
-              setLocalityFilter(e.target.value);
-              setCurrentPage(1);
+              const val = e.target.value;
+              setLocalityFilter(val);
+              setSearchParams((prev) => {
+                const next = new window.URLSearchParams(prev);
+                if (val !== 'ALL') {
+                  next.set('locality', val);
+                } else {
+                  next.delete('locality');
+                }
+                return next;
+              }, { replace: true });
             }}
             aria-label="Filter by operating locality"
             style={{
@@ -613,294 +724,310 @@ export const WorkersListPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Workers Roster Table */}
+      {/* Workers Roster Table with Continuous Scroll and Sticky Header */}
       <div
+        data-testid="worker-table-scroll-container"
+        ref={tableContainerRef}
+        onScroll={handleScroll}
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-sm)',
-          overflow: 'hidden',
           border: '1px solid var(--color-border-subtle)',
+          overflowX: 'auto',
+          overflowY: 'auto',
+          maxHeight: '620px',
+          position: 'relative',
         }}
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-            <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+          <thead
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+              backgroundColor: 'var(--color-bg-subtle)',
+              borderBottom: '1px solid var(--color-border-subtle)',
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+            }}
+          >
+            <tr>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Worker ID
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Worker Name
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Primary Skill
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                KYC Status
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Matching Eligibility
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Experience
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Rating
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Cluster
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
+                Account Status
+              </th>
+              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAndSortedWorkers.length === 0 ? (
               <tr>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Worker ID
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Worker Name
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Primary Skill
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  KYC Status
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Matching Eligibility
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Experience
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Rating
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Cluster
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Account Status
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                  Actions
-                </th>
+                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+                  No domestic workers match your search and filter criteria.
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {paginatedWorkers.length === 0 ? (
-                <tr>
-                  <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
-                    No domestic workers match your search and filter criteria.
-                  </td>
-                </tr>
-              ) : (
-                paginatedWorkers.map((worker: Worker) => (
-                  <tr
-                    key={worker.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`View profile for ${worker.name} (${worker.id})`}
-                    className="worker-directory-row"
-                    onClick={(e) => {
+            ) : (
+              filteredAndSortedWorkers.map((worker: Worker) => (
+                <tr
+                  key={worker.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View profile for ${worker.name} (${worker.id})`}
+                  className="worker-directory-row"
+                  onClick={(e) => {
+                    const target = e.target as { closest?: (selector: string) => unknown };
+                    if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                      return;
+                    }
+                    handleOpenDetailModal(worker.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
                       const target = e.target as { closest?: (selector: string) => unknown };
                       if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                         return;
                       }
+                      e.preventDefault();
                       handleOpenDetailModal(worker.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        const target = e.target as { closest?: (selector: string) => unknown };
-                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                          return;
-                        }
-                        e.preventDefault();
-                        handleOpenDetailModal(worker.id);
-                      }
-                    }}
-                    style={{
-                      borderBottom: '1px solid var(--color-border-subtle)',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.15s ease',
-                    }}
-                  >
-                    <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace' }}>
-                      <div>{worker.id}</div>
-                      {worker.applicationId && worker.applicationId !== worker.id && (
-                        <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
-                          App: {worker.applicationId}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
-                      {worker.phoneMasked && (
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{worker.phoneMasked}</div>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                      <div style={{ fontWeight: 500 }}>{worker.category}</div>
-                      {worker.categories && worker.categories.length > 1 && (
-                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
-                          {worker.categories
-                            .filter((c) => c !== worker.category)
-                            .map((cat) => (
-                              <span
-                                key={cat}
-                                style={{
-                                  fontSize: '10px',
-                                  padding: '1px 5px',
-                                  borderRadius: 'var(--radius-sm)',
-                                  backgroundColor: 'var(--color-bg-subtle)',
-                                  border: '1px solid var(--color-border-subtle)',
-                                  color: 'var(--color-text-tertiary)',
-                                }}
-                              >
-                                +{cat}
-                              </span>
-                            ))}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <VerificationBadge isFullyVerified={worker.isFullyVerified} status={worker.verificationStatus} />
-                      {worker.completedChecksCount != null && (
-                        <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                          {worker.completedChecksCount}/{worker.totalRequiredChecksCount || 6} checks approved
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      {worker.isFullyVerified && worker.status === 'ACTIVE' ? (
-                        <span style={{ color: 'var(--color-status-success-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                          <CheckCircle2 size={13} /> Eligible
-                        </span>
-                      ) : !worker.isFullyVerified ? (
-                        <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                          <Clock size={13} /> Ineligible (KYC Pending)
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                          <ShieldAlert size={13} /> Ineligible ({worker.status})
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                      {worker.experienceYears} Years
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600, color: '#b45309' }}>
-                        <Star size={13} fill="#f59e0b" color="#f59e0b" /> {worker.ratingAverage}
+                    }
+                  }}
+                  style={{
+                    borderBottom: '1px solid var(--color-border-subtle)',
+                    cursor: 'pointer',
+                    transition: 'background-color 0.15s ease',
+                  }}
+                >
+                  <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace' }}>
+                    <div>{worker.id}</div>
+                    {worker.applicationId && worker.applicationId !== worker.id && (
+                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
+                        App: {worker.applicationId}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
+                    {worker.phoneMasked && (
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{worker.phoneMasked}</div>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                    <div style={{ fontWeight: 500 }}>{worker.category}</div>
+                    {worker.categories && worker.categories.length > 1 && (
+                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
+                        {worker.categories
+                          .filter((c) => c !== worker.category)
+                          .map((cat) => (
+                            <span
+                              key={cat}
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 5px',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                border: '1px solid var(--color-border-subtle)',
+                                color: 'var(--color-text-tertiary)',
+                              }}
+                            >
+                              +{cat}
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px' }}>
+                    <VerificationBadge isFullyVerified={worker.isFullyVerified} status={worker.verificationStatus} />
+                    {worker.completedChecksCount != null && (
+                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                        {worker.completedChecksCount}/{worker.totalRequiredChecksCount || 6} checks approved
+                      </div>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px' }}>
+                    {worker.isFullyVerified && worker.status === 'ACTIVE' ? (
+                      <span style={{ color: 'var(--color-status-success-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                        <CheckCircle2 size={13} /> Eligible
                       </span>
-                    </td>
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                      {worker.locality}
-                    </td>
-                    <td style={{ padding: '14px 16px' }}>
-                      <StatusBadge status={worker.status} />
-                    </td>
-                    <td
-                      style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}
+                    ) : !worker.isFullyVerified ? (
+                      <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                        <Clock size={13} /> Ineligible (KYC Pending)
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                        <ShieldAlert size={13} /> Ineligible ({worker.status})
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                    {worker.experienceYears} Years
+                  </td>
+                  <td style={{ padding: '14px 16px' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600, color: '#b45309' }}>
+                      <Star size={13} fill="#f59e0b" color="#f59e0b" /> {worker.ratingAverage}
+                    </span>
+                  </td>
+                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                    {worker.locality}
+                  </td>
+                  <td style={{ padding: '14px 16px' }}>
+                    <StatusBadge status={worker.status} />
+                  </td>
+                  <td
+                    style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}
+                  >
+                    <div
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <div
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDetailModal(worker.id);
+                        }}
+                        aria-label={`View profile for ${worker.name}`}
+                        style={{
+                          padding: '4px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          color: 'var(--color-primary)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
                       >
-                        <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenDetailModal(worker.id);
-                            }}
-                            aria-label={`Approve verification for ${worker.name}`}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border-subtle)',
-                              backgroundColor: 'var(--color-bg-subtle)',
-                              color: 'var(--color-status-success-text)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <CheckCircle2 size={13} />
-                            <span>Approve</span>
-                          </button>
+                        <User size={13} />
+                        <span>View Profile</span>
+                      </button>
 
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenReject(worker);
-                            }}
-                            disabled={worker.verificationStatus === 'REJECTED'}
-                            aria-label={`Reject verification for ${worker.name}`}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border-subtle)',
-                              backgroundColor: 'var(--color-bg-subtle)',
-                              color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
-                            }}
-                          >
-                            <XCircle size={13} />
-                            <span>Reject</span>
-                          </button>
-                        </PermissionGate>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                      <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenDetailModal(worker.id);
+                          }}
+                          aria-label={`Approve verification for ${worker.name}`}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--color-border-subtle)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            color: 'var(--color-status-success-text)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <CheckCircle2 size={13} />
+                          <span>Approve</span>
+                        </button>
 
-        {/* Pagination Bar */}
-        <div
-          style={{
-            padding: 'var(--space-3) var(--space-4)',
-            borderTop: '1px solid var(--color-border-subtle)',
-            backgroundColor: 'var(--color-bg-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-text-muted)',
-          }}
-        >
-          <div>
-            Showing <strong>{filteredAndSortedWorkers.length > 0 ? (currentPage - 1) * ITEMS_PER_PAGE + 1 : 0}</strong> to{' '}
-            <strong>{Math.min(currentPage * ITEMS_PER_PAGE, filteredAndSortedWorkers.length)}</strong> of{' '}
-            <strong>{filteredAndSortedWorkers.length}</strong> workers
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenReject(worker);
+                          }}
+                          disabled={worker.verificationStatus === 'REJECTED'}
+                          aria-label={`Reject verification for ${worker.name}`}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--color-border-subtle)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 600,
+                            cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
+                          }}
+                        >
+                          <XCircle size={13} />
+                          <span>Reject</span>
+                        </button>
+                      </PermissionGate>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        {/* Sentinel element for infinite scroll */}
+        <div ref={sentinelRef} style={{ height: '1px' }} />
+
+        {/* Loading indicator when fetching additional records */}
+        {isFetchingNextPage && (
+          <div
+            data-testid="loading-more-workers"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-3)',
+              color: 'var(--color-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              backgroundColor: 'var(--color-bg-subtle)',
+              borderTop: '1px dashed var(--color-border-subtle)',
+            }}
+          >
+            <RefreshCw size={14} className="animate-spin" />
+            <span>Loading more worker records...</span>
           </div>
+        )}
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              aria-label="Previous page"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-bg-surface)',
-                color: currentPage === 1 ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-                cursor: currentPage === 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <ChevronLeft size={14} />
-            </button>
-
-            <span>
-              Page {currentPage} of {totalPages}
-            </span>
-
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              aria-label="Next page"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border-subtle)',
-                backgroundColor: 'var(--color-bg-surface)',
-                color: currentPage === totalPages ? 'var(--color-text-muted)' : 'var(--color-text-primary)',
-                cursor: currentPage === totalPages ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <ChevronRight size={14} />
-            </button>
+        {/* Continuous scroll status indicator when all records are loaded */}
+        {!hasNextPage && filteredAndSortedWorkers.length > 0 && (
+          <div
+            data-testid="continuous-scroll-footer"
+            style={{
+              padding: 'var(--space-2) var(--space-4)',
+              textAlign: 'center',
+              fontSize: '11px',
+              color: 'var(--color-text-muted)',
+              borderTop: '1px solid var(--color-border-subtle)',
+              backgroundColor: 'var(--color-bg-subtle)',
+            }}
+          >
+            All {totalCount} worker records loaded • Continuous scroll
           </div>
-        </div>
+        )}
       </div>
 
       {/* Detailed Worker Profile / Operational Dossier Modal */}

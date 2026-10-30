@@ -162,8 +162,152 @@ export interface SuperAdminDashboardData {
   sections?: SuperAdminDashboardSections;
 }
 
+export interface BookingFunnelSeriesItem {
+  period: string;
+  requests: number;
+  confirmed: number;
+  confirmationRate: number;
+}
+
+export interface BookingFunnelData {
+  interval: string;
+  requests: number;
+  confirmed: number;
+  confirmationRate: number;
+  series: BookingFunnelSeriesItem[];
+}
+
+export interface CategoryDemandItem {
+  categoryId: string;
+  code: string;
+  name: string;
+  requests: number;
+}
+
+export interface CategoryDemandData {
+  total: number;
+  categories: CategoryDemandItem[];
+}
+
+export interface AreaDemandItem {
+  areaId: string;
+  name: string;
+  city: string;
+  requests: number;
+}
+
+export interface WorkerRegistrationsSeriesItem {
+  period: string;
+  registered: number;
+  verified: number;
+  verificationConversion: number;
+}
+
+export interface WorkerRegistrationsData {
+  interval: string;
+  registered: number;
+  verified: number;
+  verificationConversion: number;
+  series: WorkerRegistrationsSeriesItem[];
+}
+
+export interface WorkerUtilizationData {
+  verifiedWorkers: number;
+  workersWithActiveBooking: number;
+  utilization: number;
+}
+
+export interface InterviewConversionData {
+  interviewsHeld: number;
+  confirmed: number;
+  conversion: number;
+}
+
+export interface CancellationRateData {
+  totalBookings: number;
+  cancelled: number;
+  cancellationRate: number;
+}
+
+export interface ReplacementRateData {
+  activeBookings: number;
+  replacementRequests: number;
+  replacementRate: number;
+}
+
+export interface FeeTypeTotalItem {
+  feeCode: string;
+  currency: string;
+  payments: number;
+  grossMinor: number;
+  refundedMinor: number;
+}
+
+export interface PaymentCollectionSeriesItem {
+  period: string;
+  feeCode: string;
+  currency: string;
+  payments: number;
+  grossMinor: number;
+  refundedMinor: number;
+}
+
+export interface PaymentCollectionsData {
+  interval: string;
+  totalsByFeeType: FeeTypeTotalItem[];
+  series: PaymentCollectionSeriesItem[];
+}
+
+export interface SupportStatusCount {
+  status: string;
+  count: number;
+}
+
+export interface SupportSeriesItem {
+  period: string;
+  count: number;
+}
+
+export interface SupportTicketsAnalyticsData {
+  interval: string;
+  created: number;
+  closed: number;
+  averageResolutionSeconds: number | null;
+  byStatus: SupportStatusCount[];
+  series: SupportSeriesItem[];
+}
+
+export interface TopRatedWorkerItem {
+  workerId: string;
+  name: string;
+  ratingCount: number;
+  averageRating: number;
+}
+
+export interface RepeatCustomerItem {
+  customerUserId: string;
+  name: string;
+  bookings: number;
+}
+
+export interface SuperAdminAnalyticsData {
+  bookingFunnel: BookingFunnelData | null;
+  categoryDemand: CategoryDemandData | null;
+  areaDemand: AreaDemandItem[] | null;
+  workerRegistrations: WorkerRegistrationsData | null;
+  workerUtilization: WorkerUtilizationData | null;
+  interviewConversion: InterviewConversionData | null;
+  cancellationRate: CancellationRateData | null;
+  replacementRate: ReplacementRateData | null;
+  paymentCollections: PaymentCollectionsData | null;
+  supportTickets: SupportTicketsAnalyticsData | null;
+  topRatedWorkers: TopRatedWorkerItem[] | null;
+  repeatCustomers: RepeatCustomerItem[] | null;
+}
+
 export interface IDashboardRepository {
   getSuperAdminDashboard(): Promise<SuperAdminDashboardData>;
+  getSuperAdminAnalytics(from?: string, to?: string): Promise<SuperAdminAnalyticsData>;
   getOperationsAdminDashboard(): Promise<{
     kpis: OperationsAdminKPIs;
     queues: Record<OperationsQueueTab, OperationsQueueItem[]>;

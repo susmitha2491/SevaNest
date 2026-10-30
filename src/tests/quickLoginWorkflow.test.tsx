@@ -235,4 +235,29 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     expect(screen.getByPlaceholderText('name@sevanest.internal')).toHaveValue('sevanest@admin.in');
     expect(screen.getByPlaceholderText('Enter password')).toHaveValue('Sevanest@2026');
   });
+
+  it('11. Renders complete login layout structure: logo, subtitle, form, quick login, and footer', async () => {
+    renderAuthFlow('/auth/login');
+
+    const logo = await screen.findByAltText('SevaNest logo');
+    const subtitle = screen.getByText('Operations & Administration Portal');
+    const heading = screen.getByText('Staff Sign In');
+    const signInBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
+    const quickLoginHeading = screen.getByText('Quick Login — Select Your Role');
+    const footer = screen.getByText(/Verified Help\. Trusted Homes\. • SevaNest Admin/i);
+
+    expect(logo).toBeInTheDocument();
+    expect(subtitle).toBeInTheDocument();
+    expect(heading).toBeInTheDocument();
+    expect(signInBtn).toBeInTheDocument();
+    expect(quickLoginHeading).toBeInTheDocument();
+    expect(footer).toBeInTheDocument();
+
+    // Verify correct top-to-bottom hierarchy in document order
+    expect(Boolean(logo.compareDocumentPosition(subtitle) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(subtitle.compareDocumentPosition(heading) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(heading.compareDocumentPosition(signInBtn) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(signInBtn.compareDocumentPosition(quickLoginHeading) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(quickLoginHeading.compareDocumentPosition(footer) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
 });

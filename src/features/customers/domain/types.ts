@@ -42,18 +42,30 @@ export interface CustomerDetail extends Customer {
   notes: string[];
 }
 
+export interface CustomerPageResult {
+  items: Customer[];
+  total: number;
+  page: number;
+  limit: number;
+  hasMore: boolean;
+}
+
 export interface CustomerFilterCriteria {
   searchTerm?: string;
   status?: 'ALL' | 'ACTIVE' | 'SUSPENDED';
   locality?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface ICustomerRepository {
   getCustomers(filter?: CustomerFilterCriteria): Promise<Customer[]>;
+  getCustomersPage(filter?: CustomerFilterCriteria, page?: number, limit?: number): Promise<CustomerPageResult>;
   getCustomerById(id: string): Promise<CustomerDetail | null>;
   revealPII(customerId: string, reason: string): Promise<{ phone: string; email: string }>;
   suspendCustomer(customerId: string, remarks: string): Promise<void>;
   reactivateCustomer(customerId: string): Promise<void>;
   addCustomerNote(customerId: string, note: string): Promise<void>;
 }
+
 

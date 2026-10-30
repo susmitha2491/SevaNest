@@ -1,4 +1,4 @@
-import { Customer, CustomerDetail, CustomerFilterCriteria, ICustomerRepository } from '../domain/types';
+import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
@@ -343,6 +343,90 @@ export class RealCustomerRepository implements ICustomerRepository {
     }
   }
 
+  async getCustomersPage(
+    filter?: CustomerFilterCriteria,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<CustomerPageResult> {
+    try {
+      const params: Record<string, unknown> = {
+        page,
+        limit,
+      };
+
+      if (filter?.status === 'ACTIVE') {
+        params.verificationStatus = 'VERIFIED';
+      } else if (filter?.status === 'SUSPENDED') {
+        params.verificationStatus = 'PENDING';
+      }
+
+      if (filter?.searchTerm) {
+        params.mobile = filter.searchTerm;
+      }
+
+      const response = await httpClient.get<
+        { items?: Array<Record<string, unknown>>; customers?: Array<Record<string, unknown>>; data?: unknown; meta?: Record<string, unknown> } | Array<Record<string, unknown>>
+      >(
+        '/admin/customers',
+        {
+          params,
+        }
+      );
+
+      const rawData = response.data as Record<string, unknown>;
+      let list: Record<string, unknown>[] = [];
+      let meta: Record<string, unknown> | undefined;
+
+      if (Array.isArray(response.data)) {
+        list = response.data;
+      } else if (rawData && typeof rawData === 'object') {
+        if (rawData.meta && typeof rawData.meta === 'object') {
+          meta = rawData.meta as Record<string, unknown>;
+        }
+        if (Array.isArray(rawData.items)) {
+          list = rawData.items as Record<string, unknown>[];
+        } else if (Array.isArray(rawData.customers)) {
+          list = rawData.customers as Record<string, unknown>[];
+        } else if (Array.isArray(rawData.data)) {
+          list = rawData.data as Record<string, unknown>[];
+        } else if (rawData.data && typeof rawData.data === 'object') {
+          const nested = rawData.data as Record<string, unknown>;
+          if (nested.meta && typeof nested.meta === 'object') {
+            meta = nested.meta as Record<string, unknown>;
+          }
+          if (Array.isArray(nested.items)) {
+            list = nested.items as Record<string, unknown>[];
+          } else if (Array.isArray(nested.customers)) {
+            list = nested.customers as Record<string, unknown>[];
+          } else if (Array.isArray(nested.data)) {
+            list = nested.data as Record<string, unknown>[];
+          }
+        }
+      }
+
+      const total = Number(
+        meta?.total ??
+        meta?.totalItems ??
+        meta?.count ??
+        list.length
+      );
+      const currentPage = Number(meta?.page ?? meta?.currentPage ?? page);
+      const currentLimit = Number(meta?.limit ?? meta?.itemsPerPage ?? limit);
+      const totalPages = meta?.totalPages ? Number(meta.totalPages) : (total > 0 ? Math.ceil(total / currentLimit) : 1);
+      const hasMore = currentPage < totalPages && list.length > 0;
+
+      return {
+        items: list.map(mapBackendCustomerToCustomer),
+        total,
+        page: currentPage,
+        limit: currentLimit,
+        hasMore,
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async getCustomerById(id: string): Promise<CustomerDetail | null> {
     try {
       if (!id || typeof id !== 'string') return null;
@@ -475,6 +559,25 @@ export class MockCustomerRepository implements ICustomerRepository {
     }
 
     return result.map(({ bookings: _b, notes: _n, fullAddress: _fa, unmaskedPhone: _up, unmaskedEmail: _ue, totalSpendINR: _ts, activeBookings: _ab, openGrievances: _og, complaints: _c, ...summary }) => summary);
+  }
+
+  async getCustomersPage(
+    filter?: CustomerFilterCriteria,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<CustomerPageResult> {
+    const all = await this.getCustomers(filter);
+    const total = all.length;
+    const startIndex = (page - 1) * limit;
+    const items = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < total;
+    return {
+      items,
+      total,
+      page,
+      limit,
+      hasMore,
+    };
   }
 
   async getCustomerById(id: string): Promise<CustomerDetail | null> {

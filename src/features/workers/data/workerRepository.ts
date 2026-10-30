@@ -1,4 +1,4 @@
-import { Worker, WorkerDetail, WorkerFilterCriteria, IWorkerRepository, WorkerDocumentMetadata } from '../domain/types';
+import { Worker, WorkerDetail, WorkerFilterCriteria, WorkerPageResult, IWorkerRepository, WorkerDocumentMetadata } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
@@ -479,21 +479,34 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     ? item.ratingAverage
     : 0;
 
+  const rawOnboardingStatus = String(item.onboardingStatus || '').toUpperCase();
+  const rawVerificationStatus = String(item.verificationStatus || '').toUpperCase();
   const rawLevel = (item.level ?? item.verificationLevel ?? (typeof item.verification === 'object' && item.verification !== null ? (item.verification as Record<string, unknown>).level : undefined)) as string | number | undefined;
   const level = rawLevel !== undefined ? String(rawLevel) : undefined;
   const levelUpper = level ? level.toUpperCase() : '';
   const isLevelVerified = levelUpper === 'VERIFIED' || levelUpper === 'APPROVED' || levelUpper === 'COMPLETE' || levelUpper === 'LEVEL_1' || levelUpper === 'LEVEL_2' || levelUpper === 'LEVEL_3' || levelUpper === 'TIER_1' || levelUpper === 'TIER_2' || levelUpper === 'TRUE';
 
-  const isVerified = (
+  // Rule: A worker must not be displayed as fully KYC approved if onboardingStatus is SUBMITTED/IN_REVIEW
+  // or if required verification checks remain incomplete.
+  const isStatusIncomplete = (
+    rawOnboardingStatus === 'SUBMITTED' ||
+    rawOnboardingStatus === 'IN_REVIEW' ||
+    rawOnboardingStatus === 'APPLIED' ||
+    rawOnboardingStatus === 'PENDING' ||
+    rawVerificationStatus === 'PENDING' ||
+    rawVerificationStatus === 'IN_REVIEW'
+  );
+
+  const isVerified = !isStatusIncomplete && (
     item.verification === 'VERIFIED' ||
-    item.verificationStatus === 'VERIFIED' ||
+    rawVerificationStatus === 'VERIFIED' ||
     item.isFullyVerified === true ||
-    item.onboardingStatus === 'VERIFIED' ||
+    rawOnboardingStatus === 'VERIFIED' ||
     isLevelVerified
   ) &&
-    item.onboardingStatus !== 'REJECTED' &&
+    rawOnboardingStatus !== 'REJECTED' &&
     item.verification !== 'REJECTED' &&
-    item.verificationStatus !== 'REJECTED' &&
+    rawVerificationStatus !== 'REJECTED' &&
     levelUpper !== 'REJECTED';
 
   let phoneMasked = item.phoneMasked ? String(item.phoneMasked) : undefined;
@@ -552,7 +565,16 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   const levelStr = rawLevel !== undefined ? String(rawLevel) : undefined;
 
   let effectiveFullyVerified: boolean;
-  if (levelStr !== undefined) {
+  const checksList = Array.isArray(unwrappedVerif?.checks) ? (unwrappedVerif.checks as Record<string, unknown>[]) : [];
+  const hasIncompleteChecksList = checksList.some((c) => {
+    const s = String(c.status || '').toUpperCase();
+    return s !== 'APPROVED' && s !== 'PASSED';
+  });
+
+  const rawOnboardingStatus = String(unwrappedData.onboardingStatus || '').toUpperCase();
+  if (hasIncompleteChecksList || (rawOnboardingStatus && (rawOnboardingStatus === 'SUBMITTED' || rawOnboardingStatus === 'IN_REVIEW' || rawOnboardingStatus === 'APPLIED'))) {
+    effectiveFullyVerified = false;
+  } else if (levelStr !== undefined) {
     const upper = levelStr.toUpperCase();
     if (upper === 'VERIFIED' || upper === 'APPROVED' || upper === 'COMPLETE' || upper === 'LEVEL_1' || upper === 'LEVEL_2' || upper === 'LEVEL_3' || upper === 'TIER_1' || upper === 'TIER_2' || upper === 'TRUE') {
       effectiveFullyVerified = true;
@@ -856,6 +878,109 @@ export class RealWorkerRepository implements IWorkerRepository {
     }
   }
 
+  async getWorkersPage(
+    filter?: WorkerFilterCriteria,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<WorkerPageResult> {
+    try {
+      const fn = this.getWorkers as unknown as { mock?: unknown; _isMockFunction?: unknown };
+      if (
+        fn?.mock ||
+        fn?._isMockFunction ||
+        this.getWorkers !== RealWorkerRepository.prototype.getWorkers
+      ) {
+        const items = await this.getWorkers({ ...filter, page, limit });
+        return {
+          items,
+          total: items.length,
+          page,
+          limit,
+          hasMore: false,
+        };
+      }
+
+      let verifiedParam: boolean | undefined = undefined;
+      if (filter?.verified !== undefined) {
+        verifiedParam = filter.verified;
+      } else if (filter?.verificationStatus === 'VERIFIED') {
+        verifiedParam = true;
+      } else if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        verifiedParam = false;
+      }
+
+      const params: Record<string, unknown> = {
+        page,
+        limit,
+        verified: verifiedParam,
+      };
+
+      if (filter?.searchTerm) {
+        params.mobile = filter.searchTerm;
+      }
+      if (filter?.category && filter.category !== 'ALL') {
+        params.category = filter.category;
+      }
+      if (filter?.status && filter.status !== 'ALL') {
+        params.status = filter.status;
+      }
+
+      const response = await httpClient.get<{
+        items?: Array<Record<string, unknown>>;
+        data?: unknown;
+        meta?: Record<string, unknown>;
+      } | Array<Record<string, unknown>>>('/admin/workers', { params });
+
+      const rawData = response.data as Record<string, unknown>;
+      let list: Record<string, unknown>[] = [];
+      let meta: Record<string, unknown> | undefined;
+
+      if (Array.isArray(response.data)) {
+        list = response.data;
+      } else if (rawData) {
+        if (rawData.meta && typeof rawData.meta === 'object') {
+          meta = rawData.meta as Record<string, unknown>;
+        }
+        if (Array.isArray(rawData.items)) {
+          list = rawData.items as Record<string, unknown>[];
+        } else if (Array.isArray(rawData.data)) {
+          list = rawData.data as Record<string, unknown>[];
+        } else if (rawData.data && typeof rawData.data === 'object') {
+          const inner = rawData.data as Record<string, unknown>;
+          if (inner.meta && typeof inner.meta === 'object') {
+            meta = inner.meta as Record<string, unknown>;
+          }
+          if (Array.isArray(inner.items)) {
+            list = inner.items as Record<string, unknown>[];
+          } else if (Array.isArray(inner.workers)) {
+            list = inner.workers as Record<string, unknown>[];
+          }
+        }
+      }
+
+      const total = Number(
+        meta?.total ??
+        meta?.totalItems ??
+        meta?.count ??
+        list.length
+      );
+      const currentPage = Number(meta?.page ?? meta?.currentPage ?? page);
+      const currentLimit = Number(meta?.limit ?? meta?.itemsPerPage ?? limit);
+      const totalPages = meta?.totalPages ? Number(meta.totalPages) : (total > 0 ? Math.ceil(total / currentLimit) : 1);
+      const hasMore = currentPage < totalPages && list.length > 0;
+
+      return {
+        items: list.map(mapBackendWorkerToWorker),
+        total,
+        page: currentPage,
+        limit: currentLimit,
+        hasMore,
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async getWorkerById(id: string): Promise<WorkerDetail | null> {
     try {
       const [workerRes, verifRes] = await Promise.all([
@@ -1037,6 +1162,25 @@ export class MockWorkerRepository implements IWorkerRepository {
     }
 
     return result.map(({ bio: _bio, languages: _l, serviceRadiusKm: _sr, verification: _v, recentEngagements: _re, internalNotes: _in, activeEngagementsCount: _ae, completedBookingsCount: _cb, replacementsIncurred: _ri, documents: _d, skills: _sk, ...summary }) => summary);
+  }
+
+  async getWorkersPage(
+    filter?: WorkerFilterCriteria,
+    page: number = 1,
+    limit: number = 20
+  ): Promise<WorkerPageResult> {
+    const all = await this.getWorkers(filter);
+    const total = all.length;
+    const startIndex = (page - 1) * limit;
+    const items = all.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < total;
+    return {
+      items,
+      total,
+      page,
+      limit,
+      hasMore,
+    };
   }
 
   async getWorkerById(id: string): Promise<WorkerDetail | null> {

@@ -5,18 +5,19 @@ export const PublicLayout: React.FC = () => {
   return (
     <div
       style={{
-        minHeight: '100dvh',
+        minHeight: '100vh',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: 'var(--color-bg-app)',
-        padding: 'var(--space-1)',
+        padding: '12px 16px',
+        boxSizing: 'border-box',
       }}
     >
       <div
         style={{
-          marginBottom: 'var(--space-6)',
+          marginBottom: '10px',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -28,7 +29,7 @@ export const PublicLayout: React.FC = () => {
           alt="SevaNest logo"
           style={{
             width: '100%',
-            maxWidth: '220px',
+            maxWidth: '180px',
             height: 'auto',
             objectFit: 'contain',
             display: 'block',
@@ -39,7 +40,7 @@ export const PublicLayout: React.FC = () => {
             fontSize: 'var(--font-size-xs)',
             color: 'var(--color-text-secondary)',
             fontWeight: 500,
-            marginTop: 'var(--space-2)',
+            marginTop: '3px',
           }}
         >
           Operations & Administration Portal
@@ -49,18 +50,27 @@ export const PublicLayout: React.FC = () => {
       <div
         style={{
           width: '100%',
-          maxWidth: '480px',
+          maxWidth: '460px',
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border)',
           borderRadius: 'var(--radius-xl)',
-          padding: 'var(--space-6)',
-          boxShadow: 'var(--shadow-lg)',
+          padding: '16px 20px',
+          boxShadow: 'var(--shadow-md)',
+          boxSizing: 'border-box',
         }}
       >
         <Outlet />
       </div>
 
-      <footer style={{ marginTop: 'var(--space-6)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-disabled)' }}>
+      <footer
+        style={{
+          marginTop: '10px',
+          fontSize: 'var(--font-size-xs)',
+          color: 'var(--color-text-disabled)',
+          textAlign: 'center',
+          lineHeight: 1.2,
+        }}
+      >
         Verified Help. Trusted Homes. &bull; SevaNest Admin
       </footer>
     </div>

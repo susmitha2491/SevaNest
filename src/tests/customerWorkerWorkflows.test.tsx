@@ -49,7 +49,7 @@ describe('Customer & Worker Management Workflows', () => {
       );
     });
 
-    it('renders customer directory table with masked PII and pagination', async () => {
+    it('renders customer directory table with masked PII and continuous scrollable container without pagination', async () => {
       renderApp('/customers');
 
       expect(await screen.findByText('Customer Accounts & Households', {}, { timeout: 4000 })).toBeInTheDocument();
@@ -59,8 +59,13 @@ describe('Customer & Worker Management Workflows', () => {
       // Verify masked PII default state
       expect(screen.getAllByText(/\+91 \d{2}\*{4} \*{2}\d{2}/).length).toBeGreaterThan(0);
 
-      // Pagination indicator
-      expect(screen.getByText(/Page 1 of \d+/)).toBeInTheDocument();
+      // Verify scrollable table container exists and pagination indicator is absent
+      const scrollContainer = screen.getByTestId('customer-table-scroll-container');
+      expect(scrollContainer).toBeInTheDocument();
+      expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
+      expect(screen.queryByText(/Page 1 of \d+/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Previous/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Next page/i })).not.toBeInTheDocument();
     });
 
     it('filters customers by search term and status', async () => {
