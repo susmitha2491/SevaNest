@@ -44,13 +44,16 @@ export const env: AppEnv = parsedEnv.success
  * activated via VITE_ENABLE_QUICK_LOGIN=true. Disabled in production environments.
  */
 export function isQuickLoginEnabled(): boolean {
+  if (isTestEnv) {
+    return true;
+  }
   if (env.VITE_ENABLE_QUICK_LOGIN !== undefined) {
     return env.VITE_ENABLE_QUICK_LOGIN;
   }
   if (env.VITE_USE_MOCK_AUTH) {
     return true;
   }
-  return isDev || isTestEnv || env.VITE_APP_ENV === 'development' || env.VITE_APP_ENV === 'test';
+  return false;
 }
 
 /**

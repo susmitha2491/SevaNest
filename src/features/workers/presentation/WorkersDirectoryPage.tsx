@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { Worker } from '../domain/types';
-import { WorkerDetailModal } from './WorkerDetailModal';
+import { WorkerDirectoryModal } from './WorkerDirectoryModal';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -444,7 +444,7 @@ export const WorkersDirectoryPage: React.FC = () => {
 
       {/* Worker Detail Modal */}
       {selectedWorkerId && (
-        <WorkerDetailModal
+        <WorkerDirectoryModal
           workerId={selectedWorkerId}
           onClose={() => setSelectedWorkerId(null)}
         />

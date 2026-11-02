@@ -357,6 +357,140 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
       expect(screen.getByRole('button', { name: /View Profile/i })).toBeInTheDocument();
     });
 
+    it('WorkerDirectoryModal displays simple, professional worker details, their work, and their documents without heavy administrative controls', async () => {
+      const user = userEvent.setup();
+      const pageResult: WorkerPageResult = {
+        items: [mockVerifiedWorker],
+        total: 1,
+        page: 1,
+        limit: 25,
+        hasMore: false,
+      };
+
+      const mockWorkerDetail = {
+        ...mockVerifiedWorker,
+        serviceRadiusKm: 10,
+        languages: ['Hindi', 'Telugu', 'English'],
+        bio: 'Experienced home cook specializing in North and South Indian vegetarian cuisines.',
+        skills: ['North Indian', 'South Indian', 'Baking', 'Meal Prep'],
+        activeEngagementsCount: 1,
+        completedBookingsCount: 45,
+        replacementsIncurred: 0,
+        recentEngagements: [
+          {
+            bookingId: 'BK-1001',
+            customerName: 'Ananya S.',
+            serviceCategory: 'Cooking',
+            status: 'COMPLETED',
+            period: 'Jan 2026 - Mar 2026',
+          },
+        ],
+        internalNotes: [],
+        expectedCompensation: '₹18,000 / month',
+        availability: 'Full Time (8 AM - 4 PM)',
+        verification: {
+          phoneOtpVerified: true,
+          identityProofStatus: 'VERIFIED' as const,
+          identityDocName: 'Aadhaar Card',
+          addressProofStatus: 'VERIFIED' as const,
+          criminalRecordStatus: 'VERIFIED' as const,
+          skillProofStatus: 'VERIFIED' as const,
+          skillDocName: 'Culinary Certificate',
+          referenceCheckStatus: 'VERIFIED' as const,
+        },
+        documents: [
+          {
+            id: 'doc-1',
+            documentId: 'doc-1',
+            checkId: 'chk-1',
+            checkType: 'IDENTITY',
+            documentType: 'IDENTITY_PROOF',
+            documentTypeName: 'Aadhaar Card',
+            docNumberMasked: 'XXXX-XXXX-4921',
+            status: 'VERIFIED' as const,
+            signedUrl: 'https://example.com/aadhaar.jpg',
+            contentType: 'image/jpeg',
+            available: true,
+            reviewable: true,
+          },
+        ],
+      };
+
+      vi.spyOn(workerRepository, 'getWorkersPage').mockResolvedValue(pageResult);
+      vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValue(mockWorkerDetail);
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue({
+        ...mockFullyApprovedDossier,
+        submittedDocuments: [
+          {
+            id: 'doc-1',
+            checkType: 'IDENTITY',
+            documentTypeName: 'Aadhaar Card',
+            mimeType: 'image/jpeg',
+            sizeBytes: 1024,
+            status: 'APPROVED',
+            createdAt: '2026-10-15T10:00:00Z',
+          },
+        ],
+      });
+
+      renderWithClient(<WorkersDirectoryPage />);
+
+      // Open Worker Profile modal
+      const viewProfileBtn = await screen.findByRole('button', { name: /View Profile/i });
+      await user.click(viewProfileBtn);
+
+      // 1. Verify Header & Tab 1 (Worker Details)
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Worker Details/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Their Work & Skills/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Verified Documents/i })).toBeInTheDocument();
+
+      // Check worker details are rendered
+      expect(screen.getByText(/Experienced home cook specializing in North and South Indian/i)).toBeInTheDocument();
+      expect(screen.getByText('Hindi, Telugu, English')).toBeInTheDocument();
+
+      // Ensure NO heavy admin mutation controls exist
+      expect(screen.queryByText(/Suspend Worker/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Blacklist Worker/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Sign Off & Activate Worker/i)).not.toBeInTheDocument();
+
+      // 2. Switch to Tab 2: Their Work & Skills
+      const workTab = screen.getByRole('tab', { name: /Their Work & Skills/i });
+      await user.click(workTab);
+
+      expect(screen.getByText(/North Indian/i)).toBeInTheDocument();
+      expect(screen.getByText(/South Indian/i)).toBeInTheDocument();
+      expect(screen.getByText(/Baking/i)).toBeInTheDocument();
+      expect(screen.getByText('Full Time (8 AM - 4 PM)')).toBeInTheDocument();
+      expect(screen.getByText('₹18,000 / month')).toBeInTheDocument();
+      expect(screen.getByText('Ananya S.')).toBeInTheDocument();
+
+      // 3. Switch to Tab 3: Verified Documents
+      const docsTab = screen.getByRole('tab', { name: /Verified Documents/i });
+      await user.click(docsTab);
+
+      expect(screen.getByText('Aadhaar Card')).toBeInTheDocument();
+      expect(screen.getByText(/XXXX-XXXX-4921/i)).toBeInTheDocument();
+
+      // Click "View Document" to inspect
+      const viewDocBtn = screen.getByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtn);
+
+      // Verify document inspection viewer opened with zoom/rotate controls
+      expect(screen.getByTitle(/Zoom In/i)).toBeInTheDocument();
+      expect(screen.getByTitle(/Zoom Out/i)).toBeInTheDocument();
+      expect(screen.getByTitle(/Rotate/i)).toBeInTheDocument();
+      expect(screen.getByTestId('kyc-document-image')).toBeInTheDocument();
+
+      // Close modal
+      const closeButtons = screen.getAllByRole('button', { name: /Close/i });
+      await user.click(closeButtons[0]);
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
     it('Global toast is displayed in top-right corner when sevanest:toast event is received', async () => {
       useAuthStore.setState({
         user: {

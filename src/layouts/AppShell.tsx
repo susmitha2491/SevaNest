@@ -21,6 +21,7 @@ import {
   ChevronDown,
   Edit3,
   CheckCircle2,
+  History,
   AlertTriangle,
 } from 'lucide-react';
 import { useAuthStore } from '../core/auth/authStore';
@@ -48,14 +49,15 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
       { name: 'Customer Management', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
-      { name: 'Worker Management', path: '/workers', icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
-      { name: 'Workers Directory', path: '/workers/directory', icon: Users, permission: PERMISSIONS.WORKER_VIEW },
-      { name: 'Verification', path: '/verification', icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
+      { name: 'Worker Management', path: '/workers', end: true, icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
+      { name: 'Workers Directory', path: '/workers/directory', end: true, icon: Users, permission: PERMISSIONS.WORKER_VIEW },
+      { name: 'Verification', path: '/verification', end: true, icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
       { name: 'Booking Management', path: '/bookings', icon: CalendarCheck, permission: PERMISSIONS.BOOKINGS_VIEW },
       { name: 'Payments', path: '/payments', icon: CreditCard, permission: PERMISSIONS.PAYMENTS_VIEW },
       { name: 'Support', path: '/support', icon: LifeBuoy, permission: PERMISSIONS.SUPPORT_VIEW },
       { name: 'Reports', path: '/reports', icon: BarChart3, permission: PERMISSIONS.REPORTS_VIEW },
       { name: 'Configuration', path: '/configuration', icon: Sliders, permission: PERMISSIONS.CONFIGURATION_MANAGE },
+      { name: 'Audit Trail', path: '/audit', icon: History, permission: PERMISSIONS.AUDIT_VIEW },
     ],
   },
 ];
@@ -66,7 +68,7 @@ const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
     title: '',
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
-      { name: 'Workers Directory', path: '/workers/directory', icon: Users, permission: PERMISSIONS.WORKER_VIEW },
+      { name: 'Workers Directory', path: '/workers/directory', end: true, icon: Users, permission: PERMISSIONS.WORKER_VIEW },
     ],
   },
   {
@@ -277,7 +279,7 @@ export const AppShell: React.FC = () => {
                       <NavLink
                         key={item.path}
                         to={item.path}
-                        end={item.end ?? (item.path === '/dashboard' || item.path === '/verification')}
+                        end={item.end ?? (item.path === '/dashboard' || item.path === '/verification' || item.path === '/workers')}
                         style={({ isActive }) => ({
                           display: 'flex',
                           alignItems: 'center',
