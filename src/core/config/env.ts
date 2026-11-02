@@ -13,10 +13,10 @@ const envSchema = z.object({
   ).default(isTestEnv),
   VITE_API_TIMEOUT_MS: z.coerce.number().default(15000),
   VITE_ENABLE_TELEMETRY: z.coerce.boolean().default(false),
-  VITE_ENABLE_QUICK_LOGIN: z.preprocess(
-    (val) => (val !== undefined ? val === 'true' || val === true : undefined),
-    z.boolean().optional()
-  ),
+  VITE_ENABLE_QUICK_LOGIN: z.preprocess((val) => {
+    if (val === undefined || val === '') return true;
+    return val === 'true' || val === true;
+  }, z.boolean()).default(true).optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -35,32 +35,27 @@ export const env: AppEnv = parsedEnv.success
       VITE_USE_MOCK_AUTH: isTestEnv,
       VITE_API_TIMEOUT_MS: 15000,
       VITE_ENABLE_TELEMETRY: false,
-      VITE_ENABLE_QUICK_LOGIN: undefined,
+      VITE_ENABLE_QUICK_LOGIN: true,
     };
 
 /**
  * Returns true if the Quick Login role selector should be enabled and rendered.
- * Enabled by default in development, test, and mock-auth modes, or when explicitly
- * activated via VITE_ENABLE_QUICK_LOGIN=true. Disabled in production environments.
+ * Enabled by default across all environments (development, test, Docker, and Vercel production),
+ * allowing quick role selection for authorized staff personas. Can be explicitly disabled
+ * via VITE_ENABLE_QUICK_LOGIN=false if required.
  */
 export function isQuickLoginEnabled(): boolean {
-  if (isTestEnv) {
-    return true;
-  }
   if (env.VITE_ENABLE_QUICK_LOGIN !== undefined) {
     return env.VITE_ENABLE_QUICK_LOGIN;
   }
-  if (env.VITE_USE_MOCK_AUTH) {
-    return true;
-  }
-  return false;
+  return true;
 }
 
 /**
  * Validates that the API configuration is present and structurally sound.
  * Throws a safe, understandable error if the API configuration is missing or malformed.
  */
-export function validateApiConfig(customEnv: AppEnv = env): string {
+export function validateApiConfig(customEnv: Partial<AppEnv> = env): string {
   const url = customEnv.VITE_API_BASE_URL?.trim();
   if (!url) {
     throw new Error('Configuration Error: VITE_API_BASE_URL is missing. Please define the backend API base URL in your environment.');

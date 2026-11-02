@@ -260,4 +260,24 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     expect(Boolean(signInBtn.compareDocumentPosition(quickLoginHeading) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(Boolean(quickLoginHeading.compareDocumentPosition(footer) & window.Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
+
+  it('12. Enables Quick Login by default across environments without manual override', () => {
+    expect(envConfig.isQuickLoginEnabled()).toBe(true);
+  });
+
+  it('13. Verifies all 4 Quick Login personas correspond to valid backend roles and badges', () => {
+    renderAuthFlow('/auth/login');
+
+    expect(screen.getByText('Super Admin')).toBeInTheDocument();
+    expect(screen.getByText('sevanest@admin.in')).toBeInTheDocument();
+
+    expect(screen.getByText('Operations Admin')).toBeInTheDocument();
+    expect(screen.getByText('operations.manager@sevanest.example.com')).toBeInTheDocument();
+
+    expect(screen.getByText('Verification Executive')).toBeInTheDocument();
+    expect(screen.getByText('verification.executive@sevanest.example.com')).toBeInTheDocument();
+
+    expect(screen.getByText('Support Executive')).toBeInTheDocument();
+    expect(screen.getByText('support.executive@sevanest.example.com')).toBeInTheDocument();
+  });
 });
