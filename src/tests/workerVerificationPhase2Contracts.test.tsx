@@ -131,6 +131,12 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
 
       expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
       expect(screen.getByText(/Level: LEVEL_3/i)).toBeInTheDocument();
+
+      // Navigate to Stage 3 then Stage 4 to find Sign-Off
+      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
+      await user.click(nextManualBtn);
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      await user.click(nextFinalBtn);
       expect(screen.getByText(/Supervisor Verification Sign-Off/i)).toBeInTheDocument();
     });
 
@@ -191,6 +197,12 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
 
+      // Navigate through to Stage 4 (Final Approval) where activation controls live
+      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
+      await user.click(nextManualBtn);
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      await user.click(nextFinalBtn);
+
       expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
       expect(screen.getByText(/Activation is locked/i)).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Activate Worker Account/i })).not.toBeInTheDocument();
@@ -209,6 +221,12 @@ describe('Phase 2: Correct Worker Verification Decision and Activation Flows', (
 
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
+
+      // Navigate through to Stage 4 (Final Approval)
+      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
+      await user.click(nextManualBtn);
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      await user.click(nextFinalBtn);
 
       expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
       expect(updateStatusSpy).not.toHaveBeenCalled();

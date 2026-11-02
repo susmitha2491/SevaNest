@@ -515,7 +515,7 @@ export const SuperAdminDashboard: React.FC = () => {
                   )}
                   {sections.pendingKyc && (
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-sm)', padding: '4px 0' }}>
-                      <span style={{ color: 'var(--color-text-secondary)' }}>KYC In Review (Claimed)</span>
+                      <span style={{ color: 'var(--color-text-secondary)' }}>KYC In Review</span>
                       <strong style={{ color: 'var(--color-navy)' }}>{sections.pendingKyc.inReview}</strong>
                     </div>
                   )}

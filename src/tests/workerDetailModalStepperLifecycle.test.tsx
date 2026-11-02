@@ -76,23 +76,36 @@ describe('WorkerDetailModal Simplified 2-Step Workflow (Worker Info & KYC Verifi
 
     expect(await screen.findByRole('heading', { name: /Ramesh Yadav/i })).toBeInTheDocument();
 
-    // Click Next: Verify KYC
+    // Click Next: Verify KYC (navigates to Stage 2: Digitally Submitted Documents)
     const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
     await user.click(nextBtn);
 
     // Step 2 header and Back button
     expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
-    const backBtn = screen.getByRole('button', { name: /Back to Worker Information/i });
+    const backBtn = screen.getAllByRole('button', { name: /Back to Worker Information/i })[0];
     expect(backBtn).toBeInTheDocument();
 
-    // Submitted KYC Documents and 6-Point verification status
-    expect(screen.getByText(/Submitted KYC Documents/i)).toBeInTheDocument();
-    expect(screen.getByText('6-Point Trust & Verification Status')).toBeInTheDocument();
-    expect(screen.getByText('1. Mobile OTP Pre-Check')).toBeInTheDocument();
-    expect(screen.getByText('2. Identity Proof (Aadhaar)')).toBeInTheDocument();
+    // Worker KYC Documents and submitted documents
+    expect(screen.getByRole('heading', { name: /^Worker KYC Documents$/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/Submitted Documents/i).length).toBeGreaterThan(0);
 
-    // Click Back to Worker Information to return to Step 1
-    await user.click(backBtn);
+    // Navigate to Stage 3 (Manual Documents)
+    const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
+    await user.click(nextManualBtn);
+    expect((await screen.findAllByText(/Manually Submitted Documents/i)).length).toBeGreaterThan(0);
+
+    // Navigate to Stage 4 (Final Approval) to find Approve Worker button
+    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+    await user.click(nextFinalBtn);
+    expect(screen.getByRole('button', { name: /Approve Worker/i })).toBeInTheDocument();
+
+    // Navigate back to Step 1 via Previous buttons
+    const prevManualBtn = screen.getAllByRole('button', { name: /Previous: Manually Submitted Documents/i })[0];
+    await user.click(prevManualBtn);
+    const prevDigitalBtn = (await screen.findAllByRole('button', { name: /Previous: Digitally Submitted Documents/i }))[0];
+    await user.click(prevDigitalBtn);
+    const backToWorkerBtn = screen.getAllByRole('button', { name: /Back to Worker Information/i })[0];
+    await user.click(backToWorkerBtn);
     expect(await screen.findByText('Primary Skill & Experience')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Next: Verify KYC/i })).toBeInTheDocument();
   });
@@ -100,11 +113,12 @@ describe('WorkerDetailModal Simplified 2-Step Workflow (Worker Info & KYC Verifi
   it('Opens directly in Step 2 when initialStep is kyc-verification', async () => {
     setupAuth();
 
+    // kyc-verification maps to digital-docs in the 4-stage workflow
     renderModalWithProviders('W-10482', 'kyc-verification');
 
-    // Opens directly in KYC Verification
-    expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Back to Worker Information/i })).toBeInTheDocument();
-    expect(screen.getByText('6-Point Trust & Verification Status')).toBeInTheDocument();
+    // Opens directly in Digitally Submitted Documents (Stage 2)
+    expect(await screen.findByRole('heading', { name: /^Worker KYC Documents$/i })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Back to Worker Information/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Submitted Documents/i).length).toBeGreaterThan(0);
   });
 });

@@ -157,7 +157,7 @@ describe('Customer & Worker Management Workflows', () => {
       expect(screen.queryByText('Ramesh Yadav')).not.toBeInTheDocument();
     });
 
-    it('opens worker dossier modal and displays the 6-point verification breakdown', async () => {
+    it('opens worker dossier modal and displays the dynamic trust & verification breakdown', async () => {
       renderApp('/workers');
 
       const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
@@ -167,13 +167,10 @@ describe('Customer & Worker Management Workflows', () => {
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       fireEvent.click(nextBtn);
 
-      expect(await screen.findByText('6-Point Trust & Verification Status')).toBeInTheDocument();
-      expect(await screen.findByText('1. Mobile OTP Pre-Check')).toBeInTheDocument();
-      expect(await screen.findByText('2. Identity Proof (Aadhaar)')).toBeInTheDocument();
-      expect(await screen.findByText('3. Residential Address Proof')).toBeInTheDocument();
-      expect(await screen.findByText('4. Criminal Self-Declaration')).toBeInTheDocument();
-      expect(await screen.findByText('5. Skill Certificate / License')).toBeInTheDocument();
-      expect(await screen.findByText('6. Prior Employer Reference')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Worker KYC Documents$/i })).toBeInTheDocument();
+      expect((await screen.findAllByText(/Submitted Documents/i)).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText(/Identity Proof|Aadhaar/i)).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Criminal Self-Declaration/i)).not.toBeInTheDocument();
 
       // Close modal
       const closeBtn = screen.getByRole('button', { name: 'Close' });

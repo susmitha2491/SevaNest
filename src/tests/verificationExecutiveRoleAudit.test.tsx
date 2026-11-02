@@ -157,9 +157,10 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       // Authorized items must be present in navigation
       expect(await screen.findByText(/^Verification Queue$/i)).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
 
       // Prohibited / removed items MUST NOT be rendered in navigation
-      expect(screen.queryByRole('link', { name: /Workers( Directory)?/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Worker Management$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Booking Pipeline/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Support Tickets/i })).not.toBeInTheDocument();
@@ -192,7 +193,8 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(await screen.findByRole('link', { name: /Dashboard/i })).toBeInTheDocument();
       expect(screen.getByText(/^Verification Queue$/i)).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /Workers( Directory)?/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Worker Management$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });
   });

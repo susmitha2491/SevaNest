@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WorkerVerificationReviewModal } from '../features/verification/presentation/WorkerVerificationReviewModal';
@@ -172,6 +172,10 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
       signedUrl: 'https://vault.sevanest.local/docs/doc-id-101-signed.pdf',
       expiresAt: '2026-10-28T14:00:00Z',
     });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it('renders all 5 progress bubbles with mandatory labels and highlights current step', async () => {
@@ -407,7 +411,7 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
       JSON.parse(JSON.stringify(mockDossierAllApproved))
     );
 
-    vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker').mockRejectedValue(
+    const approveSpy = vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker').mockRejectedValue(
       new Error('Backend 500: Database lock timeout during onboarding.')
     );
 
@@ -426,6 +430,10 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
 
     const confirmFinalBtn = await screen.findByRole('button', { name: /Confirm Final Approval/i });
     await user.click(confirmFinalBtn);
+
+    await waitFor(() => {
+      expect(approveSpy).toHaveBeenCalled();
+    });
 
     // False success screen is NOT shown
     expect(screen.queryByText(/Worker Successfully Onboarded/i)).not.toBeInTheDocument();

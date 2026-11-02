@@ -325,17 +325,23 @@ describe('WorkerDetailModal KYC Documents Section & Accept Button Workflow', () 
     expect(screen.getByText('Aadhaar Card (National ID)')).toBeInTheDocument();
     expect(screen.getByText('Electricity Utility Bill')).toBeInTheDocument();
 
-    // Section B 6-point checklist still maintains its rules
-    expect(screen.getByText(/6-Point Trust & Verification Status/i)).toBeInTheDocument();
+    // Navigate to Stage 3 and Stage 4
+    const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
+    await user.click(nextManualBtn);
+    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+    await user.click(nextFinalBtn);
+
+    // Final Approve Worker card is present while activation is gated until sign-off
+    expect(screen.getByRole('heading', { name: /^Approve Worker \(Verification Sign-Off\)$/i })).toBeInTheDocument();
     // Activation is gated until sign-off
     expect(screen.queryByRole('button', { name: /Activate Worker onto Commercial Roster/i })).not.toBeInTheDocument();
   });
 
-  it('6. Steps 3, 4, and 5 check cards have enabled Approve buttons without UI locks, and prerequisite rejections display backend errors', async () => {
+  it('6. Submitted document rows have enabled Accept buttons, and prerequisite rejections display backend errors', async () => {
     vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValue(mockWorkerWithDocs);
     vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(mockDossier);
     const approveSpy = vi.spyOn(verificationRepository, 'approveCheck').mockRejectedValue(
-      new Error('Prerequisite incomplete: Earlier checks must be approved before Police Clearance (HTTP 422)')
+      new Error('Prerequisite incomplete: Earlier checks must be approved before Address Proof (HTTP 422)')
     );
 
     const user = userEvent.setup();
@@ -344,55 +350,43 @@ describe('WorkerDetailModal KYC Documents Section & Accept Button Workflow', () 
     const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
     await user.click(nextBtn);
 
-    // Section B contains all 5 operational checks
-    expect(screen.getByText(/1\. Identity Proof/i)).toBeInTheDocument();
-    expect(screen.getByText(/2\. Address Proof/i)).toBeInTheDocument();
-    expect(screen.getByText(/3\. Emergency Contact/i)).toBeInTheDocument();
-    expect(screen.getByText(/4\. Employer Reference/i)).toBeInTheDocument();
-    expect(screen.getByText(/5\. Police Certificate/i)).toBeInTheDocument();
-
-    // No Locked badges or sequential workflow lock notices
-    expect(screen.queryByText(/Step 5 \(Police Certificate\) is locked/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Step 4 \(Employer Reference\) is locked/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Step 3 \(Emergency Contact\) is locked/i)).not.toBeInTheDocument();
-
-    // All 5 checks have an enabled "Approve Check" button
-    const approveButtons = screen.getAllByRole('button', { name: /^Approve Check$/i });
-    expect(approveButtons.length).toBe(5);
-    approveButtons.forEach((btn) => {
+    // Displays the submitted documents with Accept buttons
+    const acceptButtons = screen.getAllByRole('button', { name: /^Accept$/i });
+    expect(acceptButtons.length).toBe(2);
+    acceptButtons.forEach((btn) => {
       expect(btn).toBeEnabled();
     });
 
-    // Attempt to approve Step 5 (Police Certificate) directly
-    const policeApproveBtn = approveButtons[4];
-    await user.click(policeApproveBtn);
+    // Attempt to approve document 2 (Address Proof)
+    const addressApproveBtn = acceptButtons[1];
+    await user.click(addressApproveBtn);
 
-    // Confirmation dialog opens for Police Certificate
-    expect(await screen.findByText(/Approve Police Certificate/i)).toBeInTheDocument();
+    // Confirmation dialog opens
+    expect(await screen.findByText(/Approve Electricity Utility Bill/i)).toBeInTheDocument();
     const confirmBtn = screen.getByRole('button', { name: /Confirm Approval/i });
     await user.click(confirmBtn);
 
-    // Backend approveCheck called with Police Clearance checkId
+    // Backend approveCheck called with checkId
     await waitFor(() => {
       expect(approveSpy).toHaveBeenCalledWith(
-        'chk-pcc-105',
-        'POLICE_CLEARANCE',
+        'chk-addr-102',
+        'ADDRESS',
         expect.any(String)
       );
     });
 
     // Backend 422 prerequisite error is displayed clearly
     await waitFor(() => {
-      expect(screen.getAllByText(/Earlier checks must be approved before Police Clearance \(HTTP 422\)/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Earlier checks must be approved before Address Proof \(HTTP 422\)/i).length).toBeGreaterThan(0);
     });
 
     // Close confirm dialog
     const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
     await user.click(cancelBtn);
 
-    // Police Certificate is NOT marked approved; it remains PENDING
-    const policeStatusBadges = screen.getAllByText(/Pending/i);
-    expect(policeStatusBadges.length).toBeGreaterThan(0);
+    // Document is NOT marked approved; it remains SUBMITTED / Pending
+    const statusBadges = screen.getAllByText(/Pending|Submitted/i);
+    expect(statusBadges.length).toBeGreaterThan(0);
   });
 });
 

@@ -105,12 +105,38 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
         );
       case 422:
         if (payload?.code === 'APPROVAL_REQUIREMENTS_MISSING') {
+          const missingFieldsList: string[] = [];
+          if (Array.isArray(payload.details)) {
+            for (const item of payload.details) {
+              if (typeof item === 'string') {
+                missingFieldsList.push(item);
+              } else if (item && typeof item === 'object') {
+                const obj = item as Record<string, unknown>;
+                if (Array.isArray(obj.messages)) {
+                  for (const m of obj.messages) {
+                    if (typeof m === 'string') missingFieldsList.push(m);
+                  }
+                }
+                if (typeof obj.field === 'string' && obj.field !== 'check') {
+                  missingFieldsList.push(obj.field);
+                }
+              }
+            }
+          }
+          if (Array.isArray((payload as Record<string, unknown>)?.missingFields)) {
+            for (const mf of (payload as Record<string, unknown>).missingFields as unknown[]) {
+              if (typeof mf === 'string') missingFieldsList.push(mf);
+            }
+          }
+
           return new ValidationError(
-            serverMessage || 'Approval requirements missing: required fields must be recorded before approval.',
-            fieldErrors,
-            correlationId,
-            payload.code,
-            payload.details
+            serverMessage || 'This check cannot be approved yet. Required document details must be recorded before approval.',
+            {
+              errorCode: payload.code,
+              correlationId,
+              details: missingFieldsList.length > 0 ? missingFieldsList : ['referenceNumber', 'expiresOn'],
+              fieldErrors,
+            }
           );
         }
         if (payload?.code === 'DOCUMENT_INTEGRITY_FAILED') {

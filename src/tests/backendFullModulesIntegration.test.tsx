@@ -152,7 +152,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const result = await repo.getWorkers({ searchTerm: 'Sunita', status: 'ACTIVE' });
 
       expect(getSpy).toHaveBeenCalledWith('/admin/workers', {
-        params: { mobile: 'Sunita', verified: undefined, status: 'ACTIVE' },
+        params: { name: 'Sunita', verified: undefined, status: 'ACTIVE' },
       });
       expect(result[0].name).toBe('Sunita Devi');
       expect(result[0].isFullyVerified).toBe(false);

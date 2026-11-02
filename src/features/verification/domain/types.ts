@@ -79,6 +79,7 @@ export interface VerificationCheckEvent {
 
 export interface VerificationCheck {
   id?: string;
+  checkId?: string;
   type: VerificationCheckType;
   title: string;
   status: VerificationCheckStatus;
@@ -226,7 +227,7 @@ export interface IVerificationRepository {
     checkId: string,
     checkType?: VerificationCheckType,
     notes?: string,
-    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+    metadata?: { referenceNumber?: string; documentNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
   ): Promise<AdminWorkerVerificationResponse | void>;
   rejectCheck(
     checkId: string,
@@ -237,7 +238,7 @@ export interface IVerificationRepository {
   releaseReview(checkId: string): Promise<void>;
   reassignReview(checkId: string, reviewerUserId: string, reason?: string): Promise<void>;
   addCheckNote(checkId: string, note: string, kind?: 'CALL' | 'REVIEW'): Promise<void>;
-  updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<AdminWorkerVerificationResponse | void>;
+  updateDocumentDetails(checkId: string, details: { documentNumber?: string; referenceNumber?: string; expiresOn?: string }): Promise<AdminWorkerVerificationResponse | void>;
   requestReVerification(
     checkId: string,
     checkTypes?: VerificationCheckType[],
@@ -251,6 +252,11 @@ export interface IVerificationRepository {
   signOffVerification(
     workerId: string,
     remarks?: string
+  ): Promise<AdminWorkerVerificationResponse | void>;
+  rejectWorker(
+    workerId: string,
+    category: RejectionReasonCategory | string,
+    remarks: string
   ): Promise<AdminWorkerVerificationResponse | void>;
   activateWorker(
     workerId: string
@@ -266,6 +272,9 @@ export interface FinalOnboardingResult {
   workerId: string;
   applicationId?: string;
   status: string;
+  activated?: boolean;
+  signedOff?: boolean;
+  activationError?: string;
   message?: string;
   acceptedAt?: string;
   acceptedBy?: string;

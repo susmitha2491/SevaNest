@@ -68,6 +68,29 @@ export const useAuthStore = create<AuthState>((set) => ({
   clearSession: (broadcast = true) => {
     clearStoredRefreshToken();
     try {
+      if (typeof window !== 'undefined') {
+        const navigationKeys = [
+          'from',
+          'returnTo',
+          'redirect_to',
+          'selected_module',
+          'previous_route',
+          'last_visited_route',
+          'sevanest_navigation_state',
+        ];
+        navigationKeys.forEach((key) => {
+          try {
+            window.sessionStorage?.removeItem(key);
+            window.localStorage?.removeItem(key);
+          } catch {
+            // Storage access exception
+          }
+        });
+      }
+    } catch {
+      // Storage access exception
+    }
+    try {
       queryClient.clear();
     } catch {
       // Ignore query client clear error in environments without active provider

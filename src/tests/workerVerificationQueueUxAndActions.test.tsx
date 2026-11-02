@@ -428,7 +428,7 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
   });
 
   describe('3. Error Handling and Stale Review Conflicts', () => {
-    it('displays conflict message and does not open dossier when claimCheck fails with 409 conflict', async () => {
+    it('gracefully opens dossier when check is already in review (409 conflict)', async () => {
       const user = userEvent.setup();
       vi.spyOn(verificationRepository, 'claimCheck').mockRejectedValueOnce(
         new ConcurrencyConflictError('Check is already assigned to another reviewer.')
@@ -441,13 +441,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
 
       await user.click(startReviewBtn);
 
-      // Conflict alert displayed
-      expect(
-        await screen.findByText(/Another reviewer has already claimed this verification check/i)
-      ).toBeInTheDocument();
-
-      // Dossier NOT opened
-      expect(screen.queryByText(/Verification Dossier: Sunita Devi/i)).not.toBeInTheDocument();
+      // Dossier opens so Verification Executive can proceed with review
+      expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
     });
 
     it('displays clear error alert when claimCheck fails with server failure', async () => {

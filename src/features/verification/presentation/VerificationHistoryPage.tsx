@@ -132,7 +132,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
       >
         <Info size={18} color="var(--color-primary)" style={{ flexShrink: 0 }} />
         <div>
-          <strong style={{ color: 'var(--color-primary)' }}>Authoritative Decision Records:</strong> Decisions displayed below are derived directly from completed worker dossiers and backend verification records. Reviewer identity, check outcomes, and operational remarks reflect genuine audit log data.
+          <strong style={{ color: 'var(--color-primary)' }}>Authoritative Decision Records:</strong> Decisions displayed below are derived directly from completed worker dossiers and backend verification records. Check outcomes, verification timestamps, and operational remarks reflect genuine audit log data.
         </div>
       </div>
 
@@ -264,7 +264,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                     Check Breakdown
                   </th>
                   <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                    Reviewer / Verified At
+                    Decision Date & Time
                   </th>
                   <th style={{ padding: '10px 16px', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                     Decision Remarks
@@ -278,7 +278,6 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                 {items.map((item: VerificationDossier) => {
                   const checkTypes = Object.values(item.checks || {});
                   const approvedCount = checkTypes.filter((c) => c.status === 'APPROVED').length;
-                  const reviewerName = item.assignedReviewer || checkTypes.find((c) => c.verifiedBy)?.verifiedBy || 'Verification Executive';
                   const timestamp = checkTypes.find((c) => c.verifiedAt)?.verifiedAt || item.submissionTime || 'Recorded';
                   const remarks = item.overallRemarks || checkTypes.find((c) => c.rejectionRemarks)?.rejectionRemarks || 'Decision recorded in compliance with 6-point verification policy.';
 
@@ -311,10 +310,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                         </div>
                       </td>
                       <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 'var(--font-size-xs)' }}>
-                          {reviewerName}
-                        </div>
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{timestamp}</div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', fontWeight: 500 }}>{timestamp}</div>
                       </td>
                       <td style={{ padding: '12px 16px', maxWidth: '240px' }}>
                         <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={remarks}>

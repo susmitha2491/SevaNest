@@ -112,7 +112,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
         <KPICard
           title="In-Progress Review"
           value={kpis.inProgressReview}
-          subtitle="Active claimed dossiers"
+          subtitle="Active in-progress dossiers"
           icon={FileText}
           onClick={() => navigate('/verification/my-reviews')}
         />

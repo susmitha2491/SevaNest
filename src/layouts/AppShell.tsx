@@ -1,3 +1,4 @@
+/* global Event, CustomEvent */
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
@@ -19,6 +20,8 @@ import {
   LucideIcon,
   ChevronDown,
   Edit3,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { useAuthStore } from '../core/auth/authStore';
 import { authRepository } from '../features/auth/data/authRepository';
@@ -46,6 +49,7 @@ const NAV_SECTIONS: NavSection[] = [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
       { name: 'Customer Management', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
       { name: 'Worker Management', path: '/workers', icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
+      { name: 'Workers Directory', path: '/workers/directory', icon: Users, permission: PERMISSIONS.WORKER_VIEW },
       { name: 'Verification', path: '/verification', icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
       { name: 'Booking Management', path: '/bookings', icon: CalendarCheck, permission: PERMISSIONS.BOOKINGS_VIEW },
       { name: 'Payments', path: '/payments', icon: CreditCard, permission: PERMISSIONS.PAYMENTS_VIEW },
@@ -62,6 +66,7 @@ const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
     title: '',
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
+      { name: 'Workers Directory', path: '/workers/directory', icon: Users, permission: PERMISSIONS.WORKER_VIEW },
     ],
   },
   {
@@ -81,11 +86,24 @@ export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [globalSearch, setGlobalSearch] = useState('');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [globalToast, setGlobalToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const profileMenuRef = useRef<React.ComponentRef<'div'>>(null);
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
   const navigate = useNavigate();
   const isProfileEditSupported = Boolean(authRepository.supportsProfileUpdate);
+
+  useEffect(() => {
+    const handleToast = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string; type: 'success' | 'error' }>;
+      if (customEvent.detail?.message) {
+        setGlobalToast(customEvent.detail);
+        setTimeout(() => setGlobalToast(null), 5000);
+      }
+    };
+    window.addEventListener('sevanest:toast', handleToast);
+    return () => window.removeEventListener('sevanest:toast', handleToast);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: { target: unknown }) => {
@@ -116,8 +134,8 @@ export const AppShell: React.FC = () => {
       // Even if remote/backend logout rejects, client session must be cleared deterministically.
       console.warn('Logout notification error encountered, clearing client session regardless:', err);
     } finally {
-      clearSession();
       navigate('/auth/login', { replace: true, state: null });
+      clearSession();
     }
   };
 
@@ -571,6 +589,36 @@ export const AppShell: React.FC = () => {
           </div>
         </header>
 
+
+        {/* Global Toast Notification */}
+        {globalToast && (
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid="global-success-toast"
+            style={{
+              position: 'fixed',
+              top: '16px',
+              right: '24px',
+              zIndex: 99999,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 20px',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
+              backgroundColor: globalToast.type === 'success' ? '#ecfdf5' : '#fef2f2',
+              border: `1px solid ${globalToast.type === 'success' ? '#10b981' : '#ef4444'}`,
+              color: globalToast.type === 'success' ? '#065f46' : '#991b1b',
+              fontWeight: 600,
+              fontSize: '13px',
+              animation: 'slideIn 0.2s ease-out',
+            }}
+          >
+            {globalToast.type === 'success' ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+            <span>{globalToast.message}</span>
+          </div>
+        )}
 
         {/* Main Viewport Content */}
         <main style={{ flex: 1, padding: 'var(--space-4) var(--space-5)', minWidth: 0, backgroundColor: 'var(--color-bg-app)', overflowX: 'hidden' }}>

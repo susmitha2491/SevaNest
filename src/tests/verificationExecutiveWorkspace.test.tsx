@@ -74,9 +74,9 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
 
-      // Removed separate sidebar modules must NOT be rendered in navigation
+      // Workers Directory must be rendered in navigation for Verification Executive
+      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
       expect(screen.queryByText('Verification Operations')).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Verification Insights$/i })).not.toBeInTheDocument();
 
       // Account information and Sign Out are standard application utilities at the bottom
@@ -141,7 +141,7 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       renderApp('/verification/my-reviews');
 
       expect(await screen.findByRole('heading', { name: /My Reviews Workstation/i }, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.getByText(/Reviewer Assignment & Claim Scope/i)).toBeInTheDocument();
+      expect(screen.getByText(/My Reviews Workstation:/i)).toBeInTheDocument();
       expect(screen.getByText(/My In-Progress Reviews/i)).toBeInTheDocument();
     });
 

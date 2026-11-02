@@ -29,6 +29,20 @@ export const SignInPage: React.FC = () => {
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
 
+  // Clean up any lingering history state from logout redirects
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.history?.replaceState) {
+      if (window.history.state?.usr?.from) {
+        const cleanState = { ...window.history.state };
+        if (cleanState.usr) {
+          cleanState.usr = { ...cleanState.usr };
+          delete cleanState.usr.from;
+        }
+        window.history.replaceState(cleanState, document.title);
+      }
+    }
+  }, []);
+
   // Redirect to role-authorized landing dashboard if already authenticated
   useEffect(() => {
     if (isAuthenticated && user) {

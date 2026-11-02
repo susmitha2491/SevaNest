@@ -21,11 +21,16 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Deep Cleaning', 'Kitchen Sanitation', 'Laundry & Ironing', 'Mopping'],
     isFullyVerified: true,
     status: 'ACTIVE',
+    accountStatus: 'ACTIVE',
+    signedOffAt: '2026-01-06T12:00:00Z',
+    activatedAt: '2026-01-06T12:30:00Z',
+    matchingEligible: true,
     phoneMasked: '+91 98765 *****',
     phone: '+91 98765 43210',
     email: 'sunita.devi@sevanest.worker',
     onboardingStatus: 'VERIFIED',
     verificationStatus: 'VERIFIED',
+    applicationStatus: 'ACTIVE',
     createdAt: '2026-01-05T10:00:00Z',
     registeredAt: '2026-01-05T10:00:00Z',
     updatedAt: '2026-02-10T14:30:00Z',
@@ -456,6 +461,49 @@ const MOCK_WORKERS: WorkerDetail[] = [
     recentEngagements: [],
     internalNotes: ['Available for immediate part-time allocation'],
   },
+  {
+    id: 'W-10499',
+    applicationId: 'W-10499',
+    name: 'Pooja Sharma',
+    category: 'House Maid',
+    categories: ['House Maid'],
+    experienceYears: 2,
+    ratingAverage: 0,
+    totalReviews: 0,
+    locality: 'Kondapur',
+    serviceRadiusKm: 5,
+    languages: ['Hindi'],
+    bio: 'Newly registered housekeeping applicant with zero documents uploaded.',
+    skills: ['Housekeeping'],
+    isFullyVerified: false,
+    status: 'ACTIVE',
+    phoneMasked: '+91 98111 *****',
+    phone: '+91 98111 22334',
+    email: 'pooja.sharma@sevanest.worker',
+    onboardingStatus: 'APPLIED',
+    verificationStatus: 'PENDING',
+    createdAt: '2026-02-01T10:00:00Z',
+    registeredAt: '2026-02-01T10:00:00Z',
+    preferredServiceArea: 'Kondapur',
+    expectedCompensation: '₹15,000 / month',
+    availability: 'Awaiting KYC Documents',
+    activeEngagementsCount: 0,
+    completedBookingsCount: 0,
+    replacementsIncurred: 0,
+    documents: [],
+    verification: {
+      phoneOtpVerified: true,
+      identityProofStatus: 'PENDING',
+      addressProofStatus: 'PENDING',
+      criminalRecordStatus: 'PENDING',
+      skillProofStatus: 'NOT_APPLICABLE',
+      referenceCheckStatus: 'PENDING',
+      lastVerifiedAt: undefined,
+      overallRemarks: 'Applicant has not submitted any digital or manual documents.',
+    },
+    recentEngagements: [],
+    internalNotes: ['Zero documents submitted at initial registration'],
+  },
 ];
 
 export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker {
@@ -486,28 +534,31 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   const levelUpper = level ? level.toUpperCase() : '';
   const isLevelVerified = levelUpper === 'VERIFIED' || levelUpper === 'APPROVED' || levelUpper === 'COMPLETE' || levelUpper === 'LEVEL_1' || levelUpper === 'LEVEL_2' || levelUpper === 'LEVEL_3' || levelUpper === 'TIER_1' || levelUpper === 'TIER_2' || levelUpper === 'TRUE';
 
-  // Rule: A worker must not be displayed as fully KYC approved if onboardingStatus is SUBMITTED/IN_REVIEW
+  const isRejected =
+    rawOnboardingStatus === 'REJECTED' ||
+    rawVerificationStatus === 'REJECTED' ||
+    levelUpper === 'REJECTED' ||
+    item.verification === 'REJECTED' ||
+    String(item.applicationStatus || '').toUpperCase() === 'REJECTED';
+
+  // Rule: A worker must not be displayed as fully KYC approved if onboardingStatus is DRAFT
   // or if required verification checks remain incomplete.
   const isStatusIncomplete = (
-    rawOnboardingStatus === 'SUBMITTED' ||
-    rawOnboardingStatus === 'IN_REVIEW' ||
-    rawOnboardingStatus === 'APPLIED' ||
-    rawOnboardingStatus === 'PENDING' ||
+    rawOnboardingStatus === 'DRAFT' ||
     rawVerificationStatus === 'PENDING' ||
     rawVerificationStatus === 'IN_REVIEW'
   );
 
-  const isVerified = !isStatusIncomplete && (
-    item.verification === 'VERIFIED' ||
-    rawVerificationStatus === 'VERIFIED' ||
-    item.isFullyVerified === true ||
-    rawOnboardingStatus === 'VERIFIED' ||
-    isLevelVerified
-  ) &&
-    rawOnboardingStatus !== 'REJECTED' &&
-    item.verification !== 'REJECTED' &&
-    rawVerificationStatus !== 'REJECTED' &&
-    levelUpper !== 'REJECTED';
+  const isExplicitlyVerified = item.isFullyVerified === true || item.verified === true;
+  const isVerified = !isStatusIncomplete && !isRejected && (
+    isExplicitlyVerified ||
+    (rawOnboardingStatus !== 'SUBMITTED' && (
+      item.verification === 'VERIFIED' ||
+      rawVerificationStatus === 'VERIFIED' ||
+      rawOnboardingStatus === 'VERIFIED' ||
+      isLevelVerified
+    ))
+  );
 
   let phoneMasked = item.phoneMasked ? String(item.phoneMasked) : undefined;
   if (!phoneMasked && (item.mobile || item.phone)) {
@@ -536,16 +587,23 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     locality: Array.isArray(item.serviceAreas) && item.serviceAreas.length > 0
       ? String((item.serviceAreas[0] as { name?: string }).name || 'Hyderabad')
       : String(item.locality || 'Hyderabad'),
-    isFullyVerified: isVerified,
-    status: (item.status === 'SUSPENDED' ? 'SUSPENDED' : item.status === 'BLACKLISTED' ? 'BLACKLISTED' : 'ACTIVE') as Worker['status'],
+    isFullyVerified: item.isFullyVerified !== undefined ? Boolean(item.isFullyVerified) : isVerified,
+    status: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : item.status === 'BLACKLISTED' ? 'BLACKLISTED' : 'ACTIVE') as Worker['status'],
+    accountStatus: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE') as Worker['accountStatus'],
     phoneMasked,
     phone: rawPhone,
     mobile: rawPhone,
     email: rawEmail,
-    onboardingStatus: (item.onboardingStatus as Worker['onboardingStatus']) || (isVerified ? 'VERIFIED' : 'APPLIED'),
-    verificationStatus: (item.verificationStatus as Worker['verificationStatus']) || (isVerified ? 'VERIFIED' : 'PENDING'),
-    verificationLevel: level,
+    onboardingStatus: (item.onboardingStatus as Worker['onboardingStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'APPLIED'),
+    verificationStatus: (item.verificationStatus as Worker['verificationStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'PENDING'),
+    applicationStatus: (item.applicationStatus as Worker['applicationStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'SUBMITTED'),
+    verificationLevel: String(item.verificationLevel || level || 'NOT_STARTED'),
     level,
+    signedOffAt: item.signedOffAt ? String(item.signedOffAt) : undefined,
+    activatedAt: item.activatedAt ? String(item.activatedAt) : undefined,
+    matchingEligible: item.matchingEligible !== undefined
+      ? Boolean(item.matchingEligible)
+      : Boolean(isVerified && (item.accountStatus === 'ACTIVE' || item.status === 'ACTIVE') && (!item.signedOffAt || Boolean(item.signedOffAt && item.activatedAt))),
     createdAt: item.createdAt ? String(item.createdAt) : undefined,
     registeredAt: item.registeredAt ? String(item.registeredAt) : item.createdAt ? String(item.createdAt) : undefined,
   };
@@ -565,14 +623,20 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   const levelStr = rawLevel !== undefined ? String(rawLevel) : undefined;
 
   let effectiveFullyVerified: boolean;
-  const checksList = Array.isArray(unwrappedVerif?.checks) ? (unwrappedVerif.checks as Record<string, unknown>[]) : [];
-  const hasIncompleteChecksList = checksList.some((c) => {
+  const rawChecks =
+    unwrappedVerif?.checks ??
+    (typeof unwrappedData.verification === 'object' && unwrappedData.verification !== null
+      ? (unwrappedData.verification as Record<string, unknown>).checks
+      : undefined) ??
+    rawV?.checks;
+  const checksList = Array.isArray(rawChecks) ? (rawChecks as Record<string, unknown>[]) : [];
+  const hasIncompleteChecksList = checksList.length > 0 && checksList.some((c) => {
     const s = String(c.status || '').toUpperCase();
     return s !== 'APPROVED' && s !== 'PASSED';
   });
 
   const rawOnboardingStatus = String(unwrappedData.onboardingStatus || '').toUpperCase();
-  if (hasIncompleteChecksList || (rawOnboardingStatus && (rawOnboardingStatus === 'SUBMITTED' || rawOnboardingStatus === 'IN_REVIEW' || rawOnboardingStatus === 'APPLIED'))) {
+  if (hasIncompleteChecksList || rawOnboardingStatus === 'DRAFT') {
     effectiveFullyVerified = false;
   } else if (levelStr !== undefined) {
     const upper = levelStr.toUpperCase();
@@ -583,6 +647,8 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
     } else {
       effectiveFullyVerified = summary.isFullyVerified;
     }
+  } else if (unwrappedVerif?.signedOffAt && !hasIncompleteChecksList) {
+    effectiveFullyVerified = true;
   } else {
     // Fallback when level field is absent
     const hasIncompleteChecks = rawV ? (
@@ -797,23 +863,65 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
   };
 }
 
-export function syncMockWorkerVerification(workerId: string, isFullyVerified: boolean): void {
+export function syncMockWorkerVerification(
+  workerId: string,
+  isFullyVerified: boolean,
+  isRejected: boolean = false
+): void {
   const worker = MOCK_WORKERS.find((w) => w.id === workerId);
   if (worker) {
     worker.isFullyVerified = isFullyVerified;
-    worker.verificationStatus = isFullyVerified ? 'VERIFIED' : 'PENDING';
-    worker.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
-    worker.verificationLevel = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
-    worker.verification.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
-    if (isFullyVerified) {
-      worker.verification.identityProofStatus = 'VERIFIED';
-      worker.verification.addressProofStatus = 'VERIFIED';
-      worker.verification.criminalRecordStatus = 'VERIFIED';
-      worker.verification.referenceCheckStatus = 'VERIFIED';
-      worker.verification.phoneOtpVerified = true;
-      worker.verification.lastVerifiedAt = new Date().toISOString();
+    if (isRejected) {
+      worker.verificationStatus = 'REJECTED';
+      worker.onboardingStatus = 'REJECTED';
+      worker.applicationStatus = 'REJECTED';
+      worker.level = 'REJECTED';
+      worker.verificationLevel = 'REJECTED';
+      worker.verification.level = 'REJECTED';
+      worker.verification.identityProofStatus = 'REJECTED';
+      worker.verification.addressProofStatus = 'REJECTED';
+    } else {
+      worker.verificationStatus = isFullyVerified ? 'VERIFIED' : 'PENDING';
+      worker.onboardingStatus = isFullyVerified ? 'VERIFIED' : 'APPLIED';
+      worker.applicationStatus = isFullyVerified ? 'VERIFIED' : 'SUBMITTED';
+      worker.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
+      worker.verificationLevel = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
+      worker.verification.level = isFullyVerified ? 'LEVEL_3' : 'LEVEL_1';
+      if (isFullyVerified) {
+        worker.verification.identityProofStatus = 'VERIFIED';
+        worker.verification.addressProofStatus = 'VERIFIED';
+        worker.verification.criminalRecordStatus = 'VERIFIED';
+        worker.verification.referenceCheckStatus = 'VERIFIED';
+        worker.verification.phoneOtpVerified = true;
+        worker.verification.lastVerifiedAt = new Date().toISOString();
+      } else {
+        worker.verification.identityProofStatus = 'PENDING';
+        worker.verification.addressProofStatus = 'PENDING';
+      }
     }
   }
+}
+
+export function isPotentialMobileNumber(term: string): boolean {
+  const trimmed = term.trim();
+  if (!trimmed) return false;
+
+  // Reject if it contains alphabetic characters
+  if (/[a-zA-Z]/.test(trimmed)) {
+    return false;
+  }
+
+  // Extract pure digits
+  const digitsOnly = trimmed.replace(/\D/g, '');
+
+  // Backend validation requirement: "mobile must be longer than or equal to 10 characters."
+  // Valid Indian mobile standard: 10 digits (national) up to 15 digits (E.164 with country code)
+  return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+}
+
+export function isWorkerIdFormat(term: string): boolean {
+  const trimmed = term.trim();
+  return /^(W-\d+|APP-\d+)$/i.test(trimmed);
 }
 
 export class RealWorkerRepository implements IWorkerRepository {
@@ -828,10 +936,46 @@ export class RealWorkerRepository implements IWorkerRepository {
         verifiedParam = false;
       }
 
+      const trimmedSearch = filter?.searchTerm?.trim();
+
+      // If search matches exact worker ID format, use documented GET /admin/workers/{workerId}
+      if (trimmedSearch && isWorkerIdFormat(trimmedSearch)) {
+        try {
+          const single = await this.getWorkerById(trimmedSearch);
+          if (single) {
+            const matchesCategory =
+              !filter?.category ||
+              filter.category === 'ALL' ||
+              single.category === filter.category ||
+              single.categories?.includes(filter.category);
+            const matchesStatus =
+              !filter?.status ||
+              filter.status === 'ALL' ||
+              single.status === filter.status;
+            const matchesVerified =
+              verifiedParam === undefined ||
+              single.isFullyVerified === verifiedParam;
+
+            return matchesCategory && matchesStatus && matchesVerified ? [single] : [];
+          }
+          return [];
+        } catch {
+          return [];
+        }
+      }
+
       const params: Record<string, unknown> = {
-        mobile: filter?.searchTerm,
         verified: verifiedParam,
       };
+
+      if (trimmedSearch) {
+        if (isPotentialMobileNumber(trimmedSearch)) {
+          params.mobile = trimmedSearch;
+        } else {
+          // Documented backend query parameter for partial name search
+          params.name = trimmedSearch;
+        }
+      }
 
       if (filter?.category && filter.category !== 'ALL') {
         params.category = filter.category;
@@ -872,7 +1016,39 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
-      return list.map(mapBackendWorkerToWorker);
+      let verifiedIds = new Set<string>();
+      if (verifiedParam === undefined && !filter?.searchTerm) {
+        try {
+          const verifiedRes = await httpClient.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
+            '/admin/workers',
+            { params: { verified: true, limit: 100 } }
+          );
+          const vData = verifiedRes.data as Record<string, unknown>;
+          const vList = Array.isArray(verifiedRes.data)
+            ? verifiedRes.data
+            : Array.isArray(vData?.items)
+            ? (vData.items as Record<string, unknown>[])
+            : Array.isArray(vData?.data)
+            ? (vData.data as Record<string, unknown>[])
+            : [];
+          vList.forEach((w: Record<string, unknown>) => {
+            const id = String(w.id || w.workerId || '');
+            if (id) verifiedIds.add(id);
+          });
+        } catch {
+          // Ignore fallback error
+        }
+      }
+
+      return list.map((item) => {
+        const id = String(item.id || item.workerId || '');
+        const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
+        return mapBackendWorkerToWorker({
+          ...item,
+          isFullyVerified: isVerifiedByBackend ? true : item.isFullyVerified,
+          verified: isVerifiedByBackend ? true : item.verified,
+        });
+      });
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -909,20 +1085,83 @@ export class RealWorkerRepository implements IWorkerRepository {
         verifiedParam = false;
       }
 
+      const trimmedSearch = filter?.searchTerm?.trim();
+
+      // If search matches exact worker ID format, use documented GET /admin/workers/{workerId}
+      if (trimmedSearch && isWorkerIdFormat(trimmedSearch)) {
+        try {
+          const single = await this.getWorkerById(trimmedSearch);
+          if (single) {
+            const matchesCategory =
+              !filter?.category ||
+              filter.category === 'ALL' ||
+              single.category === filter.category ||
+              single.categories?.includes(filter.category);
+            const matchesStatus =
+              !filter?.status ||
+              filter.status === 'ALL' ||
+              single.status === filter.status;
+            const matchesVerified =
+              verifiedParam === undefined ||
+              single.isFullyVerified === verifiedParam;
+
+            if (matchesCategory && matchesStatus && matchesVerified) {
+              return {
+                items: [single],
+                total: 1,
+                page: 1,
+                limit,
+                hasMore: false,
+              };
+            }
+          }
+          return {
+            items: [],
+            total: 0,
+            page: 1,
+            limit,
+            hasMore: false,
+          };
+        } catch (err) {
+          if (err instanceof NotFoundError) {
+            return {
+              items: [],
+              total: 0,
+              page: 1,
+              limit,
+              hasMore: false,
+            };
+          }
+          throw err;
+        }
+      }
+
       const params: Record<string, unknown> = {
         page,
         limit,
         verified: verifiedParam,
       };
 
-      if (filter?.searchTerm) {
-        params.mobile = filter.searchTerm;
+      if (trimmedSearch) {
+        if (isPotentialMobileNumber(trimmedSearch)) {
+          params.mobile = trimmedSearch;
+        } else {
+          // Documented backend query parameter for partial name search
+          params.name = trimmedSearch;
+        }
       }
+
       if (filter?.category && filter.category !== 'ALL') {
         params.category = filter.category;
       }
       if (filter?.status && filter.status !== 'ALL') {
         params.status = filter.status;
+      }
+      if (filter?.activated !== undefined) {
+        params.activated = filter.activated;
+      }
+      if (filter?.accountStatus) {
+        params.accountStatus = filter.accountStatus;
       }
 
       const response = await httpClient.get<{
@@ -969,8 +1208,40 @@ export class RealWorkerRepository implements IWorkerRepository {
       const totalPages = meta?.totalPages ? Number(meta.totalPages) : (total > 0 ? Math.ceil(total / currentLimit) : 1);
       const hasMore = currentPage < totalPages && list.length > 0;
 
+      let verifiedIds = new Set<string>();
+      if (verifiedParam === undefined && !trimmedSearch) {
+        try {
+          const verifiedRes = await httpClient.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
+            '/admin/workers',
+            { params: { verified: true, limit: 100 } }
+          );
+          const vData = verifiedRes.data as Record<string, unknown>;
+          const vList = Array.isArray(verifiedRes.data)
+            ? verifiedRes.data
+            : Array.isArray(vData?.items)
+            ? (vData.items as Record<string, unknown>[])
+            : Array.isArray(vData?.data)
+            ? (vData.data as Record<string, unknown>[])
+            : [];
+          vList.forEach((w: Record<string, unknown>) => {
+            const id = String(w.id || w.workerId || '');
+            if (id) verifiedIds.add(id);
+          });
+        } catch {
+          // Ignore fallback error
+        }
+      }
+
       return {
-        items: list.map(mapBackendWorkerToWorker),
+        items: list.map((item) => {
+          const id = String(item.id || item.workerId || '');
+          const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
+          return mapBackendWorkerToWorker({
+            ...item,
+            isFullyVerified: isVerifiedByBackend ? true : item.isFullyVerified,
+            verified: isVerifiedByBackend ? true : item.verified,
+          });
+        }),
         total,
         page: currentPage,
         limit: currentLimit,
@@ -1098,6 +1369,45 @@ export class RealWorkerRepository implements IWorkerRepository {
     }
   }
 
+  async rejectWorker(workerId: string, category: string, remarks: string): Promise<void> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for worker rejection.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (remarks.trim().length < 5) {
+      throw new ValidationError('Rejection remarks must be at least 5 characters', undefined, undefined, 'REMARKS_TOO_SHORT');
+    }
+
+    try {
+      await httpClient.post(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/reject`, {
+        category,
+        reason: remarks.trim(),
+        remarks: remarks.trim(),
+      });
+    } catch (err: unknown) {
+      const is404 =
+        (err as { response?: { status?: number } })?.response?.status === 404 ||
+        (err as { status?: number })?.status === 404 ||
+        (err as { statusCode?: number })?.statusCode === 404 ||
+        err instanceof NotFoundError;
+      if (is404) {
+        throw new NotFoundError(
+          'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
+          undefined,
+          'WORKER_REJECTION_NOT_IMPLEMENTED'
+        );
+      }
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async activateWorker(workerId: string): Promise<WorkerDetail> {
     if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
       throw new ValidationError('A valid workerId is required for activation.');
@@ -1130,6 +1440,7 @@ export class MockWorkerRepository implements IWorkerRepository {
 
     if (filter?.searchTerm) {
       const term = filter.searchTerm.toLowerCase();
+      const cleanDigits = term.replace(/\D/g, '');
       result = result.filter(
         (w) =>
           w.name.toLowerCase().includes(term) ||
@@ -1137,7 +1448,10 @@ export class MockWorkerRepository implements IWorkerRepository {
           (w.applicationId && w.applicationId.toLowerCase().includes(term)) ||
           w.category.toLowerCase().includes(term) ||
           w.locality.toLowerCase().includes(term) ||
-          (w.phoneMasked && w.phoneMasked.toLowerCase().includes(term))
+          (w.phoneMasked && w.phoneMasked.toLowerCase().includes(term)) ||
+          (w.phone && w.phone.toLowerCase().includes(term)) ||
+          (cleanDigits.length >= 5 && w.phone && w.phone.replace(/\D/g, '').includes(cleanDigits)) ||
+          (cleanDigits.length >= 5 && w.phoneMasked && w.phoneMasked.replace(/\D/g, '').includes(cleanDigits))
       );
     }
 
@@ -1223,6 +1537,48 @@ export class MockWorkerRepository implements IWorkerRepository {
     const worker = MOCK_WORKERS.find((w) => w.id === checkId);
     if (worker) {
       worker.internalNotes.push(`[CHECK REJECTED: ${category}] ${remarks}`);
+    }
+  }
+
+  public simulateWorkerRejectionSupported = false;
+
+  async rejectWorker(workerId: string, category: string, remarks: string): Promise<void> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for rejection.');
+    }
+    const cleanId = workerId.trim();
+    if (
+      cleanId.startsWith('chk-') ||
+      cleanId.startsWith('check-') ||
+      cleanId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (!remarks || remarks.trim().length < 5) {
+      throw new ValidationError('Rejection remarks must be at least 5 characters', undefined, undefined, 'REMARKS_TOO_SHORT');
+    }
+
+    if (!this.simulateWorkerRejectionSupported) {
+      throw new NotFoundError(
+        'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
+        undefined,
+        'WORKER_REJECTION_NOT_IMPLEMENTED'
+      );
+    }
+
+    const worker = MOCK_WORKERS.find((w) => w.id === cleanId);
+    if (worker) {
+      worker.isFullyVerified = false;
+      worker.verificationStatus = 'REJECTED';
+      worker.onboardingStatus = 'REJECTED';
+      worker.applicationStatus = 'REJECTED';
+      worker.level = 'REJECTED';
+      worker.verificationLevel = 'REJECTED';
+      worker.verification.level = 'REJECTED';
+      worker.verification.identityProofStatus = 'REJECTED';
+      worker.verification.addressProofStatus = 'REJECTED';
+      worker.verification.overallRemarks = remarks;
+      worker.internalNotes.push(`[WORKER REJECTED: ${category}] ${remarks}`);
     }
   }
 

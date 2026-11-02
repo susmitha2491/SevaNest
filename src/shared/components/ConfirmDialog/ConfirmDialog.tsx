@@ -16,6 +16,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
   isLoading?: boolean;
   children?: React.ReactNode;
+  zIndex?: number;
 }
 
 /**
@@ -37,6 +38,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
   isLoading = false,
   children,
+  zIndex = 1400,
 }) => {
   const [remarks, setRemarks] = useState('');
   const [isConfirmedCheckbox, setIsConfirmedCheckbox] = useState(!isDestructive);
@@ -60,7 +62,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex,
         padding: 'var(--space-4)',
       }}
       role="dialog"
@@ -166,9 +168,14 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         )}
 
         {isDestructive && (
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}>
+          <label
+            htmlFor="confirm-destructive-checkbox"
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', cursor: 'pointer' }}
+          >
             <input
               type="checkbox"
+              id="confirm-destructive-checkbox"
+              data-testid="confirm-destructive-checkbox"
               checked={isConfirmedCheckbox}
               onChange={(e) => setIsConfirmedCheckbox(e.target.checked)}
               style={{ accentColor: 'var(--color-error)' }}

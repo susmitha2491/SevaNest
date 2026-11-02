@@ -70,6 +70,8 @@ export interface Worker {
   signedOffAt?: string;
   verificationLevel?: string;
   level?: string;
+  matchingEligible?: boolean;
+  accountStatus?: 'ACTIVE' | 'SUSPENDED';
   createdAt?: string;
   registeredAt?: string;
   completedChecksCount?: number;
@@ -100,6 +102,8 @@ export interface WorkerFilterCriteria {
   locality?: string;
   verificationStatus?: 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED';
   verified?: boolean;
+  activated?: boolean;
+  accountStatus?: 'ACTIVE' | 'SUSPENDED';
   status?: 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
   page?: number;
   pageSize?: number;
@@ -124,5 +128,6 @@ export interface IWorkerRepository {
   activateWorker(workerId: string): Promise<WorkerDetail>;
   approveCheck(checkId: string, remarks?: string): Promise<void>;
   rejectCheck(checkId: string, category: string, remarks: string): Promise<void>;
+  rejectWorker(workerId: string, category: string, remarks: string): Promise<void>;
 }
 

@@ -48,6 +48,7 @@ export const VerificationBadge: React.FC<VerificationBadgeProps> = ({
   if (normStatus === 'REJECTED') {
     return (
       <span
+        data-testid="verification-badge-rejected"
         className={`verification-badge rejected ${className}`}
         style={{
           display: 'inline-flex',
@@ -61,10 +62,10 @@ export const VerificationBadge: React.FC<VerificationBadgeProps> = ({
           border: '1px solid var(--color-status-danger-border)',
           color: 'var(--color-status-danger-text)',
         }}
-        title={checkSummary || 'Check rejected / Corrections requested'}
+        title={checkSummary || 'Worker verification rejected'}
       >
         <AlertTriangle size={12} />
-        <span>Rejected / Corrections</span>
+        <span>REJECTED</span>
       </span>
     );
   }

@@ -108,7 +108,7 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
 
       renderWithProviders(<VerificationQueuePage viewMode="my-reviews" />, '/verification/my-reviews');
 
-      expect(await screen.findByText(/Reviewer Assignment & Claim Scope:/i)).toBeInTheDocument();
+      expect(await screen.findByText(/My Reviews Workstation:/i)).toBeInTheDocument();
       expect(screen.getByText(/assignedTo=me/i)).toBeInTheDocument();
       // Verifies old disclaimer is removed
       expect(screen.queryByText(/is pending backend contract enhancement/i)).not.toBeInTheDocument();
@@ -229,12 +229,9 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Anita Roy')).toBeInTheDocument();
-      const claimBtn = screen.getByRole('button', { name: /Claim Unavailable/i });
-      expect(claimBtn).toBeDisabled();
-      expect(claimBtn).toHaveAttribute(
-        'title',
-        expect.stringContaining('checkId not provided in queue response')
-      );
+      const inspectBtn = screen.getByRole('button', { name: /Inspect Dossier/i });
+      expect(inspectBtn).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Claim Unavailable/i })).not.toBeInTheDocument();
     });
   });
 
@@ -297,7 +294,7 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       // Dossier is not yet open
       expect(screen.queryByText(/Verification Dossier: Gita Sharma/i)).not.toBeInTheDocument();
 
-      const claimBtn = screen.getByRole('button', { name: /Claim & Review/i });
+      const claimBtn = screen.getByRole('button', { name: /Start Review/i });
       await user.click(claimBtn);
 
       // Verified: claimCheck called with real checkId
@@ -310,8 +307,8 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
     });
   });
 
-  describe('6 & 7. 409 CHECK_ALREADY_ASSIGNED Conflict Handling', () => {
-    it('does not open dossier optimistically when claim fails with 409 CHECK_ALREADY_ASSIGNED', async () => {
+  describe('6 & 7. 409 In-Review Conflict Handling', () => {
+    it('gracefully opens dossier when check is already in review without displaying claim conflicts', async () => {
       const user = userEvent.setup();
 
       vi.spyOn(verificationRepository, 'getVerificationQueue').mockResolvedValue({
@@ -337,7 +334,7 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
         totalPages: 1,
       });
 
-      // Simulate 409 ConcurrencyConflictError
+      // Simulate 409 ConcurrencyConflictError (check already in review)
       vi.spyOn(verificationRepository, 'claimCheck').mockRejectedValueOnce(
         new ConcurrencyConflictError('Check is already assigned to another reviewer.')
       );
@@ -345,18 +342,14 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Rajesh Kumar')).toBeInTheDocument();
-      const claimBtn = screen.getByRole('button', { name: /Claim & Review/i });
+      const claimBtn = screen.getByRole('button', { name: /Start Review/i });
       await user.click(claimBtn);
 
-      // Confirmed: User stays on the queue, dossier is NOT opened
-      expect(screen.queryByText(/Verification Dossier: Rajesh Kumar/i)).not.toBeInTheDocument();
+      // Confirmed: Dossier opens seamlessly for the Verification Executive
+      expect(await screen.findByText(/Verification Dossier: Rajesh Kumar/i)).toBeInTheDocument();
 
-      // Confirmed: Informative alert displayed to user
-      expect(
-        await screen.findByText(/Another reviewer has already claimed this verification check/i)
-      ).toBeInTheDocument();
-
-      // Confirmed: No reassignment is offered
+      // Confirmed: No claim conflict alert or reassignment prompt is displayed
+      expect(screen.queryByText(/This verification check is already in review/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Reassign/i })).not.toBeInTheDocument();
     });
   });
@@ -451,10 +444,7 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Worker One')).toBeInTheDocument();
-      expect(screen.getByText('Claim Ownership')).toBeInTheDocument();
-      expect(screen.getByText('Unclaimed')).toBeInTheDocument();
-      expect(screen.getByText('Claimed by you')).toBeInTheDocument();
-      expect(screen.getByText('Claimed by Reviewer (rev-external-42)')).toBeInTheDocument();
+      expect(screen.queryByText('Claim Ownership')).not.toBeInTheDocument();
     });
   });
 

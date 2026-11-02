@@ -21,7 +21,7 @@ import { syncMockWorkerVerification } from '../../workers/data/workerRepository'
 import { validateDocumentSignedUrl, isSafeDocumentUrl } from '../domain/documentUrlValidator';
 
 export class MockVerificationRepository implements IVerificationRepository {
-  private dossiers: VerificationDossier[] = [
+  public dossiers: VerificationDossier[] = [
     {
       id: 'VQ-101',
       checkId: 'chk-identity-101',
@@ -140,7 +140,10 @@ export class MockVerificationRepository implements IVerificationRepository {
             docNumberMasked: 'PCC-CYB-2024-8891',
             nameOnDoc: 'Sunita Devi',
             documentTypeName: 'Cyberabad Police Clearance Certificate',
+            expiryDate: '2028-12-31',
           },
+          referenceNumber: 'PCC-CYB-2024-8891',
+          expiresOn: '2028-12-31',
           mockDocumentUrl: 'mock-doc://police/w-10482-pcc.pdf',
         },
       },
@@ -565,6 +568,59 @@ export class MockVerificationRepository implements IVerificationRepository {
         },
       },
     },
+    {
+      id: 'VQ-199',
+      checkId: 'chk-identity-199',
+      applicationId: 'W-10499',
+      workerId: 'W-10499',
+      workerName: 'Pooja Sharma',
+      category: 'House Maid',
+      locality: 'Kondapur',
+      experienceYears: 2,
+      phoneMasked: '+91 98111 *****',
+      phone: '+91 98111 22334',
+      email: 'pooja.sharma@sevanest.worker',
+      submissionTime: '2026-02-01T10:00:00Z',
+      status: 'PENDING_REVIEW',
+      preCheckOtpVerified: true,
+      checks: {
+        IDENTITY: {
+          id: 'chk-identity-199',
+          type: 'IDENTITY',
+          title: 'Identity Proof (Aadhaar)',
+          status: 'PENDING',
+          evaluationMethod: 'DOCUMENT_INSPECTION',
+        },
+        ADDRESS: {
+          id: 'chk-address-199',
+          type: 'ADDRESS',
+          title: 'Address Proof',
+          status: 'PENDING',
+          evaluationMethod: 'DOCUMENT_INSPECTION',
+        },
+        EMERGENCY_CONTACT: {
+          id: 'chk-emergency-199',
+          type: 'EMERGENCY_CONTACT',
+          title: 'Emergency Contact Vetting',
+          status: 'PENDING',
+          evaluationMethod: 'TELEPHONIC_VETTING',
+        },
+        REFERENCE: {
+          id: 'chk-reference-199',
+          type: 'REFERENCE',
+          title: 'Previous Employer Reference',
+          status: 'PENDING',
+          evaluationMethod: 'TELEPHONIC_VETTING',
+        },
+        POLICE_CLEARANCE: {
+          id: 'chk-police-199',
+          type: 'POLICE_CLEARANCE',
+          title: 'Police Clearance Certificate',
+          status: 'PENDING',
+          evaluationMethod: 'CERTIFICATE_TRACKING',
+        },
+      },
+    },
   ];
 
   async getVerificationQueue(filter?: VerificationFilterCriteria): Promise<PaginatedVerificationQueue> {
@@ -753,7 +809,7 @@ export class MockVerificationRepository implements IVerificationRepository {
     checkId: string,
     checkType?: VerificationCheckType,
     notes?: string,
-    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+    metadata?: { referenceNumber?: string; documentNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
   ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
@@ -776,6 +832,33 @@ export class MockVerificationRepository implements IVerificationRepository {
         if (check.id === cleanCheckId || (checkType && check.type === checkType && dossier.checkId === cleanCheckId)) {
           found = true;
           targetDossier = dossier;
+
+          // Check required fields per OpenAPI specification:
+          // Licence and police clearance need expiresOn (and police clearance the reference number)
+          const isPolice = (check.type as string) === 'POLICE_CLEARANCE' || (check.type as string) === 'POLICE_VERIFICATION';
+          const isLicense = (check.type as string) === 'LICENSE' || (check.type as string) === 'DRIVING_LICENSE';
+          const docNum = metadata?.documentNumber || metadata?.referenceNumber || check.referenceNumber || (check.documentMetadata?.docNumberMasked && !check.documentMetadata.docNumberMasked.includes('XXXX') ? check.documentMetadata.docNumberMasked : undefined);
+          const expOn = metadata?.expiresOn || check.expiresOn || (check.documentMetadata?.expiryDate && /^\d{4}-\d{2}-\d{2}$/.test(check.documentMetadata.expiryDate) ? check.documentMetadata.expiryDate : undefined);
+
+          if (isPolice && (!docNum || !expOn)) {
+            const missing: string[] = [];
+            if (!docNum) missing.push('referenceNumber');
+            if (!expOn) missing.push('expiresOn');
+            const err = new ValidationError(`This check cannot be approved yet. Missing fields: ${missing.join(', ')}`, {
+              errorCode: 'APPROVAL_REQUIREMENTS_MISSING',
+              details: missing,
+            });
+            throw err;
+          }
+
+          if (isLicense && !expOn) {
+            const err = new ValidationError('This check cannot be approved yet. Missing fields: expiresOn', {
+              errorCode: 'APPROVAL_REQUIREMENTS_MISSING',
+              details: ['expiresOn'],
+            });
+            throw err;
+          }
+
           if (check.status === 'SUBMITTED') {
             check.status = 'IN_REVIEW';
           }
@@ -788,11 +871,13 @@ export class MockVerificationRepository implements IVerificationRepository {
             check.contactDetails.callNotes = notes;
           }
           if (check.documentMetadata) {
-            if (metadata?.referenceNumber) {
-              check.documentMetadata.docNumberMasked = metadata.referenceNumber;
+            if (docNum) {
+              check.documentMetadata.docNumberMasked = docNum;
+              check.referenceNumber = docNum;
             }
-            if (metadata?.expiresOn) {
-              check.documentMetadata.expiryDate = metadata.expiresOn;
+            if (expOn) {
+              check.documentMetadata.expiryDate = expOn;
+              check.expiresOn = expOn;
             }
           }
 
@@ -939,12 +1024,23 @@ export class MockVerificationRepository implements IVerificationRepository {
     }
   }
 
-  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void> {
+  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; referenceNumber?: string; expiresOn?: string }): Promise<void> {
     for (const dossier of this.dossiers) {
       for (const check of Object.values(dossier.checks)) {
         if (check.id === checkId) {
-          if (details.documentNumber) check.referenceNumber = details.documentNumber;
-          if (details.expiresOn) check.expiresOn = details.expiresOn;
+          const docNum = details.documentNumber || details.referenceNumber;
+          if (docNum) {
+            check.referenceNumber = docNum;
+            if (check.documentMetadata) {
+              check.documentMetadata.docNumberMasked = docNum;
+            }
+          }
+          if (details.expiresOn) {
+            check.expiresOn = details.expiresOn;
+            if (check.documentMetadata) {
+              check.documentMetadata.expiryDate = details.expiresOn;
+            }
+          }
           return;
         }
       }
@@ -1094,6 +1190,74 @@ export class MockVerificationRepository implements IVerificationRepository {
     };
   }
 
+  public simulateWorkerRejectionSupported = false;
+
+  async rejectWorker(
+    workerId: string,
+    category: RejectionReasonCategory | string,
+    remarks: string
+  ): Promise<AdminWorkerVerificationResponse> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for worker rejection.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (!remarks || remarks.trim().length < 5) {
+      throw new ValidationError('Rejection remarks must be at least 5 characters.', undefined, undefined, 'REMARKS_TOO_SHORT');
+    }
+
+    if (!this.simulateWorkerRejectionSupported) {
+      throw new NotFoundError(
+        'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
+        undefined,
+        'WORKER_REJECTION_NOT_IMPLEMENTED'
+      );
+    }
+
+    const dossier = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
+    if (dossier) {
+      dossier.status = 'REJECTED';
+      dossier.level = 'REJECTED';
+      dossier.overallRemarks = remarks;
+      if (dossier.checks) {
+        Object.values(dossier.checks).forEach((c) => {
+          if (c.status !== 'APPROVED') {
+            c.status = 'REJECTED';
+            c.rejectionCategory = (category as RejectionReasonCategory) || 'OTHER';
+            c.rejectionRemarks = remarks;
+          }
+        });
+      }
+    }
+
+    syncMockWorkerVerification(cleanWorkerId, false, true);
+
+    const checksArray: AdminCheckView[] = dossier?.checks
+      ? Object.values(dossier.checks).map((chk) => ({
+          checkId: chk.id || '',
+          checkType: chk.type,
+          status: chk.status as AdminCheckView['status'],
+          required: true,
+          rejectionCode: chk.rejectionCategory,
+          rejectionMessage: chk.rejectionRemarks,
+        }))
+      : [];
+
+    return {
+      workerId: cleanWorkerId,
+      applicationStatus: 'REJECTED',
+      level: 'NOT_STARTED',
+      requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
+      checks: checksArray,
+    };
+  }
+
   async activateWorker(
     workerId: string
   ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult> {
@@ -1145,9 +1309,11 @@ export class MockVerificationRepository implements IVerificationRepository {
       success: true,
       workerId,
       status: 'ACTIVE',
+      activated: true,
+      signedOff: true,
       message: 'Worker verification signed off and worker activated on platform roster.',
       acceptedAt: new Date().toISOString(),
-      acceptedBy: 'CURRENT_SUPERVISOR',
+      acceptedBy: 'CURRENT_ADMIN',
     };
   }
 }
@@ -1358,8 +1524,9 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
       };
     }
 
-    result[typeKey] = {
+    const checkObj: VerificationCheck = {
       id: checkId,
+      checkId,
       type: typeKey,
       title: String(item.title || result[typeKey].title),
       status: mapCheckStatus(item.status),
@@ -1383,6 +1550,18 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
         ? (item.events as VerificationCheck['history'])
         : undefined,
     };
+
+    result[typeKey] = checkObj;
+    if (typeKey === 'REFERENCE') {
+      result['PREVIOUS_EMPLOYMENT'] = checkObj;
+    } else if (typeKey === 'PREVIOUS_EMPLOYMENT') {
+      result['REFERENCE'] = checkObj;
+    }
+    if (typeKey === 'POLICE_CLEARANCE') {
+      result['POLICE_VERIFICATION'] = checkObj;
+    } else if (typeKey === 'POLICE_VERIFICATION') {
+      result['POLICE_CLEARANCE'] = checkObj;
+    }
   };
 
   if (Array.isArray(raw)) {
@@ -1819,8 +1998,20 @@ export class RealVerificationRepository implements IVerificationRepository {
         const actionableRaw =
           rawChecks.find((c) => {
             const s = String(c.status || '').toUpperCase();
-            return s === 'SUBMITTED' || s === 'IN_REVIEW';
-          }) || rawChecks[0];
+            return s === 'SUBMITTED';
+          }) ||
+          rawChecks.find((c) => {
+            const s = String(c.status || '').toUpperCase();
+            return s === 'PENDING' || s === 'PENDING_REVIEW';
+          }) ||
+          rawChecks.find((c) => {
+            const s = String(c.status || '').toUpperCase();
+            return s === 'IN_REVIEW' || s === 'IN_PROGRESS';
+          }) ||
+          rawChecks.find((c) => {
+            const s = String(c.status || '').toUpperCase();
+            return s !== '' && s !== 'APPROVED' && s !== 'REJECTED';
+          });
         const rawCheckId = actionableRaw?.checkId || (actionableRaw?.check as Record<string, unknown>)?.id;
         const checkId = rawCheckId ? String(rawCheckId) : undefined;
 
@@ -1989,28 +2180,50 @@ export class RealVerificationRepository implements IVerificationRepository {
       // Map checks first to verify individual check completeness
       const mappedChecks = mapChecks(raw.checks);
 
-      const hasIdentityApproved = mappedChecks.IDENTITY?.status === 'APPROVED';
-      const hasAddressApproved = mappedChecks.ADDRESS?.status === 'APPROVED';
-      const hasEmergencyApproved = mappedChecks.EMERGENCY_CONTACT?.status === 'APPROVED';
-      const hasReferenceApproved =
-        mappedChecks.REFERENCE?.status === 'APPROVED' ||
-        mappedChecks.PREVIOUS_EMPLOYMENT?.status === 'APPROVED';
-      const hasPoliceApproved =
-        mappedChecks.POLICE_CLEARANCE?.status === 'APPROVED' ||
-        mappedChecks.POLICE_VERIFICATION?.status === 'APPROVED';
-      const allFiveChecksApproved =
-        hasIdentityApproved &&
-        hasAddressApproved &&
-        hasEmergencyApproved &&
-        hasReferenceApproved &&
-        hasPoliceApproved;
+      // Extract required checks from backend response (AdminWorkerVerificationResponse.requiredChecks)
+      const rawRequiredChecks: string[] = Array.isArray(raw.requiredChecks)
+        ? (raw.requiredChecks as string[])
+        : Array.isArray(raw.checks)
+        ? (raw.checks as Array<{ checkType?: string; required?: boolean }>)
+            .filter((c) => c.required && c.checkType)
+            .map((c) => c.checkType as string)
+        : [];
 
-      const incompleteChecks: string[] = [];
-      if (!hasIdentityApproved) incompleteChecks.push('Identity Proof');
-      if (!hasAddressApproved) incompleteChecks.push('Address Proof');
-      if (!hasEmergencyApproved) incompleteChecks.push('Emergency Contact');
-      if (!hasReferenceApproved) incompleteChecks.push('Employer Reference');
-      if (!hasPoliceApproved) incompleteChecks.push('Police Certificate');
+      // If backend explicitly specifies required checks, evaluate against them;
+      // otherwise, evaluate against standard operational requirements.
+      const effectiveRequiredCheckKeys = rawRequiredChecks.length > 0
+        ? rawRequiredChecks
+        : ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'REFERENCE', 'POLICE_CLEARANCE'];
+
+      const checkLabelMap: Record<string, string> = {
+        IDENTITY: 'Identity Proof',
+        ADDRESS: 'Address Proof',
+        EMERGENCY_CONTACT: 'Emergency Contact',
+        REFERENCE: 'Employer Reference',
+        PREVIOUS_EMPLOYMENT: 'Employer Reference',
+        POLICE_CLEARANCE: 'Police Certificate',
+        POLICE_VERIFICATION: 'Police Certificate',
+        SKILL_CERTIFICATE: 'Skill Certificate',
+        LICENSE: 'Driving License',
+      };
+
+      const isCheckTypeApproved = (key: string): boolean => {
+        const normKey = (
+          key === 'PREVIOUS_EMPLOYMENT'
+            ? 'REFERENCE'
+            : key === 'POLICE_VERIFICATION'
+            ? 'POLICE_CLEARANCE'
+            : key
+        ) as VerificationCheckType;
+        const chk = mappedChecks[normKey] || mappedChecks[key as VerificationCheckType];
+        return chk?.status === 'APPROVED';
+      };
+
+      const incompleteRequiredChecks = effectiveRequiredCheckKeys
+        .filter((k) => !isCheckTypeApproved(k))
+        .map((k) => checkLabelMap[k] || k);
+
+      const allRequiredChecksApproved = incompleteRequiredChecks.length === 0;
 
       const checksList = Object.values(mappedChecks);
       const hasRejected = checksList.some((c) => c.status === 'REJECTED');
@@ -2040,11 +2253,11 @@ export class RealVerificationRepository implements IVerificationRepository {
         workerData?.onboardingStatus === 'APPLIED';
 
       if (rawChecksGiven) {
-        if (allFiveChecksApproved && backendClaimsApproved && !workerOnboardingSubmitted) {
+        if (allRequiredChecksApproved && backendClaimsApproved && !workerOnboardingSubmitted) {
           status = 'APPROVED';
-        } else if (backendClaimsApproved && (!allFiveChecksApproved || workerOnboardingSubmitted)) {
+        } else if (backendClaimsApproved && (!allRequiredChecksApproved || workerOnboardingSubmitted)) {
           hasContractInconsistency = true;
-          contractInconsistency = `Contract Inconsistency: Backend reports application as ${level || raw.applicationStatus || 'VERIFIED'} / signed-off, but required KYC checks (${incompleteChecks.join(', ')}) remain incomplete. In compliance with SevaNest verification rules, full approval is withheld until all required checks are verified.`;
+          contractInconsistency = `Contract Inconsistency: Backend reports application as ${level || raw.applicationStatus || 'VERIFIED'} / signed-off, but required KYC checks (${incompleteRequiredChecks.join(', ')}) remain incomplete. In compliance with SevaNest verification rules, full approval is withheld until all required checks are verified.`;
           status = hasRejected ? 'REJECTED' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
         } else if (hasRejected || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
           status = 'REJECTED';
@@ -2227,7 +2440,7 @@ export class RealVerificationRepository implements IVerificationRepository {
         activatedAt: raw.activatedAt ? String(raw.activatedAt) : undefined,
         signedOffAt: raw.signedOffAt ? String(raw.signedOffAt) : undefined,
         signedOffBy: raw.signedOffBy ? String(raw.signedOffBy) : undefined,
-        requiredChecks: Array.isArray(raw.requiredChecks) ? (raw.requiredChecks as string[]) : undefined,
+        requiredChecks: Array.isArray(raw.requiredChecks) ? (raw.requiredChecks as string[]) : effectiveRequiredCheckKeys,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -2245,12 +2458,13 @@ export class RealVerificationRepository implements IVerificationRepository {
       checkId.startsWith('APP-') ||
       checkId.startsWith('usr-')
     ) {
-      throw new ValidationError('A valid verification checkId is required to start review. Dossier or worker IDs cannot be used.');
+      throw new ValidationError('A valid verification check UUID from the backend is required to start review. Worker or dossier IDs cannot be used.');
     }
+    const cleanCheckId = checkId.trim();
     try {
       const response = await httpClient.post<
         AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
-      >(`/admin/verification/checks/${encodeURIComponent(checkId.trim())}/start-review`);
+      >(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/start-review`);
       const resData = (response.data && 'data' in response.data && response.data.data
         ? response.data.data
         : response.data) as AdminWorkerVerificationResponse;
@@ -2271,7 +2485,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       checkId.startsWith('APP-') ||
       checkId.startsWith('usr-')
     ) {
-      throw new ValidationError('Claiming requires a valid verification checkId from backend data. Dossier or worker IDs cannot be used.');
+      throw new ValidationError('Claiming requires a valid verification checkId from backend data. Dossier, worker, or synthetic IDs cannot be used.');
     }
     await this.claimCheck(checkId);
   }
@@ -2280,7 +2494,7 @@ export class RealVerificationRepository implements IVerificationRepository {
     checkId: string,
     _checkType?: VerificationCheckType,
     notes?: string,
-    metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
+    metadata?: { referenceNumber?: string; documentNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string }
   ): Promise<AdminWorkerVerificationResponse> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required for approval.');
@@ -2293,7 +2507,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       cleanCheckId.startsWith('usr-') ||
       cleanCheckId.startsWith('VQ-')
     ) {
-      throw new ValidationError('Invalid checkId: worker ID or dossier ID cannot be substituted for checkId.');
+      throw new ValidationError('Invalid checkId: worker ID, dossier ID, or synthetic check ID cannot be substituted for genuine checkId.');
     }
     try {
       // Build payload strictly adhering to ApproveCheckDto: { remarks?: string, recheckAt?: string }
@@ -2451,14 +2665,15 @@ export class RealVerificationRepository implements IVerificationRepository {
     }
   }
 
-  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; expiresOn?: string }): Promise<void> {
+  async updateDocumentDetails(checkId: string, details: { documentNumber?: string; referenceNumber?: string; expiresOn?: string }): Promise<void> {
     if (!checkId || typeof checkId !== 'string' || checkId.trim() === '') {
       throw new ValidationError('A valid verification checkId is required to update document details.');
     }
     const cleanCheckId = checkId.trim();
     try {
       const payload: { documentNumber?: string; expiresOn?: string } = {};
-      if (details.documentNumber) payload.documentNumber = details.documentNumber.trim();
+      const docNum = details.documentNumber || details.referenceNumber;
+      if (docNum) payload.documentNumber = docNum.trim();
       if (details.expiresOn) payload.expiresOn = details.expiresOn.trim();
       await httpClient.put(`/admin/verification/checks/${encodeURIComponent(cleanCheckId)}/document-details`, payload);
     } catch (err) {
@@ -2597,7 +2812,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       const response = await httpClient.post<
         AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
       >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification/sign-off`, {
-        remarks: remarks || 'Verification sign-off completed by supervisor',
+        remarks: remarks || 'Verification sign-off completed by administrator',
       });
 
       const resData = (response.data && 'data' in response.data && response.data.data
@@ -2606,6 +2821,58 @@ export class RealVerificationRepository implements IVerificationRepository {
 
       return resData;
     } catch (err) {
+      if (err instanceof DomainError) {
+        throw err;
+      }
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async rejectWorker(
+    workerId: string,
+    category: RejectionReasonCategory | string,
+    remarks: string
+  ): Promise<AdminWorkerVerificationResponse | void> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for worker rejection.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (!remarks || remarks.trim().length < 5) {
+      throw new ValidationError('Rejection remarks must be at least 5 characters.', undefined, undefined, 'REMARKS_TOO_SHORT');
+    }
+
+    try {
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/reject`, {
+        category,
+        reason: remarks.trim(),
+        remarks: remarks.trim(),
+      });
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+      return resData;
+    } catch (err: unknown) {
+      const is404 =
+        (err as { response?: { status?: number } })?.response?.status === 404 ||
+        (err as { status?: number })?.status === 404 ||
+        (err as { statusCode?: number })?.statusCode === 404 ||
+        err instanceof NotFoundError;
+      if (is404) {
+        throw new NotFoundError(
+          'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
+          undefined,
+          'WORKER_REJECTION_NOT_IMPLEMENTED'
+        );
+      }
       if (err instanceof DomainError) {
         throw err;
       }
@@ -2651,14 +2918,29 @@ export class RealVerificationRepository implements IVerificationRepository {
     notes?: string
   ): Promise<FinalOnboardingResult> {
     const signOffRes = await this.signOffVerification(workerId, notes);
-    await this.activateWorker(workerId);
-    return {
-      success: true,
-      workerId: signOffRes.workerId || workerId,
-      status: 'ACTIVE',
-      message: 'Worker verification signed off and worker activated on platform roster.',
-      acceptedAt: new Date().toISOString(),
-    };
+    try {
+      await this.activateWorker(workerId);
+      return {
+        success: true,
+        workerId: signOffRes.workerId || workerId,
+        status: 'ACTIVE',
+        activated: true,
+        signedOff: true,
+        message: 'Worker verification signed off and worker activated on platform roster.',
+        acceptedAt: new Date().toISOString(),
+      };
+    } catch (actErr) {
+      return {
+        success: true,
+        workerId: signOffRes.workerId || workerId,
+        status: 'VERIFIED',
+        activated: false,
+        signedOff: true,
+        message: 'Verification signed off successfully, but worker activation could not be completed.',
+        activationError: (actErr as Error)?.message || 'Worker activation failed',
+        acceptedAt: new Date().toISOString(),
+      };
+    }
   }
 }
 

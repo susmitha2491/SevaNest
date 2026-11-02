@@ -111,7 +111,15 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       const confirmBtn = screen.getByRole('button', { name: 'Confirm Rejection' });
       fireEvent.click(confirmBtn);
 
-      // Dialog closes and mutation is dispatched
+      // Rejection is blocked due to missing backend API, displaying clear error
+      expect(
+        await screen.findByText(/Worker rejection is blocked: The backend does not support worker-level rejection/i)
+      ).toBeInTheDocument();
+
+      // Dismiss dialog and verify status is preserved
+      const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
+      fireEvent.click(cancelBtn);
+
       await waitFor(() => {
         expect(screen.queryByText(/Reject Verification: Sunita Devi/i)).not.toBeInTheDocument();
       });
@@ -145,7 +153,7 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       expect(await screen.findByText(/KYC Verification & Compliance/i)).toBeInTheDocument();
       expect(screen.getAllByText('Aadhaar Card (Front & Back)').length).toBeGreaterThan(0);
       expect(screen.getAllByText('XXXX-XXXX-8921').length).toBeGreaterThan(0);
-      expect(screen.getByRole('button', { name: /Back to Worker Information/i })).toBeInTheDocument();
+      expect(screen.getAllByRole('button', { name: /Back to Worker Information/i }).length).toBeGreaterThan(0);
     });
   });
 

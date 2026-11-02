@@ -17,12 +17,11 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
-import { VerificationFilterCriteria } from '../domain/types';
+import { VerificationFilterCriteria, VerificationDossier } from '../domain/types';
 import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { ConcurrencyConflictError, ValidationError } from '../../../core/errors/DomainError';
-import { resolveClaimOwnership } from '../domain/claimOwnership';
 import { VerificationHistoryPage } from './VerificationHistoryPage';
 import { WorkerVerificationReviewModal } from './WorkerVerificationReviewModal';
 
@@ -78,7 +77,6 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(
     () => searchParams.get('workerId') || searchParams.get('dossierId') || null
   );
-  const [claimConflictMessage, setClaimConflictMessage] = useState<string | null>(null);
 
   // References for modal accessibility & focus restore
   const triggerElementRef = useRef<{ focus: () => void } | null>(null);
@@ -178,47 +176,48 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
   };
 
-  // Claim check mutation for queue table actions
+  // Start review mutation for queue table actions
   const claimMutation = useMutation({
     mutationFn: async ({ checkId, dossierId }: { checkId: string; dossierId: string }) => {
       if (!checkId || checkId.startsWith('W-') || checkId.startsWith('VQ-') || checkId.startsWith('APP-')) {
         throw new ValidationError('A valid verification checkId is required to start review. Worker or dossier IDs cannot be used.');
       }
-      await verificationRepository.claimCheck(checkId);
+      try {
+        await verificationRepository.claimCheck(checkId);
+      } catch (err: unknown) {
+        interface ConflictErrorLike {
+          status?: number;
+          code?: string;
+          response?: {
+            status?: number;
+            data?: {
+              code?: string;
+            };
+          };
+        }
+        const conflictErr = err as ConflictErrorLike;
+        const isConflict =
+          err instanceof ConcurrencyConflictError ||
+          conflictErr?.status === 409 ||
+          conflictErr?.code === 'CHECK_ALREADY_ASSIGNED' ||
+          conflictErr?.code === 'CHECK_ALREADY_IN_REVIEW' ||
+          conflictErr?.response?.status === 409 ||
+          conflictErr?.response?.data?.code === 'CHECK_ALREADY_ASSIGNED' ||
+          conflictErr?.response?.data?.code === 'CHECK_ALREADY_IN_REVIEW' ||
+          (err as Error)?.message?.toLowerCase().includes('already assigned') ||
+          (err as Error)?.message?.toLowerCase().includes('already in review');
+
+        if (isConflict) {
+          // Check is already in review on backend: proceed directly into the dossier
+          return { checkId, dossierId };
+        }
+        throw err;
+      }
       return { checkId, dossierId };
     },
     onSuccess: (data) => {
-      setClaimConflictMessage(null);
       invalidateRelated();
       handleSelectDossier(data.dossierId);
-    },
-    onError: (err: unknown) => {
-      interface ConflictErrorLike {
-        status?: number;
-        code?: string;
-        response?: {
-          status?: number;
-          data?: {
-            code?: string;
-          };
-        };
-      }
-      const conflictErr = err as ConflictErrorLike;
-      const isConflict =
-        err instanceof ConcurrencyConflictError ||
-        conflictErr?.status === 409 ||
-        conflictErr?.code === 'CHECK_ALREADY_ASSIGNED' ||
-        conflictErr?.response?.status === 409 ||
-        conflictErr?.response?.data?.code === 'CHECK_ALREADY_ASSIGNED' ||
-        (err as Error)?.message?.toLowerCase().includes('already assigned');
-
-      if (isConflict) {
-        setClaimConflictMessage(
-          'Another reviewer has already claimed this verification check. The queue has been updated.'
-        );
-        refetch();
-        queryClient.invalidateQueries({ queryKey: ['verification', 'queue'] });
-      }
     },
   });
 
@@ -286,7 +285,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
             {effectiveViewMode === 'my-reviews'
-              ? 'Active claimed dossiers and ongoing verification reviews under operational evaluation.'
+              ? 'Active in-progress dossiers and ongoing verification reviews under operational evaluation.'
               : effectiveViewMode === 'rechecks'
               ? 'Annual compliance renewals, expiring police certificates, and re-check directives.'
               : effectiveViewMode === 'corrections'
@@ -337,7 +336,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         >
           <UserCheck size={20} color="var(--color-primary)" style={{ flexShrink: 0 }} />
           <div>
-            <strong style={{ color: 'var(--color-primary)' }}>Reviewer Assignment & Claim Scope:</strong> Active verification dossiers assigned to you (<code>assignedTo=me</code>). You can inspect and evaluate your active claims.
+            <strong style={{ color: 'var(--color-primary)' }}>My Reviews Workstation:</strong> Active verification dossiers assigned for review (<code>assignedTo=me</code>). You can inspect and evaluate ongoing reviews.
           </div>
         </div>
       )}
@@ -533,37 +532,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
             </span>
           </div>
 
-          {claimConflictMessage && (
-            <div
-              role="alert"
-              style={{
-                margin: 'var(--space-3) var(--space-4)',
-                padding: 'var(--space-3) var(--space-4)',
-                backgroundColor: 'var(--color-status-warning-bg, #fffbeb)',
-                border: '1px solid var(--color-status-warning-border, #fde68a)',
-                borderRadius: 'var(--radius-md)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                fontSize: 'var(--font-size-xs)',
-                color: 'var(--color-status-warning-text, #92400e)',
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <AlertTriangle size={16} />
-                <span>{claimConflictMessage}</span>
-              </div>
-              <button
-                onClick={() => setClaimConflictMessage(null)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
-                aria-label="Dismiss conflict alert"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-
-          {claimMutation.isError && !claimConflictMessage && (
+          {claimMutation.isError && (
             <div
               role="alert"
               style={{
@@ -586,7 +555,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               <button
                 onClick={() => claimMutation.reset()}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontWeight: 700 }}
-                aria-label="Dismiss claim error"
+                aria-label="Dismiss review error"
               >
                 ✕
               </button>
@@ -617,9 +586,6 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                     </th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                       Queue Status
-                    </th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                      Claim Ownership
                     </th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textAlign: 'right' }}>
                       Action
@@ -692,91 +658,42 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                         <td style={{ padding: 'var(--space-4)' }}>
                           <StatusBadge status={item.status} />
                         </td>
-                        <td style={{ padding: 'var(--space-4)' }}>
-                          {(() => {
-                            const ownership = resolveClaimOwnership(item.reviewerUserId, item.claimedAt, user?.id);
-                            return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    padding: '2px 8px',
-                                    borderRadius: 'var(--radius-sm)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 600,
-                                    ...ownership.badgeStyle,
-                                    width: 'fit-content',
-                                  }}
-                                >
-                                  {ownership.label}
-                                </span>
-                                {ownership.claimedAtFormatted && (
-                                  <span style={{ fontSize: '10px', color: 'var(--color-text-tertiary)' }}>
-                                    {ownership.claimedAtFormatted}
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </td>
                         <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
                             {/* Submitted / Pending Review Status Actions */}
                             {item.status === 'PENDING_REVIEW' && (
                               <>
                                 {canDecide && (
-                                  item.checkId ? (
-                                    <button
-                                      disabled={isActionPending}
-                                      aria-label="Start Review (Claim & Review)"
-                                      title="Start verification review on this worker dossier"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setClaimConflictMessage(null);
-                                        claimMutation.mutate({ checkId: item.checkId!, dossierId: targetWorkerId });
-                                      }}
-                                      style={{
-                                        padding: '4px 10px',
-                                        borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--color-brand-600)',
-                                        backgroundColor: 'var(--color-brand-600)',
-                                        color: '#ffffff',
-                                        fontSize: 'var(--font-size-xs)',
-                                        fontWeight: 600,
-                                        cursor: isActionPending ? 'not-allowed' : 'pointer',
-                                        opacity: isActionPending ? 0.7 : 1,
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                      }}
-                                    >
-                                      <ShieldCheck size={13} />
-                                      <span>{isClaimingThisItem ? 'Starting...' : 'Start Review'}</span>
-                                    </button>
-                                  ) : (
-                                    <button
-                                      disabled
-                                      aria-label="Start Review Unavailable (Claim Unavailable)"
-                                      title="Direct queue claiming unavailable: checkId not provided in queue response by backend. Inspect dossier to view checks."
-                                      onClick={(e) => e.stopPropagation()}
-                                      style={{
-                                        padding: '4px 10px',
-                                        borderRadius: 'var(--radius-md)',
-                                        border: '1px solid var(--color-border)',
-                                        backgroundColor: 'var(--color-bg-subtle)',
-                                        color: 'var(--color-text-tertiary)',
-                                        fontSize: 'var(--font-size-xs)',
-                                        fontWeight: 600,
-                                        cursor: 'not-allowed',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                      }}
-                                    >
-                                      <ShieldCheck size={13} />
-                                      <span>Claim Unavailable</span>
-                                    </button>
-                                  )
+                                  <button
+                                    disabled={isActionPending}
+                                    aria-label="Start Review"
+                                    title="Start verification review on this worker dossier"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (item.checkId) {
+                                        claimMutation.mutate({ checkId: item.checkId, dossierId: targetWorkerId });
+                                      } else {
+                                        handleSelectDossier(targetWorkerId);
+                                      }
+                                    }}
+                                    style={{
+                                      padding: '4px 10px',
+                                      borderRadius: 'var(--radius-md)',
+                                      border: '1px solid var(--color-brand-600)',
+                                      backgroundColor: 'var(--color-brand-600)',
+                                      color: '#ffffff',
+                                      fontSize: 'var(--font-size-xs)',
+                                      fontWeight: 600,
+                                      cursor: isActionPending ? 'not-allowed' : 'pointer',
+                                      opacity: isActionPending ? 0.7 : 1,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
+                                  >
+                                    <ShieldCheck size={13} />
+                                    <span>{isClaimingThisItem ? 'Starting...' : 'Start Review'}</span>
+                                  </button>
                                 )}
                                 <button
                                   aria-label={`Inspect Dossier for ${item.workerName}`}
@@ -991,9 +908,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         <WorkerVerificationReviewModal
           dossierId={selectedDossierId}
           initialDossier={
-            queueData?.items.find(
-              (item) => item.id === selectedDossierId || item.workerId === selectedDossierId
-            )
+            queueData?.items.find((item) => (item.workerId || item.id) === selectedDossierId) as unknown as VerificationDossier
           }
           onClose={handleCloseModal}
           triggerElement={triggerElementRef.current}

@@ -56,8 +56,8 @@ export const MyAccountPage: React.FC = () => {
     } catch (err: unknown) {
       console.warn('Logout notification error encountered:', err);
     } finally {
-      clearSession();
       navigate('/auth/login', { replace: true, state: null });
+      clearSession();
     }
   };
 

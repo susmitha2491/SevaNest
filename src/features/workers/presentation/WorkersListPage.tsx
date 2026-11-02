@@ -13,13 +13,14 @@ import {
   ExternalLink,
   XCircle,
   User,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { verificationRepository } from '../../verification/data/verificationRepository';
 import {
   RejectionReasonCategory,
   REJECTION_CATEGORIES,
-  VerificationCheckType,
 } from '../../verification/domain/types';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -90,38 +91,17 @@ export const WorkersListPage: React.FC = () => {
       setIsRejecting(true);
       setRejectError(null);
 
-      let targetCheckId: string | undefined;
-      let targetCheckType: VerificationCheckType | undefined;
-
-      try {
-        const dossier = await verificationRepository.getDossierById(rejectWorker.id);
-        if (dossier?.checks) {
-          const activeCheck =
-            Object.values(dossier.checks).find((c) => c.status === 'IN_REVIEW' || c.status === 'PENDING') ||
-            Object.values(dossier.checks).find((c) => c.status !== 'APPROVED') ||
-            Object.values(dossier.checks)[0];
-          if (activeCheck?.id) {
-            targetCheckId = activeCheck.id;
-            targetCheckType = activeCheck.type;
-          } else if (dossier.checkId) {
-            targetCheckId = dossier.checkId;
-          }
-        } else if (dossier?.checkId) {
-          targetCheckId = dossier.checkId;
-        }
-      } catch {
-        // Fall back if dossier lookup fails
-      }
-
-      if (targetCheckId) {
-        await verificationRepository.rejectCheck(targetCheckId, targetCheckType, rejectCategory, remarks);
+      // Call authoritative worker-level rejection endpoint (no fallback to individual check rejection)
+      if (typeof verificationRepository.rejectWorker === 'function') {
+        await verificationRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
       } else {
-        await workerRepository.rejectCheck(rejectWorker.id, rejectCategory, remarks);
+        await workerRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
       }
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['workers'] }),
         queryClient.invalidateQueries({ queryKey: ['verification'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
         refetch(),
       ]);
 
@@ -191,6 +171,7 @@ export const WorkersListPage: React.FC = () => {
     data,
     isLoading,
     isError,
+    error,
     refetch,
     fetchNextPage,
     hasNextPage,
@@ -236,6 +217,7 @@ export const WorkersListPage: React.FC = () => {
     initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     placeholderData: keepPreviousData,
+    retry: false,
   });
 
   // Deduplicate worker records across loaded batches using genuine worker ID
@@ -254,20 +236,9 @@ export const WorkersListPage: React.FC = () => {
     return list;
   }, [data?.pages]);
 
-  // Client-side filtering and sorting across all accumulated records
+  // Sort and filter accumulated infinite-scroll records preserving complete server-side search results
   const filteredAndSortedWorkers = useMemo(() => {
     let result = [...allWorkers];
-
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      result = result.filter(
-        (w) =>
-          w.name.toLowerCase().includes(term) ||
-          w.id.toLowerCase().includes(term) ||
-          w.category.toLowerCase().includes(term) ||
-          w.locality.toLowerCase().includes(term)
-      );
-    }
 
     if (categoryFilter !== 'ALL') {
       result = result.filter((w) => w.category === categoryFilter || (w.categories && w.categories.includes(categoryFilter)));
@@ -310,7 +281,7 @@ export const WorkersListPage: React.FC = () => {
     });
 
     return result;
-  }, [allWorkers, searchTerm, categoryFilter, verificationFilter, statusFilter, localityFilter, sortField, sortOrder]);
+  }, [allWorkers, categoryFilter, verificationFilter, statusFilter, localityFilter, sortField, sortOrder]);
 
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedWorkers.length;
 
@@ -353,11 +324,11 @@ export const WorkersListPage: React.FC = () => {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  if (isLoading && !data) {
+  if (isLoading && !data && !isError) {
     return <LoadingSpinner message="Loading domestic worker roster..." />;
   }
 
-  if (isError) {
+  if (isError && !searchTerm) {
     return (
       <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
         <p style={{ color: 'var(--color-status-danger-text)', marginBottom: 'var(--space-4)' }}>
@@ -544,7 +515,7 @@ export const WorkersListPage: React.FC = () => {
             }}
             style={{
               width: '100%',
-              padding: '8px 12px 8px 36px',
+              padding: '8px 32px 8px 36px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
@@ -552,6 +523,35 @@ export const WorkersListPage: React.FC = () => {
               color: 'var(--color-text-primary)',
             }}
           />
+          {searchTerm && (
+            <button
+              onClick={() => {
+                setSearchTerm('');
+                setSearchParams((prev) => {
+                  const next = new window.URLSearchParams(prev);
+                  next.delete('search');
+                  return next;
+                }, { replace: true });
+              }}
+              aria-label="Clear search"
+              style={{
+                position: 'absolute',
+                right: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-text-muted)',
+                cursor: 'pointer',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         {/* Category Filter */}
@@ -785,7 +785,43 @@ export const WorkersListPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredAndSortedWorkers.length === 0 ? (
+            {isError ? (
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <AlertTriangle size={24} />
+                    <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>Backend Validation Error</span>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', maxWidth: '480px' }}>
+                      {error instanceof Error ? error.message : 'Validation failed while retrieving workers from the backend.'}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setSearchTerm('');
+                        setSearchParams((prev) => {
+                          const next = new window.URLSearchParams(prev);
+                          next.delete('search');
+                          return next;
+                        }, { replace: true });
+                        refetch();
+                      }}
+                      style={{
+                        marginTop: 'var(--space-2)',
+                        padding: '6px 14px',
+                        backgroundColor: 'var(--color-primary)',
+                        color: '#ffffff',
+                        borderRadius: 'var(--radius-md)',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Clear Search & Reset
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredAndSortedWorkers.length === 0 ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
                   No domestic workers match your search and filter criteria.
@@ -861,27 +897,72 @@ export const WorkersListPage: React.FC = () => {
                     )}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
-                    <VerificationBadge isFullyVerified={worker.isFullyVerified} status={worker.verificationStatus} />
-                    {worker.completedChecksCount != null && (
-                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                        {worker.completedChecksCount}/{worker.totalRequiredChecksCount || 6} checks approved
-                      </div>
-                    )}
+                    {(() => {
+                      const isVerified = worker.isFullyVerified || worker.verificationLevel === 'VERIFIED';
+                      const isRejected = worker.verificationStatus === 'REJECTED' || worker.applicationStatus === 'REJECTED';
+                      const isInProgress = worker.verificationLevel === 'IN_PROGRESS' || worker.applicationStatus === 'UNDER_REVIEW';
+                      const statusToShow = isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : isInProgress ? 'IN_REVIEW' : 'PENDING';
+                      return (
+                        <div>
+                          <VerificationBadge isFullyVerified={isVerified} status={statusToShow} />
+                          {worker.signedOffAt && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-success)', marginTop: '2px', fontWeight: 600 }}>
+                              Signed Off{worker.activatedAt ? ' • Activated' : ''}
+                            </div>
+                          )}
+                          {!worker.signedOffAt && isVerified && (
+                            <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                              Awaiting Sign-Off
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
-                    {worker.isFullyVerified && worker.status === 'ACTIVE' ? (
-                      <span style={{ color: 'var(--color-status-success-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                        <CheckCircle2 size={13} /> Eligible
-                      </span>
-                    ) : !worker.isFullyVerified ? (
-                      <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                        <Clock size={13} /> Ineligible (KYC Pending)
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                        <ShieldAlert size={13} /> Ineligible ({worker.status})
-                      </span>
-                    )}
+                    {(() => {
+                      const isEligible = worker.matchingEligible ?? (worker.isFullyVerified && (worker.accountStatus === 'ACTIVE' || worker.status === 'ACTIVE') && (!worker.signedOffAt || Boolean(worker.signedOffAt && worker.activatedAt)));
+                      if (isEligible) {
+                        return (
+                          <span style={{ color: 'var(--color-status-success-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                            <CheckCircle2 size={13} /> Eligible
+                          </span>
+                        );
+                      }
+                      if (worker.verificationStatus === 'REJECTED' || worker.applicationStatus === 'REJECTED') {
+                        return (
+                          <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                            <ShieldAlert size={13} /> Ineligible (Rejected)
+                          </span>
+                        );
+                      }
+                      if (worker.accountStatus === 'SUSPENDED' || worker.status === 'SUSPENDED') {
+                        return (
+                          <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                            <ShieldAlert size={13} /> Ineligible (Suspended)
+                          </span>
+                        );
+                      }
+                      if (worker.isFullyVerified && worker.signedOffAt && !worker.activatedAt) {
+                        return (
+                          <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                            <Clock size={13} /> Ineligible (Pending Activation)
+                          </span>
+                        );
+                      }
+                      if (worker.isFullyVerified && !worker.signedOffAt) {
+                        return (
+                          <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                            <Clock size={13} /> Ineligible (Pending Sign-Off)
+                          </span>
+                        );
+                      }
+                      return (
+                        <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
+                          <Clock size={13} /> Ineligible (KYC Pending)
+                        </span>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
                     {worker.experienceYears} Years
@@ -895,7 +976,13 @@ export const WorkersListPage: React.FC = () => {
                     {worker.locality}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
-                    <StatusBadge status={worker.status} />
+                    {worker.status === 'SUSPENDED' || worker.status === 'BLACKLISTED' ? (
+                      <StatusBadge status={worker.status} />
+                    ) : worker.verificationStatus === 'REJECTED' || (worker.onboardingStatus as string) === 'REJECTED' ? (
+                      <StatusBadge status="REJECTED" />
+                    ) : (
+                      <StatusBadge status={worker.status} />
+                    )}
                   </td>
                   <td
                     style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}

@@ -21,6 +21,9 @@ const CustomersListPage = React.lazy(() =>
 const WorkersListPage = React.lazy(() =>
   import('../../features/workers/presentation/WorkersListPage').then((m) => ({ default: m.WorkersListPage }))
 );
+const WorkersDirectoryPage = React.lazy(() =>
+  import('../../features/workers/presentation/WorkersDirectoryPage').then((m) => ({ default: m.WorkersDirectoryPage }))
+);
 const VerificationQueuePage = React.lazy(() =>
   import('../../features/verification/presentation/VerificationQueuePage').then((m) => ({ default: m.VerificationQueuePage }))
 );
@@ -183,6 +186,16 @@ export const routes: RouteObject[] = [
           <ProtectedRoute permission={PERMISSIONS.WORKER_VIEW}>
             <LazyRoute label="Loading workforce roster...">
               <WorkersListPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'workers/directory',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.WORKER_VIEW}>
+            <LazyRoute label="Loading workers directory...">
+              <WorkersDirectoryPage />
             </LazyRoute>
           </ProtectedRoute>
         ),
