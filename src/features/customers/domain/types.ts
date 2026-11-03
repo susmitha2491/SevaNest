@@ -29,6 +29,8 @@ export interface Customer {
   preferredLanguage?: string;
   phone?: string;
   unmaskedPhone?: string;
+  email?: string;
+  unmaskedEmail?: string;
 }
 
 export interface CustomerDetail extends Customer {

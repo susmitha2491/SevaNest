@@ -186,15 +186,15 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
               <tbody>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <tr className="clickable-table-row" style={{ borderBottom: '1px solid var(--color-border)', cursor: 'default' }}>
                   <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Platform Base Charge</td>
                   <td style={{ padding: 'var(--space-2) var(--space-3)', textAlign: 'right', fontWeight: 600 }}>{formatCurrencyINR(transaction.breakdown.baseAmount)}</td>
                 </tr>
-                <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
+                <tr className="clickable-table-row" style={{ borderBottom: '1px solid var(--color-border)', cursor: 'default' }}>
                   <td style={{ padding: 'var(--space-2) var(--space-3)', color: 'var(--color-text-secondary)' }}>Applicable GST (18% Goods & Services Tax)</td>
                   <td style={{ padding: 'var(--space-2) var(--space-3)', textAlign: 'right', fontWeight: 600 }}>{formatCurrencyINR(transaction.breakdown.gstAmount)}</td>
                 </tr>
-                <tr style={{ backgroundColor: '#f8fafc', fontWeight: 700 }}>
+                <tr className="clickable-table-row" style={{ backgroundColor: '#f8fafc', fontWeight: 700, cursor: 'default' }}>
                   <td style={{ padding: 'var(--space-2) var(--space-3)' }}>Total Invoice / Collected Amount</td>
                   <td style={{ padding: 'var(--space-2) var(--space-3)', textAlign: 'right', color: 'var(--color-brand-700)' }}>{formatCurrencyINR(transaction.amountINR)}</td>
                 </tr>

@@ -2,6 +2,7 @@ import { httpClient } from '../api/httpClient';
 
 const customerPhoneMap = new Map<string, string>();
 const workerPhoneMap = new Map<string, string>();
+const customerEmailMap = new Map<string, string>();
 
 let isCustomerLoading = false;
 let isWorkerLoading = false;
@@ -32,6 +33,18 @@ export function setCustomerPhone(idOrUserId: string, phone: string): void {
 export function getCustomerPhone(idOrUserId?: string): string | undefined {
   if (!idOrUserId) return undefined;
   return customerPhoneMap.get(idOrUserId);
+}
+
+export function setCustomerEmail(idOrUserId: string, email: string): void {
+  if (!idOrUserId || !email) return;
+  const cleaned = email.trim();
+  if (cleaned.includes('*')) return;
+  customerEmailMap.set(idOrUserId, cleaned);
+}
+
+export function getCustomerEmail(idOrUserId?: string): string | undefined {
+  if (!idOrUserId) return undefined;
+  return customerEmailMap.get(idOrUserId);
 }
 
 export function setWorkerPhone(idOrUserId: string, phone: string): void {
@@ -75,6 +88,12 @@ export async function preloadCustomerPhones(): Promise<void> {
             customerPhoneMap.set(id, formatted);
             if (c.userId) customerPhoneMap.set(String(c.userId), formatted);
             if (detail.userId) customerPhoneMap.set(String(detail.userId), formatted);
+          }
+          const email = String(detail?.email || detail?.unmaskedEmail || '');
+          if (email && !email.includes('*')) {
+            customerEmailMap.set(id, email.trim());
+            if (c.userId) customerEmailMap.set(String(c.userId), email.trim());
+            if (detail.userId) customerEmailMap.set(String(detail.userId), email.trim());
           }
         } catch {
           // Ignore individual fetch failure

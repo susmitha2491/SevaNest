@@ -18,10 +18,32 @@ export function formatDateTimeIST(dateInput: string | number | Date | undefined 
       hour: '2-digit',
       minute: '2-digit',
       hour12: true,
+      timeZoneName: 'short',
     }).format(date);
   } catch {
     return '—';
   }
+}
+
+/**
+ * Formats a registration date or timestamp to IST date and time.
+ * If the input is a non-date text string (such as 'Recent' or 'Prior' from test fixtures),
+ * it returns that string as-is.
+ */
+export function formatRegistrationDateIST(dateInput: string | number | Date | undefined | null): string {
+  if (dateInput === undefined || dateInput === null || dateInput === '') return '—';
+
+  if (typeof dateInput === 'string') {
+    const trimmed = dateInput.trim();
+    if (!trimmed) return '—';
+    const parsed = Date.parse(trimmed);
+    if (isNaN(parsed)) {
+      return trimmed;
+    }
+    return formatDateTimeIST(parsed);
+  }
+
+  return formatDateTimeIST(dateInput);
 }
 
 export function formatDateIST(dateInput: string | number | Date | undefined | null): string {

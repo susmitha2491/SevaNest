@@ -1,6 +1,6 @@
 import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getCustomerPhone, setCustomerPhone } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getCustomerPhone, setCustomerPhone, getCustomerEmail, setCustomerEmail } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
@@ -194,14 +194,21 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
   );
 
   const rawEmail = String(item.unmaskedEmail || item.email || profileObj.email || userObj.email || '');
+  const cachedEmail = getCustomerEmail(id) || (userId ? getCustomerEmail(userId) : undefined);
+  const rawCleanEmail = cachedEmail || (rawEmail && !rawEmail.includes('*') ? rawEmail : undefined);
+  if (rawCleanEmail) {
+    setCustomerEmail(id, rawCleanEmail);
+    if (userId) setCustomerEmail(userId, rawCleanEmail);
+  }
+
   const maskedEmail = String(
     item.maskedEmail ||
     item.emailMasked ||
     profileObj.maskedEmail ||
-    (rawEmail ? maskCustomerEmail(rawEmail) : 'c****@sevanest.internal')
+    (rawCleanEmail || (rawEmail ? maskCustomerEmail(rawEmail) : 'c****@sevanest.internal'))
   );
 
-  const rawStatus = String(item.status || userObj.status || '').toUpperCase();
+  const rawStatus = String(item.accountStatus || item.status || userObj.status || '').toUpperCase();
   const isSuspended = rawStatus === 'SUSPENDED' || rawStatus === 'INACTIVE' || rawStatus === 'BLOCKED';
   const status: Customer['status'] = isSuspended ? 'SUSPENDED' : 'ACTIVE';
 
@@ -259,12 +266,15 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
     preferredLanguage,
     phone: rawCleanPhone,
     unmaskedPhone: rawCleanPhone,
+    email: rawCleanEmail,
+    unmaskedEmail: rawCleanEmail,
   };
 }
 
 export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, unknown>, etag?: string): CustomerDetail {
   const summary = mapBackendCustomerToCustomer(data);
   const profileObj = (data.profile && typeof data.profile === 'object' ? data.profile : {}) as Record<string, unknown>;
+  const userObj = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<string, unknown>;
 
   const fullAddress = String(
     data.fullAddress ||
@@ -306,12 +316,30 @@ export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, un
     if (summary.userId) setCustomerPhone(summary.userId, unmaskedPhone);
   }
 
+  const rawDetailEmail = String(
+    data.unmaskedEmail ||
+    data.email ||
+    profileObj.email ||
+    profileObj.unmaskedEmail ||
+    userObj.email ||
+    ''
+  );
+  const cachedEmail = getCustomerEmail(summary.id) || (summary.userId ? getCustomerEmail(summary.userId) : undefined);
+  const unmaskedEmail = (rawDetailEmail && !rawDetailEmail.includes('*'))
+    ? rawDetailEmail
+    : (data.unmaskedEmail ? String(data.unmaskedEmail) : (cachedEmail || summary.unmaskedEmail || summary.email));
+  if (unmaskedEmail) {
+    setCustomerEmail(summary.id, unmaskedEmail);
+    if (summary.userId) setCustomerEmail(summary.userId, unmaskedEmail);
+  }
+
   return {
     ...summary,
     etag: etag || (data.etag as string | undefined),
     fullAddress,
     unmaskedPhone,
-    unmaskedEmail: data.unmaskedEmail ? String(data.unmaskedEmail) : undefined,
+    unmaskedEmail,
+    email: unmaskedEmail,
     totalSpendINR: Number(data.totalSpendINR ?? data.totalSpend ?? 0),
     activeBookings: Number(data.activeBookings ?? 0),
     openGrievances: Number(data.openGrievances ?? 0),
@@ -321,18 +349,56 @@ export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, un
   };
 }
 
+function isIndianMobileNumber(str: string): boolean {
+  if (!str) return false;
+  if (/[a-zA-Z]/.test(str)) return false;
+  const digits = str.replace(/\D/g, '');
+  return digits.length >= 10 && digits.length <= 15;
+}
+
+function isUuidOrCustomerId(str: string): boolean {
+  if (!str) return false;
+  const trimmed = str.trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) {
+    return true;
+  }
+  if (/^C-\d+$/i.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
 export class RealCustomerRepository implements ICustomerRepository {
   async getCustomers(filter?: CustomerFilterCriteria): Promise<Customer[]> {
     try {
+      const term = filter?.searchTerm?.trim();
+      if (term && isUuidOrCustomerId(term)) {
+        try {
+          const detail = await this.getCustomerById(term);
+          if (detail) return [detail];
+        } catch {
+          return [];
+        }
+      }
+
+      const params: Record<string, unknown> = {
+        verificationStatus: filter?.status === 'ACTIVE' ? 'VERIFIED' : filter?.status === 'SUSPENDED' ? 'PENDING' : undefined,
+      };
+
+      if (term) {
+        if (isIndianMobileNumber(term)) {
+          params.mobile = term;
+        } else if (term.length >= 2) {
+          params.name = term;
+        }
+      }
+
       const response = await httpClient.get<
         { items?: Array<Record<string, unknown>>; customers?: Array<Record<string, unknown>>; data?: unknown } | Array<Record<string, unknown>>
       >(
         '/admin/customers',
         {
-          params: {
-            verificationStatus: filter?.status === 'ACTIVE' ? 'VERIFIED' : filter?.status === 'SUSPENDED' ? 'PENDING' : undefined,
-            mobile: filter?.searchTerm,
-          },
+          params,
         }
       );
 
@@ -372,6 +438,11 @@ export class RealCustomerRepository implements ICustomerRepository {
                 setCustomerPhone(id, formatted);
                 if (detail.userId) setCustomerPhone(String(detail.userId), formatted);
               }
+              const email = String(detail?.email || detail?.unmaskedEmail || '');
+              if (email && !email.includes('*')) {
+                setCustomerEmail(id, email.trim());
+                if (detail.userId) setCustomerEmail(String(detail.userId), email.trim());
+              }
             } catch {
               // Ignore individual failure
             }
@@ -380,7 +451,16 @@ export class RealCustomerRepository implements ICustomerRepository {
       }
 
       return list.map(mapBackendCustomerToCustomer);
-    } catch (err) {
+    } catch (err: unknown) {
+      const isValidationError =
+        (err as { name?: string })?.name === 'ValidationError' ||
+        (err as { status?: number })?.status === 400 ||
+        (err as { response?: { status?: number } })?.response?.status === 400 ||
+        (err instanceof Error && err.message?.toLowerCase().includes('validation failed'));
+
+      if (filter?.searchTerm && isValidationError) {
+        return [];
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }
@@ -391,6 +471,31 @@ export class RealCustomerRepository implements ICustomerRepository {
     limit: number = 20
   ): Promise<CustomerPageResult> {
     try {
+      const term = filter?.searchTerm?.trim();
+
+      if (term && isUuidOrCustomerId(term)) {
+        try {
+          const detail = await this.getCustomerById(term);
+          if (detail) {
+            return {
+              items: [detail],
+              total: 1,
+              page: 1,
+              limit,
+              hasMore: false,
+            };
+          }
+        } catch {
+          return {
+            items: [],
+            total: 0,
+            page: 1,
+            limit,
+            hasMore: false,
+          };
+        }
+      }
+
       const params: Record<string, unknown> = {
         page,
         limit,
@@ -402,8 +507,12 @@ export class RealCustomerRepository implements ICustomerRepository {
         params.verificationStatus = 'PENDING';
       }
 
-      if (filter?.searchTerm) {
-        params.mobile = filter.searchTerm;
+      if (term) {
+        if (isIndianMobileNumber(term)) {
+          params.mobile = term;
+        } else if (term.length >= 2) {
+          params.name = term;
+        }
       }
 
       const response = await httpClient.get<
@@ -464,7 +573,22 @@ export class RealCustomerRepository implements ICustomerRepository {
         limit: currentLimit,
         hasMore,
       };
-    } catch (err) {
+    } catch (err: unknown) {
+      const isValidationError =
+        (err as { name?: string })?.name === 'ValidationError' ||
+        (err as { status?: number })?.status === 400 ||
+        (err as { response?: { status?: number } })?.response?.status === 400 ||
+        (err instanceof Error && err.message?.toLowerCase().includes('validation failed'));
+
+      if (filter?.searchTerm && isValidationError) {
+        return {
+          items: [],
+          total: 0,
+          page,
+          limit,
+          hasMore: false,
+        };
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }
@@ -507,26 +631,26 @@ export class RealCustomerRepository implements ICustomerRepository {
       // 1. Fetch customer to obtain userId and GET ETag
       const customer = await this.getCustomerById(customerId).catch(() => null);
       const targetUserId = customer?.userId || customerId;
-      const etag = customer?.etag;
+      const ifMatchHeader = customer?.etag || '*';
 
-      // 2. Change account status via /admin/users/{userId}/status
-      await httpClient.patch(`/admin/users/${encodeURIComponent(targetUserId)}/status`, {
-        status: 'SUSPENDED',
-        reason: remarks,
-      });
+      // 2. Change account status via /admin/users/{userId}/status sending If-Match wildcard
+      await httpClient.patch(
+        `/admin/users/${encodeURIComponent(targetUserId)}/status`,
+        {
+          status: 'SUSPENDED',
+          reason: remarks,
+        },
+        { headers: { 'If-Match': '*' } }
+      );
 
-      // 3. Update customer verification-status sending If-Match ETag when available
-      const headers: Record<string, string> = {};
-      if (etag) {
-        headers['If-Match'] = etag;
-      }
+      // 3. Update customer verification-status sending If-Match ETag (or '*' fallback per backend contract)
       await httpClient.patch(
         `/admin/customers/${encodeURIComponent(customerId)}/verification-status`,
         {
           status: 'PENDING',
           note: remarks,
         },
-        Object.keys(headers).length > 0 ? { headers } : undefined
+        { headers: { 'If-Match': ifMatchHeader } }
       );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -538,26 +662,26 @@ export class RealCustomerRepository implements ICustomerRepository {
       // 1. Fetch customer to obtain userId and GET ETag
       const customer = await this.getCustomerById(customerId).catch(() => null);
       const targetUserId = customer?.userId || customerId;
-      const etag = customer?.etag;
+      const ifMatchHeader = customer?.etag || '*';
 
-      // 2. Reactivate account status via /admin/users/{userId}/status
-      await httpClient.patch(`/admin/users/${encodeURIComponent(targetUserId)}/status`, {
-        status: 'ACTIVE',
-        reason: 'Account restored by operations staff',
-      });
+      // 2. Reactivate account status via /admin/users/{userId}/status sending If-Match wildcard
+      await httpClient.patch(
+        `/admin/users/${encodeURIComponent(targetUserId)}/status`,
+        {
+          status: 'ACTIVE',
+          reason: 'Account restored by operations staff',
+        },
+        { headers: { 'If-Match': '*' } }
+      );
 
-      // 3. Restore customer verification-status sending If-Match ETag when available
-      const headers: Record<string, string> = {};
-      if (etag) {
-        headers['If-Match'] = etag;
-      }
+      // 3. Restore customer verification-status sending If-Match ETag (or '*' fallback per backend contract)
       await httpClient.patch(
         `/admin/customers/${encodeURIComponent(customerId)}/verification-status`,
         {
           status: 'VERIFIED',
           note: 'Account restored by operations staff',
         },
-        Object.keys(headers).length > 0 ? { headers } : undefined
+        { headers: { 'If-Match': ifMatchHeader } }
       );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

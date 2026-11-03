@@ -57,64 +57,66 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       useAuthStore.getState().setSession(VERIFICATION_EXECUTIVE_USER, 'token-ve-77');
     });
 
-    it('renders Verification Queue as a non-clickable section heading with shield icon and 5 flat navigation links below it', async () => {
+    it('renders exactly 3 primary entries in sidebar: Dashboard, Verification, and Workers Directory', async () => {
       const { router } = renderApp('/dashboard');
 
       // Dashboard link must be present
       expect(await screen.findByRole('link', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // Verification Queue is a non-clickable section heading with its shield icon, not a link
-      expect(screen.getByText('Verification Queue')).toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Verification Queue$/i })).not.toBeInTheDocument();
-
-      // Flat navigation links under Verification Queue must be present
-      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^My Reviews$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
-
-      // Workers Directory must be rendered in navigation for Verification Executive
+      // Exactly 3 primary entries in Verification Executive sidebar
+      expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
-      expect(screen.queryByText('Verification Operations')).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Verification Insights$/i })).not.toBeInTheDocument();
+
+      // Prohibited primary modules must NOT be present
+      expect(screen.queryByRole('link', { name: /^Customer Management$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Customers$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Booking Pipeline$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Bookings$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Support Tickets$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Reports & Analytics$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Configuration Masters$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Audit Trail$/i })).not.toBeInTheDocument();
 
       // Account information and Sign Out are standard application utilities at the bottom
       expect(screen.getByRole('link', { name: /^My Account$/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /^Sign Out$/i })).toBeInTheDocument();
 
-      // Clicking submenu items navigates to the respective views
-      fireEvent.click(screen.getByRole('link', { name: /^My Reviews$/i }));
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/my-reviews');
-      });
-
-      fireEvent.click(screen.getByRole('link', { name: /^Rechecks & Expiry$/i }));
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/rechecks');
-      });
-
-      fireEvent.click(screen.getByRole('link', { name: /^Corrections Required$/i }));
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/corrections');
-      });
-
-      fireEvent.click(screen.getByRole('link', { name: /^Review History$/i }));
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/history');
-      });
-
-      fireEvent.click(screen.getByRole('link', { name: /^All Applications$/i }));
+      // Clicking Verification navigates to /verification
+      fireEvent.click(screen.getByRole('link', { name: /^Verification$/i }));
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/verification');
       });
+
+      // Clicking Workers Directory navigates to /workers/directory
+      fireEvent.click(screen.getByRole('link', { name: /^Workers Directory$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/workers/directory');
+      });
     });
 
-    it('removes duplicate horizontal tabs from the Verification Queue page', async () => {
+    it('renders the 4 working sections as internal views/tabs within the Verification module', async () => {
       renderApp('/verification');
 
       expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'Verification Sections' })).toBeInTheDocument();
+
+      // All 4 required sub-sections
+      expect(screen.getByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Document Review/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Check Status/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Expiry & Re-check/i })).toBeInTheDocument();
+
+      // Switching to Document Review view
+      fireEvent.click(screen.getByRole('tab', { name: /Document Review/i }));
+      expect(await screen.findByText(/Document Review Workstation/i)).toBeInTheDocument();
+
+      // Switching to Check Status view
+      fireEvent.click(screen.getByRole('tab', { name: /Check Status/i }));
+      expect(await screen.findByText(/Discrete Check Status Matrix/i)).toBeInTheDocument();
+
+      // Switching to Expiry & Re-check view
+      fireEvent.click(screen.getByRole('tab', { name: /Expiry & Re-check/i }));
+      expect(await screen.findByRole('tab', { name: /Expiry & Re-check/i })).toHaveAttribute('aria-selected', 'true');
     });
 
     it('strictly hides unauthorized platform modules from the Verification Executive sidebar', async () => {

@@ -63,7 +63,7 @@ export interface Worker {
   phone?: string;
   mobile?: string;
   email?: string;
-  onboardingStatus?: 'REGISTERED' | 'APPLIED' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED';
+  onboardingStatus?: 'REGISTERED' | 'APPLIED' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED' | 'DRAFT' | 'SUBMITTED';
   verificationStatus?: 'PENDING' | 'IN_REVIEW' | 'VERIFIED' | 'REJECTED' | 'RECHECK_DUE';
   applicationStatus?: 'SUBMITTED' | 'UNDER_REVIEW' | 'VERIFIED' | 'ACTIVE' | 'REJECTED' | string;
   activatedAt?: string;
@@ -78,9 +78,47 @@ export interface Worker {
   totalRequiredChecksCount?: number;
 }
 
+export interface WorkerAddress {
+  line: string;
+  area: string;
+  city: string;
+  pincode: string;
+}
+
+export interface WorkerPreviousEmployer {
+  name: string;
+  mobile: string;
+}
+
+export interface WorkerCriminalDeclaration {
+  hasCriminalRecord: boolean;
+  details: string | null;
+  acceptedAt: string;
+}
+
+export interface WorkerReferenceItem {
+  id: string;
+  name: string;
+  mobile: string;
+  relationship?: string | null;
+}
+
+export interface WorkerAvailabilitySchedule {
+  engagementPreference?: string | null;
+  areas: Array<{ id: string; name: string; city: string; isEnabled?: boolean }>;
+  timeWindows: Array<{ start: string; end: string }>;
+}
+
+export interface WorkerBlacklistInfo {
+  at: string;
+  reason: string;
+  byUserId?: string | null;
+}
+
 export interface WorkerDetail extends Worker {
   serviceRadiusKm: number;
   languages: string[];
+  preferredLanguage?: string | null;
   bio: string;
   skills?: string[];
   verification: WorkerVerificationDetail;
@@ -92,8 +130,22 @@ export interface WorkerDetail extends Worker {
   documents?: WorkerDocumentMetadata[];
   preferredServiceArea?: string;
   expectedCompensation?: string;
+  expectedSalary?: number | null;
+  experienceMonths?: number | null;
   availability?: string;
   updatedAt?: string;
+  applicationReference?: string | null;
+  submittedAt?: string | null;
+  hasProfilePhoto?: boolean;
+  hasEmergencyContact?: boolean;
+  emergencyContact?: { name: string; mobile: string; relationship?: string | null } | null;
+  address?: WorkerAddress | null;
+  previousEmployer?: WorkerPreviousEmployer | null;
+  criminalDeclaration?: WorkerCriminalDeclaration | null;
+  references?: WorkerReferenceItem[];
+  availabilitySchedule?: WorkerAvailabilitySchedule | null;
+  missingForSubmission?: string[];
+  blacklistInfo?: WorkerBlacklistInfo | null;
 }
 
 export interface WorkerFilterCriteria {
@@ -129,5 +181,6 @@ export interface IWorkerRepository {
   approveCheck(checkId: string, remarks?: string): Promise<void>;
   rejectCheck(checkId: string, category: string, remarks: string): Promise<void>;
   rejectWorker(workerId: string, category: string, remarks: string): Promise<void>;
+  revealEmergencyContact?(workerId: string, reason: string): Promise<{ name: string; mobile: string }>;
 }
 

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   X,
@@ -32,6 +33,7 @@ interface WorkerDirectoryModalProps {
 }
 
 export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ workerId, onClose }) => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'details' | 'work' | 'documents'>('details');
   const [inspectingDoc, setInspectingDoc] = useState<{
     id: string;
@@ -259,24 +261,51 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary, #94a3b8)',
-              padding: '6px',
-              borderRadius: '6px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <X size={20} />
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                navigate(`/verification?workerId=${encodeURIComponent(workerId)}`);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md, 6px)',
+                backgroundColor: 'var(--color-primary-subtle, #eff6ff)',
+                border: '1px solid var(--color-primary, #2563eb)',
+                color: 'var(--color-primary, #2563eb)',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              title="Open worker verification dossier"
+            >
+              <ShieldCheck size={14} />
+              <span>Verification Dossier</span>
+              <ExternalLink size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close modal"
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--color-text-tertiary, #94a3b8)',
+                padding: '6px',
+                borderRadius: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Tab Navigation */}

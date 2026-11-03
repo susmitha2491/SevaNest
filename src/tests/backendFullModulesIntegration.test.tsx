@@ -79,6 +79,64 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       expect(result[0].name).toBe('Anand Sharma');
     });
 
+    it('handles customer ID search by directly fetching customer by ID rather than sending invalid mobile param', async () => {
+      const uuid = '01a13de7-9a68-70ed-9767-494e06514a5d';
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          id: uuid,
+          name: 'Ajay',
+          locality: 'Hyderabad',
+          status: 'SUSPENDED',
+          verificationStatus: 'PENDING',
+          totalBookings: 0,
+        },
+      } as any);
+
+      const repo = new RealCustomerRepository();
+      const pageResult = await repo.getCustomersPage({ searchTerm: uuid }, 1, 20);
+
+      expect(getSpy).toHaveBeenCalledWith(`/admin/customers/${encodeURIComponent(uuid)}`);
+      expect(pageResult.items).toHaveLength(1);
+      expect(pageResult.items[0].id).toBe(uuid);
+      expect(pageResult.items[0].name).toBe('Ajay');
+    });
+
+    it('passes name parameter when searching by customer name rather than mobile', async () => {
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          items: [
+            {
+              id: '01a13df1-b7bc-734c-bb83-5c2b7967b26b',
+              name: 'Ajay',
+              locality: 'Hyderabad',
+              status: 'SUSPENDED',
+            },
+          ],
+          meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+        },
+      } as any);
+
+      const repo = new RealCustomerRepository();
+      const pageResult = await repo.getCustomersPage({ searchTerm: 'Ajay' }, 1, 20);
+
+      expect(getSpy).toHaveBeenCalledWith('/admin/customers', {
+        params: { page: 1, limit: 20, name: 'Ajay' },
+      });
+      expect(pageResult.items).toHaveLength(1);
+    });
+
+    it('gracefully handles 400 Bad Request on search without crashing', async () => {
+      vi.spyOn(httpClient, 'get').mockRejectedValueOnce({
+        response: { status: 400, data: { message: 'Request validation failed' } },
+      });
+
+      const repo = new RealCustomerRepository();
+      const pageResult = await repo.getCustomersPage({ searchTerm: 'invalid_search_syntax' }, 1, 20);
+
+      expect(pageResult.items).toHaveLength(0);
+      expect(pageResult.total).toBe(0);
+    });
+
     it('propagates domain errors without silent fallback on customer API failure', async () => {
       vi.spyOn(httpClient, 'get').mockRejectedValueOnce({
         response: { status: 500, data: { message: 'Internal Server Error' } },
@@ -104,10 +162,16 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const repo = new RealCustomerRepository();
       await repo.suspendCustomer('C-1092', 'Documents unclear');
 
-      expect(patchSpy).toHaveBeenCalledWith('/admin/users/usr-cust-1092/status', {
-        status: 'SUSPENDED',
-        reason: 'Documents unclear',
-      });
+      expect(patchSpy).toHaveBeenCalledWith(
+        '/admin/users/usr-cust-1092/status',
+        {
+          status: 'SUSPENDED',
+          reason: 'Documents unclear',
+        },
+        {
+          headers: { 'If-Match': '*' },
+        }
+      );
       expect(patchSpy).toHaveBeenCalledWith(
         '/admin/customers/C-1092/verification-status',
         {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { routes } from '../app/router/routes';
@@ -142,8 +142,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('displays distinct verification badge and status badge in customer detail modal', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]); // Anand Sharma (ACTIVE, VERIFIED)
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row); // Anand Sharma (ACTIVE, VERIFIED)
 
       expect(await screen.findByText('Household Contact & Locality Details')).toBeInTheDocument();
       expect(await screen.findByText('Preferred Communication:')).toBeInTheDocument();
@@ -174,8 +174,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('displays historical bookings in profile preview and provides dedicated Bookings & History tab', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]); // Anand Sharma
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row); // Anand Sharma
 
       // Profile tab preview of bookings
       expect(await screen.findByText('Historical Service Engagements & Requests')).toBeInTheDocument();
@@ -223,8 +223,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       const bookingsTab = await screen.findByRole('button', { name: /Bookings & History/i });
       fireEvent.click(bookingsTab);
@@ -255,8 +255,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('renders customer complaints and grievance records in dedicated tab with navigation to Support', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]); // Anand Sharma (has TKT-1082)
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row); // Anand Sharma (has TKT-1082)
 
       const complaintsTab = await screen.findByRole('button', { name: /Support & Complaints/i });
       fireEvent.click(complaintsTab);
@@ -275,8 +275,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('displays empty state when customer has no recorded complaints', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[1]); // Priya Reddy (has 0 grievances)
+      const row = await screen.findByRole('button', { name: /View profile for Priya Reddy/i });
+      fireEvent.click(row); // Priya Reddy (has 0 grievances)
 
       const complaintsTab = await screen.findByRole('button', { name: /Support & Complaints/i });
       fireEvent.click(complaintsTab);
@@ -307,8 +307,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       const notesTab = await screen.findByRole('button', { name: /Operational Notes/i });
       fireEvent.click(notesTab);
@@ -333,8 +333,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('validates minimum note length before submission', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       const notesTab = await screen.findByRole('button', { name: /Operational Notes/i });
       fireEvent.click(notesTab);
@@ -367,8 +367,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       expect(await screen.findByRole('button', { name: /Reveal Contact/i })).toBeInTheDocument();
     });
@@ -389,8 +389,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       expect(await screen.findByText('Household Contact & Locality Details')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Reveal Contact/i })).not.toBeInTheDocument();
@@ -415,8 +415,8 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const row = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(row);
 
       const revealBtn = await screen.findByRole('button', { name: /Reveal Contact/i });
       fireEvent.click(revealBtn);
@@ -490,7 +490,7 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
       suspendSpy.mockRestore();
     });
 
-    it('allows reactivating a suspended customer from the roster', async () => {
+    it('allows reactivating a suspended customer from the roster via confirmation modal', async () => {
       const reactivateSpy = vi.spyOn(customerRepository, 'reactivateCustomer');
 
       renderApp('/customers');
@@ -501,8 +501,15 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
 
       expect(await screen.findByText('Rajesh Kumar')).toBeInTheDocument();
 
-      const reactivateBtn = screen.getByRole('button', { name: /Reactivate customer Rajesh Kumar/i });
-      fireEvent.click(reactivateBtn);
+      const activateBtn = screen.getByRole('button', { name: /^Unsuspend customer Rajesh Kumar/i });
+      fireEvent.click(activateBtn);
+
+      expect(await screen.findByText(/(?:Unsuspend|Activate) Customer Account/i)).toBeInTheDocument();
+      expect(screen.getByText(/Are you sure you want to (?:unsuspend|activate) customer Rajesh Kumar/i)).toBeInTheDocument();
+
+      const dialog = screen.getByRole('dialog');
+      const confirmBtn = within(dialog).getByRole('button', { name: /^Unsuspend$/i });
+      fireEvent.click(confirmBtn);
 
       await waitFor(() => {
         expect(reactivateSpy).toHaveBeenCalledWith('C-3810');

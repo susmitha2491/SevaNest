@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { formatCurrencyINR } from '../shared/formatters/currency';
-import { formatDateTimeIST, formatDateIST } from '../shared/formatters/dateTime';
+import { formatDateTimeIST, formatDateIST, formatRegistrationDateIST } from '../shared/formatters/dateTime';
 
 describe('Shared Formatters', () => {
   describe('formatCurrencyINR', () => {
@@ -26,6 +26,7 @@ describe('Shared Formatters', () => {
       const result = formatDateTimeIST(isoString);
       expect(result).not.toBe('—');
       expect(result.length).toBeGreaterThan(5);
+      expect(result).toContain('IST');
     });
 
     it('returns placeholder for invalid or missing timestamps', () => {
@@ -42,4 +43,25 @@ describe('Shared Formatters', () => {
       expect(result).not.toBe('—');
     });
   });
+
+  describe('formatRegistrationDateIST', () => {
+    it('formats UTC ISO timestamp accurately to Indian Standard Time (IST)', () => {
+      const result = formatRegistrationDateIST('2026-10-15T05:03:33.820Z');
+      expect(result).toContain('15 Oct 2026');
+      expect(result).toContain('10:33');
+      expect(result).toContain('IST');
+    });
+
+    it('preserves non-date relative test fixtures like Recent and Prior', () => {
+      expect(formatRegistrationDateIST('Recent')).toBe('Recent');
+      expect(formatRegistrationDateIST('Prior')).toBe('Prior');
+    });
+
+    it('returns fallback placeholder for null or undefined', () => {
+      expect(formatRegistrationDateIST(undefined)).toBe('—');
+      expect(formatRegistrationDateIST(null)).toBe('—');
+      expect(formatRegistrationDateIST('')).toBe('—');
+    });
+  });
 });
+

@@ -1,5 +1,5 @@
-/* global HTMLElement */
 import React, { useState, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Users,
@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   RefreshCw,
   Eye,
+  ShieldCheck,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { Worker } from '../domain/types';
@@ -31,6 +32,7 @@ const CATEGORY_OPTIONS = [
 ];
 
 export const WorkersDirectoryPage: React.FC = () => {
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
@@ -271,17 +273,31 @@ export const WorkersDirectoryPage: React.FC = () => {
                 {workers.map((worker: Worker) => (
                   <tr
                     key={worker.id}
-                    onClick={() => setSelectedWorkerId(worker.id)}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View profile for ${worker.name} (${worker.id})`}
+                    className="worker-directory-row clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setSelectedWorkerId(worker.id);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setSelectedWorkerId(worker.id);
+                      }
+                    }}
                     style={{
                       borderBottom: '1px solid var(--color-border-subtle)',
                       cursor: 'pointer',
                       transition: 'background-color 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      (e.currentTarget as HTMLElement).style.backgroundColor = 'var(--color-bg-subtle)';
-                    }}
-                    onMouseLeave={(e) => {
-                      (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
                     }}
                   >
                     <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-primary)' }}>
@@ -354,29 +370,55 @@ export const WorkersDirectoryPage: React.FC = () => {
                     </td>
 
                     <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedWorkerId(worker.id);
-                        }}
-                        style={{
-                          padding: '6px 12px',
-                          borderRadius: 'var(--radius-md)',
-                          border: '1px solid var(--color-border)',
-                          backgroundColor: 'var(--color-surface)',
-                          color: 'var(--color-text-primary)',
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <Eye size={12} />
-                        <span>View Profile</span>
-                      </button>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/verification?workerId=${encodeURIComponent(worker.id)}`);
+                          }}
+                          style={{
+                            padding: '6px 10px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-primary-subtle)',
+                            backgroundColor: 'var(--color-primary-subtle)',
+                            color: 'var(--color-primary)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                          title="Inspect verification dossier"
+                        >
+                          <ShieldCheck size={12} />
+                          <span>Dossier</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedWorkerId(worker.id);
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: 'var(--radius-md)',
+                            border: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-surface)',
+                            color: 'var(--color-text-primary)',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <Eye size={12} />
+                          <span>View Profile</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

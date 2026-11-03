@@ -390,7 +390,33 @@ export const PaymentsListPage: React.FC = () => {
                 </tr>
               ) : (
                 paymentsData?.items.map((txn) => (
-                  <tr key={txn.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={txn.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View transaction details for ${txn.id}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setSelectedTxn(txn);
+                      setIsDetailOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setSelectedTxn(txn);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     {/* Transaction ID */}
                     <td style={{ padding: 'var(--space-4)' }}>
                       <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>

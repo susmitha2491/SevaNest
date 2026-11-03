@@ -480,7 +480,29 @@ export const ConfigurationMastersPage: React.FC = () => {
                   {editingFees?.map((fee) => {
                     const isChanged = fee.draftValueINR !== fee.liveValueINR;
                     return (
-                      <tr key={fee.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <tr
+                        key={fee.id}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`Configure ${fee.parameterName}`}
+                        className="clickable-table-row"
+                        onClick={(e) => {
+                          const target = e.target as { closest?: (selector: string) => unknown };
+                          if (target?.closest && target.closest('input, button, a, select') && target !== e.currentTarget) return;
+                          const inputEl = (e.currentTarget as { querySelector?: (selector: string) => { focus?: () => void } | null }).querySelector?.('input');
+                          inputEl?.focus?.();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            const target = e.target as { closest?: (selector: string) => unknown };
+                            if (target?.closest && target.closest('input, button, a, select') && target !== e.currentTarget) return;
+                            e.preventDefault();
+                            const inputEl = (e.currentTarget as { querySelector?: (selector: string) => { focus?: () => void } | null }).querySelector?.('input');
+                            inputEl?.focus?.();
+                          }
+                        }}
+                        style={{ borderBottom: '1px solid var(--color-border)', cursor: 'pointer' }}
+                      >
                         <td style={{ padding: 'var(--space-4)' }}>
                           <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{fee.parameterName}</div>
                           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>{fee.notes}</div>
@@ -715,7 +737,33 @@ export const ConfigurationMastersPage: React.FC = () => {
               </thead>
               <tbody>
                 {operationalAreas?.map((area) => (
-                  <tr key={area.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={area.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Edit cluster ${area.clusterName}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setAreaDraft(JSON.parse(JSON.stringify(area)));
+                      setIsAreaModalOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setAreaDraft(JSON.parse(JSON.stringify(area)));
+                        setIsAreaModalOpen(true);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     <td style={{ padding: 'var(--space-4)' }}>
                       <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{area.clusterName}</div>
                       <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{area.id}</div>
@@ -1124,7 +1172,42 @@ export const ConfigurationMastersPage: React.FC = () => {
                     adminAccountsData?.items.map((acc) => {
                       const isSelf = user?.id === acc.id;
                       return (
-                        <tr key={acc.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <tr
+                          key={acc.id}
+                          tabIndex={isSelf ? undefined : 0}
+                          role={isSelf ? undefined : 'button'}
+                          aria-label={isSelf ? undefined : `Modify role for ${acc.name}`}
+                          className={isSelf ? undefined : 'clickable-table-row'}
+                          onClick={(e) => {
+                            if (isSelf) return;
+                            const target = e.target as { closest?: (selector: string) => unknown };
+                            if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                              return;
+                            }
+                            setTargetAdminForRole(acc);
+                            setNewRoleCode(acc.role);
+                            setChangeRoleReason('');
+                            setIsChangeRoleModalOpen(true);
+                          }}
+                          onKeyDown={(e) => {
+                            if (isSelf) return;
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              const target = e.target as { closest?: (selector: string) => unknown };
+                              if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                                return;
+                              }
+                              e.preventDefault();
+                              setTargetAdminForRole(acc);
+                              setNewRoleCode(acc.role);
+                              setChangeRoleReason('');
+                              setIsChangeRoleModalOpen(true);
+                            }
+                          }}
+                          style={{
+                            borderBottom: '1px solid var(--color-border)',
+                            cursor: isSelf ? 'default' : 'pointer',
+                          }}
+                        >
                           <td style={{ padding: 'var(--space-4)' }}>
                             <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{acc.name}</div>
                             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
@@ -1667,7 +1750,12 @@ export const ConfigurationMastersPage: React.FC = () => {
                   {editingFees?.map((fee) => {
                     const delta = fee.draftValueINR - fee.liveValueINR;
                     return (
-                      <tr key={fee.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                      <tr
+                        key={fee.id}
+                        tabIndex={0}
+                        className="clickable-table-row"
+                        style={{ borderBottom: '1px solid var(--color-border)', cursor: 'pointer' }}
+                      >
                         <td style={{ padding: 'var(--space-2) var(--space-3)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
                           {fee.parameterName}
                         </td>

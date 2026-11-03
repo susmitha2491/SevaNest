@@ -25,7 +25,7 @@ export const PublicLayout: React.FC = () => {
         }}
       >
         <img
-          src="/sevanest-logo.png"
+          src="/SevaNest_logo-removebg-preview.png"
           alt="SevaNest logo"
           style={{
             width: '100%',

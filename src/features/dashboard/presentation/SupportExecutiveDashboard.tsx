@@ -242,7 +242,31 @@ export const SupportExecutiveDashboard: React.FC = () => {
               </thead>
               <tbody>
                 {currentQueue.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={item.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open mediation for ticket ${item.ticketId}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     <td style={{ padding: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.ticketId}</td>
                     <td style={{ padding: '12px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.complainantName}</div>

@@ -721,7 +721,31 @@ export const OperationsAdminDashboard: React.FC = () => {
               </thead>
               <tbody>
                 {currentQueue.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={item.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open queue item ${item.id} - ${item.dominantAction}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      navigate(item.targetRoute);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        navigate(item.targetRoute);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     <td style={{ padding: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.id}</td>
                     <td style={{ padding: '12px', color: 'var(--color-text-primary)', fontWeight: 500 }}>{item.customerName}</td>
                     <td style={{ padding: '12px', color: 'var(--color-text-secondary)' }}>{item.category}</td>

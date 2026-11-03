@@ -239,4 +239,26 @@ describe('Customer Management — Continuous Scrollable Table & Infinite Loading
       );
     });
   });
+
+  it('keeps search input mounted and avoids full-page loading spinner when typing keystrokes', async () => {
+    vi.spyOn(customerRepository, 'getCustomersPage').mockResolvedValue(page1);
+
+    renderComponent();
+
+    const searchInput = await screen.findByPlaceholderText(/Search by customer name/i);
+    expect(searchInput).toBeInTheDocument();
+
+    // Type character 'p'
+    fireEvent.change(searchInput, { target: { value: 'p' } });
+
+    // The search input MUST stay in the document and never unmount
+    expect(searchInput).toBeInTheDocument();
+    expect(screen.queryByText('Loading customer directory...')).not.toBeInTheDocument();
+
+    // Type second character 'pr'
+    fireEvent.change(searchInput, { target: { value: 'pr' } });
+    expect(searchInput).toBeInTheDocument();
+    expect(screen.queryByText('Loading customer directory...')).not.toBeInTheDocument();
+  });
 });
+

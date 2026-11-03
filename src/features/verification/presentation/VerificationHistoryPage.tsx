@@ -282,7 +282,39 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                   const remarks = item.overallRemarks || checkTypes.find((c) => c.rejectionRemarks)?.rejectionRemarks || 'Decision recorded in compliance with 6-point verification policy.';
 
                   return (
-                    <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <tr
+                      key={item.id}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`View verification history for ${item.workerName}`}
+                      className="clickable-table-row"
+                      onClick={(e) => {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        if (onSelectDossier) {
+                          onSelectDossier(item.workerId || item.id);
+                        } else {
+                          navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          const target = e.target as { closest?: (selector: string) => unknown };
+                          if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                            return;
+                          }
+                          e.preventDefault();
+                          if (onSelectDossier) {
+                            onSelectDossier(item.workerId || item.id);
+                          } else {
+                            navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                          }
+                        }
+                      }}
+                      style={{ borderBottom: '1px solid var(--color-border)' }}
+                    >
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>{item.workerName}</div>
                         <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>

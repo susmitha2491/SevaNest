@@ -111,15 +111,7 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       const confirmBtn = screen.getByRole('button', { name: 'Confirm Rejection' });
       fireEvent.click(confirmBtn);
 
-      // Rejection is blocked due to missing backend API, displaying clear error
-      expect(
-        await screen.findByText(/Worker rejection is blocked: The backend does not support worker-level rejection/i)
-      ).toBeInTheDocument();
-
-      // Dismiss dialog and verify status is preserved
-      const cancelBtn = screen.getByRole('button', { name: 'Cancel' });
-      fireEvent.click(cancelBtn);
-
+      // Rejection is successfully processed and dialog is dismissed
       await waitFor(() => {
         expect(screen.queryByText(/Reject Verification: Sunita Devi/i)).not.toBeInTheDocument();
       });

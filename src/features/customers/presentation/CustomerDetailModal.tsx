@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -19,6 +19,7 @@ import { VerificationBadge } from '../../../shared/components/VerificationBadge/
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 
@@ -33,9 +34,13 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onClose,
   onStatusChanged,
 }) => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'profile' | 'bookings' | 'complaints' | 'notes'>('profile');
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
+  const [isActivateOpen, setIsActivateOpen] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // PII Reveal State
   const [isRevealDialogOpen, setIsRevealDialogOpen] = useState(false);
@@ -55,18 +60,37 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   });
 
   const handleSuspendConfirm = async (remarks?: string) => {
-    await customerRepository.suspendCustomer(customerId, remarks || 'Operational account suspension');
-    setIsSuspendOpen(false);
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ['customers', 'list'] });
-    onStatusChanged?.();
+    try {
+      setIsActionLoading(true);
+      setActionError(null);
+      await customerRepository.suspendCustomer(customerId, remarks || 'Operational account suspension');
+      setIsSuspendOpen(false);
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      onStatusChanged?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to suspend customer account.';
+      setActionError(msg);
+    } finally {
+      setIsActionLoading(false);
+    }
   };
 
-  const handleReactivate = async () => {
-    await customerRepository.reactivateCustomer(customerId);
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ['customers', 'list'] });
-    onStatusChanged?.();
+  const handleReactivateConfirm = async () => {
+    try {
+      setIsActionLoading(true);
+      setActionError(null);
+      await customerRepository.reactivateCustomer(customerId);
+      setIsActivateOpen(false);
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      onStatusChanged?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to activate customer account.';
+      setActionError(msg);
+    } finally {
+      setIsActionLoading(false);
+    }
   };
 
   const handleRevealPIIConfirm = async () => {
@@ -128,8 +152,8 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   }
 
   const effectivePhone = revealedPII?.phone || customer.unmaskedPhone || customer.phone || customer.maskedPhone;
-  const effectiveEmail = revealedPII?.email || customer.unmaskedEmail || customer.maskedEmail;
-  const isPIIRevealed = Boolean(revealedPII || customer.unmaskedPhone || customer.phone || customer.unmaskedEmail);
+  const effectiveEmail = revealedPII?.email || customer.unmaskedEmail || customer.email || customer.maskedEmail;
+  const isPIIRevealed = Boolean(revealedPII || customer.unmaskedPhone || customer.phone || customer.unmaskedEmail || customer.email);
 
   return (
     <div
@@ -184,7 +208,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                 />
               </div>
               <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', fontFamily: 'monospace', fontWeight: 600 }}>
-                {customer.id} • Registered {customer.registeredDate}
+                {customer.id} • Registered {formatRegistrationDateIST(customer.registeredDate)}
               </span>
             </div>
           </div>
@@ -409,7 +433,25 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                         </tr>
                       ) : (
                         customer.bookings.slice(0, 5).map((b) => (
-                          <tr key={b.bookingId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                          <tr
+                            key={b.bookingId}
+                            tabIndex={0}
+                            role="button"
+                            aria-label={`View booking ${b.bookingId}`}
+                            className="clickable-table-row"
+                            onClick={() => {
+                              onClose();
+                              navigate('/bookings');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                onClose();
+                                navigate('/bookings');
+                              }
+                            }}
+                            style={{ borderBottom: '1px solid var(--color-border-subtle)', cursor: 'pointer' }}
+                          >
                             <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
                               {b.bookingId}
                             </td>
@@ -483,7 +525,25 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                       </tr>
                     ) : (
                       customer.bookings.map((b) => (
-                        <tr key={b.bookingId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <tr
+                          key={b.bookingId}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`View booking ${b.bookingId}`}
+                          className="clickable-table-row"
+                          onClick={() => {
+                            onClose();
+                            navigate('/bookings');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClose();
+                              navigate('/bookings');
+                            }
+                          }}
+                          style={{ borderBottom: '1px solid var(--color-border-subtle)', cursor: 'pointer' }}
+                        >
                           <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
                             {b.bookingId}
                           </td>
@@ -497,7 +557,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                             <StatusBadge status={b.status} />
                           </td>
                           <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>
-                            {b.date}
+                            {formatRegistrationDateIST(b.date)}
                           </td>
                         </tr>
                       ))
@@ -571,7 +631,25 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                       </tr>
                     ) : (
                       customer.complaints.map((c) => (
-                        <tr key={c.ticketId} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                        <tr
+                          key={c.ticketId}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`View support ticket ${c.ticketId}`}
+                          className="clickable-table-row"
+                          onClick={() => {
+                            onClose();
+                            navigate('/support');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onClose();
+                              navigate('/support');
+                            }
+                          }}
+                          style={{ borderBottom: '1px solid var(--color-border-subtle)', cursor: 'pointer' }}
+                        >
                           <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
                             {c.ticketId}
                           </td>
@@ -590,7 +668,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                             <StatusBadge status={c.status} />
                           </td>
                           <td style={{ padding: '10px 12px', color: 'var(--color-text-muted)' }}>
-                            {c.createdAt}
+                            {formatRegistrationDateIST(c.createdAt)}
                           </td>
                         </tr>
                       ))
@@ -735,7 +813,11 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
               </button>
             ) : (
               <button
-                onClick={handleReactivate}
+                onClick={() => {
+                  setActionError(null);
+                  setIsActivateOpen(true);
+                }}
+                disabled={isActionLoading}
                 style={{
                   padding: '6px 14px',
                   borderRadius: 'var(--radius-md)',
@@ -744,14 +826,15 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                   border: '1px solid var(--color-status-success-text)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
-                  cursor: 'pointer',
+                  cursor: isActionLoading ? 'not-allowed' : 'pointer',
+                  opacity: isActionLoading ? 0.6 : 1,
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
                 }}
               >
                 <CheckCircle size={14} />
-                <span>Restore / Reactivate Account</span>
+                <span>Unsuspend Account</span>
               </button>
             )}
           </PermissionGate>
@@ -881,13 +964,39 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       <ConfirmDialog
         isOpen={isSuspendOpen}
         title={`Suspend Customer Account: ${customer.name}`}
-        description="Suspended customers are blocked from submitting new booking requests across the platform."
+        description="Suspending this customer account will block customer login and prevent access to protected customer features across the platform."
         confirmLabel="Confirm Suspension"
         isDestructive={true}
         requireRemarks={true}
         remarksPlaceholder="Enter mandatory suspension reason (e.g., Repeated payment chargeback dispute)..."
+        isLoading={isActionLoading}
+        errorMessage={actionError}
         onConfirm={handleSuspendConfirm}
-        onCancel={() => setIsSuspendOpen(false)}
+        onCancel={() => {
+          if (!isActionLoading) {
+            setIsSuspendOpen(false);
+            setActionError(null);
+          }
+        }}
+      />
+
+      {/* Unsuspend Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isActivateOpen}
+        title={`Unsuspend Customer Account: ${customer.name}`}
+        description="Unsuspending this customer account will restore their ability to log in and access all permitted customer services across the platform."
+        confirmLabel="Unsuspend"
+        isDestructive={false}
+        requireRemarks={false}
+        isLoading={isActionLoading}
+        errorMessage={actionError}
+        onConfirm={handleReactivateConfirm}
+        onCancel={() => {
+          if (!isActionLoading) {
+            setIsActivateOpen(false);
+            setActionError(null);
+          }
+        }}
       />
     </div>
   );

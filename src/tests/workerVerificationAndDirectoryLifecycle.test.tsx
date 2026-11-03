@@ -354,7 +354,7 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
       expect(screen.getByText('Banjara Hills')).toBeInTheDocument();
       expect(screen.getByText('Verified')).toBeInTheDocument();
       expect(screen.getByText('Active')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /View Profile/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'View Profile' })).toBeInTheDocument();
     });
 
     it('WorkerDirectoryModal displays simple, professional worker details, their work, and their documents without heavy administrative controls', async () => {
@@ -436,7 +436,7 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
       renderWithClient(<WorkersDirectoryPage />);
 
       // Open Worker Profile modal
-      const viewProfileBtn = await screen.findByRole('button', { name: /View Profile/i });
+      const viewProfileBtn = await screen.findByRole('button', { name: 'View Profile' });
       await user.click(viewProfileBtn);
 
       // 1. Verify Header & Tab 1 (Worker Details)

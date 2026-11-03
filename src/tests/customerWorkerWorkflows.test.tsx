@@ -81,8 +81,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('opens customer detail modal and renders historical bookings', async () => {
       renderApp('/customers');
 
-      const viewButtons = await screen.findAllByText('View Profile');
-      fireEvent.click(viewButtons[0]);
+      const customerRow = await screen.findByRole('button', { name: /View profile for Anand Sharma/i });
+      fireEvent.click(customerRow);
 
       expect(await screen.findByText('Household Contact & Locality Details')).toBeInTheDocument();
       expect(await screen.findByText('Historical Service Engagements & Requests')).toBeInTheDocument();
@@ -110,6 +110,9 @@ describe('Customer & Worker Management Workflows', () => {
 
       const remarksInput = screen.getByPlaceholderText(/Enter mandatory operational reason/i);
       fireEvent.change(remarksInput, { target: { value: 'Repeated non-payment chargebacks' } });
+
+      const confirmCheckbox = screen.getByRole('checkbox');
+      fireEvent.click(confirmCheckbox);
 
       const confirmBtn = screen.getByText('Confirm');
       fireEvent.click(confirmBtn);

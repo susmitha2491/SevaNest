@@ -69,7 +69,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
             Trust & Verification Console
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Strict 6-point verification vetting (1 pre-check OTP + 5 operations checks: Aadhaar, Address, Criminal, Skill, References).
+            Strict 6-point verification vetting: 1. Phone OTP, 2. Identity, 3. Address, 4. Emergency Contact, 5. Employer Reference, 6. Police Clearance.
           </p>
         </div>
         <button
@@ -172,8 +172,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
           </div>
           <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
             A domestic worker is granted the <code>FULLY_VERIFIED</code> badge only when all 6 validation checks pass on the server:
-            (1) Mobile Phone OTP Pre-Check, (2) Government Identity (Aadhaar), (3) Residential Address Proof,
-            (4) Criminal Record Self-Declaration, (5) Skill Certificate / Driver License, and (6) Prior Employer Reference Check.
+            (1) Phone OTP, (2) Identity, (3) Address, (4) Emergency Contact, (5) Employer Reference, and (6) Police Clearance.
           </div>
         </div>
       </div>
@@ -284,7 +283,31 @@ export const VerificationExecutiveDashboard: React.FC = () => {
               </thead>
               <tbody>
                 {currentQueue.map((item) => (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={item.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Open verification for ${item.workerName}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     <td style={{ padding: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.id}</td>
                     <td style={{ padding: '12px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.workerName}</div>

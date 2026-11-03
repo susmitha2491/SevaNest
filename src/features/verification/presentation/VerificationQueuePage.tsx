@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Clock,
   CheckCircle2,
+  Eye,
+  FileText,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -24,6 +26,8 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { ConcurrencyConflictError, ValidationError } from '../../../core/errors/DomainError';
 import { VerificationHistoryPage } from './VerificationHistoryPage';
 import { WorkerVerificationReviewModal } from './WorkerVerificationReviewModal';
+import { VerificationCheckStatusView } from './VerificationCheckStatusView';
+import { VerificationDocumentReviewView } from './VerificationDocumentReviewView';
 
 export interface VerificationQueuePageProps {
   viewMode?: 'all' | 'my-reviews' | 'rechecks' | 'corrections' | 'history';
@@ -42,10 +46,28 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN';
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
 
+  const [activeSection, setActiveSection] = useState<'queue' | 'document-review' | 'check-status' | 'expiry-recheck'>(() => {
+    const s = searchParams.get('section') || searchParams.get('tab');
+    if (s === 'document-review' || location.pathname.includes('/document-review')) return 'document-review';
+    if (s === 'check-status' || location.pathname.includes('/check-status')) return 'check-status';
+    if (s === 'expiry-recheck' || s === 'rechecks' || location.pathname.includes('/rechecks')) return 'expiry-recheck';
+    return 'queue';
+  });
+
+  useEffect(() => {
+    const s = searchParams.get('section') || searchParams.get('tab');
+    if (s === 'document-review' || location.pathname.includes('/document-review')) setActiveSection('document-review');
+    else if (s === 'check-status' || location.pathname.includes('/check-status')) setActiveSection('check-status');
+    else if (s === 'expiry-recheck' || s === 'rechecks' || location.pathname.includes('/rechecks')) setActiveSection('expiry-recheck');
+    else if (!s && location.pathname === '/verification') setActiveSection('queue');
+  }, [searchParams, location.pathname]);
+
+  const effectiveSection = activeSection;
+
   const effectiveViewMode: 'all' | 'my-reviews' | 'rechecks' | 'corrections' | 'history' = propViewMode || (
     location.pathname.includes('/my-reviews')
       ? 'my-reviews'
-      : location.pathname.includes('/rechecks')
+      : location.pathname.includes('/rechecks') || effectiveSection === 'expiry-recheck'
       ? 'rechecks'
       : location.pathname.includes('/corrections')
       ? 'corrections'
@@ -57,7 +79,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const initialStatus = searchParams.get('status') || propDefaultStatus || (
     effectiveViewMode === 'my-reviews'
       ? 'IN_REVIEW'
-      : effectiveViewMode === 'rechecks'
+      : effectiveViewMode === 'rechecks' || effectiveSection === 'expiry-recheck'
       ? 'RECHECK_DUE'
       : effectiveViewMode === 'corrections'
       ? 'REJECTED'
@@ -310,12 +332,94 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
           }}
         >
           <ShieldCheck size={16} />
-          <span>Operational Verification Workstation</span>
+          <span>Operational Verification SLA: 48 Hours</span>
         </div>
+      </div>
+
+      {/* 4 Working Sections for Verification Executive */}
+      <div
+        role="tablist"
+        aria-label="Verification Sections"
+        style={{
+          display: 'flex',
+          gap: 'var(--space-2)',
+          borderBottom: '2px solid var(--color-border)',
+          paddingBottom: '0',
+          marginBottom: 'var(--space-2)',
+          overflowX: 'auto',
+        }}
+      >
+        {[
+          { id: 'queue' as const, label: 'Verification Queue', icon: FileText, count: queueData?.totalCount },
+          { id: 'document-review' as const, label: 'Document Review', icon: Eye },
+          { id: 'check-status' as const, label: 'Check Status', icon: CheckCircle2 },
+          { id: 'expiry-recheck' as const, label: 'Expiry & Re-check', icon: RefreshCw },
+        ].map((tab) => {
+          const isActive = effectiveSection === tab.id && effectiveViewMode !== 'history';
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => {
+                setActiveSection(tab.id);
+                updateUrlParams({
+                  section: tab.id === 'queue' ? null : tab.id,
+                  tab: tab.id === 'queue' ? null : tab.id,
+                  page: 1,
+                  status: tab.id === 'expiry-recheck' ? 'RECHECK_DUE' : (tab.id === 'queue' ? (selectedStatus === 'RECHECK_DUE' ? 'ALL' : selectedStatus) : null),
+                });
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 18px',
+                border: 'none',
+                borderBottom: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
+                backgroundColor: isActive ? 'var(--color-primary-subtle)' : 'transparent',
+                color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                fontSize: 'var(--font-size-sm)',
+                cursor: 'pointer',
+                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                transition: 'all var(--transition-fast)',
+                whiteSpace: 'nowrap',
+                marginBottom: '-2px',
+              }}
+            >
+              <Icon size={16} />
+              <span>{tab.label}</span>
+              {tab.count !== undefined && tab.count > 0 && (
+                <span
+                  style={{
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-bg-subtle)',
+                    color: isActive ? '#ffffff' : 'var(--color-text-secondary)',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                  }}
+                >
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {effectiveViewMode === 'history' ? (
         <VerificationHistoryPage onSelectDossier={handleSelectDossier} hideHeader={true} />
+      ) : effectiveSection === 'document-review' ? (
+        <VerificationDocumentReviewView
+          selectedDossierId={selectedDossierId}
+          onSelectDossier={handleSelectDossier}
+          onClearSelectedDossier={() => handleSelectDossier(null)}
+        />
+      ) : effectiveSection === 'check-status' ? (
+        <VerificationCheckStatusView onSelectDossier={handleSelectDossier} />
       ) : (
         <>
 
@@ -607,7 +711,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                         tabIndex={0}
                         role="button"
                         aria-label={`Open verification dossier for ${item.workerName}`}
-                        className={`verification-queue-row ${isSelected ? 'selected' : ''}`}
+                        className={`verification-queue-row clickable-table-row ${isSelected ? 'selected' : ''}`}
                         onClick={(e) => {
                           const target = e.target as { closest?: (selector: string) => unknown };
                           if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
@@ -628,6 +732,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                         style={{
                           borderBottom: '1px solid var(--color-border)',
                           backgroundColor: isSelected ? 'var(--color-brand-50)' : 'transparent',
+                          cursor: 'pointer',
                         }}
                       >
                         <td style={{ padding: 'var(--space-4)' }}>

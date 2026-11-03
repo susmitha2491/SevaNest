@@ -14,9 +14,7 @@ import {
   LogOut,
   Menu,
   X,
-  Search,
   User,
-  ShieldCheck,
   LucideIcon,
   ChevronDown,
   Edit3,
@@ -26,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../../core/auth/authStore';
 import { authRepository } from '../../features/auth/data/authRepository';
-import { hasPermission, PERMISSIONS, getDefaultLandingRoute, getRoleLabel } from '../../core/rbac/permissions';
+import { hasPermission, PERMISSIONS, getRoleLabel } from '../../core/rbac/permissions';
 import { env } from '../../core/config/env';
 
 interface NavItem {
@@ -83,25 +81,14 @@ const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
     title: '',
     items: [
       { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
+      { name: 'Verification', path: '/verification', icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
       { name: 'Workers Directory', path: '/workers/directory', end: true, icon: Users, permission: PERMISSIONS.WORKER_VIEW },
-    ],
-  },
-  {
-    title: 'Verification Queue',
-    icon: ShieldCheck,
-    items: [
-      { name: 'All Applications', path: '/verification', end: true, permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'My Reviews', path: '/verification/my-reviews', permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Rechecks & Expiry', path: '/verification/rechecks', permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Corrections Required', path: '/verification/corrections', permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Review History', path: '/verification/history', permission: PERMISSIONS.VERIFICATION_REVIEW },
     ],
   },
 ];
 
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [globalSearch, setGlobalSearch] = useState('');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [globalToast, setGlobalToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const profileMenuRef = useRef<React.ComponentRef<'div'>>(null);
@@ -156,13 +143,6 @@ export const AppShell: React.FC = () => {
     }
   };
 
-  const handleSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!globalSearch.trim()) return;
-    const targetRoute = getDefaultLandingRoute(user);
-    navigate(`${targetRoute}?search=${encodeURIComponent(globalSearch.trim())}`);
-  };
-
   return (
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-bg-app)' }}>
       {/* Sidebar Navigation */}
@@ -197,10 +177,10 @@ export const AppShell: React.FC = () => {
           {sidebarOpen ? (
             <div style={{ display: 'flex', alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
               <img
-                src="/sevanest-logo.png"
+                src="/SevaNest_logo-removebg-preview.png"
                 alt="SevaNest logo"
                 style={{
-                  height: '42px',
+                  height: '44px',
                   maxWidth: '160px',
                   width: 'auto',
                   objectFit: 'contain',
@@ -210,10 +190,10 @@ export const AppShell: React.FC = () => {
             </div>
           ) : (
             <img
-              src="/sevanest-logo.png"
+              src="/SevaNest_logo-removebg-preview.png"
               alt="SevaNest logo"
               style={{
-                height: '32px',
+                height: '34px',
                 maxWidth: '36px',
                 width: 'auto',
                 objectFit: 'contain',
@@ -448,45 +428,13 @@ export const AppShell: React.FC = () => {
             borderBottom: '1px solid var(--color-border-subtle)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             padding: '0 var(--space-5)',
             position: 'sticky',
             top: 0,
             zIndex: 30,
           }}
         >
-          {/* Global Search Input */}
-          <form onSubmit={handleSearchSubmit} style={{ width: '100%', maxWidth: '380px' }}>
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                backgroundColor: 'var(--color-bg-app)',
-                border: '1px solid var(--color-border-subtle)',
-                borderRadius: 'var(--radius-md)',
-                padding: '0 var(--space-3)',
-                height: '34px',
-              }}
-            >
-              <Search size={16} style={{ color: 'var(--color-text-muted)' }} />
-              <input
-                type="text"
-                value={globalSearch}
-                onChange={(e) => setGlobalSearch(e.target.value)}
-                placeholder="Search by ID, Name, Phone, or Booking Ref..."
-                style={{
-                  backgroundColor: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  color: 'var(--color-text-primary)',
-                  fontSize: 'var(--font-size-sm)',
-                  width: '100%',
-                }}
-              />
-            </div>
-          </form>
-
           {/* Header Utilities */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
             <span

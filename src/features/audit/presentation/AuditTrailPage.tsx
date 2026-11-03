@@ -198,7 +198,33 @@ export const AuditTrailPage: React.FC = () => {
                 </tr>
               ) : (
                 auditData?.items.map((log) => (
-                  <tr key={log.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={log.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View audit log details for event ${log.id}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setSelectedLog(log);
+                      setIsDetailOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setSelectedLog(log);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     <td style={{ padding: 'var(--space-4)', fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
                       {log.id}
                     </td>

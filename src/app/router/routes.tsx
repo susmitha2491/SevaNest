@@ -101,6 +101,26 @@ export const routes: RouteObject[] = [
         ),
       },
       {
+        path: 'verification/document-review',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.VERIFICATION_REVIEW}>
+            <LazyRoute label="Loading document review workstation...">
+              <VerificationQueuePage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'verification/check-status',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.VERIFICATION_REVIEW}>
+            <LazyRoute label="Loading check status workstation...">
+              <VerificationQueuePage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: 'verification/my-reviews',
         element: (
           <ProtectedRoute permission={PERMISSIONS.VERIFICATION_REVIEW}>

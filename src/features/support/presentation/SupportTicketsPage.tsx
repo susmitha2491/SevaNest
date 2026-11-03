@@ -509,7 +509,33 @@ export const SupportTicketsPage: React.FC = () => {
                 </tr>
               ) : (
                 supportData?.items.map((tkt) => (
-                  <tr key={tkt.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={tkt.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View support ticket details for ${tkt.id}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setSelectedTicket(tkt);
+                      setIsDetailOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setSelectedTicket(tkt);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     {/* Ticket ID */}
                     <td style={{ padding: 'var(--space-4)' }}>
                       <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>

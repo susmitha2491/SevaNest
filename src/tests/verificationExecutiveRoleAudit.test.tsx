@@ -154,10 +154,11 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
 
       renderApp('/verification');
 
-      // Authorized items must be present in navigation
-      expect(await screen.findByText(/^Verification Queue$/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      // Authorized items must be present in navigation (strictly Verification and Workers Directory when dashboard.view is absent)
+      expect(await screen.findByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(await screen.findByRole('tab', { name: /Verification Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Dashboard$/i })).not.toBeInTheDocument();
 
       // Prohibited / removed items MUST NOT be rendered in navigation
       expect(screen.queryByRole('link', { name: /^Worker Management$/i })).not.toBeInTheDocument();
@@ -190,10 +191,11 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
 
       renderApp('/verification');
 
+      // Strictly 3 primary entries: Dashboard, Verification, Workers Directory
       expect(await screen.findByRole('link', { name: /Dashboard/i })).toBeInTheDocument();
-      expect(screen.getByText(/^Verification Queue$/i)).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(await screen.findByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Worker Management$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });

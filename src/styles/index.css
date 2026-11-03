@@ -342,14 +342,21 @@ tbody tr:hover {
   border-left: 3px solid var(--color-primary);
 }
 
-.worker-directory-row:hover {
+.worker-directory-row:hover,
+.clickable-table-row:hover {
   background-color: var(--color-brand-50) !important;
 }
 
-.worker-directory-row:focus-visible {
+.worker-directory-row:focus-visible,
+.clickable-table-row:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: -2px;
   background-color: var(--color-brand-50);
+}
+
+.clickable-table-row {
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
 }
 
 /* Centered Worker Verification Dossier Modal */

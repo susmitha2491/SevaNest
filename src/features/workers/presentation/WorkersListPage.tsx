@@ -1,4 +1,4 @@
-/* global HTMLDivElement, IntersectionObserver */
+/* global HTMLDivElement, IntersectionObserver, CustomEvent */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
@@ -93,19 +93,45 @@ export const WorkersListPage: React.FC = () => {
       setIsRejecting(true);
       setRejectError(null);
 
-      // Call authoritative worker-level rejection endpoint (no fallback to individual check rejection)
+      // Call authoritative rejection handler (notifies worker app via backend check rejection)
       if (typeof verificationRepository.rejectWorker === 'function') {
         await verificationRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
       } else {
         await workerRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
       }
 
+      // Optimistically update workers query cache
+      queryClient.setQueryData<Worker[]>(['workers'], (old) => {
+        if (!old) return old;
+        return old.map((w) =>
+          w.id === rejectWorker.id
+            ? {
+                ...w,
+                verificationStatus: 'REJECTED',
+                applicationStatus: 'REJECTED',
+                onboardingStatus: 'REJECTED',
+                matchingEligible: false,
+              }
+            : w
+        );
+      });
+
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['workers'] }),
+        queryClient.invalidateQueries({ queryKey: ['workers-directory'] }),
         queryClient.invalidateQueries({ queryKey: ['verification'] }),
         queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
         refetch(),
       ]);
+
+      window.dispatchEvent(
+        new CustomEvent('sevanest:toast', {
+          detail: {
+            type: 'success',
+            message: `Worker application for ${rejectWorker.name || 'Worker'} rejected. The applicant has been notified in their app.`,
+          },
+        })
+      );
 
       setIsRejectDialogOpen(false);
       setRejectWorker(null);

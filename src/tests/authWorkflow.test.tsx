@@ -852,7 +852,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
 
       const logo = await screen.findByAltText('SevaNest logo');
       expect(logo).toBeInTheDocument();
-      expect(logo).toHaveAttribute('src', '/sevanest-logo.png');
+      expect(logo.getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
     });
 
     it('renders the official SevaNest logo in the authenticated shell sidebar', async () => {
@@ -871,7 +871,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
 
       const logo = await screen.findByAltText('SevaNest logo');
       expect(logo).toBeInTheDocument();
-      expect(logo).toHaveAttribute('src', '/sevanest-logo.png');
+      expect(logo.getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
     });
   });
 

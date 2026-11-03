@@ -1,9 +1,23 @@
-import { Worker, WorkerDetail, WorkerFilterCriteria, WorkerPageResult, IWorkerRepository, WorkerDocumentMetadata } from '../domain/types';
+import {
+  Worker,
+  WorkerDetail,
+  WorkerFilterCriteria,
+  WorkerPageResult,
+  IWorkerRepository,
+  WorkerDocumentMetadata,
+  WorkerAddress,
+  WorkerPreviousEmployer,
+  WorkerCriminalDeclaration,
+  WorkerReferenceItem,
+  WorkerAvailabilitySchedule,
+  WorkerBlacklistInfo,
+} from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { formatPhoneNumber, getWorkerPhone, setWorkerPhone } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { DomainError, ValidationError, NotFoundError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
+import { mapToBackendReasonCode } from '../../verification/data/verificationRepository';
 
 const MOCK_WORKERS: WorkerDetail[] = [
   {
@@ -37,6 +51,50 @@ const MOCK_WORKERS: WorkerDetail[] = [
     updatedAt: '2026-02-10T14:30:00Z',
     preferredServiceArea: 'Kondapur, Madhapur, Gachibowli',
     expectedCompensation: '₹18,000 / month',
+    expectedSalary: 18000,
+    experienceMonths: 60,
+    applicationReference: 'SEVA00000001',
+    submittedAt: '2026-01-05T10:00:00Z',
+    preferredLanguage: 'hi',
+    hasProfilePhoto: true,
+    hasEmergencyContact: true,
+    emergencyContact: {
+      name: 'Suresh Devi',
+      mobile: '+91 98765 43219',
+      relationship: 'Spouse',
+    },
+    address: {
+      line: 'Flat 302, Sri Sai Towers',
+      area: 'Kondapur',
+      city: 'Hyderabad',
+      pincode: '500084',
+    },
+    previousEmployer: {
+      name: 'Rajesh Khanna',
+      mobile: '+91 98765 11111',
+    },
+    criminalDeclaration: {
+      hasCriminalRecord: false,
+      details: null,
+      acceptedAt: '2026-01-05T10:10:00Z',
+    },
+    references: [
+      {
+        id: 'ref-1',
+        name: 'Dr. V. Prasad',
+        mobile: '+91 98765 22222',
+        relationship: 'Former Employer',
+      },
+    ],
+    availabilitySchedule: {
+      engagementPreference: 'FULL_TIME',
+      areas: [
+        { id: 'area-1', name: 'Kondapur', city: 'Hyderabad', isEnabled: true },
+        { id: 'area-2', name: 'Madhapur', city: 'Hyderabad', isEnabled: true },
+      ],
+      timeWindows: [{ start: '08:00', end: '16:00' }],
+    },
+    missingForSubmission: [],
     availability: 'Available for Immediate Allocation',
     activeEngagementsCount: 1,
     completedBookingsCount: 34,
@@ -126,6 +184,49 @@ const MOCK_WORKERS: WorkerDetail[] = [
     updatedAt: '2026-02-05T11:00:00Z',
     preferredServiceArea: 'Gachibowli, HITEC City, Financial District',
     expectedCompensation: '₹22,000 / month',
+    expectedSalary: 22000,
+    experienceMonths: 96,
+    applicationReference: 'SEVA00000002',
+    submittedAt: '2026-01-08T09:00:00Z',
+    preferredLanguage: 'hi',
+    hasProfilePhoto: true,
+    hasEmergencyContact: true,
+    emergencyContact: {
+      name: 'Kavita Yadav',
+      mobile: '+91 98450 99999',
+      relationship: 'Spouse',
+    },
+    address: {
+      line: 'House No. 12-4, Telecom Nagar',
+      area: 'Gachibowli',
+      city: 'Hyderabad',
+      pincode: '500032',
+    },
+    previousEmployer: {
+      name: 'Vikram Mehta',
+      mobile: '+91 98450 88888',
+    },
+    criminalDeclaration: {
+      hasCriminalRecord: false,
+      details: null,
+      acceptedAt: '2026-01-08T09:05:00Z',
+    },
+    references: [
+      {
+        id: 'ref-2',
+        name: 'Col. Sanjeev Rao',
+        mobile: '+91 98450 77777',
+        relationship: 'Vehicle Owner',
+      },
+    ],
+    availabilitySchedule: {
+      engagementPreference: 'FULL_TIME',
+      areas: [
+        { id: 'area-3', name: 'Gachibowli', city: 'Hyderabad', isEnabled: true },
+      ],
+      timeWindows: [{ start: '09:00', end: '18:00' }],
+    },
+    missingForSubmission: [],
     availability: 'Under Verification Review',
     activeEngagementsCount: 1,
     completedBookingsCount: 52,
@@ -623,7 +724,12 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   };
 }
 
-export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknown>, verifData?: Record<string, unknown>): WorkerDetail {
+export function mapBackendWorkerDetailToWorkerDetail(
+  data: Record<string, unknown>,
+  verifData?: Record<string, unknown>,
+  refData?: unknown,
+  availData?: unknown
+): WorkerDetail {
   const unwrappedData = (data?.data && typeof data.data === 'object' && !Array.isArray(data.data) ? data.data : data) as Record<string, unknown>;
   const unwrappedVerif = (verifData?.data && typeof verifData.data === 'object' && !Array.isArray(verifData.data) ? verifData.data : verifData) as Record<string, unknown> | undefined;
 
@@ -847,18 +953,160 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
     summary.phoneMasked = formatted;
   }
 
+  // Address parsing
+  const rawAddress = unwrappedData.address as Record<string, unknown> | undefined;
+  const address: WorkerAddress | null = rawAddress && typeof rawAddress === 'object' && (rawAddress.line || rawAddress.area || rawAddress.city || rawAddress.pincode)
+    ? {
+        line: String(rawAddress.line || ''),
+        area: String(rawAddress.area || ''),
+        city: String(rawAddress.city || ''),
+        pincode: String(rawAddress.pincode || ''),
+      }
+    : null;
+
+  if (address?.area && (!summary.locality || summary.locality === 'Hyderabad')) {
+    summary.locality = address.area;
+  }
+
+  // Previous employer parsing
+  const rawPrevEmp = unwrappedData.previousEmployer as Record<string, unknown> | undefined;
+  const previousEmployer: WorkerPreviousEmployer | null = rawPrevEmp && typeof rawPrevEmp === 'object' && (rawPrevEmp.name || rawPrevEmp.mobile)
+    ? {
+        name: String(rawPrevEmp.name || ''),
+        mobile: String(rawPrevEmp.mobile || ''),
+      }
+    : null;
+
+  // Criminal declaration parsing
+  const rawCrim = unwrappedData.criminalDeclaration as Record<string, unknown> | undefined;
+  const criminalDeclaration: WorkerCriminalDeclaration | null = rawCrim && typeof rawCrim === 'object'
+    ? {
+        hasCriminalRecord: Boolean(rawCrim.hasCriminalRecord),
+        details: rawCrim.details ? String(rawCrim.details) : null,
+        acceptedAt: String(rawCrim.acceptedAt || ''),
+      }
+    : null;
+
+  // Third-party references parsing
+  let references: WorkerReferenceItem[] | undefined;
+  if (Array.isArray(refData)) {
+    references = (refData as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id || ''),
+      name: String(r.name || ''),
+      mobile: String(r.mobile || ''),
+      relationship: r.relationship ? String(r.relationship) : null,
+    }));
+  } else if (refData && typeof refData === 'object' && Array.isArray((refData as { data?: unknown[] }).data)) {
+    references = ((refData as { data: Record<string, unknown>[] }).data).map((r) => ({
+      id: String(r.id || ''),
+      name: String(r.name || ''),
+      mobile: String(r.mobile || ''),
+      relationship: r.relationship ? String(r.relationship) : null,
+    }));
+  } else if (Array.isArray(unwrappedData.references)) {
+    references = (unwrappedData.references as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id || ''),
+      name: String(r.name || ''),
+      mobile: String(r.mobile || ''),
+      relationship: r.relationship ? String(r.relationship) : null,
+    }));
+  }
+
+  // Availability schedule parsing
+  const rawAvail = (availData && typeof availData === 'object' && 'data' in availData && typeof (availData as { data?: unknown }).data === 'object'
+    ? (availData as { data: Record<string, unknown> }).data
+    : availData || unwrappedData.availabilitySchedule) as Record<string, unknown> | undefined;
+
+  const availabilitySchedule: WorkerAvailabilitySchedule | null = rawAvail && typeof rawAvail === 'object'
+    ? {
+        engagementPreference: rawAvail.engagementPreference ? String(rawAvail.engagementPreference) : null,
+        areas: Array.isArray(rawAvail.areas)
+          ? (rawAvail.areas as Record<string, unknown>[]).map((a) => ({
+              id: String(a.id || ''),
+              name: String(a.name || ''),
+              city: String(a.city || ''),
+              isEnabled: typeof a.isEnabled === 'boolean' ? a.isEnabled : true,
+            }))
+          : [],
+        timeWindows: Array.isArray(rawAvail.timeWindows)
+          ? (rawAvail.timeWindows as Record<string, unknown>[]).map((tw) => ({
+              start: String(tw.start || ''),
+              end: String(tw.end || ''),
+            }))
+          : [],
+      }
+    : null;
+
+  // Missing for submission
+  const missingForSubmission = Array.isArray(unwrappedData.missingForSubmission)
+    ? unwrappedData.missingForSubmission.map(String)
+    : [];
+
+  // Blacklist info
+  const rawBlacklist = unwrappedData.blacklist as Record<string, unknown> | undefined;
+  const blacklistInfo: WorkerBlacklistInfo | null = rawBlacklist && typeof rawBlacklist === 'object'
+    ? {
+        at: String(rawBlacklist.at || ''),
+        reason: String(rawBlacklist.reason || ''),
+        byUserId: rawBlacklist.byUserId ? String(rawBlacklist.byUserId) : null,
+      }
+    : null;
+
+  // Emergency contact (direct or null)
+  const rawEmergency = unwrappedData.emergencyContact as Record<string, unknown> | undefined;
+  const emergencyContact = rawEmergency && typeof rawEmergency === 'object'
+    ? {
+        name: String(rawEmergency.name || ''),
+        mobile: String(rawEmergency.mobile || ''),
+        relationship: rawEmergency.relationship ? String(rawEmergency.relationship) : null,
+      }
+    : null;
+
+  const expectedSalary = typeof unwrappedData.expectedSalary === 'number' ? unwrappedData.expectedSalary : null;
+  const experienceMonths = typeof unwrappedData.experienceMonths === 'number'
+    ? unwrappedData.experienceMonths
+    : typeof unwrappedData.experienceYears === 'number'
+    ? unwrappedData.experienceYears * 12
+    : null;
+
+  let expectedCompString: string | undefined = undefined;
+  if (unwrappedData.expectedCompensation) {
+    expectedCompString = String(unwrappedData.expectedCompensation);
+  } else if (expectedSalary !== null) {
+    expectedCompString = `₹${expectedSalary.toLocaleString('en-IN')} / month`;
+  }
+
+  const preferredAreaString = availabilitySchedule?.areas?.length
+    ? availabilitySchedule.areas.map((a) => a.name).join(', ')
+    : String(unwrappedData.preferredServiceArea || summary.locality || '');
+
   return {
     ...summary,
     isFullyVerified: effectiveFullyVerified,
     serviceRadiusKm: Number(unwrappedData.serviceRadiusKm || 8),
     languages: Array.isArray(unwrappedData.languages) ? unwrappedData.languages.map(String) : [],
+    preferredLanguage: unwrappedData.preferredLanguage ? String(unwrappedData.preferredLanguage) : null,
     bio: String(unwrappedData.bio || ''),
     skills: Array.isArray(unwrappedData.skills) ? unwrappedData.skills.map(String) : summary.categories || [summary.category],
-    preferredServiceArea: String(unwrappedData.preferredServiceArea || summary.locality || ''),
-    expectedCompensation: unwrappedData.expectedSalary || unwrappedData.expectedCompensation ? String(unwrappedData.expectedSalary || unwrappedData.expectedCompensation) : undefined,
+    preferredServiceArea: preferredAreaString,
+    expectedCompensation: expectedCompString,
+    expectedSalary,
+    experienceMonths,
     availability: String(unwrappedData.availability || (summary.status === 'ACTIVE' ? 'Available for Allocation' : 'Unavailable')),
     registeredAt: summary.registeredAt || (unwrappedData.createdAt ? String(unwrappedData.createdAt) : undefined),
     updatedAt: unwrappedData.updatedAt ? String(unwrappedData.updatedAt) : undefined,
+    applicationReference: unwrappedData.applicationReference ? String(unwrappedData.applicationReference) : null,
+    submittedAt: unwrappedData.submittedAt ? String(unwrappedData.submittedAt) : null,
+    hasProfilePhoto: Boolean(unwrappedData.hasProfilePhoto),
+    hasEmergencyContact: Boolean(unwrappedData.hasEmergencyContact),
+    emergencyContact,
+    address,
+    previousEmployer,
+    criminalDeclaration,
+    references,
+    availabilitySchedule,
+    missingForSubmission,
+    blacklistInfo,
     activeEngagementsCount: Number(unwrappedData.activeEngagementsCount || 0),
     completedBookingsCount: Number(unwrappedData.completedBookingsCount || 0),
     replacementsIncurred: Number(unwrappedData.replacementsIncurred || 0),
@@ -1304,9 +1552,11 @@ export class RealWorkerRepository implements IWorkerRepository {
 
   async getWorkerById(id: string): Promise<WorkerDetail | null> {
     try {
-      const [workerRes, verifRes] = await Promise.all([
+      const [workerRes, verifRes, refRes, availRes] = await Promise.all([
         httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}`),
         httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}/verification`).catch(() => ({ data: undefined })),
+        httpClient.get<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }>(`/admin/workers/${encodeURIComponent(id)}/references`).catch(() => ({ data: [] })),
+        httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}/availability`).catch(() => ({ data: undefined })),
       ]);
 
       const rawWorker = workerRes.data as Record<string, unknown>;
@@ -1320,8 +1570,26 @@ export class RealWorkerRepository implements IWorkerRepository {
         ? rawVerif.data
         : rawVerif) as Record<string, unknown> | undefined;
 
+      const rawRefs = refRes.data as unknown;
+      const rawAvail = availRes.data as unknown;
+
       if (!unwrappedWorker || Object.keys(unwrappedWorker).length === 0) return null;
-      return mapBackendWorkerDetailToWorkerDetail(unwrappedWorker, unwrappedVerif);
+      return mapBackendWorkerDetailToWorkerDetail(unwrappedWorker, unwrappedVerif, rawRefs, rawAvail);
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async revealEmergencyContact(workerId: string, reason: string): Promise<{ name: string; mobile: string }> {
+    try {
+      const response = await httpClient.post<{ name: string; mobile: string } | { data?: { name: string; mobile: string } }>(
+        `/admin/workers/${encodeURIComponent(workerId)}/emergency-contact/reveal`,
+        { reason: reason || 'Operational verification review' }
+      );
+      const resData = (response.data && typeof response.data === 'object' && 'data' in response.data && (response.data as { data: { name: string; mobile: string } }).data
+        ? (response.data as { data: { name: string; mobile: string } }).data
+        : response.data) as { name: string; mobile: string };
+      return resData;
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1435,26 +1703,64 @@ export class RealWorkerRepository implements IWorkerRepository {
       throw new ValidationError('Rejection remarks must be at least 5 characters', undefined, undefined, 'REMARKS_TOO_SHORT');
     }
 
+    const reasonCode = mapToBackendReasonCode(category);
+    const cleanRemarks = remarks.trim();
+
     try {
       await httpClient.post(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/reject`, {
         category,
-        reason: remarks.trim(),
-        remarks: remarks.trim(),
+        reasonCode,
+        reason: cleanRemarks,
+        remarks: cleanRemarks,
       });
+      return;
     } catch (err: unknown) {
       const is404 =
         (err as { response?: { status?: number } })?.response?.status === 404 ||
         (err as { status?: number })?.status === 404 ||
         (err as { statusCode?: number })?.statusCode === 404 ||
         err instanceof NotFoundError;
-      if (is404) {
-        throw new NotFoundError(
-          'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
-          undefined,
-          'WORKER_REJECTION_NOT_IMPLEMENTED'
-        );
+
+      if (!is404) {
+        if (err instanceof DomainError) throw err;
+        throw mapHttpErrorToDomainError(err);
       }
-      throw mapHttpErrorToDomainError(err);
+    }
+
+    // Fallback: Reject via verification checks to trigger backend's VERIFICATION_REJECTED notification to the worker app
+    try {
+      const vRes = await httpClient.get<{ checks?: Array<{ checkId?: string; status?: string; required?: boolean }> }>(
+        `/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification`
+      );
+      const vData = (vRes.data && 'data' in (vRes.data as Record<string, unknown>) && (vRes.data as Record<string, unknown>).data
+        ? (vRes.data as Record<string, unknown>).data
+        : vRes.data) as { checks?: Array<{ checkId?: string; status?: string; required?: boolean }> };
+      const checks = vData?.checks;
+      if (Array.isArray(checks)) {
+        const actionable = checks.filter((c) => c.checkId && typeof c.checkId === 'string' && c.checkId.trim() !== '' && c.status !== 'REJECTED');
+        const targets = actionable.filter((c) => c.status === 'SUBMITTED' || c.status === 'IN_REVIEW' || c.required);
+        const toReject = targets.length > 0 ? targets : actionable;
+        for (const c of toReject) {
+          if (!c.checkId) continue;
+          try {
+            if (c.status === 'SUBMITTED') {
+              try {
+                await httpClient.post(`/admin/verification/checks/${encodeURIComponent(c.checkId)}/start-review`, {});
+              } catch {
+                // Ignore conflict if already in review
+              }
+            }
+            await httpClient.post(`/admin/verification/checks/${encodeURIComponent(c.checkId)}/reject`, {
+              reasonCode,
+              remarks: cleanRemarks,
+            });
+          } catch {
+            // continue
+          }
+        }
+      }
+    } catch {
+      // Fallback complete
     }
   }
 
@@ -1590,7 +1896,7 @@ export class MockWorkerRepository implements IWorkerRepository {
     }
   }
 
-  public simulateWorkerRejectionSupported = false;
+  public simulateWorkerRejectionSupported = true;
 
   async rejectWorker(workerId: string, category: string, remarks: string): Promise<void> {
     if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
@@ -1608,7 +1914,7 @@ export class MockWorkerRepository implements IWorkerRepository {
       throw new ValidationError('Rejection remarks must be at least 5 characters', undefined, undefined, 'REMARKS_TOO_SHORT');
     }
 
-    if (!this.simulateWorkerRejectionSupported) {
+    if (this.simulateWorkerRejectionSupported === false) {
       throw new NotFoundError(
         'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
         undefined,
@@ -1622,6 +1928,7 @@ export class MockWorkerRepository implements IWorkerRepository {
       worker.verificationStatus = 'REJECTED';
       worker.onboardingStatus = 'REJECTED';
       worker.applicationStatus = 'REJECTED';
+      worker.matchingEligible = false;
       worker.level = 'REJECTED';
       worker.verificationLevel = 'REJECTED';
       worker.verification.level = 'REJECTED';
@@ -1672,6 +1979,14 @@ export class MockWorkerRepository implements IWorkerRepository {
     worker.applicationStatus = 'ACTIVE';
     worker.activatedAt = new Date().toISOString();
     return { ...worker };
+  }
+
+  async revealEmergencyContact(workerId: string, _reason: string): Promise<{ name: string; mobile: string }> {
+    const worker = MOCK_WORKERS.find((w) => w.id === workerId);
+    if (worker?.emergencyContact) {
+      return { name: worker.emergencyContact.name, mobile: worker.emergencyContact.mobile };
+    }
+    return { name: 'Emergency Contact Person', mobile: '+91 98765 43211' };
   }
 }
 

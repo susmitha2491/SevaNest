@@ -1,8 +1,8 @@
 /* global HTMLDivElement, IntersectionObserver */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
-import { Search, Filter, Ban, RefreshCw, User, CheckCircle } from 'lucide-react';
+import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { Search, Filter, Ban, RefreshCw, CheckCircle, X } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -12,12 +12,14 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { CustomerDetailModal } from './CustomerDetailModal';
+import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 
 export const CustomersListPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => searchParams.get('search') || '');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>(
     () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED') || 'ALL'
   );
@@ -25,21 +27,45 @@ export const CustomersListPage: React.FC = () => {
   const [sortField, setSortField] = useState<'name' | 'id' | 'totalBookings'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [detailModalId, setDetailModalId] = useState<string | null>(() => searchParams.get('customerId') || null);
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
+  const [isActivateOpen, setIsActivateOpen] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Debounce search term to prevent rapid server refetches, query thrashing, and page refreshes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        const trimmed = searchTerm.trim();
+        if (trimmed) {
+          next.set('search', trimmed);
+        } else {
+          next.delete('search');
+        }
+        return next;
+      }, { replace: true });
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm, setSearchParams]);
 
   useEffect(() => {
     const cid = searchParams.get('customerId');
     if (cid !== detailModalId) {
       setDetailModalId(cid);
     }
-    const q = searchParams.get('search');
-    if (q !== null && q !== searchTerm) {
+    const q = searchParams.get('search') || '';
+    if (q !== debouncedSearchTerm && q !== searchTerm) {
       setSearchTerm(q);
+      setDebouncedSearchTerm(q);
     }
     const stat = searchParams.get('status');
     if (stat && stat !== statusFilter) {
@@ -49,7 +75,7 @@ export const CustomersListPage: React.FC = () => {
     if (loc && loc !== localityFilter) {
       setLocalityFilter(loc);
     }
-  }, [searchParams, detailModalId, searchTerm, statusFilter, localityFilter]);
+  }, [searchParams, detailModalId, debouncedSearchTerm, searchTerm, statusFilter, localityFilter]);
 
   const handleOpenDetailModal = (id: string) => {
     setDetailModalId(id);
@@ -80,12 +106,12 @@ export const CustomersListPage: React.FC = () => {
     hasNextPage,
     isFetchingNextPage,
   } = useInfiniteQuery({
-    queryKey: ['customers', 'infinite', searchTerm, statusFilter, localityFilter],
+    queryKey: ['customers', 'infinite', debouncedSearchTerm, statusFilter, localityFilter],
     queryFn: async ({ pageParam = 1 }) => {
       if (typeof customerRepository.getCustomersPage === 'function') {
         return customerRepository.getCustomersPage(
           {
-            searchTerm,
+            searchTerm: debouncedSearchTerm,
             status: statusFilter,
             locality: localityFilter,
           },
@@ -94,7 +120,7 @@ export const CustomersListPage: React.FC = () => {
         );
       }
       const all = await customerRepository.getCustomers({
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         status: statusFilter,
         locality: localityFilter,
       });
@@ -108,6 +134,7 @@ export const CustomersListPage: React.FC = () => {
     },
     initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   });
 
   // Deduplicate customer records across loaded batches
@@ -194,19 +221,84 @@ export const CustomersListPage: React.FC = () => {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // Auto-dismiss success notification
+  useEffect(() => {
+    if (!successBanner) return;
+    const timer = setTimeout(() => {
+      setSuccessBanner(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [successBanner]);
+
+  const handleOpenSuspendModal = (customer: Customer, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedCustomer(customer);
+    setActionError(null);
+    setIsSuspendOpen(true);
+  };
+
+  const handleOpenActivateModal = (customer: Customer, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setSelectedCustomer(customer);
+    setActionError(null);
+    setIsActivateOpen(true);
+  };
+
+  const handleCloseSuspendModal = () => {
+    if (isActionLoading) return;
+    setIsSuspendOpen(false);
+    setSelectedCustomer(null);
+    setActionError(null);
+  };
+
+  const handleCloseActivateModal = () => {
+    if (isActionLoading) return;
+    setIsActivateOpen(false);
+    setSelectedCustomer(null);
+    setActionError(null);
+  };
+
   const handleSuspendConfirm = async (remarks?: string) => {
-    if (selectedCustomerId) {
-      await customerRepository.suspendCustomer(selectedCustomerId, remarks || 'Operational account suspension');
+    if (!selectedCustomer) return;
+    try {
+      setIsActionLoading(true);
+      setActionError(null);
+      await customerRepository.suspendCustomer(
+        selectedCustomer.id,
+        remarks || 'Operational account suspension'
+      );
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setSuccessBanner(
+        `Customer ${selectedCustomer.name} (${selectedCustomer.id}) has been successfully suspended.`
+      );
       setIsSuspendOpen(false);
-      await refetch();
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setSelectedCustomer(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to suspend customer account.';
+      setActionError(msg);
+    } finally {
+      setIsActionLoading(false);
     }
   };
 
-  const handleReactivateCustomer = async (id: string) => {
-    await customerRepository.reactivateCustomer(id);
-    await refetch();
-    queryClient.invalidateQueries({ queryKey: ['customers'] });
+  const handleActivateConfirm = async () => {
+    if (!selectedCustomer) return;
+    try {
+      setIsActionLoading(true);
+      setActionError(null);
+      await customerRepository.reactivateCustomer(selectedCustomer.id);
+      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      setSuccessBanner(
+        `Customer ${selectedCustomer.name} (${selectedCustomer.id}) has been successfully unsuspended.`
+      );
+      setIsActivateOpen(false);
+      setSelectedCustomer(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to unsuspend customer account.';
+      setActionError(msg);
+    } finally {
+      setIsActionLoading(false);
+    }
   };
 
   const localities = useMemo(() => {
@@ -214,11 +306,11 @@ export const CustomersListPage: React.FC = () => {
     return ['ALL', ...Array.from(set)];
   }, [allCustomers]);
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return <LoadingSpinner message="Loading customer directory..." />;
   }
 
-  if (isError) {
+  if (isError && allCustomers.length === 0 && !searchTerm) {
     return (
       <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
         <p style={{ color: 'var(--color-status-danger-text)', marginBottom: 'var(--space-4)' }}>
@@ -275,6 +367,48 @@ export const CustomersListPage: React.FC = () => {
         </button>
       </div>
 
+      {/* Success Notification Banner */}
+      {successBanner && (
+        <div
+          role="status"
+          aria-live="polite"
+          data-testid="customer-action-success-banner"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: 'var(--space-3) var(--space-4)',
+            backgroundColor: 'var(--color-status-success-bg, #f0fdf4)',
+            border: '1px solid var(--color-status-success-border, #bbf7d0)',
+            borderRadius: 'var(--radius-md)',
+            color: 'var(--color-status-success-text, #166534)',
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 500,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <CheckCircle size={18} style={{ color: 'var(--color-status-success-text, #166534)', flexShrink: 0 }} />
+            <span>{successBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSuccessBanner(null)}
+            aria-label="Dismiss success message"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-status-success-text, #166534)',
+              padding: '2px',
+              display: 'flex',
+              alignItems: 'center',
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div
         style={{
@@ -304,22 +438,10 @@ export const CustomersListPage: React.FC = () => {
             type="text"
             placeholder="Search by customer name, ID, or locality..."
             value={searchTerm}
-            onChange={(e) => {
-              const val = e.target.value;
-              setSearchTerm(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val) {
-                  next.set('search', val);
-                } else {
-                  next.delete('search');
-                }
-                return next;
-              }, { replace: true });
-            }}
+            onChange={(e) => setSearchTerm(e.target.value)}
             style={{
               width: '100%',
-              padding: '6px 10px 6px 34px',
+              padding: '6px 30px 6px 34px',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border-subtle)',
               backgroundColor: 'var(--color-bg-subtle)',
@@ -328,6 +450,36 @@ export const CustomersListPage: React.FC = () => {
               height: '34px',
             }}
           />
+          {searchTerm && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setSearchTerm('');
+                setDebouncedSearchTerm('');
+                setSearchParams((prev) => {
+                  const next = new window.URLSearchParams(prev);
+                  next.delete('search');
+                  return next;
+                }, { replace: true });
+              }}
+              style={{
+                position: 'absolute',
+                right: '8px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                color: 'var(--color-text-muted)',
+                padding: '2px',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         {/* Status Filter */}
@@ -487,7 +639,40 @@ export const CustomersListPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {filteredAndSortedCustomers.length === 0 ? (
+            {isError ? (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
+                    <span>{error instanceof Error ? error.message : 'Failed to search customer records.'}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSearchTerm('');
+                        setDebouncedSearchTerm('');
+                        setSearchParams((prev) => {
+                          const next = new window.URLSearchParams(prev);
+                          next.delete('search');
+                          return next;
+                        }, { replace: true });
+                        refetch();
+                      }}
+                      style={{
+                        padding: '6px 14px',
+                        backgroundColor: 'var(--color-primary)',
+                        color: '#fff',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        border: 'none',
+                      }}
+                    >
+                      Clear Search & Reload
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredAndSortedCustomers.length === 0 ? (
               <tr>
                 <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
                   No customer accounts match your search and filter criteria.
@@ -495,13 +680,37 @@ export const CustomersListPage: React.FC = () => {
               </tr>
             ) : (
               filteredAndSortedCustomers.map((customer: Customer) => (
-                <tr key={customer.id} style={{ borderBottom: '1px solid var(--color-border-subtle)' }}>
+                <tr
+                  key={customer.id}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`View profile for ${customer.name} (${customer.id})`}
+                  className="clickable-table-row"
+                  onClick={(e) => {
+                    const target = e.target as { closest?: (selector: string) => unknown };
+                    if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                      return;
+                    }
+                    handleOpenDetailModal(customer.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      e.preventDefault();
+                      handleOpenDetailModal(customer.id);
+                    }
+                  }}
+                  style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
+                >
                   <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
                     {customer.id}
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>{customer.name}</div>
-                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {customer.registeredDate}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {formatRegistrationDateIST(customer.registeredDate)}</div>
                   </td>
                   <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
                     <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
@@ -524,35 +733,15 @@ export const CustomersListPage: React.FC = () => {
                     {customer.totalBookings}
                   </td>
                   <td style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}>
-                      <button
-                        onClick={() => handleOpenDetailModal(customer.id)}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border-subtle)',
-                          backgroundColor: 'var(--color-bg-surface-elevated)',
-                          color: 'var(--color-text-primary)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        <User size={13} />
-                        <span>View Profile</span>
-                      </button>
-
+                    <div
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
                         {customer.status === 'ACTIVE' ? (
                           <button
-                            onClick={() => {
-                              setSelectedCustomerId(customer.id);
-                              setIsSuspendOpen(true);
-                            }}
+                            onClick={(e) => handleOpenSuspendModal(customer, e)}
+                            disabled={isActionLoading}
                             aria-label={`Suspend customer ${customer.name}`}
                             style={{
                               padding: '4px 8px',
@@ -561,7 +750,9 @@ export const CustomersListPage: React.FC = () => {
                               backgroundColor: 'var(--color-status-danger-bg)',
                               color: 'var(--color-status-danger-text)',
                               fontSize: 'var(--font-size-xs)',
-                              cursor: 'pointer',
+                              fontWeight: 600,
+                              cursor: isActionLoading ? 'not-allowed' : 'pointer',
+                              opacity: isActionLoading ? 0.6 : 1,
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '4px',
@@ -573,8 +764,9 @@ export const CustomersListPage: React.FC = () => {
                           </button>
                         ) : (
                           <button
-                            onClick={() => handleReactivateCustomer(customer.id)}
-                            aria-label={`Reactivate customer ${customer.name}`}
+                            onClick={(e) => handleOpenActivateModal(customer, e)}
+                            disabled={isActionLoading}
+                            aria-label={`Unsuspend customer ${customer.name}`}
                             style={{
                               padding: '4px 8px',
                               borderRadius: 'var(--radius-sm)',
@@ -582,7 +774,9 @@ export const CustomersListPage: React.FC = () => {
                               backgroundColor: 'var(--color-status-success-bg)',
                               color: 'var(--color-status-success-text)',
                               fontSize: 'var(--font-size-xs)',
-                              cursor: 'pointer',
+                              fontWeight: 600,
+                              cursor: isActionLoading ? 'not-allowed' : 'pointer',
+                              opacity: isActionLoading ? 0.6 : 1,
                               display: 'inline-flex',
                               alignItems: 'center',
                               gap: '4px',
@@ -590,7 +784,7 @@ export const CustomersListPage: React.FC = () => {
                             }}
                           >
                             <CheckCircle size={13} />
-                            <span>Reactivate</span>
+                            <span>Unsuspend</span>
                           </button>
                         )}
                       </PermissionGate>
@@ -658,12 +852,29 @@ export const CustomersListPage: React.FC = () => {
       <ConfirmDialog
         isOpen={isSuspendOpen}
         title="Suspend Customer Account"
-        description={`Are you sure you want to suspend customer ${selectedCustomerId}? Suspended customers cannot make new booking requests.`}
+        description={`Are you sure you want to suspend customer ${selectedCustomer?.name || ''} (${selectedCustomer?.id || ''})? Suspended customers cannot log in and will be blocked from accessing protected customer features.`}
+        confirmLabel="Confirm"
         isDestructive={true}
         requireRemarks={true}
-        remarksPlaceholder="Enter mandatory operational reason for customer suspension..."
+        remarksPlaceholder="Enter mandatory operational reason for customer suspension (max 500 characters)..."
+        errorMessage={actionError}
+        isLoading={isActionLoading}
         onConfirm={handleSuspendConfirm}
-        onCancel={() => setIsSuspendOpen(false)}
+        onCancel={handleCloseSuspendModal}
+      />
+
+      {/* Unsuspend Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isActivateOpen}
+        title="Unsuspend Customer Account"
+        description={`Are you sure you want to unsuspend customer ${selectedCustomer?.name || ''} (${selectedCustomer?.id || ''})? This will restore their ability to log in and use permitted customer features.`}
+        confirmLabel="Unsuspend"
+        isDestructive={false}
+        requireRemarks={false}
+        errorMessage={actionError}
+        isLoading={isActionLoading}
+        onConfirm={handleActivateConfirm}
+        onCancel={handleCloseActivateModal}
       />
     </div>
   );

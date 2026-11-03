@@ -279,8 +279,8 @@ describe('Support Executive Master Role & Operational Workflows', () => {
 
       expect(await screen.findByRole('heading', { name: /Sunita Devi/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // Should land on Professional tab by default for Support Executive
-      expect(screen.getByText(/Professional Profile/i)).toBeInTheDocument();
+      // Should land on Worker Information tab by default for Support Executive
+      expect(screen.getByText('1. Worker Information')).toBeInTheDocument();
 
       // Manage Categories button must NOT be visible (requires workers.manage)
       expect(screen.queryByRole('button', { name: /Manage Categories/i })).not.toBeInTheDocument();

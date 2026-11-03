@@ -430,7 +430,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
   });
 
   describe('7. Operational Service Categories & Management', () => {
-    it('allows Operations Admin to open Category Management dialog and update service categories', async () => {
+    it('confirms category management buttons are removed from worker information and footer', async () => {
       useAuthStore.setState({
         user: {
           id: 'STAFF-OPS-01',
@@ -448,9 +448,6 @@ describe('Worker Application & Verification Complete Workflow', () => {
         isAuthenticated: true,
       });
 
-      const updateCategoriesSpy = vi.spyOn(workerRepository, 'updateWorkerCategories');
-      const user = userEvent.setup();
-
       renderWithProviders(
         <WorkerDetailModal
           workerId="W-10482"
@@ -458,24 +455,15 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Find and click "Manage Categories" in modal footer
-      const manageCatBtn = await screen.findByRole('button', { name: /Manage Categories/i });
-      await user.click(manageCatBtn);
+      // Verify Primary Skill & Experience is rendered
+      expect(await screen.findByText('Primary Skill & Experience')).toBeInTheDocument();
 
-      // Verify category management dialog opens
-      expect(await screen.findByText(/Configure Service Categories/i)).toBeInTheDocument();
-
-      // Select COOK category checkbox
-      const cookCheckbox = screen.getByLabelText(/Cook/i);
-      await user.click(cookCheckbox);
-
-      // Click "Save Category Configuration"
-      const saveBtn = screen.getByRole('button', { name: /Save Category Configuration/i });
-      await user.click(saveBtn);
-
-      expect(updateCategoriesSpy).toHaveBeenCalledWith('W-10482', expect.arrayContaining(['Cook']));
+      // Verify "Manage Categories" and footer "Categories" buttons are completely removed
+      expect(screen.queryByRole('button', { name: /Manage Categories/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Categories$/i })).not.toBeInTheDocument();
     });
   });
+
 
   describe('8. Guided Verification Workstation Lifecycle & Cross-Role Handoff', () => {
     it('navigates through the 2-step simplified workflow (Worker Info -> KYC Verification) and back', async () => {

@@ -354,7 +354,33 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                 </tr>
               ) : (
                 bookingsData?.items.map((booking) => (
-                  <tr key={booking.id} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                  <tr
+                    key={booking.id}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`View booking details for ${booking.id}`}
+                    className="clickable-table-row"
+                    onClick={(e) => {
+                      const target = e.target as { closest?: (selector: string) => unknown };
+                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                        return;
+                      }
+                      setSelectedBooking(booking);
+                      setIsDetailOpen(true);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        e.preventDefault();
+                        setSelectedBooking(booking);
+                        setIsDetailOpen(true);
+                      }
+                    }}
+                    style={{ borderBottom: '1px solid var(--color-border)' }}
+                  >
                     {/* Booking ID */}
                     <td style={{ padding: 'var(--space-4)' }}>
                       <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>

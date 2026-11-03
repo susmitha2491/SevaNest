@@ -72,7 +72,20 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.VERIFICATION_DECIDE,
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
-    aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal', 'verif.exec@sevanest.internal', 'verif@sevanest.internal'],
+    aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal'],
+    password: 'Sn-mvKYhFKPJE7#7q',
+  },
+  'verif.exec@sevanest.internal': {
+    id: '01a12fa2-3c86-7560-aff4-2da59d4b0a9f',
+    name: 'Verification Executive',
+    role: 'VERIFICATION_EXECUTIVE',
+    permissions: [
+      PERMISSIONS.WORKER_VIEW,
+      PERMISSIONS.VERIFICATION_REVIEW,
+      PERMISSIONS.VERIFICATION_DECIDE,
+      PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+    ],
+    aliases: ['verif.exec@sevanest.internal', 'verif@sevanest.internal', 'verification.restricted@sevanest.internal', 'verif.restricted@sevanest.internal'],
     password: 'Sn-mvKYhFKPJE7#7q',
   },
   'support.executive@sevanest.example.com': {
@@ -545,14 +558,14 @@ export class MockAuthRepository implements IAuthRepository {
       throw new UnauthorizedError('Administrative email and password are required.');
     }
 
-    const accountEntry = Object.entries(DEMO_ADMIN_ACCOUNTS).find(([accountEmail, config]) => {
-      return (
-        accountEmail === email ||
-        config.aliases.includes(email) ||
-        email === config.role.toLowerCase() ||
-        (email.includes(config.role.split('_')[0].toLowerCase().slice(0, 5)) && email.endsWith('@sevanest.internal'))
-      );
-    });
+    const accountEntry =
+      Object.entries(DEMO_ADMIN_ACCOUNTS).find(([accountEmail, config]) => accountEmail === email || config.aliases.includes(email)) ||
+      Object.entries(DEMO_ADMIN_ACCOUNTS).find(([, config]) => {
+        return (
+          email === config.role.toLowerCase() ||
+          (email.includes(config.role.split('_')[0].toLowerCase().slice(0, 5)) && email.endsWith('@sevanest.internal'))
+        );
+      });
 
     if (!accountEntry) {
       throw new UnauthorizedError('Administrative account not found. Please verify your email address.');

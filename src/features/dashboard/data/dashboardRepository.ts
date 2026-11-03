@@ -1456,32 +1456,35 @@ export class RealDashboardRepository implements IDashboardRepository {
       }
 
       // 2. Derive accurately from authorized verification queue API: GET /admin/verification/queue
+      const fetchQueueSafe = async (primaryStatus: string, fallbackStatus?: string) => {
+        try {
+          return await httpClient.get<{
+            success?: boolean;
+            data: Record<string, unknown>[];
+            meta?: { total?: number; totalItems?: number };
+          }>('/admin/verification/queue', { params: { status: primaryStatus, limit: 10 } });
+        } catch {
+          if (fallbackStatus) {
+            try {
+              return await httpClient.get<{
+                success?: boolean;
+                data: Record<string, unknown>[];
+                meta?: { total?: number; totalItems?: number };
+              }>('/admin/verification/queue', { params: { status: fallbackStatus, limit: 10 } });
+            } catch {
+              return null;
+            }
+          }
+          return null;
+        }
+      };
+
       const [pendingRes, inReviewRes, recheckRes, approvedRes, rejectedRes] = await Promise.all([
-        httpClient.get<{
-          success?: boolean;
-          data: Record<string, unknown>[];
-          meta?: { totalItems?: number };
-        }>('/admin/verification/queue', { params: { status: 'PENDING_REVIEW', limit: 10 } }),
-        httpClient.get<{
-          success?: boolean;
-          data: Record<string, unknown>[];
-          meta?: { totalItems?: number };
-        }>('/admin/verification/queue', { params: { status: 'IN_REVIEW', limit: 10 } }),
-        httpClient.get<{
-          success?: boolean;
-          data: Record<string, unknown>[];
-          meta?: { totalItems?: number };
-        }>('/admin/verification/queue', { params: { status: 'RECHECK_DUE', limit: 10 } }),
-        httpClient.get<{
-          success?: boolean;
-          data: Record<string, unknown>[];
-          meta?: { totalItems?: number };
-        }>('/admin/verification/queue', { params: { status: 'APPROVED', limit: 10 } }).catch(() => null),
-        httpClient.get<{
-          success?: boolean;
-          data: Record<string, unknown>[];
-          meta?: { totalItems?: number };
-        }>('/admin/verification/queue', { params: { status: 'REJECTED', limit: 10 } }).catch(() => null),
+        fetchQueueSafe('PENDING_REVIEW', 'SUBMITTED'),
+        fetchQueueSafe('IN_REVIEW'),
+        fetchQueueSafe('RECHECK_DUE'),
+        fetchQueueSafe('APPROVED'),
+        fetchQueueSafe('REJECTED'),
       ]);
 
       const parseQueueItems = (items: Record<string, unknown>[] | undefined, fallbackStatus: string, defaultAction: string): VerificationDashboardQueueItem[] => {
@@ -1491,6 +1494,8 @@ export class RealDashboardRepository implements IDashboardRepository {
           let pendingCheckTypes: string[] = [];
           if (Array.isArray(raw.pendingCheckTypes)) {
             pendingCheckTypes = raw.pendingCheckTypes.map(String);
+          } else if (raw.checkType) {
+            pendingCheckTypes = [String(raw.checkType)];
           } else if (Array.isArray(raw.checks)) {
             pendingCheckTypes = raw.checks
               .filter((c: unknown) => c && typeof c === 'object' && (c as Record<string, unknown>).status === 'PENDING')
@@ -1505,8 +1510,8 @@ export class RealDashboardRepository implements IDashboardRepository {
             id: String(raw.id || raw.checkId || raw.dossierId || ''),
             workerId: String(raw.workerId || worker?.id || raw.id || ''),
             workerName: String(raw.workerName || worker?.fullName || 'Worker'),
-            category: String(raw.category || worker?.category || 'General Service'),
-            submissionTime: String(raw.submittedAt || raw.createdAt || raw.submissionTime || 'Recent'),
+            category: String(raw.category || worker?.category || raw.checkType || 'General Service'),
+            submissionTime: String(raw.submittedAt || raw.applicationSubmittedAt || raw.createdAt || raw.submissionTime || 'Recent'),
             pendingCheckTypes,
             status: String(raw.status || fallbackStatus) as VerificationDashboardQueueItem['status'],
             actionLabel: String(raw.actionLabel || defaultAction),
@@ -1514,17 +1519,19 @@ export class RealDashboardRepository implements IDashboardRepository {
         });
       };
 
-      const pendingItems = Array.isArray(pendingRes.data?.data) ? pendingRes.data.data : [];
-      const inReviewItems = Array.isArray(inReviewRes.data?.data) ? inReviewRes.data.data : [];
-      const recheckItems = Array.isArray(recheckRes.data?.data) ? recheckRes.data.data : [];
+      const pendingItems = Array.isArray(pendingRes?.data?.data) ? pendingRes.data.data : [];
+      const inReviewItems = Array.isArray(inReviewRes?.data?.data) ? inReviewRes.data.data : [];
+      const recheckItems = Array.isArray(recheckRes?.data?.data) ? recheckRes.data.data : [];
       const approvedItems = Array.isArray(approvedRes?.data?.data) ? approvedRes.data.data : [];
       const rejectedItems = Array.isArray(rejectedRes?.data?.data) ? rejectedRes.data.data : [];
 
-      const pendingReview = pendingRes.data?.meta?.totalItems ?? pendingItems.length;
-      const inProgressReview = inReviewRes.data?.meta?.totalItems ?? inReviewItems.length;
-      const reCheckDue = recheckRes.data?.meta?.totalItems ?? recheckItems.length;
-      const completedReviews = approvedRes?.data?.meta?.totalItems ?? approvedItems.length;
-      const correctionsRequired = rejectedRes?.data?.meta?.totalItems ?? rejectedItems.length;
+      const pendingReview = pendingRes?.data?.meta?.total ?? pendingRes?.data?.meta?.totalItems ?? pendingItems.length;
+      const inProgressReview = inReviewRes?.data?.meta?.total ?? inReviewRes?.data?.meta?.totalItems ?? inReviewItems.length;
+      const reCheckDue = recheckRes?.data?.meta?.total ?? recheckRes?.data?.meta?.totalItems ?? recheckItems.length;
+      const completedReviews = approvedRes?.data?.meta?.total ?? approvedRes?.data?.meta?.totalItems ?? approvedItems.length;
+      const correctionsRequired = rejectedRes?.data?.meta?.total ?? rejectedRes?.data?.meta?.totalItems ?? rejectedItems.length;
+
+      const overdueCount = pendingItems.filter((i) => i.isOverdue || (Array.isArray(i.slaFlags) && i.slaFlags.includes('OVERDUE'))).length;
 
       return {
         kpis: {
@@ -1534,11 +1541,11 @@ export class RealDashboardRepository implements IDashboardRepository {
           decisionsToday: 0,
           completedReviews,
           correctionsRequired,
-          overdueReviews: null,
+          overdueReviews: overdueCount > 0 ? overdueCount : null,
           avgProcessingTimeMinutes: null,
         },
         queues: {
-          PENDING_REVIEW: parseQueueItems(pendingItems, 'PENDING_REVIEW', 'Review KYC'),
+          PENDING_REVIEW: parseQueueItems(pendingItems, 'PENDING_REVIEW', 'Start Review'),
           IN_REVIEW: parseQueueItems(inReviewItems, 'IN_REVIEW', 'Resume Review'),
           RECHECK_DUE: parseQueueItems(recheckItems, 'RECHECK_DUE', 'Inspect Expiry'),
           REJECTED: parseQueueItems(rejectedItems, 'REJECTED', 'Inspect Rejection'),

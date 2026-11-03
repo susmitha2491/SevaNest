@@ -215,7 +215,12 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 </thead>
                 <tbody>
                   {report.previewRows.map((row, idx) => (
-                    <tr key={idx} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                    <tr
+                      key={idx}
+                      tabIndex={0}
+                      className="clickable-table-row"
+                      style={{ borderBottom: '1px solid var(--color-border)', cursor: 'pointer' }}
+                    >
                       {report.previewColumns.map((col) => (
                         <td
                           key={col}

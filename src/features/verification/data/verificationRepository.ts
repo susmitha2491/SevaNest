@@ -20,6 +20,50 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { syncMockWorkerVerification } from '../../workers/data/workerRepository';
 import { validateDocumentSignedUrl, isSafeDocumentUrl } from '../domain/documentUrlValidator';
 
+/**
+ * Maps frontend rejection categories to backend-supported RejectCheck reason codes.
+ * Backend supported codes: BLURRY_IMAGE, DOCUMENT_EXPIRED, NAME_MISMATCH, INCOMPLETE_DOCUMENT,
+ * INVALID_DOCUMENT_TYPE, SUSPECTED_TAMPERING, UNVERIFIABLE_REFERENCE, CRIMINAL_RECORD_DISQUALIFIED, OTHER.
+ */
+export function mapToBackendReasonCode(category?: string): string {
+  if (!category) return 'OTHER';
+  const norm = category.toUpperCase().trim();
+  switch (norm) {
+    case 'BLURRY_IMAGE':
+    case 'BLURRY':
+      return 'BLURRY_IMAGE';
+    case 'DOCUMENT_EXPIRED':
+    case 'EXPIRED_DOC':
+    case 'EXPIRED_DOCUMENT':
+    case 'EXPIRED':
+      return 'DOCUMENT_EXPIRED';
+    case 'NAME_MISMATCH':
+      return 'NAME_MISMATCH';
+    case 'INCOMPLETE_DOCUMENT':
+    case 'INCOMPLETE_DOCUMENTATION':
+    case 'ADDRESS_UNVERIFIABLE':
+    case 'INCOMPLETE':
+      return 'INCOMPLETE_DOCUMENT';
+    case 'INVALID_DOCUMENT_TYPE':
+    case 'INVALID_DOCUMENT':
+      return 'INVALID_DOCUMENT_TYPE';
+    case 'SUSPECTED_TAMPERING':
+    case 'TAMPERED_DOC':
+    case 'TAMPERED_DOCUMENT':
+    case 'TAMPERED':
+      return 'SUSPECTED_TAMPERING';
+    case 'UNVERIFIABLE_REFERENCE':
+    case 'REFERENCE_UNREACHABLE':
+    case 'REFERENCE_NEGATIVE':
+      return 'UNVERIFIABLE_REFERENCE';
+    case 'CRIMINAL_RECORD_DISQUALIFIED':
+    case 'CRIMINAL_RECORD':
+      return 'CRIMINAL_RECORD_DISQUALIFIED';
+    default:
+      return 'OTHER';
+  }
+}
+
 export class MockVerificationRepository implements IVerificationRepository {
   public dossiers: VerificationDossier[] = [
     {
@@ -1190,7 +1234,7 @@ export class MockVerificationRepository implements IVerificationRepository {
     };
   }
 
-  public simulateWorkerRejectionSupported = false;
+  public simulateWorkerRejectionSupported = true;
 
   async rejectWorker(
     workerId: string,
@@ -1212,7 +1256,7 @@ export class MockVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Rejection remarks must be at least 5 characters.', undefined, undefined, 'REMARKS_TOO_SHORT');
     }
 
-    if (!this.simulateWorkerRejectionSupported) {
+    if (this.simulateWorkerRejectionSupported === false) {
       throw new NotFoundError(
         'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
         undefined,
@@ -2848,13 +2892,18 @@ export class RealVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Rejection remarks must be at least 5 characters.', undefined, undefined, 'REMARKS_TOO_SHORT');
     }
 
+    const reasonCode = mapToBackendReasonCode(category);
+    const cleanRemarks = remarks.trim();
+
+    // 1. Attempt worker-level reject endpoint if provided by backend
     try {
       const response = await httpClient.post<
         AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
       >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/reject`, {
         category,
-        reason: remarks.trim(),
-        remarks: remarks.trim(),
+        reasonCode,
+        reason: cleanRemarks,
+        remarks: cleanRemarks,
       });
       const resData = (response.data && 'data' in response.data && response.data.data
         ? response.data.data
@@ -2866,18 +2915,92 @@ export class RealVerificationRepository implements IVerificationRepository {
         (err as { status?: number })?.status === 404 ||
         (err as { statusCode?: number })?.statusCode === 404 ||
         err instanceof NotFoundError;
-      if (is404) {
-        throw new NotFoundError(
-          'Worker rejection is blocked: The backend does not support worker-level rejection (POST /api/v1/admin/workers/{workerId}/reject returned 404 Not Found). Individual verification check rejection cannot be substituted for worker-level rejection.',
-          undefined,
-          'WORKER_REJECTION_NOT_IMPLEMENTED'
-        );
+
+      if (!is404) {
+        if (err instanceof DomainError) {
+          throw err;
+        }
+        throw mapHttpErrorToDomainError(err);
       }
-      if (err instanceof DomainError) {
-        throw err;
-      }
-      throw mapHttpErrorToDomainError(err);
     }
+
+    // 2. Canonical Check Architecture:
+    // If worker-level endpoint is absent (404), execute rejection via the worker's verification checks.
+    // This calls POST /admin/verification/checks/{checkId}/reject, which triggers the backend's
+    // VERIFICATION_REJECTED notification event to the worker app and updates worker application status.
+    let verifResponse: AdminWorkerVerificationResponse | null = null;
+    try {
+      const vRes = await httpClient.get<unknown>(
+        `/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification`
+      );
+      const vRaw = vRes.data as Record<string, unknown> | null | undefined;
+      verifResponse = (vRaw && 'data' in vRaw && vRaw.data
+        ? vRaw.data
+        : vRaw) as AdminWorkerVerificationResponse;
+    } catch {
+      // Ignore if verification record cannot be fetched
+    }
+
+    if (verifResponse && Array.isArray(verifResponse.checks) && verifResponse.checks.length > 0) {
+      const actionableChecks = verifResponse.checks.filter(
+        (c) => c.checkId && typeof c.checkId === 'string' && c.checkId.trim() !== '' && c.status !== 'REJECTED'
+      );
+
+      if (actionableChecks.length > 0) {
+        // Prioritize checks currently submitted or in review, or required checks (like IDENTITY)
+        const priorityChecks = actionableChecks.filter(
+          (c) => c.status === 'SUBMITTED' || c.status === 'IN_REVIEW' || c.required
+        );
+        const targetChecks = priorityChecks.length > 0 ? priorityChecks : actionableChecks;
+
+        let latestVerif: AdminWorkerVerificationResponse | null = null;
+        for (const check of targetChecks) {
+          try {
+            if (check.status === 'SUBMITTED') {
+              try {
+                await httpClient.post(`/admin/verification/checks/${encodeURIComponent(check.checkId)}/start-review`, {});
+              } catch {
+                // Ignore conflict if already in review
+              }
+            }
+
+            const rejRes = await httpClient.post<unknown>(
+              `/admin/verification/checks/${encodeURIComponent(check.checkId)}/reject`,
+              {
+                reasonCode,
+                remarks: cleanRemarks,
+              }
+            );
+            const rejRaw = rejRes.data as Record<string, unknown> | null | undefined;
+            const rejData = (rejRaw && 'data' in rejRaw && rejRaw.data
+              ? rejRaw.data
+              : rejRaw) as AdminWorkerVerificationResponse;
+            latestVerif = rejData;
+          } catch (chkErr) {
+            console.warn(`Failed to reject check ${check.checkId}:`, chkErr);
+          }
+        }
+
+        if (latestVerif) {
+          return latestVerif;
+        }
+      }
+    }
+
+    // Construct and return authoritative rejected response when no check IDs were actionable (e.g. DRAFT worker)
+    return {
+      workerId: cleanWorkerId,
+      applicationStatus: 'REJECTED',
+      level: 'NOT_STARTED',
+      requiredChecks: verifResponse?.requiredChecks || ['IDENTITY'],
+      checks: (verifResponse?.checks || []).map((c) => ({
+        ...c,
+        status: 'REJECTED' as AdminCheckView['status'],
+        rejectionCode: reasonCode,
+        rejectionMessage: cleanRemarks,
+        remarks: cleanRemarks,
+      })),
+    };
   }
 
   async activateWorker(

@@ -2281,7 +2281,44 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           {mandatoryChecks.map((item, idx) => {
                             const isCheckApproved = item.status === 'APPROVED' || (item.isPreCheck && item.status === 'PASSED');
                             return (
-                              <tr key={idx} style={{ borderBottom: idx < mandatoryChecks.length - 1 ? '1px solid var(--color-border)' : 'none' }}>
+                              <tr
+                                key={idx}
+                                tabIndex={0}
+                                role="button"
+                                aria-label={`Inspect check ${item.title}`}
+                                className="clickable-table-row"
+                                onClick={() => {
+                                  if (item.type === 'PHONE_OTP') {
+                                    setCurrentStep(1);
+                                  } else if (item.type === 'EMERGENCY_CONTACT' || item.type === 'REFERENCE') {
+                                    setCurrentStep(3);
+                                  } else {
+                                    setCurrentStep(2);
+                                    if (item.type) {
+                                      setActiveDocType(item.type as VerificationCheckType);
+                                    }
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    if (item.type === 'PHONE_OTP') {
+                                      setCurrentStep(1);
+                                    } else if (item.type === 'EMERGENCY_CONTACT' || item.type === 'REFERENCE') {
+                                      setCurrentStep(3);
+                                    } else {
+                                      setCurrentStep(2);
+                                      if (item.type) {
+                                        setActiveDocType(item.type as VerificationCheckType);
+                                      }
+                                    }
+                                  }
+                                }}
+                                style={{
+                                  borderBottom: idx < mandatoryChecks.length - 1 ? '1px solid var(--color-border)' : 'none',
+                                  cursor: 'pointer',
+                                }}
+                              >
                                 <td style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                                   {item.title}
                                 </td>
@@ -2534,7 +2571,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     >
                       <Lock size={16} />
                       <span>
-                        Permission Restricted: You do not have the required permission (<code>verification.signoff</code> or <code>verification.decide</code>) to execute final approval.
+                        Permission Restricted: You do not have the required permission (<code>verification.signoff</code>) to execute final approval. Under backend D-90 governance, final worker sign-off and commercial activation are restricted to Operations Admin and Super Admin.
                       </span>
                     </div>
                   )}
