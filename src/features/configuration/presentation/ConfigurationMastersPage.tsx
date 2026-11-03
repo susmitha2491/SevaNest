@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Sliders,
@@ -39,8 +40,22 @@ export const ConfigurationMastersPage: React.FC = () => {
 
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState<ConfigurationTab>('fees');
+  const initialTabParam = searchParams.get('tab');
+  const resolvedInitialTab: ConfigurationTab =
+    initialTabParam === 'admins' || initialTabParam === 'adminUsers'
+      ? 'adminUsers'
+      : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers'].includes(initialTabParam as string)
+        ? (initialTabParam as ConfigurationTab)
+        : 'fees');
+
+  const [activeTab, setActiveTabState] = useState<ConfigurationTab>(resolvedInitialTab);
+
+  const setActiveTab = (tab: ConfigurationTab) => {
+    setActiveTabState(tab);
+    setSearchParams({ tab }, { replace: true });
+  };
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
 

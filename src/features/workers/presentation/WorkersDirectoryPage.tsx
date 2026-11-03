@@ -51,7 +51,6 @@ export const WorkersDirectoryPage: React.FC = () => {
         {
           verified: true,
           status: 'ACTIVE',
-          activated: true,
           accountStatus: 'ACTIVE',
           category: selectedCategory !== 'ALL' ? selectedCategory : undefined,
           searchTerm: searchTerm.trim() || undefined,
@@ -291,9 +290,9 @@ export const WorkersDirectoryPage: React.FC = () => {
 
                     <td style={{ padding: '14px 16px' }}>
                       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
-                      {worker.phoneMasked && (
+                      {(worker.phone || worker.mobile || worker.phoneMasked) && (
                         <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                          {worker.phoneMasked}
+                          {worker.phone || worker.mobile || worker.phoneMasked}
                         </div>
                       )}
                     </td>

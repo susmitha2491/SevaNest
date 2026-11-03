@@ -525,7 +525,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--color-text-secondary, #64748b)' }}>Registered Mobile</span>
                           <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-text-primary, #0f172a)' }}>
-                            {worker.phoneMasked || worker.phone || 'Available in Admin'}
+                            {worker.phone || worker.mobile || worker.phoneMasked || 'Available in Admin'}
                           </span>
                         </div>
 

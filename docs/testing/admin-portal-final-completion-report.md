@@ -135,7 +135,7 @@ Automated requests were dispatched to evaluate the live deployed backend at `htt
 
 ## 7. Consolidated Action Items for Backend Team
 
-Please provide the backend engineering team with the following 4 actionable requirements detailed in `docs/qa/admin-portal-backend-endpoint-gap-report.md`:
+Please provide the backend engineering team with the following 4 actionable requirements detailed in `docs/api/admin-portal-backend-endpoint-gap-report.md`:
 
 1. **Configure CORS in NestJS `main.ts`:** Enable CORS for `http://localhost:8080` and admin domains with `credentials: true` and support for `OPTIONS` preflight methods.
 2. **Execute Database Seed Migration:** Insert seed administrative records for `SUPER_ADMIN`, `OPERATIONS_ADMIN`, `VERIFICATION_EXECUTIVE`, and `SUPPORT_EXECUTIVE`.

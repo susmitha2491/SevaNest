@@ -127,9 +127,9 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
     return null;
   }
 
-  const effectivePhone = revealedPII?.phone || customer.unmaskedPhone || customer.maskedPhone;
+  const effectivePhone = revealedPII?.phone || customer.unmaskedPhone || customer.phone || customer.maskedPhone;
   const effectiveEmail = revealedPII?.email || customer.unmaskedEmail || customer.maskedEmail;
-  const isPIIRevealed = Boolean(revealedPII || customer.unmaskedPhone || customer.unmaskedEmail);
+  const isPIIRevealed = Boolean(revealedPII || customer.unmaskedPhone || customer.phone || customer.unmaskedEmail);
 
   return (
     <div

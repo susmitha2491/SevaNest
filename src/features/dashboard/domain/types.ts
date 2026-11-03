@@ -7,6 +7,7 @@ export interface SuperAdminKPIs {
   platformRevenueINR: number | null;
   scheduledTrials: number | null;
   policeVerifDue: number | null;
+  registeredCustomers?: number | null;
 }
 
 export interface OperationsAdminKPIs {
@@ -142,12 +143,18 @@ export interface CollectionMetricItem {
   monthToDateFormatted: string;
 }
 
+export interface CustomerSectionBreakdown {
+  registered: number;
+  active?: number;
+}
+
 export interface SuperAdminDashboardSections {
   bookings?: {
     byStatus: BookingStatusCount[];
     grossBookings?: number | null;
   };
   workers?: WorkerSectionBreakdown;
+  customers?: CustomerSectionBreakdown;
   pendingKyc?: PendingKycSectionBreakdown;
   complaints?: ComplaintsSectionBreakdown;
   replacements?: ReplacementsSectionBreakdown;
@@ -305,13 +312,16 @@ export interface SuperAdminAnalyticsData {
   repeatCustomers: RepeatCustomerItem[] | null;
 }
 
+export interface OperationsAdminDashboardData {
+  kpis: OperationsAdminKPIs;
+  queues: Record<OperationsQueueTab, OperationsQueueItem[]>;
+  sections?: SuperAdminDashboardSections;
+}
+
 export interface IDashboardRepository {
   getSuperAdminDashboard(): Promise<SuperAdminDashboardData>;
   getSuperAdminAnalytics(from?: string, to?: string): Promise<SuperAdminAnalyticsData>;
-  getOperationsAdminDashboard(): Promise<{
-    kpis: OperationsAdminKPIs;
-    queues: Record<OperationsQueueTab, OperationsQueueItem[]>;
-  }>;
+  getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData>;
   getVerificationExecutiveDashboard(): Promise<{
     kpis: VerificationExecutiveKPIs;
     queues: Record<'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED', VerificationDashboardQueueItem[]>;

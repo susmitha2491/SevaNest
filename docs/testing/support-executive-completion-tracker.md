@@ -12,7 +12,7 @@
 - `docs/sevanest-admin-portal-workflow-and-development-plan.md`
 - `docs/sevanest-admin-portal-role-wise-workflows.md`
 - `docs/sevanest-backend-integration-gap-register.md`
-- `docs/qa/admin-portal-backend-endpoint-gap-report.md`
+- `docs/api/admin-portal-backend-endpoint-gap-report.md`
 
 ---
 

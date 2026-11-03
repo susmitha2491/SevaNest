@@ -27,14 +27,18 @@ import { CandidateMatchingModal } from './CandidateMatchingModal';
 import { TrialOutcomeModal } from './TrialOutcomeModal';
 import { ReplacementFulfillmentModal } from './ReplacementFulfillmentModal';
 
-export const BookingsListPage: React.FC = () => {
+export interface BookingsListPageProps {
+  defaultStatus?: string;
+}
+
+export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatus }) => {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || defaultStatus || 'ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedLocality, setSelectedLocality] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,8 +47,10 @@ export const BookingsListPage: React.FC = () => {
     const statusParam = searchParams.get('status');
     if (statusParam) {
       setSelectedStatus(statusParam);
+    } else if (defaultStatus) {
+      setSelectedStatus(defaultStatus);
     }
-  }, [searchParams]);
+  }, [searchParams, defaultStatus]);
 
   // Modals state
   const [selectedBooking, setSelectedBooking] = useState<BookingDetail | null>(null);
@@ -152,10 +158,12 @@ export const BookingsListPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
           <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Booking & Service Management
+            {defaultStatus === 'REPLACEMENT_REQUESTED' ? 'Replacement Management' : 'Booking & Service Management'}
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Operational orchestration for demand matching, trial coordination, replacement fulfillment, and service status.
+            {defaultStatus === 'REPLACEMENT_REQUESTED'
+              ? 'Operational replacement coordination: review eligibility, rematch qualified domestic workers, and oversee trial fulfillment.'
+              : 'Operational orchestration for demand matching, trial coordination, replacement fulfillment, and service status.'}
           </p>
         </div>
 

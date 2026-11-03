@@ -5,6 +5,8 @@ import { PaymentTransaction, RefundReasonCategory, REFUND_REASONS } from '../dom
 import { paymentRepository } from '../data/paymentRepository';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { env } from '../../../core/config/env';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
@@ -20,6 +22,8 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   onRefundCompleted,
 }) => {
   const queryClient = useQueryClient();
+  const { user } = useAuthStore();
+  const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
 
   const [refundScope, setRefundScope] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [partialAmount, setPartialAmount] = useState<number>(transaction?.amountINR || 0);
@@ -34,7 +38,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
 
   const refundMutation = useMutation({
     mutationFn: async () => {
-      if (!transaction) return;
+      if (!transaction || !canRefund) return;
       const finalAmount = refundScope === 'FULL' ? transaction.amountINR : partialAmount;
       await paymentRepository.processRefund(
         transaction.id,
@@ -54,7 +58,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   if (!isOpen || !transaction) return null;
 
   const currentRefundAmount = refundScope === 'FULL' ? transaction.amountINR : partialAmount;
-  const isSubmitDisabled = !confirmedPolicy || !remarks.trim() || currentRefundAmount <= 0 || refundMutation.isPending;
+  const isSubmitDisabled = !canRefund || !confirmedPolicy || !remarks.trim() || currentRefundAmount <= 0 || refundMutation.isPending;
 
   return (
     <div
@@ -310,6 +314,21 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             </span>
           </label>
         </div>
+
+        {!canRefund && (
+          <div
+            style={{
+              padding: 'var(--space-3) var(--space-6)',
+              backgroundColor: 'var(--color-danger-subtle)',
+              borderTop: '1px solid var(--color-danger-border)',
+              color: 'var(--color-danger)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+            }}
+          >
+            Permission Restricted: Your account does not have the required permission (<code>refunds.manage</code>) to authorize refunds.
+          </div>
+        )}
 
         {/* Footer */}
         <div

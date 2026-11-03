@@ -2251,5 +2251,76 @@ Executive Review Workstation:
 - **Requirements & Security Alignment:**
   1. The Workers Directory (accessible to Super Admin and Verification Executive from the left sidebar) is strictly reserved for the commercially active, fully verified, signed off, and activated workforce.
   2. Workers with pending KYC, un-signed-off dossiers, or suspended account status must NOT be listed in the Workers Directory.
-  3. Backend query mapping in `RealWorkerRepository.getWorkersPage` now passes `verified: true`, `status: 'ACTIVE'`, `activated: true`, and `accountStatus: 'ACTIVE'` directly to the backend API, ensuring exact workforce roster synchronization.
+  3. Backend query mapping in `RealWorkerRepository.getWorkersPage` now passes strictly documented parameters `verified: true` and `accountStatus: 'ACTIVE'`, completely removing unsupported query parameters (`status=ACTIVE`, `activated=true`).
+
+---
+
+## 21. Operations Admin Role Backend Integration Gaps
+
+### 21.1 Candidate Matching for Direct Bookings vs Replacements (GAP-OPS-01)
+
+- **Gap Identifier:** `GAP-OPS-01`
+- **Module Affected:** Booking Management (`BookingsListPage.tsx`, `bookingRepository.ts`)
+- **Endpoints & Methods:**
+  - `POST /api/v1/admin/matching/candidates` (Documented in OpenAPI for requirement-based candidate discovery)
+  - `GET /api/v1/admin/replacement-requests/{requestId}/candidates` (Documented in OpenAPI for replacement requests)
+  - `GET /api/v1/admin/bookings/{bookingId}/candidates` (Missing in OpenAPI)
+- **Observed Behavior & Discrepancy:**
+  1. The backend OpenAPI specification does not expose a booking-keyed candidates endpoint (`/api/v1/admin/bookings/{bookingId}/candidates`).
+  2. For new bookings and initial matching, the supported contract is `POST /api/v1/admin/matching/candidates` taking a requirement payload (`MatchRequirementDto`: `category`, `areaId`, `engagement`, `availableFrom`, `availableTo`).
+  3. For replacement workflows, the supported contract is `GET /api/v1/admin/replacement-requests/{requestId}/candidates` requiring a genuine replacement `requestId`.
+- **Frontend Resolution Implemented:**
+  - `RealBookingRepository.getCandidateSuggestions()` queries `POST /api/v1/admin/matching/candidates` with the booking requirements for direct bookings.
+  - For replacement requests, it resolves the active replacement request via `GET /api/v1/admin/replacement-requests?bookingId={bookingId}` and queries `GET /api/v1/admin/replacement-requests/{requestId}/candidates`.
+  - When matching returns no records, an honest empty list `[]` is returned. No candidates are fabricated and no unsupported fallback queries (`status=ACTIVE`) are executed.
+  - Candidate matching is accurately documented as dependent on backend requirement matching rather than an ad-hoc booking candidate endpoint.
+
+---
+
+### 21.2 Replacement Management Unified Booking Lifecycle Workflow (GAP-OPS-02)
+
+- **Gap Identifier:** `GAP-OPS-02`
+- **Module Affected:** Replacement Management (`routes.tsx`, `BookingsListPage.tsx`, `ReplacementFulfillmentModal.tsx`)
+- **Endpoints & Methods:**
+  - `GET /api/v1/admin/bookings?status=REPLACEMENT_REQUESTED`
+  - `GET /api/v1/admin/replacement-requests`
+  - `POST /api/v1/admin/bookings/{bookingId}/replace`
+- **Observed Behavior & Architectural Alignment:**
+  1. Per the SevaNest PRD, replacement requests are an integral phase of the booking lifecycle, not an isolated parallel booking engine.
+  2. The sidebar exposes a dedicated "Replacement Management" module for operational convenience, routing to `/replacements`.
+- **Frontend Resolution Implemented:**
+  - Routed `/replacements` to `<BookingsListPage defaultStatus="REPLACEMENT_REQUESTED" />` protected by `PERMISSIONS.BOOKINGS_VIEW`.
+  - Integrates the replacement fulfillment workflow directly into the booking lifecycle without creating duplicate tables, models, or state engines.
+
+---
+
+### 21.3 Verification Management Authority Boundaries for Operations Admin (GAP-OPS-03)
+
+- **Gap Identifier:** `GAP-OPS-03`
+- **Module Affected:** Verification Management (`VerificationQueuePage.tsx`, `verificationRepository.ts`)
+- **Endpoints & Methods:**
+  - `GET /api/v1/admin/verification/queue`
+  - `POST /api/v1/admin/verification/checks/{checkId}/approve`
+  - `POST /api/v1/admin/verification/checks/{checkId}/reject`
+- **Observed Behavior & Security Boundary:**
+  1. Verification Executive is the designated persona responsible for individual KYC check reviews, document validation, and check-level decisions.
+  2. Operations Admin is responsible for operational oversight (monitoring pipeline throughput, identifying bottlenecks, and tracking worker availability).
+- **Frontend Resolution Implemented:**
+  - Operations Admin can access `/verification` to review application stages, pending queues, and verification timelines.
+  - Individual check decision buttons (`Approve Check`, `Reject Check`) are strictly hidden behind `PERMISSIONS.VERIFICATION_DECIDE`.
+  - The UI presents an operational notice stating that check-level KYC decisions are reserved for the Verification Executive.
+
+---
+
+### 21.4 Operational Collections and Payment Summaries (GAP-OPS-04)
+
+- **Gap Identifier:** `GAP-OPS-04`
+- **Module Affected:** Operations Admin Dashboard (`OperationsAdminDashboard.tsx`, `dashboardRepository.ts`)
+- **Endpoints & Methods:** `GET /api/v1/admin/dashboard`
+- **Observed Behavior & Contract Alignment:**
+  1. Financial governance, fee structures, and gateway settings are strictly reserved for Super Admin.
+  2. Operations Admin requires visibility into operational payment realization (total collections, pending booking settlements, and refund claims) strictly to coordinate fulfillment.
+- **Frontend Resolution Implemented:**
+  - RealDashboardRepository extracts `sections.collections` from the backend dashboard response when available.
+  - If the backend returns collection metrics, the dashboard renders the Payment & Collections Realization Summary card. If unavailable, the card does not render fabricated numbers or zero-placeholders.
 

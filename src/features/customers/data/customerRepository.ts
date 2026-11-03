@@ -1,5 +1,6 @@
 import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { formatPhoneNumber, getCustomerPhone, setCustomerPhone } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
@@ -175,8 +176,17 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
   const combinedName = [firstName, lastName].filter(Boolean).join(' ');
   const name = String(item.name || item.fullName || profileObj.fullName || userObj.fullName || combinedName || 'Customer User');
 
+  const userId = String(item.userId || userObj.id || '') || undefined;
   const rawPhone = String(item.unmaskedPhone || item.phone || item.mobile || profileObj.phone || userObj.phone || '');
+  const cachedPhone = getCustomerPhone(id) || (userId ? getCustomerPhone(userId) : undefined);
+  const rawCleanPhone = cachedPhone || (rawPhone && !rawPhone.includes('*') ? formatPhoneNumber(rawPhone) : undefined);
+  if (rawCleanPhone) {
+    setCustomerPhone(id, rawCleanPhone);
+    if (userId) setCustomerPhone(userId, rawCleanPhone);
+  }
+
   const maskedPhone = String(
+    rawCleanPhone ||
     item.maskedPhone ||
     item.mobileMasked ||
     profileObj.maskedPhone ||
@@ -234,7 +244,6 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
       : 'PENDING';
 
   const preferredLanguage = String(item.preferredLanguage || profileObj.preferredLanguage || profileObj.language || '') || undefined;
-  const userId = String(item.userId || userObj.id || '') || undefined;
 
   return {
     id,
@@ -248,6 +257,8 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
     totalBookings,
     registeredDate,
     preferredLanguage,
+    phone: rawCleanPhone,
+    unmaskedPhone: rawCleanPhone,
   };
 }
 
@@ -286,11 +297,20 @@ export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, un
     description: c.description ? String(c.description) : undefined,
   }));
 
+  const rawDetailPhone = String(data.unmaskedPhone || data.mobile || data.phone || profileObj.phone || profileObj.mobile || '');
+  const unmaskedPhone = (rawDetailPhone && !rawDetailPhone.includes('*'))
+    ? formatPhoneNumber(rawDetailPhone)
+    : summary.unmaskedPhone || summary.phone;
+  if (unmaskedPhone) {
+    setCustomerPhone(summary.id, unmaskedPhone);
+    if (summary.userId) setCustomerPhone(summary.userId, unmaskedPhone);
+  }
+
   return {
     ...summary,
     etag: etag || (data.etag as string | undefined),
     fullAddress,
-    unmaskedPhone: data.unmaskedPhone ? String(data.unmaskedPhone) : undefined,
+    unmaskedPhone,
     unmaskedEmail: data.unmaskedEmail ? String(data.unmaskedEmail) : undefined,
     totalSpendINR: Number(data.totalSpendINR ?? data.totalSpend ?? 0),
     activeBookings: Number(data.activeBookings ?? 0),
@@ -335,6 +355,28 @@ export class RealCustomerRepository implements ICustomerRepository {
             list = nested.customers as Record<string, unknown>[];
           }
         }
+      }
+
+      const uncachedIds = list
+        .map((item) => String(item.id || item.customerId || ''))
+        .filter((id) => id && !getCustomerPhone(id));
+      if (uncachedIds.length > 0) {
+        await Promise.all(
+          uncachedIds.map(async (id) => {
+            try {
+              const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/customers/${id}`);
+              const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
+              const mobile = String(detail?.mobile || detail?.phone || '');
+              if (mobile && !mobile.includes('*')) {
+                const formatted = formatPhoneNumber(mobile);
+                setCustomerPhone(id, formatted);
+                if (detail.userId) setCustomerPhone(String(detail.userId), formatted);
+              }
+            } catch {
+              // Ignore individual failure
+            }
+          })
+        );
       }
 
       return list.map(mapBackendCustomerToCustomer);

@@ -22,6 +22,8 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { RefundProcessingModal } from './RefundProcessingModal';
+import { httpClient } from '../../../core/api/httpClient';
+import { env } from '../../../core/config/env';
 
 export const PaymentsListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -57,10 +59,37 @@ export const PaymentsListPage: React.FC = () => {
         status: selectedStatus,
         feeType: selectedFeeType,
         page: currentPage,
-        pageSize: 6,
+        pageSize: 10,
       }),
     enabled: canView,
   });
+
+  // Query overall platform collections gross
+  const { data: collectionsReportINR } = useQuery({
+    queryKey: ['payments', 'collections-summary-report'],
+    queryFn: async () => {
+      try {
+        const res = await httpClient.get<Record<string, unknown>>('/admin/reports/payment-collections', {
+          params: { from: '2026-01-01', to: '2026-12-31', interval: 'month' },
+        });
+        const raw = (res.data?.data || res.data) as Record<string, unknown>;
+        const totals = Array.isArray(raw?.totalsByFeeType)
+          ? (raw.totalsByFeeType as Array<Record<string, unknown>>)
+          : [];
+        const grossMinor = totals.reduce((sum, item) => sum + Number(item.grossMinor || 0), 0);
+        return Math.round(grossMinor / 100);
+      } catch {
+        return null;
+      }
+    },
+    enabled: canView && import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
+    staleTime: 60000,
+  });
+
+  const grossSettledCollectionsINR =
+    collectionsReportINR !== null && collectionsReportINR !== undefined
+      ? collectionsReportINR
+      : (paymentsData?.totalGrossCollectionsINR || 0);
 
   if (!canView) {
     return <NoAccessView moduleName="Financial Transactions & Ledger" requiredPermission={PERMISSIONS.PAYMENTS_VIEW} />;
@@ -159,7 +188,7 @@ export const PaymentsListPage: React.FC = () => {
               Gross Settled Collections
             </div>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {formatCurrencyINR(paymentsData?.totalGrossCollectionsINR || 0)}
+              {formatCurrencyINR(grossSettledCollectionsINR)}
             </div>
           </div>
         </div>

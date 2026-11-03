@@ -152,7 +152,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const result = await repo.getWorkers({ searchTerm: 'Sunita', status: 'ACTIVE' });
 
       expect(getSpy).toHaveBeenCalledWith('/admin/workers', {
-        params: { name: 'Sunita', verified: undefined, status: 'ACTIVE' },
+        params: { name: 'Sunita', verified: undefined, accountStatus: 'ACTIVE' },
       });
       expect(result[0].name).toBe('Sunita Devi');
       expect(result[0].isFullyVerified).toBe(false);
@@ -314,22 +314,27 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
 
   describe('Payment Module Integration (RealPaymentRepository)', () => {
     it('fetches payment transactions and processes refund through backend endpoint', async () => {
-      vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
-        data: {
-          success: true,
-          data: [
-            {
-              id: 'TXN-892104',
-              amount: 499,
-              status: 'PAID',
-              bookingId: 'B-84920',
-              customerName: 'Anand Sharma',
-              paymentMethod: 'UPI',
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              success: true,
+              data: [
+                {
+                  id: 'TXN-892104',
+                  amount: 499,
+                  status: 'PAID',
+                  bookingId: 'B-84920',
+                  customerName: 'Anand Sharma',
+                  paymentMethod: 'UPI',
+                },
+              ],
+              meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
             },
-          ],
-          meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
-        },
-      } as any);
+          } as any;
+        }
+        return { data: [] } as any;
+      });
 
       const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValueOnce({
         data: { success: true },
@@ -355,21 +360,26 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
 
   describe('Support Module Integration (RealSupportRepository)', () => {
     it('manages support lifecycle: list, assign, message, close, escalate', async () => {
-      vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
-        data: {
-          success: true,
-          data: [
-            {
-              id: 'TKT-4921',
-              subject: 'Worker did not arrive',
-              status: 'OPEN',
-              priority: 'HIGH',
-              slaStatus: 'AT_RISK',
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/support/tickets') {
+          return {
+            data: {
+              success: true,
+              data: [
+                {
+                  id: 'TKT-4921',
+                  subject: 'Worker did not arrive',
+                  status: 'OPEN',
+                  priority: 'HIGH',
+                  slaStatus: 'AT_RISK',
+                },
+              ],
+              meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
             },
-          ],
-          meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
-        },
-      } as any);
+          } as any;
+        }
+        return { data: [] } as any;
+      });
 
       const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValue({
         data: { success: true },

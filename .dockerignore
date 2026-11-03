@@ -31,6 +31,7 @@ Thumbs.db
 *.docx
 *.xlsx
 D
+scratch/
 
 # Local env files
 .env.local

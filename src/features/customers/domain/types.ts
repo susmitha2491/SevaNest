@@ -27,6 +27,8 @@ export interface Customer {
   totalBookings: number;
   registeredDate: string;
   preferredLanguage?: string;
+  phone?: string;
+  unmaskedPhone?: string;
 }
 
 export interface CustomerDetail extends Customer {

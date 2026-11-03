@@ -80,6 +80,62 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   ) {
     return true;
   }
+  // Support canonical dashboard overview via dashboard.view or alert.view
+  if (
+    (required === PERMISSIONS.DASHBOARD_VIEW || required === 'dashboard.view') &&
+    (userPermissions.includes('dashboard.view') || userPermissions.includes('alert.view'))
+  ) {
+    return true;
+  }
+  // Support canonical booking.view and bookings.view interchangeably
+  if (
+    (required === PERMISSIONS.BOOKINGS_VIEW || required === 'bookings.view' || required === 'booking.view') &&
+    (userPermissions.includes('bookings.view') || userPermissions.includes('booking.view'))
+  ) {
+    return true;
+  }
+  // Support canonical booking.manage and bookings.manage interchangeably
+  if (
+    (required === PERMISSIONS.BOOKINGS_MANAGE || required === 'bookings.manage' || required === 'booking.manage') &&
+    (userPermissions.includes('bookings.manage') || userPermissions.includes('booking.manage'))
+  ) {
+    return true;
+  }
+  // Support canonical payment.view and payments.view interchangeably
+  if (
+    (required === PERMISSIONS.PAYMENTS_VIEW || required === 'payments.view' || required === 'payment.view') &&
+    (userPermissions.includes('payments.view') || userPermissions.includes('payment.view'))
+  ) {
+    return true;
+  }
+  // Support canonical payment.refund and refunds.manage interchangeably
+  if (
+    (required === PERMISSIONS.REFUNDS_MANAGE || required === 'refunds.manage' || required === 'payment.refund') &&
+    (userPermissions.includes('refunds.manage') || userPermissions.includes('payment.refund'))
+  ) {
+    return true;
+  }
+  // Support canonical report.view and reports.view interchangeably
+  if (
+    (required === PERMISSIONS.REPORTS_VIEW || required === 'reports.view' || required === 'report.view') &&
+    (userPermissions.includes('reports.view') || userPermissions.includes('report.view'))
+  ) {
+    return true;
+  }
+  // Support canonical verification access via verification.review, verification.signoff, or verification.reassign
+  if (
+    (required === PERMISSIONS.VERIFICATION_REVIEW || required === 'verification.review') &&
+    (userPermissions.includes('verification.review') || userPermissions.includes('verification.signoff') || userPermissions.includes('verification.reassign'))
+  ) {
+    return true;
+  }
+  // Support canonical role.manage and roles.manage interchangeably
+  if (
+    (required === PERMISSIONS.ROLES_MANAGE || required === 'roles.manage' || required === 'role.manage') &&
+    (userPermissions.includes('roles.manage') || userPermissions.includes('role.manage'))
+  ) {
+    return true;
+  }
   return false;
 }
 

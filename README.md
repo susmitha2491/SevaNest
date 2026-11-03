@@ -29,11 +29,28 @@ The portal serves four core administrative personas through server-issued permis
 - **Icons:** Lucide React
 - **Testing:** Vitest, React Testing Library, MSW (Mock Service Worker)
 
-### Four-Layer Architecture:
-1. **Presentation Layer (`src/features/*/presentation`, `src/layouts`):** Pure React views, dialogs, drawers, route guards, and UI hooks. Zero direct HTTP calls or business logic.
-2. **Domain Layer (`src/features/*/domain`, `src/core/rbac`):** Framework-independent TypeScript entities, value types, permission policies, and repository interfaces.
-3. **Data Layer (`src/features/*/data`, `src/core/api`):** Repository implementations, DTO mapping, and API integration satisfying domain interfaces.
-4. **Core / Shared Layer (`src/core`, `src/shared`):** In-memory auth store, PII-safe logging, error taxonomy, IST/INR formatters, and design system components.
+### Directory Structure:
+```text
+sevanest-admin-portal/
+├── public/               # Static assets, favicon, brand logo
+├── src/
+│   ├── app/              # Routes, providers, and layout shells
+│   ├── components/       # Common, modal, and feedback UI components
+│   ├── features/         # Domain-driven feature modules (auth, dashboard, workers, etc.)
+│   ├── services/         # API HTTP client and data integration services
+│   ├── stores/           # Zustand state management stores
+│   ├── types/            # Cross-cutting domain types and error contracts
+│   ├── utils/            # Shared utilities (currency, date, phone, logger)
+│   ├── constants/        # Platform status labels, role labels, permissions
+│   ├── styles/           # Global design tokens and CSS system
+│   └── tests/            # Automated test suites
+├── docs/                 # Authoritative specifications, API, workflows, and QA
+├── scripts/              # Build validation and quality gate scripts
+├── scratch/              # Quarantined obsolete artifacts (excluded from git)
+├── Dockerfile            # Multi-stage production container build
+├── docker-compose.yml    # Container orchestration (port 8080:80)
+└── nginx.conf            # Production Nginx reverse proxy & SPA configuration
+```
 
 ---
 
@@ -62,7 +79,7 @@ Ensure Docker Desktop is running, then execute:
 ```bash
 docker compose up --build -d
 ```
-The application will be served at http://localhost:3000 with Nginx handling SPA routing and reverse-proxying /api/ to the backend gateway.
+The application will be served at http://localhost:8080 with Nginx handling SPA routing and reverse-proxying /api/ to the backend gateway.
 
 To stop the container:
 ```bash

@@ -1,5 +1,6 @@
 import { Worker, WorkerDetail, WorkerFilterCriteria, WorkerPageResult, IWorkerRepository, WorkerDocumentMetadata } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { formatPhoneNumber, getWorkerPhone, setWorkerPhone } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { DomainError, ValidationError, NotFoundError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
@@ -560,18 +561,31 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     ))
   );
 
-  let phoneMasked = item.phoneMasked ? String(item.phoneMasked) : undefined;
-  if (!phoneMasked && (item.mobile || item.phone)) {
-    const rawP = String(item.mobile || item.phone);
-    phoneMasked = rawP.length >= 10 ? `${rawP.slice(0, 3)} ***** ${rawP.slice(-4)}` : rawP;
+  const rawId = String(item.workerId || item.id || '');
+  const cachedPhone = getWorkerPhone(rawId) || getWorkerPhone(String(item.userId || ''));
+  const rawPhoneCandidate = item.phone ? String(item.phone) : item.mobile ? String(item.mobile) : undefined;
+  const rawCleanPhone = cachedPhone || (rawPhoneCandidate && !rawPhoneCandidate.includes('*') ? formatPhoneNumber(rawPhoneCandidate) : undefined);
+  if (rawCleanPhone) {
+    setWorkerPhone(rawId, rawCleanPhone);
+    if (item.userId) setWorkerPhone(String(item.userId), rawCleanPhone);
   }
 
-  const rawId = String(item.workerId || item.id || '');
+  let phoneMasked: string | undefined = undefined;
+  if (cachedPhone) {
+    phoneMasked = cachedPhone;
+  } else if (item.phoneMasked) {
+    phoneMasked = String(item.phoneMasked);
+  } else if (rawCleanPhone) {
+    phoneMasked = rawCleanPhone;
+  } else if (item.mobile || item.phone) {
+    phoneMasked = formatPhoneNumber(String(item.mobile || item.phone));
+  }
+
   const applicationId = item.applicationId && !String(item.applicationId).startsWith('APP-')
     ? String(item.applicationId)
     : rawId || undefined;
 
-  const rawPhone = item.phone ? String(item.phone) : item.mobile ? String(item.mobile) : undefined;
+  const rawPhone = rawCleanPhone || (rawPhoneCandidate && !rawPhoneCandidate.includes('*') ? formatPhoneNumber(rawPhoneCandidate) : undefined);
   const rawEmail = item.email ? String(item.email) : undefined;
 
   return {
@@ -823,6 +837,16 @@ export function mapBackendWorkerDetailToWorkerDetail(data: Record<string, unknow
     });
   }
 
+  const detailPhone = String(unwrappedData.mobile || unwrappedData.phone || '');
+  if (detailPhone && !detailPhone.includes('*')) {
+    const formatted = formatPhoneNumber(detailPhone);
+    setWorkerPhone(summary.id, formatted);
+    if (summary.userId) setWorkerPhone(summary.userId, formatted);
+    summary.phone = formatted;
+    summary.mobile = formatted;
+    summary.phoneMasked = formatted;
+  }
+
   return {
     ...summary,
     isFullyVerified: effectiveFullyVerified,
@@ -978,10 +1002,15 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
 
       if (filter?.category && filter.category !== 'ALL') {
-        params.category = filter.category;
+        params.categoryId = filter.category;
       }
-      if (filter?.status && filter.status !== 'ALL') {
-        params.status = filter.status;
+      if (filter?.accountStatus) {
+        params.accountStatus = filter.accountStatus;
+      } else if (filter?.status === 'ACTIVE' || filter?.status === 'SUSPENDED') {
+        params.accountStatus = filter.status;
+      }
+      if (filter?.locality && filter.locality !== 'ALL') {
+        params.areaId = filter.locality;
       }
       if (filter?.page !== undefined) {
         params.page = filter.page;
@@ -1038,6 +1067,28 @@ export class RealWorkerRepository implements IWorkerRepository {
         } catch {
           // Ignore fallback error
         }
+      }
+
+      const uncachedWorkerIds = list
+        .map((item) => String(item.id || item.workerId || ''))
+        .filter((id) => id && !getWorkerPhone(id));
+      if (uncachedWorkerIds.length > 0) {
+        await Promise.all(
+          uncachedWorkerIds.map(async (id) => {
+            try {
+              const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${id}`);
+              const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
+              const mobile = String(detail?.mobile || detail?.phone || '');
+              if (mobile && !mobile.includes('*')) {
+                const formatted = formatPhoneNumber(mobile);
+                setWorkerPhone(id, formatted);
+                if (detail.userId) setWorkerPhone(String(detail.userId), formatted);
+              }
+            } catch {
+              // Ignore failure
+            }
+          })
+        );
       }
 
       return list.map((item) => {
@@ -1152,16 +1203,15 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
 
       if (filter?.category && filter.category !== 'ALL') {
-        params.category = filter.category;
-      }
-      if (filter?.status && filter.status !== 'ALL') {
-        params.status = filter.status;
-      }
-      if (filter?.activated !== undefined) {
-        params.activated = filter.activated;
+        params.categoryId = filter.category;
       }
       if (filter?.accountStatus) {
         params.accountStatus = filter.accountStatus;
+      } else if (filter?.status === 'ACTIVE' || filter?.status === 'SUSPENDED') {
+        params.accountStatus = filter.status;
+      }
+      if (filter?.locality && filter.locality !== 'ALL') {
+        params.areaId = filter.locality;
       }
 
       const response = await httpClient.get<{

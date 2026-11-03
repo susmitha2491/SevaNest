@@ -1,7 +1,7 @@
 import React from 'react';
 import { createBrowserRouter, Navigate, RouteObject } from 'react-router-dom';
-import { PublicLayout } from '../../layouts/PublicLayout';
-import { AppShell } from '../../layouts/AppShell';
+import { PublicLayout } from '../layouts/PublicLayout';
+import { AppShell } from '../layouts/AppShell';
 import { ProtectedRoute } from './ProtectedRoute';
 import { LazyRoute } from './LazyRoute';
 import { IndexRedirect } from './IndexRedirect';
@@ -166,6 +166,16 @@ export const routes: RouteObject[] = [
           <ProtectedRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
             <LazyRoute label="Loading booking management...">
               <BookingsListPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'replacements',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
+            <LazyRoute label="Loading replacement management...">
+              <BookingsListPage defaultStatus="REPLACEMENT_REQUESTED" />
             </LazyRoute>
           </ProtectedRoute>
         ),

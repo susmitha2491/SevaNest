@@ -1963,7 +1963,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             {check.type === 'EMERGENCY_CONTACT' && (
                               <div>
                                 Contact: <strong>{check.contactDetails?.contactName || dossier.emergencyContact?.name || 'Unavailable'}</strong> ({check.contactDetails?.relationshipOrRole || dossier.emergencyContact?.relationship || 'Contact'}) •
-                                Phone: <strong>{check.contactDetails?.phoneMasked || dossier.emergencyContact?.phone || dossier.emergencyContact?.phoneMasked || 'Unavailable'}</strong>
+                                Phone: <strong>{dossier.emergencyContact?.phone || (check.contactDetails as { phone?: string; phoneMasked?: string })?.phone || check.contactDetails?.phoneMasked || dossier.emergencyContact?.phoneMasked || 'Unavailable'}</strong>
                                 {check.contactDetails?.callNotes && (
                                   <div style={{ marginTop: '4px', fontStyle: 'italic' }}>
                                     Call Notes: &quot;{check.contactDetails.callNotes}&quot;
@@ -1974,7 +1974,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             {check.type === 'REFERENCE' && (
                               <div>
                                 Employer: <strong>{check.contactDetails?.contactName || dossier.previousEmployer?.name || 'Prior Employer'}</strong> •
-                                Phone: <strong>{check.contactDetails?.phoneMasked || dossier.previousEmployer?.phone || dossier.previousEmployer?.phoneMasked || 'Unavailable'}</strong>
+                                Phone: <strong>{dossier.previousEmployer?.phone || (check.contactDetails as { phone?: string; phoneMasked?: string })?.phone || check.contactDetails?.phoneMasked || dossier.previousEmployer?.phoneMasked || 'Unavailable'}</strong>
                                 {dossier.previousEmployer?.feedback && (
                                   <div style={{ marginTop: '4px', fontStyle: 'italic' }}>
                                     Feedback: &quot;{dossier.previousEmployer.feedback}&quot;

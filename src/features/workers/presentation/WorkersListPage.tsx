@@ -27,11 +27,13 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
-import { PermissionGate } from '../../../core/rbac/PermissionGate';
-import { PERMISSIONS } from '../../../core/rbac/permissions';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { WorkerDetailModal } from './WorkerDetailModal';
 
 export const WorkersListPage: React.FC = () => {
+  const user = useAuthStore((state) => state.user);
+  const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
@@ -991,43 +993,71 @@ export const WorkersListPage: React.FC = () => {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenDetailModal(worker.id);
-                        }}
-                        aria-label={`View profile for ${worker.name}`}
-                        style={{
-                          padding: '4px 8px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border-subtle)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          color: 'var(--color-primary)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <User size={13} />
-                        <span>View Profile</span>
-                      </button>
+                      {canReview ? (
+                        <>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetailModal(worker.id);
+                            }}
+                            aria-label={`Approve verification for ${worker.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border-subtle)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              color: 'var(--color-status-success-text)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <CheckCircle2 size={13} />
+                            <span>Approve</span>
+                          </button>
 
-                      <PermissionGate permission={PERMISSIONS.VERIFICATION_REVIEW}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenReject(worker);
+                            }}
+                            disabled={worker.verificationStatus === 'REJECTED'}
+                            aria-label={`Reject verification for ${worker.name}`}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border-subtle)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
+                            }}
+                          >
+                            <XCircle size={13} />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      ) : (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenDetailModal(worker.id);
                           }}
-                          aria-label={`Approve verification for ${worker.name}`}
+                          aria-label={`View profile for ${worker.name}`}
                           style={{
                             padding: '4px 8px',
                             borderRadius: 'var(--radius-sm)',
                             border: '1px solid var(--color-border-subtle)',
                             backgroundColor: 'var(--color-bg-subtle)',
-                            color: 'var(--color-status-success-text)',
+                            color: 'var(--color-primary)',
                             fontSize: 'var(--font-size-xs)',
                             fontWeight: 600,
                             cursor: 'pointer',
@@ -1036,36 +1066,10 @@ export const WorkersListPage: React.FC = () => {
                             gap: '4px',
                           }}
                         >
-                          <CheckCircle2 size={13} />
-                          <span>Approve</span>
+                          <User size={13} />
+                          <span>View Profile</span>
                         </button>
-
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenReject(worker);
-                          }}
-                          disabled={worker.verificationStatus === 'REJECTED'}
-                          aria-label={`Reject verification for ${worker.name}`}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'var(--color-bg-subtle)',
-                            color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
-                          }}
-                        >
-                          <XCircle size={13} />
-                          <span>Reject</span>
-                        </button>
-                      </PermissionGate>
+                      )}
                     </div>
                   </td>
                 </tr>

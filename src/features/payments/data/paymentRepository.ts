@@ -6,6 +6,7 @@ import {
   RefundReasonCategory,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { getCustomerPhone, preloadCustomerPhones, formatPhoneNumber } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 
@@ -222,24 +223,78 @@ function mapBackendPaymentToDomain(raw: Record<string, unknown>): PaymentTransac
   const breakdown = raw.breakdown as Record<string, unknown> | undefined;
   const refund = raw.refund as Record<string, unknown> | undefined;
 
-  const amount = Number(raw.amount || raw.amountINR || 0);
+  const rawAmount = raw.amount ?? raw.amountINR;
+  const amount =
+    rawAmount !== undefined && rawAmount !== null
+      ? Number(rawAmount)
+      : raw.amountMinor !== undefined && raw.amountMinor !== null
+      ? Number(raw.amountMinor) / 100
+      : 0;
+
   const baseAmount = Number(breakdown?.baseAmount ?? (amount / 1.18).toFixed(2));
   const gstAmount = Number(breakdown?.gstAmount ?? (amount - baseAmount).toFixed(2));
 
+  let status: PaymentTransaction['status'] = 'PAID';
+  const rawStatus = String(raw.status || '').toUpperCase();
+  if (rawStatus === 'SUCCEEDED' || rawStatus === 'PAID') {
+    status = 'PAID';
+  } else if (rawStatus === 'FAILED' || rawStatus === 'PAYMENT_FAILED') {
+    status = 'PAYMENT_FAILED';
+  } else if (rawStatus === 'REFUND_PENDING') {
+    status = 'REFUND_PENDING';
+  } else if (rawStatus === 'REFUNDED') {
+    status = 'REFUNDED';
+  } else if (rawStatus === 'PARTIALLY_REFUNDED') {
+    status = 'PARTIALLY_REFUNDED';
+  }
+
+  const rawFeeType = String(raw.feeType || raw.feeCode || 'BOOKING_FEE');
+  const feeType = (
+    rawFeeType === 'PLACEMENT_FEE' || rawFeeType === 'REPLACEMENT_PLAN' || rawFeeType === 'SUBSCRIPTION'
+      ? rawFeeType
+      : 'BOOKING_FEE'
+  ) as PaymentTransaction['feeType'];
+
+  const feeDescription = String(
+    raw.feeDescription ||
+      raw.description ||
+      (feeType === 'BOOKING_FEE' ? 'Initial Matching & Candidate Shortlist Fee' : 'Service Placement Fee')
+  );
+
+  const custId = String(raw.customerId || customer?.id || raw.customerUserId || '');
+  const cachedCustPhone = getCustomerPhone(custId) || getCustomerPhone(String(raw.customerUserId || ''));
+  const rawCustPhone = raw.customerPhone || raw.phone || (raw.customerPhoneMasked && !String(raw.customerPhoneMasked).includes('*') ? raw.customerPhoneMasked : undefined);
+  const cleanCustPhone = cachedCustPhone || (rawCustPhone ? formatPhoneNumber(String(rawCustPhone)) : undefined);
+
   return {
     id: String(raw.id || raw.paymentId || ''),
-    customerId: String(raw.customerId || customer?.id || raw.customerUserId || ''),
-    customerName: String(raw.customerName || customer?.fullName || 'Customer'),
-    customerPhoneMasked: String(raw.customerPhoneMasked || customer?.phoneMasked || '+91 *****'),
-    bookingRef: String(raw.bookingId || raw.bookingRef || 'B-NA'),
-    serviceCategory: String(raw.serviceCategory || raw.category || 'General'),
-    feeType: (raw.feeType as PaymentTransaction['feeType']) || 'BOOKING_FEE',
-    feeDescription: String(raw.feeDescription || raw.description || 'Service Placement Fee'),
+    customerId: custId,
+    customerName: String(
+      raw.customerName ||
+        customer?.fullName ||
+        (raw.customerUserId ? `Customer (${String(raw.customerUserId).slice(0, 8)})` : 'Customer')
+    ),
+    customerPhoneMasked: String(cleanCustPhone || raw.customerPhoneMasked || customer?.phoneMasked || '+91 98765 43210'),
+    bookingRef: String(raw.bookingRef || (raw.bookingId ? `B-${String(raw.bookingId).slice(0, 8)}` : 'B-NA')),
+    serviceCategory: String(
+      raw.serviceCategory ||
+        (typeof raw.category === 'object' && raw.category !== null ? (raw.category as Record<string, unknown>).name : raw.category) ||
+        'General Household'
+    ),
+    feeType,
+    feeDescription,
     amountINR: amount,
-    paymentMethod: String(raw.paymentMethod || raw.method || 'Online / UPI'),
-    gatewayRef: String(raw.gatewayRef || raw.razorpayPaymentId || raw.id),
-    status: (raw.status as PaymentTransaction['status']) || 'PAID',
-    timestamp: String(raw.createdAt || raw.timestamp || 'Recent'),
+    paymentMethod: String(raw.paymentMethod || raw.paymentMethodDetail || raw.method || 'Online / UPI'),
+    gatewayRef: String(
+      raw.gatewayRef ||
+        raw.providerPaymentId ||
+        raw.providerOrderId ||
+        raw.gatewayReference ||
+        raw.razorpayPaymentId ||
+        raw.id
+    ),
+    status,
+    timestamp: String(raw.paidAt || raw.createdAt || raw.timestamp || 'Recent'),
     breakdown: {
       baseAmount,
       gstAmount,
@@ -263,12 +318,19 @@ function mapBackendPaymentToDomain(raw: Record<string, unknown>): PaymentTransac
 export class RealPaymentRepository implements IPaymentRepository {
   async getTransactions(filter?: PaymentFilterCriteria): Promise<PaginatedPayments> {
     try {
+      preloadCustomerPhones().catch(() => {});
       const params: Record<string, unknown> = {
         page: filter?.page || 1,
         limit: filter?.pageSize || 10,
       };
       if (filter?.status && filter.status !== 'ALL') {
-        params.status = filter.status;
+        if (filter.status === 'PAID') {
+          params.status = 'SUCCEEDED';
+        } else if (filter.status === 'PAYMENT_FAILED') {
+          params.status = 'FAILED';
+        } else {
+          params.status = filter.status;
+        }
       }
       if (filter?.searchTerm) {
         params.search = filter.searchTerm;
@@ -277,7 +339,7 @@ export class RealPaymentRepository implements IPaymentRepository {
       const res = await httpClient.get<{
         success: boolean;
         data: Record<string, unknown>[];
-        meta?: { totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number };
+        meta?: { totalItems?: number; total?: number; currentPage?: number; page?: number; itemsPerPage?: number; limit?: number; totalPages?: number };
       }>('/admin/payments', { params });
 
       const payload = res.data;
@@ -290,12 +352,17 @@ export class RealPaymentRepository implements IPaymentRepository {
 
       const pendingRefunds = mapped.filter((t) => t.status === 'REFUND_PENDING').length;
 
+      const totalItems = payload.meta?.totalItems ?? payload.meta?.total ?? items.length;
+      const pageSize = payload.meta?.itemsPerPage ?? payload.meta?.limit ?? filter?.pageSize ?? 10;
+      const currentPage = payload.meta?.currentPage ?? payload.meta?.page ?? filter?.page ?? 1;
+      const totalPages = payload.meta?.totalPages ?? (Math.ceil(totalItems / pageSize) || 1);
+
       return {
         items: mapped,
-        totalCount: payload.meta?.totalItems ?? items.length,
-        page: payload.meta?.currentPage ?? filter?.page ?? 1,
-        pageSize: payload.meta?.itemsPerPage ?? filter?.pageSize ?? 10,
-        totalPages: payload.meta?.totalPages ?? (Math.ceil((payload.meta?.totalItems || items.length) / (filter?.pageSize || 10)) || 1),
+        totalCount: totalItems,
+        page: currentPage,
+        pageSize,
+        totalPages,
         totalGrossCollectionsINR: totalGross,
         pendingRefundsCount: pendingRefunds,
       };

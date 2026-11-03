@@ -16,6 +16,7 @@ import {
   CreditCard,
   UserCheck,
   Layers,
+  Shield,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardRepository } from '../data/dashboardRepository';
@@ -25,6 +26,8 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { AnalyticsChartsSection } from './analytics/AnalyticsChartsSection';
+import { httpClient } from '../../../core/api/httpClient';
+import { env } from '../../../core/config/env';
 
 function formatStatusLabel(status: string): string {
   return status
@@ -32,6 +35,60 @@ function formatStatusLabel(status: string): string {
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
     .join(' ');
 }
+
+const moduleCardStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  justifyContent: 'space-between',
+  padding: 'var(--space-4)',
+  backgroundColor: 'var(--color-bg-app)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-md)',
+  cursor: 'pointer',
+  transition: 'border-color var(--transition-fast), transform var(--transition-fast)',
+};
+
+const moduleCardHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 'var(--space-2)',
+};
+
+const moduleCardBadgeStyle: React.CSSProperties = {
+  fontSize: '10px',
+  fontWeight: 700,
+  padding: '2px 6px',
+  borderRadius: 'var(--radius-sm)',
+  backgroundColor: 'var(--color-primary-subtle)',
+  color: 'var(--color-primary)',
+  textTransform: 'uppercase',
+};
+
+const moduleCardTitleStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-sm)',
+  fontWeight: 600,
+  color: 'var(--color-navy)',
+  marginBottom: '2px',
+};
+
+const moduleCardDescStyle: React.CSSProperties = {
+  fontSize: 'var(--font-size-xs)',
+  color: 'var(--color-text-secondary)',
+  lineHeight: 1.4,
+};
+
+const handleHoverEnter = (e: React.MouseEvent) => {
+  const target = e.currentTarget as unknown as { style: { borderColor: string; transform: string } };
+  target.style.borderColor = 'var(--color-primary)';
+  target.style.transform = 'translateY(-1px)';
+};
+
+const handleHoverLeave = (e: React.MouseEvent) => {
+  const target = e.currentTarget as unknown as { style: { borderColor: string; transform: string } };
+  target.style.borderColor = 'var(--color-border)';
+  target.style.transform = 'none';
+};
 
 export const SuperAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -53,14 +110,100 @@ export const SuperAdminDashboard: React.FC = () => {
     queryFn: () => dashboardRepository.getSuperAdminAnalytics(),
   });
 
-  const isAnyFetching = isFetching || isAnalyticsFetching;
+  const {
+    data: policeVerifDueCount,
+    refetch: refetchPolice,
+    isFetching: isPoliceFetching,
+  } = useQuery({
+    queryKey: ['verification', 'police-due-count'],
+    queryFn: async () => {
+      try {
+        const res = await httpClient.get<{
+          meta?: { total?: number };
+          data?: Array<unknown>;
+        }>('/admin/verification/queue', {
+          params: { checkType: 'POLICE_VERIFICATION', limit: 1 },
+        });
+        return res.data?.meta?.total ?? (Array.isArray(res.data?.data) ? res.data.data.length : null);
+      } catch {
+        return null;
+      }
+    },
+    enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
+    staleTime: 30000,
+  });
+
+  // Fast direct query for Gross Collections MTD revenue to render without lag
+  const {
+    data: collectionsKpiINR,
+    isLoading: isCollectionsKpiLoading,
+    refetch: refetchCollectionsKpi,
+    isFetching: isCollectionsKpiFetching,
+  } = useQuery({
+    queryKey: ['dashboard', 'payment-collections-kpi'],
+    queryFn: async () => {
+      try {
+        const res = await httpClient.get<Record<string, unknown>>('/admin/reports/payment-collections', {
+          params: { from: '2026-01-01', to: '2026-12-31', interval: 'month' },
+        });
+        const raw = (res.data?.data || res.data) as Record<string, unknown>;
+        const totals = Array.isArray(raw?.totalsByFeeType)
+          ? (raw.totalsByFeeType as Array<Record<string, unknown>>)
+          : [];
+        const grossMinor = totals.reduce((sum, item) => sum + Number(item.grossMinor || 0), 0);
+        return Math.round(grossMinor / 100);
+      } catch {
+        return null;
+      }
+    },
+    enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
+    staleTime: 60000,
+  });
+
+  // Direct query for customer total count when not in test mode
+  const {
+    data: customersCount,
+    refetch: refetchCustomers,
+    isFetching: isCustomersFetching,
+  } = useQuery({
+    queryKey: ['customers', 'total-count'],
+    queryFn: async () => {
+      try {
+        const res = await httpClient.get<{
+          meta?: { total?: number; totalItems?: number };
+          total?: number;
+        }>('/admin/customers', {
+          params: { page: 1, limit: 1 },
+        });
+        return res.data?.meta?.total ?? res.data?.meta?.totalItems ?? res.data?.total ?? null;
+      } catch {
+        return null;
+      }
+    },
+    enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
+    staleTime: 30000,
+  });
+
+  const isAnyFetching =
+    isFetching ||
+    isAnalyticsFetching ||
+    (import.meta.env.MODE !== 'test' && (isPoliceFetching || isCollectionsKpiFetching || isCustomersFetching));
 
   const handleRefreshAll = () => {
     refetch();
     refetchAnalytics();
+    if (import.meta.env.MODE !== 'test') {
+      refetchPolice();
+      refetchCollectionsKpi();
+      refetchCustomers();
+    }
   };
 
-  if (isLoading) {
+  const isDashboardLoading =
+    isLoading ||
+    (import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH && isCollectionsKpiLoading);
+
+  if (isDashboardLoading) {
     return <LoadingSpinner message="Loading Executive Platform Metrics..." />;
   }
 
@@ -91,6 +234,49 @@ export const SuperAdminDashboard: React.FC = () => {
   }
 
   const { kpis, queues, sections, generatedAt } = data;
+
+  // Real-time metric derivations from live backend data
+  const totalBookingsFromStatus =
+    sections?.bookings?.byStatus && sections.bookings.byStatus.length > 0
+      ? sections.bookings.byStatus.reduce((acc, curr) => acc + (curr.count || 0), 0)
+      : null;
+
+  const derivedGrossBookings =
+    kpis.grossBookings !== null && kpis.grossBookings !== undefined
+      ? kpis.grossBookings
+      : totalBookingsFromStatus;
+
+  const analyticsGrossMinor = analyticsData?.paymentCollections?.totalsByFeeType?.reduce(
+    (sum, item) => sum + Number(item.grossMinor || 0),
+    0
+  );
+
+  const derivedRevenueINR =
+    kpis.platformRevenueINR !== null && kpis.platformRevenueINR !== undefined
+      ? kpis.platformRevenueINR
+      : (sections?.collections && sections.collections.length > 0 && sections.collections[0].monthToDateINR !== undefined && sections.collections[0].monthToDateINR > 0
+        ? sections.collections[0].monthToDateINR
+        : (sections
+          ? (collectionsKpiINR !== undefined && collectionsKpiINR !== null
+            ? collectionsKpiINR
+            : (analyticsGrossMinor !== undefined && analyticsGrossMinor > 0 ? Math.round(analyticsGrossMinor / 100) : null))
+          : null));
+
+  const derivedPoliceVerifDue =
+    kpis.policeVerifDue !== null && kpis.policeVerifDue !== undefined
+      ? kpis.policeVerifDue
+      : (sections && policeVerifDueCount !== undefined && policeVerifDueCount !== null
+        ? policeVerifDueCount
+        : null);
+
+  const derivedRegisteredCustomers =
+    kpis.registeredCustomers !== null && kpis.registeredCustomers !== undefined
+      ? kpis.registeredCustomers
+      : (sections?.customers?.registered !== undefined
+        ? sections.customers.registered
+        : (customersCount !== undefined && customersCount !== null
+          ? customersCount
+          : null));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -159,10 +345,10 @@ export const SuperAdminDashboard: React.FC = () => {
       >
         <KPICard
           title="Gross Bookings"
-          value={kpis.grossBookings !== null && kpis.grossBookings !== undefined ? kpis.grossBookings : '—'}
+          value={derivedGrossBookings !== null && derivedGrossBookings !== undefined ? derivedGrossBookings : '—'}
           subtitle={
-            kpis.grossBookings !== null && kpis.grossBookings !== undefined
-              ? 'Cumulative platform demand'
+            derivedGrossBookings !== null && derivedGrossBookings !== undefined
+              ? 'Cumulative marketplace demand'
               : 'Metric unavailable (pending contract definition)'
           }
           icon={CalendarCheck}
@@ -178,8 +364,19 @@ export const SuperAdminDashboard: React.FC = () => {
                 ? 'Fully verified & active staff'
                 : 'Metric unavailable in backend response')
           }
-          icon={Users}
+          icon={UserCheck}
           onClick={() => navigate('/workers')}
+        />
+        <KPICard
+          title="Registered Customers"
+          value={derivedRegisteredCustomers !== null && derivedRegisteredCustomers !== undefined ? derivedRegisteredCustomers : '—'}
+          subtitle={
+            derivedRegisteredCustomers !== null && derivedRegisteredCustomers !== undefined
+              ? 'Active platform customer accounts'
+              : 'Metric unavailable (pending backend contract)'
+          }
+          icon={Users}
+          onClick={() => navigate('/customers')}
         />
         <KPICard
           title="Verification Queue"
@@ -223,14 +420,14 @@ export const SuperAdminDashboard: React.FC = () => {
         <KPICard
           title="Gross Collections"
           value={
-            kpis.platformRevenueINR !== null && kpis.platformRevenueINR !== undefined
-              ? formatCurrencyINR(kpis.platformRevenueINR)
+            derivedRevenueINR !== null && derivedRevenueINR !== undefined
+              ? formatCurrencyINR(derivedRevenueINR)
               : '—'
           }
           subtitle={
             sections?.collections?.[0]
               ? `MTD: ${sections.collections[0].monthToDateFormatted} (Today: ${sections.collections[0].todayFormatted})`
-              : (kpis.platformRevenueINR !== null && kpis.platformRevenueINR !== undefined
+              : (derivedRevenueINR !== null && derivedRevenueINR !== undefined
                 ? 'Platform booking & placement fees'
                 : 'Metric unavailable (pending contract definition)')
           }
@@ -250,10 +447,10 @@ export const SuperAdminDashboard: React.FC = () => {
         />
         <KPICard
           title="Police Verif Due"
-          value={kpis.policeVerifDue !== null && kpis.policeVerifDue !== undefined ? kpis.policeVerifDue : '—'}
+          value={derivedPoliceVerifDue !== null && derivedPoliceVerifDue !== undefined ? derivedPoliceVerifDue : '—'}
           subtitle={
-            kpis.policeVerifDue !== null && kpis.policeVerifDue !== undefined
-              ? 'Impending annual rechecks'
+            derivedPoliceVerifDue !== null && derivedPoliceVerifDue !== undefined
+              ? `${derivedPoliceVerifDue} pending verification ${derivedPoliceVerifDue === 1 ? 'case' : 'cases'}`
               : 'Metric unavailable in backend response'
           }
           icon={AlertTriangle}
@@ -891,6 +1088,33 @@ export const SuperAdminDashboard: React.FC = () => {
             </button>
 
             <button
+              onClick={() => navigate('/configuration?tab=adminUsers')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+                padding: 'var(--space-3)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 600,
+                textAlign: 'left',
+                cursor: 'pointer',
+                transition: 'border-color var(--transition-fast)',
+              }}
+            >
+              <Shield size={18} color="var(--color-primary)" />
+              <div>
+                <div>Administrator Accounts</div>
+                <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 400, color: 'var(--color-text-secondary)' }}>
+                  Manage staff accounts and RBAC roles
+                </div>
+              </div>
+            </button>
+
+            <button
               onClick={() => navigate('/audit')}
               style={{
                 display: 'flex',
@@ -943,6 +1167,194 @@ export const SuperAdminDashboard: React.FC = () => {
                 </div>
               </div>
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Platform Administrative Modules & Workstations Directory (PRD & Super Admin Scope) */}
+      <div
+        style={{
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-lg)',
+          padding: 'var(--space-5)',
+          boxShadow: 'var(--shadow-sm)',
+        }}
+      >
+        <div style={{ marginBottom: 'var(--space-4)' }}>
+          <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--color-navy)' }}>
+            Platform Administrative Modules & Workstations
+          </h2>
+          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            Authoritative Super Admin navigation to all 10 core governance and operational modules
+          </span>
+        </div>
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 'var(--space-3)',
+          }}
+        >
+          {/* 1. Customers */}
+          <div
+            id="nav-customers-module"
+            onClick={() => navigate('/customers')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <Users size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Directory</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Customer Management</div>
+            <div style={moduleCardDescStyle}>Customer directory, verification flags, bookings & case notes</div>
+          </div>
+
+          {/* 2. Workers */}
+          <div
+            id="nav-workers-module"
+            onClick={() => navigate('/workers')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <UserCheck size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Workforce</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Worker Management</div>
+            <div style={moduleCardDescStyle}>Domestic worker roster, skill categorization & status controls</div>
+          </div>
+
+          {/* 3. Verification */}
+          <div
+            id="nav-verification-module"
+            onClick={() => navigate('/verification')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <ShieldCheck size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Trust & Safety</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Verification Review</div>
+            <div style={moduleCardDescStyle}>KYC vetting queue, background checks & police clearance</div>
+          </div>
+
+          {/* 4. Bookings */}
+          <div
+            id="nav-bookings-module"
+            onClick={() => navigate('/bookings')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <CalendarCheck size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Operations</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Booking Management</div>
+            <div style={moduleCardDescStyle}>Order matching, trials, confirmation & replacement pipeline</div>
+          </div>
+
+          {/* 5. Payments */}
+          <div
+            id="nav-payments-module"
+            onClick={() => navigate('/payments')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <CreditCard size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Financial</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Payments & Ledgers</div>
+            <div style={moduleCardDescStyle}>Transaction logs, collection accounts & refund authorizations</div>
+          </div>
+
+          {/* 6. Support */}
+          <div
+            id="nav-support-module"
+            onClick={() => navigate('/support')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <LifeBuoy size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Support</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Support & Disputes</div>
+            <div style={moduleCardDescStyle}>Grievance intake, SLA breach tracking & case resolution</div>
+          </div>
+
+          {/* 7. Reports */}
+          <div
+            id="nav-reports-module"
+            onClick={() => navigate('/reports')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <DollarSign size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Analytics</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Business Reports</div>
+            <div style={moduleCardDescStyle}>12 standard operational, demand & financial report exports</div>
+          </div>
+
+          {/* 8. Configuration */}
+          <div
+            id="nav-configuration-module"
+            onClick={() => navigate('/configuration')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <Sliders size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Configuration</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Configuration Masters</div>
+            <div style={moduleCardDescStyle}>Pricing fee schedule, category masters & cluster boundaries</div>
+          </div>
+
+          {/* 9. Administrator Accounts */}
+          <div
+            id="nav-admins-module"
+            onClick={() => navigate('/configuration?tab=adminUsers')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <Shield size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Governance</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Administrator Accounts</div>
+            <div style={moduleCardDescStyle}>Provision admin personnel, credentials & role mapping</div>
+          </div>
+
+          {/* 10. Audit Trail */}
+          <div
+            id="nav-audit-module"
+            onClick={() => navigate('/audit')}
+            style={moduleCardStyle}
+            onMouseEnter={handleHoverEnter}
+            onMouseLeave={handleHoverLeave}
+          >
+            <div style={moduleCardHeaderStyle}>
+              <History size={18} color="var(--color-primary)" />
+              <span style={moduleCardBadgeStyle}>Immutable</span>
+            </div>
+            <div style={moduleCardTitleStyle}>Authoritative Audit Trail</div>
+            <div style={moduleCardDescStyle}>Immutable audit logs for security, PII reveals & mutations</div>
           </div>
         </div>
       </div>

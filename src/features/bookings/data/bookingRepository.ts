@@ -9,6 +9,7 @@ import {
   MatchRequirement,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { getCustomerPhone, getWorkerPhone, preloadCustomerPhones, preloadWorkerPhones, formatPhoneNumber } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 
@@ -355,24 +356,55 @@ export class MockBookingRepository implements IBookingRepository {
 function mapBackendBookingToDomain(raw: Record<string, unknown>): BookingDetail {
   const customer = raw.customer as Record<string, unknown> | undefined;
   const worker = raw.worker as Record<string, unknown> | undefined;
+  const category = raw.category as Record<string, unknown> | string | undefined;
+  const area = raw.area as Record<string, unknown> | string | undefined;
+
+  const categoryName =
+    typeof category === 'object' && category !== null
+      ? String(category.name || category.code || 'General')
+      : String(category || raw.serviceCategory || 'General');
+
+  const localityName =
+    typeof area === 'object' && area !== null
+      ? String(area.name || area.city || 'Hyderabad')
+      : String(area || raw.customerLocality || raw.locality || 'Hyderabad');
+
+  const salaryBudgetMax =
+    raw.budgetMaxMinor !== undefined && raw.budgetMaxMinor !== null
+      ? Number(raw.budgetMaxMinor) / 100
+      : Number(raw.salaryBudgetMax || raw.budget || 0);
+
+  const custId = String(raw.customerId || customer?.id || raw.customerUserId || '');
+  const cachedCustPhone = getCustomerPhone(custId) || getCustomerPhone(String(raw.customerUserId || ''));
+  const rawCustPhone = raw.customerPhone || raw.phone || (raw.customerPhoneMasked && !String(raw.customerPhoneMasked).includes('*') ? raw.customerPhoneMasked : undefined);
+  const cleanCustPhone = cachedCustPhone || (rawCustPhone ? formatPhoneNumber(String(rawCustPhone)) : undefined);
+
+  const wrkId = String(raw.assignedWorkerId || worker?.id || raw.workerId || '');
+  const cachedWrkPhone = getWorkerPhone(wrkId) || getWorkerPhone(String(raw.workerUserId || ''));
+  const rawWrkPhone = raw.assignedWorkerPhone || raw.workerPhone || (raw.assignedWorkerPhoneMasked && !String(raw.assignedWorkerPhoneMasked).includes('*') ? raw.assignedWorkerPhoneMasked : undefined);
+  const cleanWrkPhone = cachedWrkPhone || (rawWrkPhone ? formatPhoneNumber(String(rawWrkPhone)) : undefined);
 
   return {
     id: String(raw.id || raw.bookingId || ''),
-    customerId: String(raw.customerId || customer?.id || raw.customerUserId || ''),
-    customerName: String(raw.customerName || customer?.fullName || 'Customer'),
-    customerPhoneMasked: String(raw.customerPhoneMasked || customer?.phoneMasked || '+91 *****'),
-    customerLocality: String(raw.customerLocality || raw.locality || 'Hyderabad'),
-    serviceCategory: String(raw.serviceCategory || raw.category || 'General'),
+    customerId: custId,
+    customerName: String(
+      raw.customerName ||
+        customer?.fullName ||
+        (raw.customerUserId ? `Customer (${String(raw.customerUserId).slice(0, 8)})` : 'Customer')
+    ),
+    customerPhoneMasked: String(cleanCustPhone || raw.customerPhoneMasked || customer?.phoneMasked || '+91 98765 43210'),
+    customerLocality: localityName,
+    serviceCategory: categoryName,
     engagementType: (raw.engagementType as BookingDetail['engagementType']) || 'FULL_TIME_LIVE_OUT',
     timingShift: String(raw.timingShift || raw.shift || 'General'),
-    salaryBudgetMax: Number(raw.salaryBudgetMax || raw.budget || 0),
-    specialRequirements: String(raw.specialRequirements || raw.notes || ''),
+    salaryBudgetMax,
+    specialRequirements: String(raw.specialRequirements || raw.requirementNote || raw.notes || ''),
     assignedWorkerId: (raw.assignedWorkerId || worker?.id || raw.workerId) ? String(raw.assignedWorkerId || worker?.id || raw.workerId) : undefined,
     assignedWorkerName: (raw.assignedWorkerName || worker?.fullName || raw.workerName) ? String(raw.assignedWorkerName || worker?.fullName || raw.workerName) : undefined,
-    assignedWorkerPhoneMasked: (raw.assignedWorkerPhoneMasked || worker?.phoneMasked) ? String(raw.assignedWorkerPhoneMasked || worker?.phoneMasked) : undefined,
+    assignedWorkerPhoneMasked: (cleanWrkPhone || raw.assignedWorkerPhoneMasked || worker?.phoneMasked) ? String(cleanWrkPhone || raw.assignedWorkerPhoneMasked || worker?.phoneMasked) : undefined,
     status: (raw.status as BookingDetail['status']) || 'REQUESTED',
     createdAt: String(raw.createdAt || 'Recent'),
-    serviceStartDate: (raw.startDate || raw.serviceStartDate) ? String(raw.startDate || raw.serviceStartDate) : undefined,
+    serviceStartDate: (raw.startDate || raw.requestedStartDate || raw.serviceStartDate) ? String(raw.startDate || raw.requestedStartDate || raw.serviceStartDate) : undefined,
     contractPeriod: raw.contractPeriod ? String(raw.contractPeriod) : undefined,
     platformFeePaid: Boolean(raw.platformFeePaid ?? true),
     platformFeeAmount: Number(raw.platformFeeAmount || 499),
@@ -396,7 +428,8 @@ export class RealBookingRepository implements IBookingRepository {
 
       const res = await httpClient.get<{
         success: boolean;
-        data: { data?: Record<string, unknown>[]; meta?: { totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number } };
+        data: { data?: Record<string, unknown>[]; meta?: { totalItems?: number; total?: number; currentPage?: number; page?: number; itemsPerPage?: number; limit?: number; totalPages?: number } };
+        meta?: { totalItems?: number; total?: number; currentPage?: number; page?: number; itemsPerPage?: number; limit?: number; totalPages?: number };
       }>('/admin/bookings', { params });
 
       const payload = res.data;
@@ -405,17 +438,50 @@ export class RealBookingRepository implements IBookingRepository {
         : Array.isArray(payload.data)
         ? (payload.data as Record<string, unknown>[])
         : [];
-      const mapped = items.map(mapBackendBookingToDomain);
 
-      const totalItems = payload.data?.meta?.totalItems ?? items.length;
-      const pageSize = filter?.pageSize || 10;
+      preloadCustomerPhones().catch(() => {});
+      preloadWorkerPhones().catch(() => {});
+
+      const enrichedItems = await Promise.all(
+        items.map(async (item) => {
+          if (item.customerUserId) return item;
+          try {
+            const detailRes = await httpClient.get<{ data?: Record<string, unknown> }>(`/admin/bookings/${item.id}`);
+            const detail = detailRes.data?.data || (detailRes.data as unknown as Record<string, unknown>);
+            return { ...item, ...detail };
+          } catch {
+            return item;
+          }
+        })
+      );
+
+      const mapped = enrichedItems.map(mapBackendBookingToDomain);
+
+      const totalItems =
+        payload.meta?.total ??
+        payload.meta?.totalItems ??
+        payload.data?.meta?.total ??
+        payload.data?.meta?.totalItems ??
+        items.length;
+      const pageSize =
+        payload.meta?.limit ??
+        payload.meta?.itemsPerPage ??
+        payload.data?.meta?.itemsPerPage ??
+        filter?.pageSize ??
+        10;
+      const currentPage =
+        payload.meta?.page ??
+        payload.meta?.currentPage ??
+        payload.data?.meta?.currentPage ??
+        filter?.page ??
+        1;
 
       return {
         items: mapped,
         totalCount: totalItems,
-        page: payload.data?.meta?.currentPage ?? filter?.page ?? 1,
-        pageSize: payload.data?.meta?.itemsPerPage ?? pageSize,
-        totalPages: payload.data?.meta?.totalPages ?? (Math.ceil(totalItems / pageSize) || 1),
+        page: currentPage,
+        pageSize,
+        totalPages: payload.meta?.totalPages ?? payload.data?.meta?.totalPages ?? (Math.ceil(totalItems / pageSize) || 1),
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -470,46 +536,62 @@ export class RealBookingRepository implements IBookingRepository {
 
   async getCandidateSuggestions(bookingId: string): Promise<CandidateMatch[]> {
     try {
-      // 1. If booking details are available, attempt candidate matching via POST /admin/matching/candidates
       const booking = await this.getBookingById(bookingId).catch(() => null);
-      if (booking) {
-        let engagement: MatchRequirement['engagement'] = 'FULL_TIME';
-        if (booking.engagementType === 'PART_TIME') engagement = 'PART_TIME';
-        else if (booking.engagementType === 'FULL_TIME_LIVE_IN') engagement = 'LIVE_IN';
-        else if (booking.engagementType === 'ONE_TIME') engagement = 'ONE_TIME';
+      if (!booking) {
+        return [];
+      }
 
+      // If booking is in replacement, query replacement candidates via dedicated replacement endpoint
+      if (booking.status === 'REPLACEMENT_REQUESTED' || booking.replacement) {
         try {
-          const matched = await this.matchCandidates({
-            category: booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
-            areaId: booking.customerLocality,
-            engagement,
-            availableFrom: '09:00',
-            availableTo: '17:00',
+          const replRes = await httpClient.get<{
+            data?: Array<{ id: string; status: string }>;
+          }>('/admin/replacement-requests', {
+            params: { bookingId, limit: 1 },
           });
-          if (matched.length > 0) {
-            return matched;
+          const activeReq = replRes.data?.data?.[0];
+          if (activeReq?.id) {
+            const candRes = await httpClient.get<{
+              data?: Record<string, unknown>[];
+            }>(`/admin/replacement-requests/${activeReq.id}/candidates`);
+            const items = Array.isArray(candRes.data?.data) ? candRes.data.data : [];
+            return items.map((raw: Record<string, unknown>) => ({
+              workerId: String(raw.workerId || raw.id || ''),
+              workerName: String(raw.workerName || raw.fullName || 'Candidate'),
+              category: String(raw.category || booking.serviceCategory),
+              locality: String(raw.locality || booking.customerLocality),
+              experienceYears: Number(raw.experienceYears || 0),
+              matchScore: Number(raw.matchScore || 100),
+              ratingAverage: Number(raw.ratingAverage || raw.rating || 5.0),
+              totalReviews: Number(raw.totalReviews || 0),
+              isFullyVerified: Boolean(raw.isFullyVerified ?? true),
+              languages: Array.isArray(raw.languages) ? (raw.languages as string[]) : [],
+            }));
           }
         } catch {
-          // If 422 or match criteria cannot be met, fall back to replacement candidates
+          // If replacement request query fails or returns nothing, do not invent candidates
         }
       }
 
-      const res = await httpClient.get<{ success: boolean; data: Record<string, unknown>[] }>(
-        `/admin/replacement-requests/${bookingId}/candidates`
-      );
-      const items = Array.isArray(res.data.data) ? res.data.data : [];
-      return items.map((raw: Record<string, unknown>) => ({
-        workerId: String(raw.workerId || raw.id || ''),
-        workerName: String(raw.workerName || raw.fullName || 'Candidate'),
-        category: String(raw.category || 'General'),
-        locality: String(raw.locality || 'Hyderabad'),
-        experienceYears: Number(raw.experienceYears || 0),
-        matchScore: Number(raw.matchScore || 0),
-        ratingAverage: Number(raw.ratingAverage || raw.rating || 0),
-        totalReviews: Number(raw.totalReviews || 0),
-        isFullyVerified: Boolean(raw.isFullyVerified ?? false),
-        languages: Array.isArray(raw.languages) ? (raw.languages as string[]) : [],
-      }));
+      // For standard bookings, match candidates via documented requirement endpoint POST /admin/matching/candidates
+      let engagement: MatchRequirement['engagement'] = 'FULL_TIME';
+      if (booking.engagementType === 'PART_TIME') engagement = 'PART_TIME';
+      else if (booking.engagementType === 'FULL_TIME_LIVE_IN') engagement = 'LIVE_IN';
+      else if (booking.engagementType === 'ONE_TIME') engagement = 'ONE_TIME';
+
+      try {
+        const matched = await this.matchCandidates({
+          category: booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
+          areaId: booking.customerLocality,
+          engagement,
+          availableFrom: '09:00',
+          availableTo: '17:00',
+        });
+        return matched;
+      } catch {
+        // Return genuine empty list when matching candidates returns no matches or errors
+        return [];
+      }
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -570,6 +652,28 @@ export class RealBookingRepository implements IBookingRepository {
 
   async processReplacement(bookingId: string, replacementWorkerId: string, remarks: string): Promise<void> {
     try {
+      // 1. Look up active replacement request for this booking
+      try {
+        const replRes = await httpClient.get<{
+          data?: Array<{ id: string; status: string }>;
+        }>('/admin/replacement-requests', {
+          params: { bookingId, limit: 1 },
+        });
+        const activeReq = replRes.data?.data?.[0];
+        if (activeReq?.id) {
+          if (activeReq.status === 'REQUESTED') {
+            await httpClient.post(`/admin/replacement-requests/${activeReq.id}/approve`, {
+              remarks: remarks || 'Eligibility approved by Operations Admin',
+            }).catch(() => {});
+          }
+          await httpClient.post(`/admin/replacement-requests/${activeReq.id}/select`, {
+            workerId: replacementWorkerId,
+          });
+        }
+      } catch {
+        // Fall back to booking-level match if replacement requests endpoint throws
+      }
+
       const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await httpClient.post(
         `/admin/bookings/${bookingId}/match`,

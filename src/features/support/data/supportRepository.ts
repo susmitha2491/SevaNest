@@ -7,6 +7,7 @@ import {
   DisputeCategory,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { getCustomerPhone, getWorkerPhone, preloadCustomerPhones, preloadWorkerPhones, formatPhoneNumber } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 
@@ -406,13 +407,17 @@ function mapBackendSupportTicketToDomain(raw: Record<string, unknown>, etag?: st
   const allNotes = [...messageNotes, ...historyNotes];
   const resolvedEtag = etag || (raw.etag as string | undefined) || (raw.version !== undefined ? `"${raw.version}"` : undefined);
 
-  return {
-    id: String(raw.id || raw.ticketId || ''),
-    etag: resolvedEtag,
-    complainantId: String(raw.creatorUserId || raw.complainantId || raw.customerUserId || raw.workerId || raw.creatorId || 'U-00'),
-    complainantName: String(raw.complainantName || creator?.fullName || (raw.creatorKind === 'WORKER' ? 'Worker' : 'Customer')),
-    complainantType: (raw.creatorKind as SupportTicketDetail['complainantType']) || (raw.complainantType as SupportTicketDetail['complainantType']) || (raw.customerUserId ? 'CUSTOMER' : 'WORKER'),
-    complainantPhoneMasked: String(raw.complainantPhoneMasked || '+91 *****'),
+    const compUserId = String(raw.creatorUserId || raw.complainantId || raw.customerUserId || raw.workerId || raw.creatorId || 'U-00');
+    const compPhone = getCustomerPhone(compUserId) || getWorkerPhone(compUserId) || raw.complainantPhone || raw.phone || (raw.complainantPhoneMasked && !String(raw.complainantPhoneMasked).includes('*') ? raw.complainantPhoneMasked : undefined);
+    const cleanCompPhone = compPhone ? formatPhoneNumber(String(compPhone)) : undefined;
+
+    return {
+      id: String(raw.id || raw.ticketId || ''),
+      etag: resolvedEtag,
+      complainantId: compUserId,
+      complainantName: String(raw.complainantName || creator?.fullName || (raw.creatorKind === 'WORKER' ? 'Worker' : 'Customer')),
+      complainantType: (raw.creatorKind as SupportTicketDetail['complainantType']) || (raw.complainantType as SupportTicketDetail['complainantType']) || (raw.customerUserId ? 'CUSTOMER' : 'WORKER'),
+      complainantPhoneMasked: String(cleanCompPhone || raw.complainantPhoneMasked || '+91 98765 43210'),
     subjectWorkerId: raw.subjectWorkerId ? String(raw.subjectWorkerId) : undefined,
     subjectWorkerName: raw.subjectWorkerName ? String(raw.subjectWorkerName) : undefined,
     serviceCategory: categoryLabel,
@@ -433,6 +438,8 @@ function mapBackendSupportTicketToDomain(raw: Record<string, unknown>, etag?: st
 export class RealSupportRepository implements ISupportRepository {
   async getTickets(filter?: SupportFilterCriteria): Promise<PaginatedSupportTickets> {
     try {
+      preloadCustomerPhones().catch(() => {});
+      preloadWorkerPhones().catch(() => {});
       const params: Record<string, unknown> = {
         page: filter?.page || 1,
         limit: filter?.pageSize || 10,

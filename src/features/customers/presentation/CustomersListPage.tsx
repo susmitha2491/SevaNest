@@ -504,7 +504,9 @@ export const CustomersListPage: React.FC = () => {
                     <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {customer.registeredDate}</div>
                   </td>
                   <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>{customer.maskedPhone}</span>
+                    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
+                      {customer.unmaskedPhone || customer.phone || customer.maskedPhone}
+                    </span>
                   </td>
                   <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                     {customer.locality}

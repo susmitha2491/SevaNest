@@ -86,6 +86,15 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText('Pending Refunds')).toBeInTheDocument();
       expect(screen.getByText('Police Verif Alert')).toBeInTheDocument();
 
+      // Operational Visualizations
+      expect(screen.getByText('Booking Status Overview & Lifecycle Summary')).toBeInTheDocument();
+      expect(screen.getByText('Worker Availability Overview')).toBeInTheDocument();
+      expect(screen.getByText('Verification Progress Oversight')).toBeInTheDocument();
+      expect(screen.getByText('Replacement Status')).toBeInTheDocument();
+      expect(screen.getByText('Support Escalation Overview')).toBeInTheDocument();
+      expect(screen.getByText('Payment & Collections Realization Summary')).toBeInTheDocument();
+      expect(screen.getByText('Recent Operational Activities & Backlog Queues')).toBeInTheDocument();
+
       // Check default New Booking Requests queue tab
       expect(screen.getByText(/New Booking Requests \(\d+\)/)).toBeInTheDocument();
       expect(screen.getByText('Anand Sharma')).toBeInTheDocument();
@@ -177,6 +186,13 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       // Status badge displays canonical label
       expect(screen.getByText('New request')).toBeInTheDocument();
     });
+
+    it('renders replacement management view with default replacement filter and header', async () => {
+      renderWithProviders(<BookingsListPage defaultStatus="REPLACEMENT_REQUESTED" />);
+
+      expect(await screen.findByText('Replacement Management')).toBeInTheDocument();
+      expect(screen.getByText(/Operational replacement coordination/i)).toBeInTheDocument();
+    });
   });
 
   describe('5. Payments, Fees & Refund Authorizations', () => {
@@ -267,21 +283,82 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText(/audit\.view/i)).toBeInTheDocument();
     });
 
-    it('hides Configuration and Audit Logs from sidebar navigation for Operations Admin', async () => {
+    it('renders exactly the 8 PRD-approved primary modules and hides governance items for Operations Admin', async () => {
       renderWithProviders(<AppShell />);
 
-      // Operations Admin should see permitted sections
+      // Operations Admin must see only the 8 PRD-approved primary navigation modules
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customer Management')).toBeInTheDocument();
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
-      expect(screen.getByText('Verification')).toBeInTheDocument();
+      expect(screen.getByText('Verification Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
-      expect(screen.getByText('Payments')).toBeInTheDocument();
-      expect(screen.getByText('Reports')).toBeInTheDocument();
+      expect(screen.getByText('Payments Management')).toBeInTheDocument();
+      expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
+      expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
 
-      // Restricted items MUST NOT exist in navigation
+      // Replacement Management must NOT be a separate primary sidebar module
+      expect(screen.queryByRole('link', { name: /Replacement Management/i })).not.toBeInTheDocument();
+
+      // Super Admin governance modules MUST NOT exist in navigation
       expect(screen.queryByText('Configuration')).not.toBeInTheDocument();
+      expect(screen.queryByText('Audit Trail')).not.toBeInTheDocument();
       expect(screen.queryByText('Audit Logs')).not.toBeInTheDocument();
+      expect(screen.queryByText('Administrator Accounts')).not.toBeInTheDocument();
+    });
+
+    it('displays all 8 modules when authorized with backend-issued server permissions', async () => {
+      // Simulate exact backend-issued permission array returned by POST /api/v1/auth/admin/login
+      useAuthStore.getState().setSession(
+        {
+          id: 'ops-admin-server-01',
+          name: 'Operations Manager',
+          email: 'operations.manager@sevanest.example.com',
+          role: 'OPERATIONS_ADMIN',
+          permissions: [
+            'booking.view',
+            'booking.manage',
+            'customer.view',
+            'customer.manage',
+            'worker.view',
+            'worker.manage',
+            'matching.run',
+            'replacement.view',
+            'replacement.manage',
+            'attendance.view',
+            'attendance.manage',
+            'payment.view',
+            'support.view',
+            'rating.view',
+            'rating.moderate',
+            'report.view',
+            'notification.manage',
+            'category.manage',
+            'area.manage',
+            'user.view',
+            'alert.view',
+            'alert.manage',
+            'verification.signoff',
+            'verification.reassign',
+            'worker.activate',
+          ],
+        },
+        'server-token-123'
+      );
+
+      renderWithProviders(<AppShell />);
+
+      // All 8 primary modules must resolve to true based on backend-issued permissions
+      expect(screen.getByText('Dashboard')).toBeInTheDocument();
+      expect(screen.getByText('Customer Management')).toBeInTheDocument();
+      expect(screen.getByText('Worker Management')).toBeInTheDocument();
+      expect(screen.getByText('Verification Management')).toBeInTheDocument();
+      expect(screen.getByText('Booking Management')).toBeInTheDocument();
+      expect(screen.getByText('Payments Management')).toBeInTheDocument();
+      expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
+      expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
+
+      // No separate replacement module
+      expect(screen.queryByRole('link', { name: /Replacement Management/i })).not.toBeInTheDocument();
     });
   });
 });

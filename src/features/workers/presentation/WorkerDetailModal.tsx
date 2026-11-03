@@ -1911,45 +1911,51 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-1)' }}>
                     <Phone size={15} color="var(--color-primary)" />
                     <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                      Contact Number (PII Protected)
+                      Contact Number
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <strong style={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                      {isPhoneRevealed
-                        ? worker.phone || worker.mobile || (worker.phoneMasked ? `${worker.phoneMasked} (Full number not supplied by backend)` : 'Not available')
-                        : worker.phoneMasked || '+91 ••••• •••••'}
+                      {worker.phoneMasked && !worker.phoneMasked.includes('*')
+                        ? worker.phone || worker.mobile || worker.phoneMasked
+                        : (isPhoneRevealed
+                            ? worker.phone || worker.mobile || (worker.phoneMasked ? `${worker.phoneMasked} (Full number not supplied by backend)` : 'Not available')
+                            : worker.phoneMasked || '+91 ••••• •••••')}
                     </strong>
-                    {canRevealPii ? (
-                      <button
-                        type="button"
-                        onClick={() => setIsPhoneRevealed((prev) => !prev)}
-                        style={{
-                          padding: '2px 8px',
-                          fontSize: '11px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border)',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          color: 'var(--color-brand-600)',
-                          cursor: 'pointer',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          fontWeight: 600,
-                        }}
-                        aria-label={isPhoneRevealed ? 'Hide contact number' : 'Reveal contact number'}
-                      >
-                        {isPhoneRevealed ? <EyeOff size={11} /> : <Eye size={11} />}
-                        <span>{isPhoneRevealed ? 'Hide' : 'Reveal'}</span>
-                      </button>
-                    ) : (
-                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                        (Restricted)
-                      </span>
+                    {worker.phoneMasked && worker.phoneMasked.includes('*') && (
+                      canRevealPii ? (
+                        <button
+                          type="button"
+                          onClick={() => setIsPhoneRevealed((prev) => !prev)}
+                          style={{
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--color-border)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            color: 'var(--color-brand-600)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontWeight: 600,
+                          }}
+                          aria-label={isPhoneRevealed ? 'Hide contact number' : 'Reveal contact number'}
+                        >
+                          {isPhoneRevealed ? <EyeOff size={11} /> : <Eye size={11} />}
+                          <span>{isPhoneRevealed ? 'Hide' : 'Reveal'}</span>
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                          (Restricted)
+                        </span>
+                      )
                     )}
                   </div>
                   <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                    {isPhoneRevealed ? '✓ Authorized contact reveal active' : 'Secure communication channel'}
+                    {worker.phoneMasked && !worker.phoneMasked.includes('*')
+                      ? 'Registered primary mobile'
+                      : (isPhoneRevealed ? '✓ Authorized contact reveal active' : 'Secure communication channel')}
                   </div>
                 </div>
 
