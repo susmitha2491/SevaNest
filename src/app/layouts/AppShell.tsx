@@ -15,7 +15,6 @@ import { useAuthStore } from '../../core/auth/authStore';
 import { authRepository } from '../../features/auth/data/authRepository';
 import { getRoleLabel } from '../../core/rbac/permissions';
 import { getAccessibleNavigation } from '../../core/rbac/navigationRegistry';
-import { env } from '../../core/config/env';
 
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -337,21 +336,6 @@ export const AppShell: React.FC = () => {
         >
           {/* Header Utilities */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-            <span
-              style={{
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 700,
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-full)',
-                backgroundColor: env.VITE_APP_ENV === 'production' ? 'var(--color-status-danger-bg)' : 'var(--color-status-info-bg)',
-                border: `1px solid ${env.VITE_APP_ENV === 'production' ? 'var(--color-status-danger-border)' : 'var(--color-status-info-border)'}`,
-                color: env.VITE_APP_ENV === 'production' ? 'var(--color-status-danger-text)' : 'var(--color-status-info-text)',
-                textTransform: 'uppercase',
-              }}
-            >
-              {env.VITE_APP_ENV}
-            </span>
-
             {user && (
               <div ref={profileMenuRef} className="header-profile-menu-container" style={{ position: 'relative' }}>
                 <button
