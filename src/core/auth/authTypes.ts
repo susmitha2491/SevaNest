@@ -9,6 +9,7 @@ export interface AdminUser {
   phone?: string | null;
   mobile?: string | null;
   status?: string | null;
+  staffId?: string | null;
   createdAt?: string | null;
   userType?: string | null;
   avatarUrl?: string | null;
@@ -55,6 +56,7 @@ export interface IAuthRepository {
   logout(): Promise<void>;
   refreshToken(token?: string): Promise<{ accessToken: string; refreshToken?: string; user?: AdminUser }>;
   getCurrentSession(accessToken?: string): Promise<AdminUser | null>;
+  getAdminProfile?(): Promise<AdminUser>;
   listSessions?(): Promise<ActiveSessionItem[]>;
   revokeSession?(sessionId: string): Promise<void>;
   updateProfile(dto: UpdateProfileDto): Promise<AdminUser>;

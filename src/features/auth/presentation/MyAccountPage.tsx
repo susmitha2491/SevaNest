@@ -64,6 +64,26 @@ export const MyAccountPage: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null);
 
   useEffect(() => {
+    let isMounted = true;
+    const fetchFreshProfile = async () => {
+      try {
+        if (authRepository.getAdminProfile) {
+          const freshUser = await authRepository.getAdminProfile();
+          if (isMounted && freshUser) {
+            setUser(freshUser);
+          }
+        }
+      } catch (err) {
+        console.warn('Backend admin profile fetch note:', err);
+      }
+    };
+    fetchFreshProfile();
+    return () => {
+      isMounted = false;
+    };
+  }, [setUser]);
+
+  useEffect(() => {
     if (user) {
       setFormData({
         name: user.name || '',
@@ -146,10 +166,12 @@ export const MyAccountPage: React.FC = () => {
         if (user) {
           setUser({ ...user, avatarUrl: result.photoUrl });
         }
+        setPhotoPreview(result.photoUrl);
+        setPhotoFile(null);
         setSaveSuccess('Profile photo uploaded and updated successfully.');
       } else {
         setPhotoError(
-          'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint ("POST /api/v1/admin/account/photo" or "POST /api/v1/users/me/photo").'
+          'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint.'
         );
       }
     } catch (err: unknown) {
@@ -197,18 +219,43 @@ export const MyAccountPage: React.FC = () => {
     setSaveSuccess(null);
 
     try {
-      const updatedUser = await authRepository.updateProfile({
-        name: formData.name.trim(),
-        email: formData.email.trim() || undefined,
-        phone: formData.phone.trim() || undefined,
-      });
+      const updatePayload: Record<string, string> = {};
+      if (formData.name.trim()) updatePayload.name = formData.name.trim();
+      if (formData.email.trim()) updatePayload.email = formData.email.trim();
+      if (formData.phone.trim()) updatePayload.phone = formData.phone.trim();
+
+      const updatedUser = await authRepository.updateProfile(updatePayload);
       setUser(updatedUser);
       setSaveSuccess('Profile details successfully updated.');
       setIsEditing(false);
       setSearchParams({}, { replace: true });
+
+      // Refresh displayed profile with backend record
+      if (authRepository.getAdminProfile) {
+        try {
+          const freshProfile = await authRepository.getAdminProfile();
+          if (freshProfile) setUser(freshProfile);
+        } catch {
+          // Ignore refresh network error
+        }
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update profile. Please try again.';
-      setSaveError(msg);
+      const is409 =
+        (err as { statusCode?: number })?.statusCode === 409 ||
+        (err as { code?: string })?.code === 'CONCURRENCY_CONFLICT' ||
+        (err as { code?: string })?.code === 'CONFLICT' ||
+        (err instanceof Error && /duplicate|already (registered|in use)|conflict/i.test(err.message));
+
+      if (is409) {
+        const conflictMsg =
+          err instanceof Error && err.message && !err.message.includes('Concurrent modification conflict')
+            ? err.message
+            : 'Email address or phone number is already registered to another account. Please use a unique email and phone number.';
+        setSaveError(conflictMsg);
+      } else {
+        const msg = err instanceof Error ? err.message : 'Failed to update profile. Please try again.';
+        setSaveError(msg);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -673,7 +720,7 @@ export const MyAccountPage: React.FC = () => {
                     border: '1px solid var(--color-border)',
                   }}
                 >
-                  ID: {user.id}
+                  ID: {user.staffId || user.id}
                 </span>
               </div>
 
@@ -1250,7 +1297,7 @@ export const MyAccountPage: React.FC = () => {
                     data-testid="account-user-id"
                     style={{ fontSize: 'var(--font-size-sm)', fontFamily: 'monospace', fontWeight: 600, color: 'var(--color-text-primary)', marginTop: '2px' }}
                   >
-                    Staff ID: {user.id}
+                    Staff ID: {user.staffId || user.id}
                   </div>
                 </div>
                 <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>System Identifier</span>

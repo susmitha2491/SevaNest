@@ -102,6 +102,82 @@ export interface BookingDetail {
   platformFeePaid: boolean;
   platformFeeAmount: number;
   internalNotes: string[];
+
+  // Extended fields from AdminBookingView
+  customerUserId?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  assignedWorkerPhone?: string;
+  budgetMinMinor?: number;
+  budgetMaxMinor?: number;
+  budgetPeriod?: string;
+  requirementNote?: string;
+  requestedStartDate?: string;
+  addressId?: string;
+  workerRespondedAt?: string;
+  respondBy?: string;
+  proposedSlotAt?: string;
+  proposedSlotNote?: string;
+  replacesBookingId?: string;
+  cancelReason?: string;
+  cancelledByUserId?: string;
+  updatedAt?: string;
+  timeline?: Array<{
+    from: string | null;
+    to: string;
+    by: string;
+    note: string | null;
+    at: string;
+    actorUserId: string | null;
+  }>;
+}
+
+export interface BookingPaymentEntry {
+  id: string;
+  bookingId: string;
+  status: string;
+  amountMinor: number;
+  amountINR: number;
+  currency: string;
+  receiptNumber?: string | null;
+  paidAt?: string | null;
+  refundStatus?: string | null;
+  refundedAt?: string | null;
+  refundReason?: string | null;
+  refundedByUserId?: string | null;
+  paymentMethod?: string | null;
+  paymentMethodDetail?: string | null;
+  gatewayReference?: string | null;
+  providerOrderId?: string | null;
+  providerPaymentId?: string | null;
+  failureCode?: string | null;
+  failureReason?: string | null;
+  feeCode?: string;
+  createdAt: string;
+}
+
+export interface BookingAuditEntry {
+  id: string;
+  actorStaffId: string;
+  actorName: string;
+  actorRole: string;
+  actionType: string;
+  targetRecordId: string;
+  targetEntityType: string;
+  summary: string;
+  timestamp: string;
+  operationalRemarks?: string;
+}
+
+export interface BookingCommunicationEvent {
+  id: string;
+  timestamp: string;
+  channel: string;
+  senderRole: 'CUSTOMER' | 'WORKER' | 'ADMIN' | 'SYSTEM';
+  senderName?: string;
+  title: string;
+  outcome?: string;
+  remarks: string;
 }
 
 export interface BookingFilterCriteria {
@@ -150,12 +226,27 @@ export interface BookingHistoryData {
     type: string;
     status: string;
     statusLabel?: string;
+    requestedBy?: string;
+    preferredAt?: string;
     scheduledAt?: string;
+    proposedAt?: string;
+    proposedBy?: string;
+    note?: string;
+    declineReason?: string;
+    cancelReason?: string;
+    outcome?: string;
     outcomeNote?: string;
+    meetingLink?: string;
+    location?: string;
+    scheduleType?: string;
+    completedAt?: string;
+    cancelledAt?: string;
     createdAt?: string;
+    updatedAt?: string;
     timeline?: Array<{ title: string; state: string; at: string }>;
   }>;
   replacementChain?: Array<{
+    id?: string;
     bookingId: string;
     position: number;
     status: string;
@@ -164,6 +255,10 @@ export interface BookingHistoryData {
     createdAt: string;
     current: boolean;
   }>;
+  payments?: BookingPaymentEntry[];
+  auditLogs?: BookingAuditEntry[];
+  communications?: BookingCommunicationEvent[];
+  rawBookingDetail?: Record<string, unknown>;
 }
 
 export interface IBookingRepository {

@@ -175,24 +175,24 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
   }
   const permissions = user.permissions;
 
-  // 1. Role-specific command center / dashboard when explicitly authorized with dashboard.view
-  if (permissions.includes(PERMISSIONS.DASHBOARD_VIEW) || permissions.includes('dashboard.view') || permissions.includes('*')) {
-    return '/dashboard';
-  }
-
-  // 2. Role-specific primary operational workstations when dashboard.view is not granted
-  if (
-    (user.role === 'VERIFICATION_EXECUTIVE' || user.role === 'VERIFICATION_SUPERVISOR') &&
-    hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
-  ) {
-    return '/verification';
-  }
-
+  // 1. Role-specific primary operational workstations
   if (
     user.role === 'SUPPORT_EXECUTIVE' &&
     (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) || hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE))
   ) {
     return '/support';
+  }
+
+  // 2. Command center / dashboard when explicitly authorized with dashboard.view
+  if (permissions.includes(PERMISSIONS.DASHBOARD_VIEW) || permissions.includes('dashboard.view') || permissions.includes('*')) {
+    return '/dashboard';
+  }
+
+  if (
+    (user.role === 'VERIFICATION_EXECUTIVE' || user.role === 'VERIFICATION_SUPERVISOR') &&
+    hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
+  ) {
+    return '/verification';
   }
 
   // 3. Fallback: Role-specific command center / dashboard via alias permissions

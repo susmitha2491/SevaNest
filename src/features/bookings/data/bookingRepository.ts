@@ -439,9 +439,17 @@ export class MockBookingRepository implements IBookingRepository {
               type: 'TRIAL',
               status: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'COMPLETED' : 'SCHEDULED',
               statusLabel: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'Completed' : 'Scheduled',
+              requestedBy: 'CUSTOMER',
+              preferredAt: booking.trial.scheduledDate,
               scheduledAt: booking.trial.scheduledDate,
               outcomeNote: booking.trialOutcome?.feedbackRemarks,
+              note: booking.trial.notes,
               createdAt: booking.createdAt,
+              timeline: [
+                { title: 'Requested', state: 'done', at: booking.createdAt },
+                { title: 'Confirmed', state: 'done', at: booking.createdAt },
+                { title: 'Scheduled', state: booking.trialOutcome ? 'done' : 'current', at: booking.trial.scheduledDate },
+              ],
             },
           ]
         : [],
@@ -457,6 +465,65 @@ export class MockBookingRepository implements IBookingRepository {
             },
           ]
         : [],
+      payments: [
+        {
+          id: `TXN-${booking?.id || '84920'}`,
+          bookingId: booking?.id || 'B-84920',
+          status: booking?.platformFeePaid ? 'SUCCEEDED' : 'PENDING',
+          amountMinor: (booking?.platformFeeAmount || 499) * 100,
+          amountINR: booking?.platformFeeAmount || 499,
+          currency: 'INR',
+          receiptNumber: 'REC-2026-9041',
+          paidAt: booking?.createdAt || '2026-10-09T04:43:26.583Z',
+          refundStatus: null,
+          refundedAt: null,
+          refundReason: null,
+          refundedByUserId: null,
+          paymentMethod: 'UPI (GPay)',
+          paymentMethodDetail: 'anand****@okhdfc',
+          gatewayReference: 'pay_H93b1948x',
+          providerOrderId: 'order_G8329481a',
+          providerPaymentId: 'pay_H93b1948x',
+          feeCode: 'BOOKING_FEE',
+          createdAt: booking?.createdAt || '2026-10-09T04:43:26.583Z',
+        },
+      ],
+      auditLogs: [
+        {
+          id: `AUD-${booking?.id || '84920'}`,
+          actorStaffId: 'STAFF-OPS-01',
+          actorName: 'Operations Officer',
+          actorRole: 'Operations Admin',
+          actionType: 'BOOKING_STATUS_UPDATE',
+          targetRecordId: booking?.id || 'B-84920',
+          targetEntityType: 'BOOKING',
+          summary: 'Operations intake verified and domestic worker assigned',
+          timestamp: booking?.createdAt || '2026-10-09T04:43:26.583Z',
+          operationalRemarks: 'Verified household requirements and candidate alignment.',
+        },
+      ],
+      communications: [
+        {
+          id: `comm-req-${booking?.id || '84920'}`,
+          timestamp: booking?.createdAt || '2026-10-09T04:43:26.583Z',
+          channel: 'CUSTOMER_PORTAL_SUBMISSION',
+          senderRole: 'CUSTOMER',
+          senderName: booking?.customerName || 'Customer',
+          title: 'Initial Requirement Submission',
+          outcome: 'Requirements Logged',
+          remarks: 'Client service preferences and timing shift recorded during initial booking intake.',
+        },
+        {
+          id: `comm-resp-${booking?.id || '84920'}`,
+          timestamp: booking?.createdAt || '2026-10-09T05:12:00.000Z',
+          channel: 'WORKER_APP_RESPONSE',
+          senderRole: 'WORKER',
+          senderName: booking?.assignedWorkerName || 'Worker Candidate',
+          title: 'Worker Assignment Confirmation',
+          outcome: 'Accepted',
+          remarks: 'Candidate confirmed availability for the specified schedule.',
+        },
+      ],
     };
   }
 }
@@ -682,6 +749,34 @@ function mapBackendBookingToDomain(
     trial: raw.trial as BookingDetail['trial'],
     trialOutcome: raw.trialOutcome as BookingDetail['trialOutcome'],
     replacement: raw.replacement as BookingDetail['replacement'],
+    customerUserId: raw.customerUserId ? String(raw.customerUserId) : (custId || undefined),
+    customerPhone: cleanCustPhone || (rawCustPhone ? String(rawCustPhone) : undefined),
+    customerEmail: (custObj?.email && !custObj.email.includes('*')) ? custObj.email : (raw.customerEmail ? String(raw.customerEmail) : undefined),
+    assignedWorkerPhone: cleanWrkPhone || (rawWrkPhone ? String(rawWrkPhone) : undefined),
+    budgetMinMinor: raw.budgetMinMinor !== undefined && raw.budgetMinMinor !== null ? Number(raw.budgetMinMinor) : undefined,
+    budgetMaxMinor: raw.budgetMaxMinor !== undefined && raw.budgetMaxMinor !== null ? Number(raw.budgetMaxMinor) : undefined,
+    budgetPeriod: raw.budgetPeriod ? String(raw.budgetPeriod) : undefined,
+    requirementNote: raw.requirementNote ? String(raw.requirementNote) : undefined,
+    requestedStartDate: raw.requestedStartDate ? String(raw.requestedStartDate) : undefined,
+    addressId: raw.addressId ? String(raw.addressId) : undefined,
+    workerRespondedAt: raw.workerRespondedAt ? String(raw.workerRespondedAt) : undefined,
+    respondBy: raw.respondBy ? String(raw.respondBy) : undefined,
+    proposedSlotAt: raw.proposedSlotAt ? String(raw.proposedSlotAt) : undefined,
+    proposedSlotNote: raw.proposedSlotNote ? String(raw.proposedSlotNote) : undefined,
+    replacesBookingId: raw.replacesBookingId ? String(raw.replacesBookingId) : undefined,
+    cancelReason: raw.cancelReason ? String(raw.cancelReason) : undefined,
+    cancelledByUserId: raw.cancelledByUserId ? String(raw.cancelledByUserId) : undefined,
+    updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
+    timeline: Array.isArray(raw.timeline)
+      ? (raw.timeline as Array<Record<string, unknown>>).map((t) => ({
+          from: t.from !== undefined && t.from !== null ? String(t.from) : null,
+          to: String(t.to || ''),
+          by: String(t.by || ''),
+          note: t.note !== undefined && t.note !== null ? String(t.note) : null,
+          at: String(t.at || ''),
+          actorUserId: t.actorUserId !== undefined && t.actorUserId !== null ? String(t.actorUserId) : null,
+        }))
+      : undefined,
   };
 }
 
@@ -1153,17 +1248,115 @@ export class RealBookingRepository implements IBookingRepository {
 
   async getBookingHistory(bookingId: string): Promise<BookingHistoryData> {
     try {
-      const [detailRes, interviewsRes, chainRes] = await Promise.all([
-        httpClient.get<{ data?: Record<string, unknown> }>(`/admin/bookings/${bookingId}`).catch(() => null),
+      const [detailRes, interviewsRes, chainRes, paymentsRes, auditRes] = await Promise.all([
+        httpClient.get<{ data?: Record<string, unknown> } | Record<string, unknown>>(`/admin/bookings/${bookingId}`).catch(() => null),
         httpClient.get<{ data?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(`/admin/bookings/${bookingId}/interviews`).catch(() => null),
         httpClient.get<{ data?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(`/admin/bookings/${bookingId}/replacement-chain`).catch(() => null),
+        httpClient.get<{ data?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>('/admin/payments', { params: { bookingId, limit: 20 } }).catch(() => null),
+        httpClient.get<{ data?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>('/admin/audit-logs', { params: { entityType: 'booking', entityId: bookingId, limit: 20 } }).catch(() => null),
       ]);
-      const rawDetail = (detailRes?.data?.data || detailRes?.data) as Record<string, unknown> | undefined;
+      const rawDetail = (detailRes?.data && typeof detailRes.data === 'object' && 'data' in detailRes.data ? (detailRes.data as { data?: Record<string, unknown> }).data : detailRes?.data) as Record<string, unknown> | undefined;
       const rawTimeline = Array.isArray(rawDetail?.timeline) ? rawDetail.timeline : [];
       const interviews = Array.isArray(interviewsRes?.data) ? interviewsRes.data : (Array.isArray((interviewsRes?.data as { data?: unknown[] })?.data) ? (interviewsRes?.data as { data: Array<Record<string, unknown>> }).data : []);
       const replacementChain = Array.isArray(chainRes?.data) ? chainRes.data : (Array.isArray((chainRes?.data as { data?: unknown[] })?.data) ? (chainRes?.data as { data: Array<Record<string, unknown>> }).data : []);
 
+      const rawPayments = Array.isArray(paymentsRes?.data)
+        ? paymentsRes.data
+        : (Array.isArray((paymentsRes?.data as { data?: unknown[] })?.data)
+        ? (paymentsRes?.data as { data: Array<Record<string, unknown>> }).data
+        : []);
+
+      const payments = rawPayments.map((p: Record<string, unknown>) => ({
+        id: String(p.id || ''),
+        bookingId: String(p.bookingId || bookingId),
+        status: String(p.status || 'PAID'),
+        amountMinor: Number(p.amountMinor || (Number(p.amountINR || 0) * 100)),
+        amountINR: p.amountMinor !== undefined && p.amountMinor !== null ? Number(p.amountMinor) / 100 : Number(p.amountINR || 0),
+        currency: String(p.currency || 'INR'),
+        receiptNumber: p.receiptNumber ? String(p.receiptNumber) : null,
+        paidAt: p.paidAt ? String(p.paidAt) : (p.createdAt ? String(p.createdAt) : null),
+        refundStatus: p.refundStatus ? String(p.refundStatus) : null,
+        refundedAt: p.refundedAt ? String(p.refundedAt) : null,
+        refundReason: p.refundReason ? String(p.refundReason) : null,
+        refundedByUserId: p.refundedByUserId ? String(p.refundedByUserId) : null,
+        paymentMethod: p.paymentMethod ? String(p.paymentMethod) : null,
+        paymentMethodDetail: p.paymentMethodDetail ? String(p.paymentMethodDetail) : null,
+        gatewayReference: p.gatewayReference ? String(p.gatewayReference) : (p.gatewayRef ? String(p.gatewayRef) : null),
+        providerOrderId: p.providerOrderId ? String(p.providerOrderId) : null,
+        providerPaymentId: p.providerPaymentId ? String(p.providerPaymentId) : null,
+        failureCode: p.failureCode ? String(p.failureCode) : null,
+        failureReason: p.failureReason ? String(p.failureReason) : null,
+        feeCode: p.feeCode ? String(p.feeCode) : 'PLATFORM_FEE',
+        createdAt: String(p.createdAt || new Date().toISOString()),
+      }));
+
+      const rawAudits = Array.isArray(auditRes?.data)
+        ? auditRes.data
+        : (Array.isArray((auditRes?.data as { data?: unknown[] })?.data)
+        ? (auditRes?.data as { data: Array<Record<string, unknown>> }).data
+        : []);
+
+      const auditLogs = rawAudits.map((a: Record<string, unknown>) => ({
+        id: String(a.id || ''),
+        actorStaffId: String(a.actorStaffId || a.actorId || 'STAFF'),
+        actorName: String(a.actorName || a.actorEmail || 'Operations Admin'),
+        actorRole: String(a.actorRole || 'Operations Admin'),
+        actionType: String(a.action || a.actionType || 'BOOKING_UPDATE'),
+        targetRecordId: String(a.entityId || a.targetRecordId || bookingId),
+        targetEntityType: String(a.entityType || 'BOOKING'),
+        summary: String(a.summary || a.description || a.message || 'Administrative booking action'),
+        timestamp: String(a.createdAt || a.timestamp || new Date().toISOString()),
+        operationalRemarks: a.operationalRemarks ? String(a.operationalRemarks) : undefined,
+      }));
+
+      const communications: BookingHistoryData['communications'] = [];
+      if (rawDetail?.createdAt && (rawDetail.requirementNote || rawDetail.specialRequirements)) {
+        communications.push({
+          id: `comm-req-${bookingId}`,
+          timestamp: String(rawDetail.createdAt),
+          channel: 'CUSTOMER_PORTAL_SUBMISSION',
+          senderRole: 'CUSTOMER',
+          title: 'Service Requirement & Instructions Submitted',
+          outcome: 'Requirements Logged',
+          remarks: String(rawDetail.requirementNote || rawDetail.specialRequirements),
+        });
+      }
+      if (rawDetail?.workerRespondedAt) {
+        communications.push({
+          id: `comm-resp-${bookingId}`,
+          timestamp: String(rawDetail.workerRespondedAt),
+          channel: 'WORKER_APP_RESPONSE',
+          senderRole: 'WORKER',
+          title: 'Matched Worker Accepted Booking Assignment',
+          outcome: 'Accepted',
+          remarks: rawDetail.respondBy ? `Response registered before deadline (${rawDetail.respondBy}).` : 'Worker confirmed willingness to serve.',
+        });
+      }
+      if (rawDetail?.proposedSlotAt) {
+        communications.push({
+          id: `comm-prop-${bookingId}`,
+          timestamp: String(rawDetail.proposedSlotAt),
+          channel: 'WORKER_TIME_PROPOSAL',
+          senderRole: 'WORKER',
+          title: 'Alternate Time Slot Proposed by Worker',
+          outcome: 'Slot Proposed',
+          remarks: String(rawDetail.proposedSlotNote || 'Worker proposed alternate time slot.'),
+        });
+      }
+      if (rawDetail?.cancelReason) {
+        communications.push({
+          id: `comm-cncl-${bookingId}`,
+          timestamp: String(rawDetail.updatedAt || rawDetail.createdAt),
+          channel: 'BOOKING_CANCELLATION',
+          senderRole: rawDetail.cancelledByUserId ? 'ADMIN' : 'SYSTEM',
+          title: 'Service Booking Cancelled',
+          outcome: 'Cancelled',
+          remarks: String(rawDetail.cancelReason),
+        });
+      }
+
       return {
+        rawBookingDetail: rawDetail,
         timeline: rawTimeline.map((t: Record<string, unknown>) => ({
           from: t.from !== undefined ? String(t.from) : null,
           to: String(t.to || ''),
@@ -1177,8 +1370,17 @@ export class RealBookingRepository implements IBookingRepository {
           type: String(intv.type || 'INTERVIEW'),
           status: String(intv.status || ''),
           statusLabel: String(intv.statusLabel || intv.status || ''),
+          requestedBy: intv.requestedBy ? String(intv.requestedBy) : undefined,
+          preferredAt: intv.preferredAt ? String(intv.preferredAt) : undefined,
           scheduledAt: intv.scheduledAt ? String(intv.scheduledAt) : undefined,
+          proposedAt: intv.proposedAt ? String(intv.proposedAt) : undefined,
+          proposedBy: intv.proposedBy ? String(intv.proposedBy) : undefined,
+          note: intv.note ? String(intv.note) : undefined,
+          declineReason: intv.declineReason ? String(intv.declineReason) : undefined,
+          cancelReason: intv.cancelReason ? String(intv.cancelReason) : undefined,
           outcomeNote: intv.outcomeNote ? String(intv.outcomeNote) : undefined,
+          completedAt: intv.completedAt ? String(intv.completedAt) : undefined,
+          cancelledAt: intv.cancelledAt ? String(intv.cancelledAt) : undefined,
           createdAt: intv.createdAt ? String(intv.createdAt) : undefined,
           timeline: Array.isArray(intv.timeline) ? intv.timeline as Array<{ title: string; state: string; at: string }> : undefined,
         })),
@@ -1191,6 +1393,9 @@ export class RealBookingRepository implements IBookingRepository {
           createdAt: String(link.createdAt || ''),
           current: Boolean(link.current),
         })),
+        payments,
+        auditLogs,
+        communications,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

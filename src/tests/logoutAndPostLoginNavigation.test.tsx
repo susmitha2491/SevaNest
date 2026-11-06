@@ -99,7 +99,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput, 'verification.executive@sevanest.example.com');
       const passwordInput = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput, 'Sn-mvKYhFKPJE7#7q');
+      await user.type(passwordInput, 'Verification@2026');
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
@@ -130,7 +130,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput2 = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput2, 'verification.executive@sevanest.example.com');
       const passwordInput2 = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput2, 'Sn-mvKYhFKPJE7#7q');
+      await user.type(passwordInput2, 'Verification@2026');
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
@@ -149,7 +149,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput, 'operations.manager@sevanest.example.com');
       const passwordInput = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput, 'SnFFtzKHJQu3wm#7q');
+      await user.type(passwordInput, 'Operations@2026');
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
@@ -181,7 +181,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput2 = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput2, 'operations.manager@sevanest.example.com');
       const passwordInput2 = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput2, 'SnFFtzKHJQu3wm#7q');
+      await user.type(passwordInput2, 'Operations@2026');
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
@@ -192,7 +192,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('SUPPORT_EXECUTIVE: logs in to /dashboard, navigates to /support, logs out, logs in again to /dashboard', async () => {
+    it('SUPPORT_EXECUTIVE: logs in to /support, navigates to /dashboard, logs out, logs in again to /support', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/auth/login');
 
@@ -200,24 +200,24 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput, 'support.executive@sevanest.example.com');
       const passwordInput = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput, 'SnGprIJDAxciUB#7q');
+      await user.type(passwordInput, 'Support@2026');
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
-      // Verify default module opens: /dashboard (Support Operations Console)
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/dashboard');
-      });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
-
-      // 2. Navigate to another module: /support
-      await act(async () => {
-        await router.navigate('/support');
-      });
+      // Verify default module opens: /support (Support Grievance & SLA Queue)
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/support');
       });
       expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+
+      // 2. Navigate to another module: /dashboard
+      await act(async () => {
+        await router.navigate('/dashboard');
+      });
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/dashboard');
+      });
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
 
       // 3. Log out via sidebar Sign Out button
       const signOutBtn = await screen.findByRole('button', { name: /Sign Out/i }, { timeout: 4000 });
@@ -232,15 +232,15 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput2 = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput2, 'support.executive@sevanest.example.com');
       const passwordInput2 = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput2, 'SnGprIJDAxciUB#7q');
+      await user.type(passwordInput2, 'Support@2026');
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
-      // 5. Verify default module opens (/dashboard) instead of previously visited /support
+      // 5. Verify default module opens (/support) instead of previously visited /dashboard
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/dashboard');
+        expect(router.state.location.pathname).toBe('/support');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
     });
   });
 
@@ -397,7 +397,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const emailInput = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
       await user.type(emailInput, 'verification.executive@sevanest.example.com');
       const passwordInput = screen.getByPlaceholderText('Enter password');
-      await user.type(passwordInput, 'Sn-mvKYhFKPJE7#7q');
+      await user.type(passwordInput, 'Verification@2026');
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 

@@ -2,103 +2,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  UserCheck,
-  CalendarCheck,
-  LifeBuoy,
-  Users,
-  Briefcase,
-  CreditCard,
-  BarChart3,
-  Sliders,
   LogOut,
   Menu,
   X,
   User,
-  LucideIcon,
   ChevronDown,
   Edit3,
   CheckCircle2,
-  History,
   AlertTriangle,
 } from 'lucide-react';
 import { useAuthStore } from '../../core/auth/authStore';
 import { authRepository } from '../../features/auth/data/authRepository';
-import { hasPermission, PERMISSIONS, getRoleLabel } from '../../core/rbac/permissions';
+import { getRoleLabel } from '../../core/rbac/permissions';
+import { getAccessibleNavigation } from '../../core/rbac/navigationRegistry';
 import { env } from '../../core/config/env';
-
-interface NavItem {
-  name: string;
-  path: string;
-  icon?: LucideIcon;
-  permission?: string;
-  end?: boolean;
-}
-
-interface NavSection {
-  title: string;
-  icon?: LucideIcon;
-  items: NavItem[];
-}
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    title: '',
-    items: [
-      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
-      { name: 'Customer Management', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
-      { name: 'Worker Management', path: '/workers', end: true, icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
-      { name: 'Workers Directory', path: '/workers/directory', end: true, icon: Users, permission: PERMISSIONS.WORKER_VIEW },
-      { name: 'Verification', path: '/verification', end: true, icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Booking Management', path: '/bookings', icon: CalendarCheck, permission: PERMISSIONS.BOOKINGS_VIEW },
-      { name: 'Payments', path: '/payments', icon: CreditCard, permission: PERMISSIONS.PAYMENTS_VIEW },
-      { name: 'Support', path: '/support', icon: LifeBuoy, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'Reports', path: '/reports', icon: BarChart3, permission: PERMISSIONS.REPORTS_VIEW },
-      { name: 'Configuration', path: '/configuration', icon: Sliders, permission: PERMISSIONS.CONFIGURATION_MANAGE },
-      { name: 'Audit Trail', path: '/audit', icon: History, permission: PERMISSIONS.AUDIT_VIEW },
-    ],
-  },
-];
-
-const OPERATIONS_ADMIN_SECTIONS: NavSection[] = [
-  {
-    title: '',
-    items: [
-      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
-      { name: 'Customer Management', path: '/customers', icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
-      { name: 'Worker Management', path: '/workers', end: true, icon: Briefcase, permission: PERMISSIONS.WORKER_VIEW },
-      { name: 'Verification Management', path: '/verification', end: true, icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Booking Management', path: '/bookings', end: true, icon: CalendarCheck, permission: PERMISSIONS.BOOKINGS_VIEW },
-      { name: 'Payments Management', path: '/payments', icon: CreditCard, permission: PERMISSIONS.PAYMENTS_VIEW },
-      { name: 'Support & Grievance Management', path: '/support', icon: LifeBuoy, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'Reports & Analytics', path: '/reports', icon: BarChart3, permission: PERMISSIONS.REPORTS_VIEW },
-    ],
-  },
-];
-
-const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
-  {
-    title: '',
-    items: [
-      { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, permission: PERMISSIONS.DASHBOARD_VIEW },
-      { name: 'Verification', path: '/verification', icon: UserCheck, permission: PERMISSIONS.VERIFICATION_REVIEW },
-      { name: 'Workers Directory', path: '/workers/directory', end: true, icon: Users, permission: PERMISSIONS.WORKER_VIEW },
-    ],
-  },
-];
-
-const SUPPORT_EXECUTIVE_SECTIONS: NavSection[] = [
-  {
-    title: '',
-    items: [
-      { name: 'Support Dashboard', path: '/dashboard', end: true, icon: LayoutDashboard, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'All Support Tickets', path: '/support/tickets', end: true, icon: LifeBuoy, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'My Assigned Tickets', path: '/support/my-tickets', end: true, icon: UserCheck, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'Escalated Tickets', path: '/support/escalated', end: true, icon: AlertTriangle, permission: PERMISSIONS.SUPPORT_VIEW },
-      { name: 'Resolution History', path: '/support/history', end: true, icon: History, permission: PERMISSIONS.SUPPORT_VIEW },
-    ],
-  },
-];
 
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -110,6 +27,8 @@ export const AppShell: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isProfileEditSupported = Boolean(authRepository.supportsProfileUpdate);
+
+  const accessibleModules = getAccessibleNavigation(user);
 
   useEffect(() => {
     const handleToast = (e: Event) => {
@@ -237,117 +156,76 @@ export const AppShell: React.FC = () => {
 
         {/* Nav Sections */}
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--space-3) 0' }}>
-          {(user?.role === 'SUPPORT_EXECUTIVE'
-            ? SUPPORT_EXECUTIVE_SECTIONS
-            : (user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR')
-            ? VERIFICATION_EXECUTIVE_SECTIONS
-            : (user?.role === 'OPERATIONS_ADMIN' || (user?.role as string) === 'OPERATIONS_MANAGER')
-            ? OPERATIONS_ADMIN_SECTIONS
-            : NAV_SECTIONS).map((section) => {
-            const visibleItems = section.items.filter(
-              (item) => !item.permission || hasPermission(user?.permissions, item.permission)
-            );
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 var(--space-2)' }}>
+            {accessibleModules.map((mod) => {
+              const Icon = mod.icon;
 
-            if (!visibleItems.length) return null;
+              return (
+                <div key={mod.id} style={{ display: 'flex', flexDirection: 'column' }}>
+                  <NavLink
+                    to={mod.path}
+                    end={mod.end ?? (mod.path === '/dashboard' || mod.path === '/verification' || mod.path === '/workers')}
+                    style={({ isActive }) => {
+                      const isItemActive =
+                        isActive ||
+                        (mod.path === '/verification' && location.pathname.startsWith('/verification')) ||
+                        (mod.path === '/bookings' && (location.pathname.startsWith('/bookings') || location.pathname.startsWith('/replacements'))) ||
+                        (mod.path === '/support' && (location.pathname.startsWith('/support') || location.pathname === '/support')) ||
+                        (mod.path === '/workers' && location.pathname === '/workers') ||
+                        (mod.path === '/workers/directory' && location.pathname.startsWith('/workers/directory')) ||
+                        (mod.path === '/customers' && location.pathname.startsWith('/customers')) ||
+                        (mod.path === '/payments' && location.pathname.startsWith('/payments')) ||
+                        (mod.path === '/reports' && location.pathname.startsWith('/reports')) ||
+                        (mod.path === '/configuration' && location.pathname.startsWith('/configuration')) ||
+                        (mod.path === '/audit' && location.pathname.startsWith('/audit')) ||
+                        (mod.path === '/dashboard' && (location.pathname === '/dashboard' || location.pathname === '/support/dashboard'));
 
-            const SectionIcon = section.icon;
-
-            return (
-              <div key={section.title || 'main-nav'} style={{ marginBottom: section.title ? 'var(--space-3)' : '0' }}>
-                {sidebarOpen && Boolean(section.title) && (
-                  <div
-                    style={{
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 700,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.05em',
-                      color: 'var(--color-text-muted)',
-                      padding: '0 var(--space-4)',
-                      marginTop: 'var(--space-3)',
-                      marginBottom: 'var(--space-2)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 'var(--space-2)',
+                      return {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        height: '38px',
+                        padding: '0 12px',
+                        width: '100%',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-sm)',
+                        fontWeight: isItemActive ? 600 : 500,
+                        backgroundColor: isItemActive ? 'var(--color-primary-subtle)' : 'transparent',
+                        color: isItemActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                        borderLeft: isItemActive ? '3px solid var(--color-primary)' : '3px solid transparent',
+                        transition: 'all var(--transition-fast)',
+                        justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                        whiteSpace: 'nowrap',
+                        textDecoration: 'none',
+                        boxSizing: 'border-box',
+                      };
                     }}
+                    title={!sidebarOpen ? mod.name : undefined}
                   >
-                    {SectionIcon && <SectionIcon size={14} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />}
-                    <span>{section.title}</span>
-                  </div>
-                )}
-                {!sidebarOpen && Boolean(section.title) && SectionIcon && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'center',
-                      padding: 'var(--space-2) 0',
-                      color: 'var(--color-text-muted)',
-                      borderTop: '1px solid var(--color-border-subtle)',
-                      margin: 'var(--space-2) var(--space-2)',
-                    }}
-                    title={section.title}
-                  >
-                    <SectionIcon size={16} />
-                  </div>
-                )}
-                <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 var(--space-2)' }}>
-                  {visibleItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <NavLink
-                        key={item.path}
-                        to={item.path}
-                        end={item.end ?? (item.path === '/dashboard' || item.path === '/verification' || item.path === '/workers')}
-                        style={({ isActive }) => {
-                          const isItemActive =
-                            isActive ||
-                            (item.path === '/support/tickets' && location.pathname === '/support') ||
-                            (item.path === '/dashboard' && location.pathname === '/support/dashboard');
-                          return {
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '10px',
-                            height: '38px',
-                            padding: '0 12px',
-                            borderRadius: 'var(--radius-md)',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: isItemActive ? 600 : 500,
-                            backgroundColor: isItemActive ? 'var(--color-primary-subtle)' : 'transparent',
-                            color: isItemActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                            borderLeft: isItemActive ? '3px solid var(--color-primary)' : '3px solid transparent',
-                            transition: 'all var(--transition-fast)',
-                            justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                            whiteSpace: 'nowrap',
-                            textDecoration: 'none',
-                            boxSizing: 'border-box',
-                          };
+                    {Icon && <Icon size={18} style={{ flexShrink: 0 }} />}
+                    {sidebarOpen && (
+                      <span
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          minWidth: 0,
+                          flex: 1,
                         }}
-                        title={!sidebarOpen ? item.name : undefined}
                       >
-                        {Icon && <Icon size={18} style={{ flexShrink: 0 }} />}
-                        {sidebarOpen && (
-                          <span
-                            style={{
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap',
-                              minWidth: 0,
-                            }}
-                          >
-                            {item.name}
-                          </span>
-                        )}
-                        {!sidebarOpen && !Icon && (
-                          <span style={{ fontSize: '11px', fontWeight: 700 }}>
-                            {item.name.charAt(0)}
-                          </span>
-                        )}
-                      </NavLink>
-                    );
-                  })}
-                </nav>
-              </div>
-            );
-          })}
+                        {mod.name}
+                      </span>
+                    )}
+                    {!sidebarOpen && !Icon && (
+                      <span style={{ fontSize: '11px', fontWeight: 700 }}>
+                        {mod.name.charAt(0)}
+                      </span>
+                    )}
+                  </NavLink>
+                </div>
+              );
+            })}
+          </nav>
         </div>
 
         {/* User Info / Sign-out */}

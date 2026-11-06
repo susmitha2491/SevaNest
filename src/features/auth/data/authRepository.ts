@@ -1,5 +1,5 @@
 import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto, ChangePasswordDto } from '../../../core/auth/authTypes';
-import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError } from '../../../core/errors/DomainError';
+import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -59,7 +59,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.EXPORTS_GENERATE,
     ],
     aliases: ['operations.manager@sevanest.example.com', 'ops.admin@sevanest.internal', 'ops@sevanest.internal'],
-    password: 'SnFFtzKHJQu3wm#7q',
+    password: 'Operations@2026',
   },
   'verification.executive@sevanest.example.com': {
     id: '01a12fa2-3c86-7560-aff4-2da59d4b0a9e',
@@ -74,7 +74,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
     aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal'],
-    password: 'Sn-mvKYhFKPJE7#7q',
+    password: 'Verification@2026',
   },
   'verif.exec@sevanest.internal': {
     id: '01a12fa2-3c86-7560-aff4-2da59d4b0a9f',
@@ -87,7 +87,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
     aliases: ['verif.exec@sevanest.internal', 'verif@sevanest.internal', 'verification.restricted@sevanest.internal', 'verif.restricted@sevanest.internal'],
-    password: 'Sn-mvKYhFKPJE7#7q',
+    password: 'Verification@2026',
   },
   'support.executive@sevanest.example.com': {
     id: '01a12fa2-37c7-7531-ad8a-da94787eb8d3',
@@ -102,7 +102,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.SUPPORT_MANAGE,
     ],
     aliases: ['support.executive@sevanest.example.com', 'support.exec@sevanest.internal', 'support@sevanest.internal'],
-    password: 'SnGprIJDAxciUB#7q',
+    password: 'Support@2026',
   },
   'verification.supervisor@sevanest.internal': {
     id: 'adm-005',
@@ -374,6 +374,12 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
   const rawType = getField('type', 'userType', 'user_type');
   const resolvedType = rawType ? String(rawType).toUpperCase().trim() : null;
 
+  const rawStaffId = getField('staffId', 'staff_id', 'employeeId', 'employee_id');
+  const resolvedStaffId = rawStaffId ? String(rawStaffId).trim() : null;
+
+  const rawAvatarUrl = getField('avatarUrl', 'avatar_url', 'photoUrl', 'photo_url', 'imageUrl', 'image_url');
+  const resolvedAvatarUrl = rawAvatarUrl ? String(rawAvatarUrl).trim() : null;
+
   return {
     id: String(getField('id', 'userId', 'user_id', 'uuid', 'adminId') || 'admin-user'),
     name: resolvedName,
@@ -383,8 +389,10 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
     phone: resolvedMobile,
     mobile: resolvedMobile,
     status: resolvedStatus,
+    staffId: resolvedStaffId,
     createdAt: resolvedCreatedAt,
     userType: resolvedType,
+    avatarUrl: resolvedAvatarUrl,
   };
 }
 
@@ -539,21 +547,62 @@ export class RealAuthRepository implements IAuthRepository {
     }
   }
 
-  public supportsProfilePhotoUpload: boolean = false;
+  /**
+   * Fetches the current authenticated administrator's profile from the backend.
+   * Calls authoritative endpoint GET /api/v1/admin/me/profile.
+   */
+  async getAdminProfile(): Promise<AdminUser> {
+    try {
+      const response = await httpClient.get('/admin/me/profile');
+      const user = mapBackendUserToAdminUser(response.data);
+      useAuthStore.getState().setUser(user);
+      return user;
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
 
-  async uploadProfilePhoto(_file: File): Promise<{ photoUrl: string }> {
+  public supportsProfilePhotoUpload: boolean = true;
+
+  /**
+   * Uploads or replaces the authenticated administrator's profile photo.
+   * Calls authoritative endpoint POST /api/v1/admin/me/profile-photo with multipart/form-data.
+   */
+  async uploadProfilePhoto(file: File): Promise<{ photoUrl: string }> {
     if (!this.supportsProfilePhotoUpload) {
       throw new ValidationError(
-        'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint ("POST /api/v1/admin/account/photo" or "POST /api/v1/users/me/photo").'
+        'Profile photo upload is not supported by the deployed backend.'
       );
     }
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowedTypes.includes(file.type.toLowerCase())) {
+      throw new ValidationError('Invalid image format. Allowed formats: PNG, JPEG, WebP.');
+    }
+
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new ValidationError('Image file exceeds the 2MB size limit. Please choose a smaller photo.');
+    }
+
     try {
       const formData = new FormData();
-      formData.append('photo', _file);
-      const res = await httpClient.post<{ photoUrl: string }>('/admin/account/photo', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      return res.data;
+      formData.append('photo', file);
+      const res = await httpClient.post<{ photoUrl?: string; url?: string; avatarUrl?: string }>(
+        '/admin/me/profile-photo',
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        }
+      );
+      const photoUrl = res.data.photoUrl || res.data.url || res.data.avatarUrl || '';
+      if (photoUrl) {
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) {
+          useAuthStore.getState().setUser({ ...currentUser, avatarUrl: photoUrl });
+        }
+      }
+      return { photoUrl };
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -561,19 +610,26 @@ export class RealAuthRepository implements IAuthRepository {
 
   /**
    * Indicates whether profile editing is supported by the deployed backend.
-   * In the deployed OpenAPI spec, profile editing endpoints (PATCH /users/me) do not exist.
-   * Can be configured or toggled when the backend team deploys the required contract.
    */
-  public supportsProfileUpdate: boolean = false;
+  public supportsProfileUpdate: boolean = true;
 
+  /**
+   * Updates authenticated administrator profile using partial updates.
+   * Calls authoritative endpoint PATCH /api/v1/admin/me/profile.
+   */
   async updateProfile(dto: UpdateProfileDto): Promise<AdminUser> {
     if (!this.supportsProfileUpdate) {
       throw new ValidationError(
-        'Profile editing is not supported by the deployed backend. The backend currently provides read-only identity via GET /api/v1/users/me and requires a PATCH /api/v1/users/me contract.'
+        'Profile editing is not supported by the deployed backend.'
       );
     }
     try {
-      const response = await httpClient.patch('/users/me', dto);
+      const payload: Record<string, string> = {};
+      if (dto.name !== undefined && dto.name.trim()) payload.name = dto.name.trim();
+      if (dto.email !== undefined && dto.email.trim()) payload.email = dto.email.trim();
+      if (dto.phone !== undefined && dto.phone.trim()) payload.phone = dto.phone.trim();
+
+      const response = await httpClient.patch('/admin/me/profile', payload);
       const updatedUser = mapBackendUserToAdminUser(response.data);
       useAuthStore.getState().setUser(updatedUser);
       return updatedUser;
@@ -699,8 +755,16 @@ export class MockAuthRepository implements IAuthRepository {
     return Promise.resolve();
   }
 
-  public supportsProfileUpdate: boolean = false;
+  public supportsProfileUpdate: boolean = true;
   public supportsProfilePhotoUpload: boolean = true;
+
+  async getAdminProfile(): Promise<AdminUser> {
+    const currentUser = useAuthStore.getState().user;
+    if (!currentUser) {
+      throw new UnauthorizedError('No active authenticated session.');
+    }
+    return Promise.resolve(currentUser);
+  }
 
   async changePassword(dto: ChangePasswordDto): Promise<void> {
     if (!dto.currentPassword) {
@@ -716,10 +780,23 @@ export class MockAuthRepository implements IAuthRepository {
   }
 
   async uploadProfilePhoto(file: File): Promise<{ photoUrl: string }> {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    if (!allowedTypes.includes(file.type.toLowerCase())) {
+      throw new ValidationError('Invalid image format. Allowed formats: PNG, JPEG, WebP.');
+    }
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new ValidationError('Image file exceeds the 2MB size limit. Please choose a smaller photo.');
+    }
+
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
+        const currentUser = useAuthStore.getState().user;
+        if (currentUser) {
+          useAuthStore.getState().setUser({ ...currentUser, avatarUrl: result });
+        }
         resolve({ photoUrl: result });
       };
       reader.onerror = () => {
@@ -730,6 +807,19 @@ export class MockAuthRepository implements IAuthRepository {
   }
 
   async updateProfile(dto: UpdateProfileDto): Promise<AdminUser> {
+    if (!this.supportsProfileUpdate) {
+      throw new ValidationError(
+        'Profile editing is not supported by the deployed backend.'
+      );
+    }
+    if (dto.email === 'duplicate@sevanest.in' || dto.phone === '+91 99999 99999') {
+      throw new ConcurrencyConflictError(
+        'Email address or phone number is already registered to another account.',
+        undefined,
+        409
+      );
+    }
+
     const currentUser = useAuthStore.getState().user;
     if (!currentUser) {
       throw new UnauthorizedError('No active authenticated session.');

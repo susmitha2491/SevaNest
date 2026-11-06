@@ -2,8 +2,10 @@ import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../core/auth/authStore';
 import { restoreSession } from '../../core/auth/sessionRestoration';
-import { hasPermission, PermissionKey } from '../../core/rbac/permissions';
+import { hasPermission, PermissionKey, getDefaultLandingRoute } from '../../core/rbac/permissions';
+import { isRouteAccessibleForUser, getRequiredPermissionForRoute } from '../../core/rbac/navigationRegistry';
 import { NoAccessView } from '../../shared/components/NoAccessView/NoAccessView';
+import { isPopStateNavigation } from './popstateTracker';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -61,10 +63,18 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
     return <Navigate to="/auth/login" state={isRootOrAuth ? undefined : { from: location }} replace />;
   }
 
-  if (permission && !hasPermission(user.permissions, permission)) {
-    return <NoAccessView requiredPermission={permission} />;
+  const isAccessible = isRouteAccessibleForUser(location.pathname, user);
+  const isPermissionSatisfied = !permission || hasPermission(user.permissions, permission);
+
+  if (!isAccessible || !isPermissionSatisfied) {
+    // When navigated via browser Back or Forward buttons (popstate) or history traversal to an unauthorized route:
+    if (isPopStateNavigation()) {
+      const fallback = getDefaultLandingRoute(user);
+      return <Navigate to={fallback} replace state={{ fromUnauthorized: location.pathname }} />;
+    }
+    const required = permission || getRequiredPermissionForRoute(location.pathname);
+    return <NoAccessView requiredPermission={required} />;
   }
 
   return <>{children}</>;
 };
-

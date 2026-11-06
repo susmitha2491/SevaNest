@@ -92,7 +92,7 @@ describe('My Account & Staff Profile Redesign', () => {
       fireEvent.click(returnBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/dashboard');
+        expect(router.state.location.pathname).toBe('/support');
       });
     });
   });

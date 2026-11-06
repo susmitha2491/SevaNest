@@ -403,7 +403,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('4. Support Executive signs in and lands on the Support Executive dashboard (/dashboard)', async () => {
+    it('4. Support Executive signs in and lands on Support Queue (/support)', async () => {
       const user = userEvent.setup();
       const { router } = renderAuthFlow('/auth/login');
 
@@ -417,10 +417,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/dashboard');
+        expect(router.state.location.pathname).toBe('/support');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('5. A stale previous route such as /workers does not override the default dashboard after fresh sign-in', async () => {
@@ -460,11 +460,11 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        // Must open Support Executive dashboard (/dashboard), NOT /configuration
-        expect(router.state.location.pathname).toBe('/dashboard');
+        // Must open Support Executive landing page (/support), NOT /configuration
+        expect(router.state.location.pathname).toBe('/support');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 

@@ -118,7 +118,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     const passwordInput = screen.getByPlaceholderText('Enter password');
 
     expect(emailInput).toHaveValue('operations.manager@sevanest.example.com');
-    expect(passwordInput).toHaveValue('SnFFtzKHJQu3wm#7q');
+    expect(passwordInput).toHaveValue('Operations@2026');
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
 
     // User explicitly clicks Sign In
@@ -143,7 +143,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     const passwordInput = screen.getByPlaceholderText('Enter password');
 
     expect(emailInput).toHaveValue('verification.executive@sevanest.example.com');
-    expect(passwordInput).toHaveValue('Sn-mvKYhFKPJE7#7q');
+    expect(passwordInput).toHaveValue('Verification@2026');
 
     const signInBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
     await user.click(signInBtn);
@@ -155,7 +155,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     });
   });
 
-  it('6. Selecting Support Executive populates credentials and routes to /dashboard', async () => {
+  it('6. Selecting Support Executive populates credentials and routes to /support', async () => {
     const user = userEvent.setup();
     const { router } = renderAuthFlow('/auth/login');
 
@@ -166,7 +166,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     const passwordInput = screen.getByPlaceholderText('Enter password');
 
     expect(emailInput).toHaveValue('support.executive@sevanest.example.com');
-    expect(passwordInput).toHaveValue('SnGprIJDAxciUB#7q');
+    expect(passwordInput).toHaveValue('Support@2026');
 
     const signInBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
     await user.click(signInBtn);
@@ -174,7 +174,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     await waitFor(() => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
       expect(useAuthStore.getState().user?.role).toBe('SUPPORT_EXECUTIVE');
-      expect(router.state.location.pathname).toBe('/dashboard');
+      expect(router.state.location.pathname).toBe('/support');
     });
   });
 

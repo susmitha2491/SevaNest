@@ -21,6 +21,19 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    target: 'es2020',
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'tanstack-vendor': ['@tanstack/react-query'],
+          'lucide-vendor': ['lucide-react'],
+        },
+      },
+    },
+  },
   // @ts-expect-error vitest config extension
   test: {
     globals: true,
