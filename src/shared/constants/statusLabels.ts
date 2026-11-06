@@ -11,12 +11,19 @@ export interface StatusDescriptor {
  * Converts backend enum values into standardized administrative display labels and semantic variants.
  */
 export const STATUS_MAPPINGS: Record<string, StatusDescriptor> = {
-  // Verification Domain
+  // Verification Domain & Application Statuses
   PENDING_REVIEW: { label: 'Pending review', variant: 'warning' },
   SUBMITTED: { label: 'Submitted', variant: 'warning' },
   IN_REVIEW: { label: 'In review', variant: 'info' },
+  UNDER_REVIEW: { label: 'In review', variant: 'info' },
+  ACTION_REQUIRED: { label: 'Action required', variant: 'warning' },
+  CORRECTIONS_REQUIRED: { label: 'Action required', variant: 'warning' },
+  VERIFIED: { label: 'Verified', variant: 'success' },
+  DRAFT: { label: 'Draft', variant: 'neutral' },
+  NOT_SUBMITTED: { label: 'Not submitted', variant: 'neutral' },
   APPROVED: { label: 'Approved', variant: 'success' },
   REJECTED: { label: 'Rejected', variant: 'danger' },
+  DISQUALIFIED: { label: 'Disqualified', variant: 'danger' },
   RECHECK_DUE: { label: 'Re-check due', variant: 'warning' },
 
   // Worker Domain

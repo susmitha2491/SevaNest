@@ -1,4 +1,5 @@
 import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   X,
   User,
@@ -10,8 +11,11 @@ import {
   RefreshCw,
   FileText,
   ShieldCheck,
+  History,
+  GitCommit,
 } from 'lucide-react';
 import { BookingDetail } from '../domain/types';
+import { bookingRepository } from '../data/bookingRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 
@@ -34,7 +38,21 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onOpenReplacement,
   onOpenCancel,
 }) => {
+  const { data: historyData, isLoading: isHistoryLoading } = useQuery({
+    queryKey: ['bookings', 'history', booking?.id],
+    queryFn: async () => {
+      if (!booking?.id) return null;
+      if (bookingRepository.getBookingHistory) {
+        return bookingRepository.getBookingHistory(booking.id);
+      }
+      return null;
+    },
+    enabled: !!booking && isOpen,
+  });
+
   if (!isOpen || !booking) return null;
+
+  const isCustomerAvailable = booking.customerName && booking.customerName !== 'Customer Details Unavailable';
 
   return (
     <div
@@ -57,7 +75,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
-          maxWidth: '750px',
+          maxWidth: '780px',
           width: '100%',
           maxHeight: '90vh',
           display: 'flex',
@@ -133,10 +151,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 <User size={14} /> Customer Profile
               </div>
               <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                {booking.customerName}
+                {isCustomerAvailable ? (
+                  booking.customerName
+                ) : (
+                  <span style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic', fontWeight: 500 }}>
+                    Customer Details Unavailable
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                {booking.customerId} • {booking.customerPhoneMasked}
+                {booking.customerId ? `${booking.customerId} • ` : ''}{booking.customerPhoneMasked}
               </div>
             </div>
 
@@ -337,9 +361,124 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 <div><strong>Prior Worker:</strong> {booking.replacement.priorWorkerName} ({booking.replacement.priorWorkerId})</div>
                 <div><strong>Stated Reason:</strong> {booking.replacement.reasonCategory}</div>
                 <div><strong>Explanation:</strong> {booking.replacement.customerExplanation}</div>
+                <div><strong>Current Status:</strong> <StatusBadge status={booking.replacement.status} /></div>
               </div>
             </div>
           )}
+
+          {/* Booking History & Audit Timeline Section */}
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: 'var(--space-2)' }}>
+              <History size={15} color="var(--color-navy)" />
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                Booking Lifecycle History & Timeline
+              </span>
+            </div>
+
+            {isHistoryLoading ? (
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', padding: 'var(--space-2)' }}>
+                Loading booking history...
+              </div>
+            ) : historyData && (historyData.timeline?.length > 0 || historyData.interviews?.length || historyData.replacementChain?.length) ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                {/* Timeline Events */}
+                {historyData.timeline && historyData.timeline.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      padding: 'var(--space-3)',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
+                      STATUS PROGRESSION
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                      {historyData.timeline.map((event, idx) => (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', fontSize: 'var(--font-size-xs)' }}>
+                          <GitCommit size={14} color="var(--color-primary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span>
+                                {event.from ? `${event.from} → ` : 'Started: '}
+                                <strong>{event.to}</strong> (by {event.by})
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {event.at ? new Date(event.at).toLocaleString() : ''}
+                              </span>
+                            </div>
+                            {event.note && (
+                              <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px', marginTop: '2px' }}>
+                                Note: {event.note}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Interviews and Trials History */}
+                {historyData.interviews && historyData.interviews.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      padding: 'var(--space-3)',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
+                      INTERVIEWS & TRIALS LOG
+                    </div>
+                    {historyData.interviews.map((intv) => (
+                      <div key={intv.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)', borderBottom: '1px dashed var(--color-border)', paddingBottom: '4px', marginBottom: '4px' }}>
+                        <div>
+                          <strong>{intv.type}:</strong> {intv.statusLabel || intv.status}
+                          {intv.outcomeNote && <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px' }}>Outcome: {intv.outcomeNote}</div>}
+                        </div>
+                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                          {intv.scheduledAt ? new Date(intv.scheduledAt).toLocaleString() : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Replacement Chain History */}
+                {historyData.replacementChain && historyData.replacementChain.length > 0 && (
+                  <div
+                    style={{
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      padding: 'var(--space-3)',
+                    }}
+                  >
+                    <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
+                      REPLACEMENT CHAIN HISTORY
+                    </div>
+                    {historyData.replacementChain.map((link) => (
+                      <div key={link.bookingId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--font-size-xs)' }}>
+                        <div>
+                          Link #{link.position}: Worker <strong>{link.workerId}</strong> ({link.status})
+                        </div>
+                        <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                          {link.startDate || link.createdAt}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg-subtle)', padding: 'var(--space-3)', borderRadius: 'var(--radius-md)' }}>
+                No prior state transitions recorded. This is an active ongoing booking.
+              </div>
+            )}
+          </div>
 
           {/* Platform Fee & Financial Summary */}
           <div
@@ -365,39 +504,41 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           </div>
 
           {/* Operational Notes Log */}
-          <div>
-            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
-              Operational Activity & Notes Log ({booking.internalNotes.length})
-            </span>
-            <div
-              style={{
-                marginTop: 'var(--space-2)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 'var(--space-2)',
-              }}
-            >
-              {booking.internalNotes.map((note, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    padding: 'var(--space-2) var(--space-3)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-primary)',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: 'var(--space-2)',
-                  }}
-                >
-                  <FileText size={14} color="var(--color-text-tertiary)" style={{ marginTop: '2px', flexShrink: 0 }} />
-                  <span>{note}</span>
-                </div>
-              ))}
+          {booking.internalNotes && booking.internalNotes.length > 0 && (
+            <div>
+              <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
+                Operational Activity & Notes Log ({booking.internalNotes.length})
+              </span>
+              <div
+                style={{
+                  marginTop: 'var(--space-2)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 'var(--space-2)',
+                }}
+              >
+                {booking.internalNotes.map((note, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-xs)',
+                      color: 'var(--color-text-primary)',
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 'var(--space-2)',
+                    }}
+                  >
+                    <FileText size={14} color="var(--color-text-tertiary)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                    <span>{note}</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer Actions */}

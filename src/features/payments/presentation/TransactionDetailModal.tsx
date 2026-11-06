@@ -1,20 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Receipt,
   User,
   RotateCcw,
   CreditCard,
+  RefreshCw,
 } from 'lucide-react';
 import { PaymentTransaction } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { getCustomerPhone, fetchCustomerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
+import { paymentRepository } from '../data/paymentRepository';
+import { env } from '../../../core/config/env';
 
 interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
   isOpen: boolean;
   onClose: () => void;
   onInitiateRefund?: (transaction: PaymentTransaction) => void;
+  onReconcile?: (transaction: PaymentTransaction) => Promise<void>;
+  isReconciling?: boolean;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
@@ -22,8 +28,83 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   isOpen,
   onClose,
   onInitiateRefund,
+  onReconcile,
+  isReconciling = false,
 }) => {
+  const [resolvedContact, setResolvedContact] = useState<string | undefined>(() => {
+    if (!transaction) return undefined;
+    const phone = transaction.customerPhone;
+    if (phone && !phone.includes('*')) return phone;
+    const masked = transaction.customerPhoneMasked;
+    if (masked && !masked.includes('*')) return masked;
+    const fromDirectory = getCustomerPhone(transaction.customerId);
+    if (fromDirectory && !fromDirectory.includes('*')) return fromDirectory;
+    return undefined;
+  });
+
+  useEffect(() => {
+    if (!isOpen || !transaction) {
+      setResolvedContact(undefined);
+      return;
+    }
+
+    const currentPhone = transaction.customerPhone;
+    if (currentPhone && !currentPhone.includes('*')) {
+      setResolvedContact(currentPhone);
+      return;
+    }
+    const masked = transaction.customerPhoneMasked;
+    if (masked && !masked.includes('*')) {
+      setResolvedContact(masked);
+      return;
+    }
+
+    let isSubscribed = true;
+    (async () => {
+      // 1. Check directory cache for this customer
+      const fromDir = getCustomerPhone(transaction.customerId);
+      if (fromDir && !fromDir.includes('*')) {
+        if (isSubscribed) setResolvedContact(fromDir);
+        return;
+      }
+
+      // 2. Query unmasked phone directly using customer ID in live mode
+      if (!env.VITE_USE_MOCK_AUTH && transaction.customerId && !transaction.customerId.startsWith('Customer')) {
+        const full = await fetchCustomerUnmaskedPhone(transaction.customerId);
+        if (isSubscribed && full && !full.includes('*')) {
+          setResolvedContact(full);
+          return;
+        }
+      }
+
+      // 3. Refresh via getTransactionById in live mode
+      if (!env.VITE_USE_MOCK_AUTH) {
+        try {
+          const refreshed = await paymentRepository.getTransactionById(transaction.id);
+          const refPhone = refreshed?.customerPhone || (refreshed?.customerPhoneMasked && !refreshed.customerPhoneMasked.includes('*') ? refreshed.customerPhoneMasked : undefined);
+          if (isSubscribed && refPhone && !refPhone.includes('*')) {
+            setResolvedContact(refPhone);
+          }
+        } catch {
+          // Fallback
+        }
+      }
+    })();
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [isOpen, transaction]);
+
   if (!isOpen || !transaction) return null;
+
+  const displayContact =
+    (resolvedContact && !resolvedContact.includes('*') ? resolvedContact : undefined) ||
+    (transaction.customerPhone && !transaction.customerPhone.includes('*') ? transaction.customerPhone : undefined) ||
+    (transaction.customerPhoneMasked && !transaction.customerPhoneMasked.includes('*') ? transaction.customerPhoneMasked : undefined) ||
+    resolvedContact ||
+    transaction.customerPhoneMasked ||
+    'Contact Details Unavailable';
 
   return (
     <div
@@ -152,26 +233,73 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}>
                 <User size={14} /> Payer Profile
               </div>
-              <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
+              <div
+                style={{
+                  fontWeight: 700,
+                  fontSize: 'var(--font-size-sm)',
+                  color: transaction.customerName === 'Customer Details Unavailable' ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
+                  fontStyle: transaction.customerName === 'Customer Details Unavailable' ? 'italic' : 'normal',
+                  marginTop: '2px',
+                }}
+              >
                 {transaction.customerName}
               </div>
-              <div style={{ fontFamily: 'monospace', color: 'var(--color-brand-600)' }}>
-                {transaction.customerId} • {transaction.customerPhoneMasked}
+              <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                Contact: <strong style={{ color: 'var(--color-brand-600)' }}>{displayContact}</strong>
               </div>
+              {transaction.customerId && (
+                <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
+                  Customer Ref: {transaction.customerId}
+                </div>
+              )}
             </div>
 
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}>
-                <CreditCard size={14} /> Payment Channel
+                <CreditCard size={14} /> Payment Channel & Gateway
               </div>
               <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', marginTop: '2px' }}>
                 {transaction.paymentMethod}
               </div>
-              <div style={{ color: 'var(--color-text-secondary)' }}>
-                Classification: {transaction.feeType.replace(/_/g, ' ')}
+              <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                Classification: <strong>{transaction.feeType.replace(/_/g, ' ')}</strong>
               </div>
+              {transaction.providerOrderId && (
+                <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
+                  Gateway Order: {transaction.providerOrderId}
+                </div>
+              )}
+              {transaction.receiptNumber && (
+                <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
+                  Receipt: {transaction.receiptNumber}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Failure Diagnostic Alert (if failed) */}
+          {(transaction.status === 'PAYMENT_FAILED' || transaction.failureReason) && (
+            <div
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                border: '1px solid var(--color-status-danger-border)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-xs)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+              }}
+            >
+              <div style={{ fontWeight: 700, color: 'var(--color-status-danger-text)' }}>
+                Gateway Failure Diagnostics
+              </div>
+              <div style={{ color: 'var(--color-status-danger-text)' }}>
+                Failure Reason: <strong>{transaction.failureReason || 'Transaction declined or cancelled before settlement.'}</strong>
+                {transaction.failureCode && ` (Code: ${transaction.failureCode})`}
+              </div>
+            </div>
+          )}
 
           {/* Tax and Fee Calculation Breakdown Table */}
           <div
@@ -245,26 +373,54 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          {onInitiateRefund && transaction.status === 'PAID' ? (
-            <button
-              onClick={() => onInitiateRefund(transaction)}
-              style={{
-                padding: 'var(--space-2) var(--space-4)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-warning-dark)',
-                backgroundColor: 'var(--color-warning-bg)',
-                color: 'var(--color-warning-dark)',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              <RotateCcw size={14} /> Initiate Audited Refund
-            </button>
-          ) : <div />}
+          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            {onReconcile && (
+              <button
+                type="button"
+                onClick={() => onReconcile(transaction)}
+                disabled={isReconciling}
+                style={{
+                  padding: 'var(--space-2) var(--space-4)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
+                  cursor: isReconciling ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  opacity: isReconciling ? 0.7 : 1,
+                }}
+              >
+                <RefreshCw size={14} className={isReconciling ? 'animate-spin' : ''} />
+                {isReconciling ? 'Reconciling...' : 'Reconcile with Gateway'}
+              </button>
+            )}
+
+            {onInitiateRefund && transaction.status === 'PAID' ? (
+              <button
+                type="button"
+                onClick={() => onInitiateRefund(transaction)}
+                style={{
+                  padding: 'var(--space-2) var(--space-4)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-warning-dark)',
+                  backgroundColor: 'var(--color-warning-bg)',
+                  color: 'var(--color-warning-dark)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                }}
+              >
+                <RotateCcw size={14} /> Initiate Audited Refund
+              </button>
+            ) : null}
+          </div>
 
           <button
             onClick={onClose}

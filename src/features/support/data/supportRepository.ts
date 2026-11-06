@@ -189,6 +189,15 @@ export class MockSupportRepository implements ISupportRepository {
       result = result.filter((t) => t.complainantType === filter.complainantType);
     }
 
+    if (filter?.assignedToUserId) {
+      result = result.filter(
+        (t) =>
+          t.assignedToStaffId === filter.assignedToUserId ||
+          t.assignedToStaffName?.toLowerCase().includes('support exec') ||
+          t.assignedToStaffId?.startsWith('STAFF-SUPP-')
+      );
+    }
+
     if (filter?.searchTerm) {
       const q = filter.searchTerm.toLowerCase();
       result = result.filter(
@@ -449,6 +458,9 @@ export class RealSupportRepository implements ISupportRepository {
       }
       if (filter?.priority && filter.priority !== 'ALL') {
         params.priority = filter.priority;
+      }
+      if (filter?.assignedToUserId) {
+        params.assignedToUserId = filter.assignedToUserId;
       }
 
       const res = await httpClient.get<{

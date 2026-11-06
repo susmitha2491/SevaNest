@@ -3,7 +3,8 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WorkerVerificationReviewModal } from '../features/verification/presentation/WorkerVerificationReviewModal';
-import { verificationRepository } from '../features/verification/data/verificationRepository';
+import { verificationRepository, RealVerificationRepository } from '../features/verification/data/verificationRepository';
+import { httpClient } from '../core/api/httpClient';
 import { mapBackendWorkerToWorker, mapBackendWorkerDetailToWorkerDetail } from '../features/workers/data/workerRepository';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
@@ -240,6 +241,54 @@ describe('Critical KYC Workflow Correction Audit', () => {
       expect(screen.queryByText(/^Authoritative Status: VERIFIED$/i)).not.toBeInTheDocument();
     });
 
+    it('RealVerificationRepository.getDossierById resolves verified status without contract inconsistency when requiredChecks are approved', async () => {
+      const getSpy = vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url.includes('/verification')) {
+          return {
+            data: {
+              workerId: '01a11ef1-66c8-7703-a9b6-4e54bd93cafc',
+              applicationReference: 'SEVA00000001',
+              applicationStatus: 'ACTIVE',
+              signedOffAt: '2026-10-26T05:37:43.402Z',
+              activatedAt: '2026-10-26T05:37:43.402Z',
+              level: 'VERIFIED',
+              requiredChecks: ['IDENTITY'],
+              checks: [
+                {
+                  checkType: 'IDENTITY',
+                  status: 'APPROVED',
+                  required: true,
+                  documents: [{ id: 'doc-1', status: 'UPLOADED', reviewable: true, available: true }],
+                },
+                { checkType: 'ADDRESS', status: 'NOT_SUBMITTED', required: false },
+                { checkType: 'EMERGENCY_CONTACT', status: 'NOT_SUBMITTED', required: false },
+              ],
+            },
+          } as never;
+        }
+        if (url.includes('/admin/workers/')) {
+          return {
+            data: {
+              id: '01a11ef1-66c8-7703-a9b6-4e54bd93cafc',
+              name: 'Sarojini Kolla',
+              onboardingStatus: 'SUBMITTED',
+              accountStatus: 'ACTIVE',
+            },
+          } as never;
+        }
+        throw new Error(`Unexpected url: ${url}`);
+      });
+
+      const repo = new RealVerificationRepository();
+      const dossier = await repo.getDossierById('01a11ef1-66c8-7703-a9b6-4e54bd93cafc');
+
+      expect(dossier).toBeDefined();
+      expect(dossier?.status).toBe('APPROVED');
+      expect(dossier?.hasContractInconsistency).toBeFalsy();
+      expect(dossier?.contractInconsistency).toBeUndefined();
+      getSpy.mockRestore();
+    });
+
     it('mapBackendWorkerToWorker rejects verified status if onboardingStatus is SUBMITTED', () => {
       const rawWorker = {
         id: 'worker-sub-1',
@@ -398,6 +447,9 @@ describe('Critical KYC Workflow Correction Audit', () => {
       const step2Bubble = screen.getByTestId('step-bubble-2');
       await user.click(step2Bubble);
 
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
+
       // Verify image rendered
       const img = await screen.findByTestId('kyc-document-image');
       expect(img).toBeInTheDocument();
@@ -427,8 +479,8 @@ describe('Critical KYC Workflow Correction Audit', () => {
       const step2Bubble = screen.getByTestId('step-bubble-2');
       await user.click(step2Bubble);
 
-      const addressDocTab = await screen.findByText(/Electricity Bill/i);
-      await user.click(addressDocTab);
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[1] || viewDocBtns[0]);
 
       const pdfObject = await screen.findByTestId('kyc-document-pdf');
       expect(pdfObject).toBeInTheDocument();
@@ -448,6 +500,9 @@ describe('Critical KYC Workflow Correction Audit', () => {
 
       const step2Bubble = screen.getByTestId('step-bubble-2');
       await user.click(step2Bubble);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       const errorContainer = await screen.findByTestId('document-vault-error-container');
       expect(errorContainer).toBeInTheDocument();

@@ -65,7 +65,7 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     );
   });
 
-  it('1. Clicking worker row and clicking Approve open the worker verification and profile view', async () => {
+  it('1. Clicking worker row and View Profile open the worker verification and profile view', async () => {
     renderApp('/workers');
 
     expect(await screen.findByText('Sunita Devi', {}, { timeout: 10000 })).toBeInTheDocument();
@@ -83,27 +83,29 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     const closeBtn = screen.getByRole('button', { name: 'Close dossier' });
     fireEvent.click(closeBtn);
 
-    // Click Approve button
-    const approveBtn = screen.getByRole('button', { name: 'Approve verification for Sunita Devi' });
-    fireEvent.click(approveBtn);
+    // Independent Approve and Reject buttons are NOT present in Worker Management
+    expect(screen.queryByRole('button', { name: 'Approve verification for Ramesh Yadav' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reject verification for Ramesh Yadav' })).not.toBeInTheDocument();
 
-    expect(await screen.findByRole('heading', { level: 2, name: 'Sunita Devi' })).toBeInTheDocument();
-    expect(screen.getByText('ID: W-10482')).toBeInTheDocument();
-    expect(screen.getByText(/• House Maid •/i)).toBeInTheDocument();
+    // Click View Profile button on unverified worker Ramesh Yadav
+    const viewBtn = screen.getByRole('button', { name: 'View profile for Ramesh Yadav' });
+    fireEvent.click(viewBtn);
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Ramesh Yadav' })).toBeInTheDocument();
+    expect(screen.getByText('ID: W-10483')).toBeInTheDocument();
+    expect(screen.getByText(/• Driver •/i)).toBeInTheDocument();
   });
 
-  it('2. Clicking Reject button triggers the rejection workflow dialog', async () => {
+  it('2. Worker Management displays verification status as read-only and removes independent rejection action', async () => {
     renderApp('/workers');
 
     expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
-    const rejectBtn = screen.getByRole('button', { name: 'Reject verification for Ramesh Yadav' });
+    // Rejection buttons are removed from Worker Management
+    expect(screen.queryByRole('button', { name: 'Reject verification for Ramesh Yadav' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve verification for Ramesh Yadav' })).not.toBeInTheDocument();
 
-    fireEvent.click(rejectBtn);
-
-    // Opens rejection dialog
-    expect(await screen.findByText(/Reject Verification: Ramesh Yadav/i)).toBeInTheDocument();
-    expect(screen.getByText(/Rejection Reason Category:/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Confirm Rejection' })).toBeInTheDocument();
+    // KYC Status is displayed as read-only information
+    expect(screen.getAllByText('Pending KYC').length).toBeGreaterThan(0);
   });
 
   it('3. Displays all 5 operations checks in canonical sequential order', async () => {
@@ -274,7 +276,11 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
     await user.click(nextBtn);
 
-    // Document inspection pane is rendered in Step 2
+    // Explicitly click View Document to open document preview modal
+    const viewDocBtn = (await screen.findAllByRole('button', { name: /View Document/i }))[0];
+    await user.click(viewDocBtn);
+
+    // Document inspection pane is rendered in Step 2 preview
     expect(await screen.findByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Authorized Document Vault Record/i).length).toBeGreaterThan(0);
   });
@@ -305,6 +311,10 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     const dialog = await screen.findByRole('dialog');
     const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
     await user.click(nextBtn);
+
+    // Explicitly click View Document to inspect preview
+    const viewDocBtn = (await screen.findAllByRole('button', { name: /View Document/i }))[0];
+    await user.click(viewDocBtn);
 
     expect(await screen.findByText(/Restricted Personal Document \(KYC\)/i)).toBeInTheDocument();
     expect(screen.getByText(/documents\.view_restricted/i)).toBeInTheDocument();

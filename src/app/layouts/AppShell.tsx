@@ -1,6 +1,6 @@
 /* global Event, CustomEvent */
 import React, { useState, useEffect, useRef } from 'react';
-import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
   UserCheck,
@@ -87,6 +87,19 @@ const VERIFICATION_EXECUTIVE_SECTIONS: NavSection[] = [
   },
 ];
 
+const SUPPORT_EXECUTIVE_SECTIONS: NavSection[] = [
+  {
+    title: '',
+    items: [
+      { name: 'Support Dashboard', path: '/dashboard', end: true, icon: LayoutDashboard, permission: PERMISSIONS.SUPPORT_VIEW },
+      { name: 'All Support Tickets', path: '/support/tickets', end: true, icon: LifeBuoy, permission: PERMISSIONS.SUPPORT_VIEW },
+      { name: 'My Assigned Tickets', path: '/support/my-tickets', end: true, icon: UserCheck, permission: PERMISSIONS.SUPPORT_VIEW },
+      { name: 'Escalated Tickets', path: '/support/escalated', end: true, icon: AlertTriangle, permission: PERMISSIONS.SUPPORT_VIEW },
+      { name: 'Resolution History', path: '/support/history', end: true, icon: History, permission: PERMISSIONS.SUPPORT_VIEW },
+    ],
+  },
+];
+
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -95,6 +108,7 @@ export const AppShell: React.FC = () => {
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
   const navigate = useNavigate();
+  const location = useLocation();
   const isProfileEditSupported = Boolean(authRepository.supportsProfileUpdate);
 
   useEffect(() => {
@@ -223,7 +237,9 @@ export const AppShell: React.FC = () => {
 
         {/* Nav Sections */}
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--space-3) 0' }}>
-          {((user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR')
+          {(user?.role === 'SUPPORT_EXECUTIVE'
+            ? SUPPORT_EXECUTIVE_SECTIONS
+            : (user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR')
             ? VERIFICATION_EXECUTIVE_SECTIONS
             : (user?.role === 'OPERATIONS_ADMIN' || (user?.role as string) === 'OPERATIONS_MANAGER')
             ? OPERATIONS_ADMIN_SECTIONS
@@ -281,24 +297,30 @@ export const AppShell: React.FC = () => {
                         key={item.path}
                         to={item.path}
                         end={item.end ?? (item.path === '/dashboard' || item.path === '/verification' || item.path === '/workers')}
-                        style={({ isActive }) => ({
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '10px',
-                          height: '38px',
-                          padding: '0 12px',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: 'var(--font-size-sm)',
-                          fontWeight: isActive ? 600 : 500,
-                          backgroundColor: isActive ? 'var(--color-primary-subtle)' : 'transparent',
-                          color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                          borderLeft: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
-                          transition: 'all var(--transition-fast)',
-                          justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                          whiteSpace: 'nowrap',
-                          textDecoration: 'none',
-                          boxSizing: 'border-box',
-                        })}
+                        style={({ isActive }) => {
+                          const isItemActive =
+                            isActive ||
+                            (item.path === '/support/tickets' && location.pathname === '/support') ||
+                            (item.path === '/dashboard' && location.pathname === '/support/dashboard');
+                          return {
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            height: '38px',
+                            padding: '0 12px',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: isItemActive ? 600 : 500,
+                            backgroundColor: isItemActive ? 'var(--color-primary-subtle)' : 'transparent',
+                            color: isItemActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                            borderLeft: isItemActive ? '3px solid var(--color-primary)' : '3px solid transparent',
+                            transition: 'all var(--transition-fast)',
+                            justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                            whiteSpace: 'nowrap',
+                            textDecoration: 'none',
+                            boxSizing: 'border-box',
+                          };
+                        }}
                         title={!sidebarOpen ? item.name : undefined}
                       >
                         {Icon && <Icon size={18} style={{ flexShrink: 0 }} />}
@@ -478,7 +500,17 @@ export const AppShell: React.FC = () => {
                       fontSize: 'var(--font-size-xs)',
                     }}
                   >
-                    {user.name ? user.name.charAt(0).toUpperCase() : <User size={16} />}
+                    {user.avatarUrl ? (
+                      <img
+                        src={user.avatarUrl}
+                        alt={user.name}
+                        style={{ width: '100%', height: '100%', borderRadius: 'var(--radius-full)', objectFit: 'cover' }}
+                      />
+                    ) : user.name ? (
+                      user.name.charAt(0).toUpperCase()
+                    ) : (
+                      <User size={16} />
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
                     <span

@@ -93,6 +93,18 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
     },
   });
 
+  // Handle ESC key to dismiss modal
+  React.useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: { key: string }) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen || !ticket) return null;
 
   return (
@@ -111,6 +123,11 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="ticket-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
     >
       <div
         style={{
@@ -207,14 +224,30 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
             style={{
               background: 'none',
               border: 'none',
               cursor: 'pointer',
               color: 'var(--color-text-tertiary)',
+              padding: '6px',
+              borderRadius: 'var(--radius-md)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'all var(--transition-fast)',
             }}
             aria-label="Close ticket modal"
+            data-testid="close-ticket-modal-button"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = 'var(--color-bg-hover, rgba(0,0,0,0.05))';
+              e.currentTarget.style.color = 'var(--color-text-primary)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--color-text-tertiary)';
+            }}
           >
             <X size={20} />
           </button>
@@ -573,7 +606,9 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onClose}
+            data-testid="bottom-close-ticket-modal-button"
             style={{
               padding: 'var(--space-2) var(--space-4)',
               borderRadius: 'var(--radius-md)',

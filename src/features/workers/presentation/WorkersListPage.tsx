@@ -1,7 +1,7 @@
-/* global HTMLDivElement, IntersectionObserver, CustomEvent */
+/* global HTMLDivElement, IntersectionObserver */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Search,
   Filter,
@@ -11,29 +11,18 @@ import {
   Clock,
   CheckCircle2,
   ExternalLink,
-  XCircle,
-  User,
+  Eye,
   AlertTriangle,
   X,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
-import { verificationRepository } from '../../verification/data/verificationRepository';
-import {
-  RejectionReasonCategory,
-  REJECTION_CATEGORIES,
-} from '../../verification/domain/types';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
-import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
-import { useAuthStore } from '../../../core/auth/authStore';
-import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { WorkerDetailModal } from './WorkerDetailModal';
 
 export const WorkersListPage: React.FC = () => {
-  const user = useAuthStore((state) => state.user);
-  const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
@@ -61,89 +50,8 @@ export const WorkersListPage: React.FC = () => {
     () => searchParams.get('workerId') || searchParams.get('applicationId') || null
   );
 
-  const queryClient = useQueryClient();
-  const [rejectWorker, setRejectWorker] = useState<Worker | null>(null);
-  const [isRejectDialogOpen, setIsRejectDialogOpen] = useState(false);
-  const [rejectCategory, setRejectCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
-  const [rejectRemarks, setRejectRemarks] = useState('');
-  const [rejectError, setRejectError] = useState<string | null>(null);
-  const [isRejecting, setIsRejecting] = useState(false);
-
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
-
-  const handleOpenReject = (worker: Worker) => {
-    setRejectWorker(worker);
-    setRejectCategory('BLURRY_IMAGE');
-    setRejectRemarks('');
-    setRejectError(null);
-    setIsRejectDialogOpen(true);
-  };
-
-  const handleRejectConfirm = async (remarksFromDialog?: string) => {
-    const remarks = (remarksFromDialog || rejectRemarks || '').trim();
-    if (!rejectWorker) return;
-
-    if (remarks.length < 5) {
-      setRejectError('Rejection remarks must be at least 5 characters');
-      return;
-    }
-
-    try {
-      setIsRejecting(true);
-      setRejectError(null);
-
-      // Call authoritative rejection handler (notifies worker app via backend check rejection)
-      if (typeof verificationRepository.rejectWorker === 'function') {
-        await verificationRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
-      } else {
-        await workerRepository.rejectWorker(rejectWorker.id, rejectCategory, remarks);
-      }
-
-      // Optimistically update workers query cache
-      queryClient.setQueryData<Worker[]>(['workers'], (old) => {
-        if (!old) return old;
-        return old.map((w) =>
-          w.id === rejectWorker.id
-            ? {
-                ...w,
-                verificationStatus: 'REJECTED',
-                applicationStatus: 'REJECTED',
-                onboardingStatus: 'REJECTED',
-                matchingEligible: false,
-              }
-            : w
-        );
-      });
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['workers'] }),
-        queryClient.invalidateQueries({ queryKey: ['workers-directory'] }),
-        queryClient.invalidateQueries({ queryKey: ['verification'] }),
-        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
-        refetch(),
-      ]);
-
-      window.dispatchEvent(
-        new CustomEvent('sevanest:toast', {
-          detail: {
-            type: 'success',
-            message: `Worker application for ${rejectWorker.name || 'Worker'} rejected. The applicant has been notified in their app.`,
-          },
-        })
-      );
-
-      setIsRejectDialogOpen(false);
-      setRejectWorker(null);
-      setRejectRemarks('');
-      setRejectError(null);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to reject worker verification';
-      setRejectError(msg);
-    } finally {
-      setIsRejecting(false);
-    }
-  };
 
   useEffect(() => {
     const wid = searchParams.get('workerId') || searchParams.get('applicationId');
@@ -1019,83 +927,29 @@ export const WorkersListPage: React.FC = () => {
                       style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {canReview ? (
-                        <>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenDetailModal(worker.id);
-                            }}
-                            aria-label={`Approve verification for ${worker.name}`}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border-subtle)',
-                              backgroundColor: 'var(--color-bg-subtle)',
-                              color: 'var(--color-status-success-text)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <CheckCircle2 size={13} />
-                            <span>Approve</span>
-                          </button>
-
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleOpenReject(worker);
-                            }}
-                            disabled={worker.verificationStatus === 'REJECTED'}
-                            aria-label={`Reject verification for ${worker.name}`}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border-subtle)',
-                              backgroundColor: 'var(--color-bg-subtle)',
-                              color: worker.verificationStatus === 'REJECTED' ? 'var(--color-text-muted)' : 'var(--color-status-danger-text)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: worker.verificationStatus === 'REJECTED' ? 'not-allowed' : 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              opacity: worker.verificationStatus === 'REJECTED' ? 0.6 : 1,
-                            }}
-                          >
-                            <XCircle size={13} />
-                            <span>Reject</span>
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleOpenDetailModal(worker.id);
-                          }}
-                          aria-label={`View profile for ${worker.name}`}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            border: '1px solid var(--color-border-subtle)',
-                            backgroundColor: 'var(--color-bg-subtle)',
-                            color: 'var(--color-primary)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          <User size={13} />
-                          <span>View Profile</span>
-                        </button>
-                      )}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenDetailModal(worker.id);
+                        }}
+                        aria-label={`View profile for ${worker.name}`}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                          backgroundColor: 'var(--color-surface)',
+                          color: 'var(--color-primary)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <Eye size={13} />
+                        <span>View Profile</span>
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1147,70 +1001,15 @@ export const WorkersListPage: React.FC = () => {
         )}
       </div>
 
-      {/* Detailed Worker Profile / Operational Dossier Modal */}
+      {/* Detailed Worker Profile / Operational Dossier Modal (Read-Only KYC in Worker Management) */}
       {detailModalId && (
         <WorkerDetailModal
           workerId={detailModalId}
           onClose={handleCloseDetailModal}
           onStatusChanged={() => refetch()}
+          readOnly={true}
         />
       )}
-
-      {/* Reject Worker Verification Dialog */}
-      <ConfirmDialog
-        isOpen={isRejectDialogOpen}
-        title={`Reject Verification: ${rejectWorker?.name || ''}`}
-        description="Select an operational rejection reason category and provide mandatory remarks. The applicant will be notified to re-upload or rectify."
-        confirmLabel="Confirm Rejection"
-        isDestructive={true}
-        requireRemarks={true}
-        remarksPlaceholder="Enter mandatory operational remarks (e.g., Image is blurred, name mismatch with registration records)..."
-        isLoading={isRejecting}
-        errorMessage={rejectError || undefined}
-        onConfirm={handleRejectConfirm}
-        onCancel={() => {
-          setIsRejectDialogOpen(false);
-          setRejectWorker(null);
-          setRejectRemarks('');
-          setRejectError(null);
-        }}
-      >
-        <div style={{ marginBottom: 'var(--space-3)' }}>
-          <label
-            htmlFor="rejection-category-select"
-            style={{
-              display: 'block',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-secondary)',
-              marginBottom: 'var(--space-1)',
-            }}
-          >
-            Rejection Reason Category:
-          </label>
-          <select
-            id="rejection-category-select"
-            aria-label="Rejection Reason Category"
-            value={rejectCategory}
-            onChange={(e) => setRejectCategory(e.target.value as RejectionReasonCategory)}
-            style={{
-              width: '100%',
-              padding: 'var(--space-2)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              backgroundColor: 'var(--color-surface)',
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            {REJECTION_CATEGORIES.map((cat) => (
-              <option key={cat.key} value={cat.key}>
-                {cat.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </ConfirmDialog>
     </div>
   );
 };

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { routes } from '../app/router/routes';
@@ -83,46 +83,31 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
     });
 
-    it('provides Reject action triggering the rejection workflow dialog with mandatory remarks in ConfirmDialog', async () => {
+    it('removes independent KYC Approve and Reject actions from Worker Management and displays verification status as read-only', async () => {
       renderApp('/workers');
 
-      expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
+      expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
 
-      // Verify both Approve and Reject buttons are rendered in Actions column
-      const approveBtn = screen.getByRole('button', { name: /Approve verification for Sunita Devi/i });
-      const rejectBtn = screen.getByRole('button', { name: /Reject verification for Sunita Devi/i });
-      expect(approveBtn).toBeInTheDocument();
-      expect(rejectBtn).toBeInTheDocument();
+      // Independent KYC Approve and Reject buttons are NOT present in Worker Management
+      expect(screen.queryByRole('button', { name: /Approve verification for Ramesh Yadav/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Reject verification for Ramesh Yadav/i })).not.toBeInTheDocument();
 
-      // Trigger Reject action
-      fireEvent.click(rejectBtn);
+      // Worker roster renders clean View Profile action
+      const viewBtn = screen.getByRole('button', { name: 'View profile for Ramesh Yadav' });
+      expect(viewBtn).toBeInTheDocument();
 
-      expect(await screen.findByText(/Reject Verification: Sunita Devi/i)).toBeInTheDocument();
-      expect(screen.getByText(/Rejection Reason Category:/i)).toBeInTheDocument();
-
-      // Enter mandatory operational remarks
-      const remarksInput = screen.getByPlaceholderText(/Enter mandatory operational remarks/i);
-      fireEvent.change(remarksInput, { target: { value: 'Verification document name does not match record' } });
-
-      // Check operational guidelines confirmation checkbox
-      const checkbox = screen.getByRole('checkbox');
-      fireEvent.click(checkbox);
-
-      const confirmBtn = screen.getByRole('button', { name: 'Confirm Rejection' });
-      fireEvent.click(confirmBtn);
-
-      // Rejection is successfully processed and dialog is dismissed
-      await waitFor(() => {
-        expect(screen.queryByText(/Reject Verification: Sunita Devi/i)).not.toBeInTheDocument();
-      });
+      // Verification status is displayed as read-only information
+      expect(screen.getAllByText('Pending KYC').length).toBeGreaterThan(0);
     });
 
     it('opens WorkerDetailModal and renders the simplified 2-step workflow without route deviation', async () => {
       renderApp('/workers');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-      const approveBtn = screen.getByRole('button', { name: /Approve verification for Sunita Devi/i });
-      fireEvent.click(approveBtn);
+      const viewButtons = screen.getAllByRole('button', { name: /View profile for Sunita Devi/i });
+      const actionBtn = viewButtons.find((el) => el.tagName === 'BUTTON');
+      expect(actionBtn).toBeDefined();
+      fireEvent.click(actionBtn!);
 
       // Modal opens in Step 1: Worker Information
       expect(await screen.findByText('Sunita Devi', { selector: 'h2' })).toBeInTheDocument();
@@ -324,9 +309,10 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      // Approve and Reject are accessible
-      expect(screen.getByRole('button', { name: /Approve verification for Sunita Devi/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Reject verification for Sunita Devi/i })).toBeInTheDocument();
+      // Independent Approve and Reject are removed from Worker Management; View Profile is rendered
+      expect(screen.queryByRole('button', { name: /Approve verification for Meena Bai/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Reject verification for Meena Bai/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'View profile for Meena Bai' })).toBeInTheDocument();
 
       // Disciplinary buttons (Suspend / Blacklist / Reinstate) are blocked by PermissionGate
       expect(screen.queryByRole('button', { name: /Discipline worker Sunita Devi/i })).not.toBeInTheDocument();

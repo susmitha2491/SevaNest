@@ -59,6 +59,8 @@ export interface Worker {
   locality: string;
   isFullyVerified: boolean;
   status: 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
+  photoUrl?: string;
+  photo?: { url: string; expiresAt?: string } | string;
   phoneMasked?: string;
   phone?: string;
   mobile?: string;

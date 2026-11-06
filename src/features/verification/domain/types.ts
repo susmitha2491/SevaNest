@@ -17,26 +17,87 @@ export type VerificationCheckStatus =
   | 'REJECTED'
   | 'RECHECK_DUE';
 
-export type RejectionReasonCategory =
+export type RejectionReasonCode =
   | 'BLURRY_IMAGE'
+  | 'DOCUMENT_EXPIRED'
   | 'NAME_MISMATCH'
+  | 'INCOMPLETE_DOCUMENT'
+  | 'INVALID_DOCUMENT_TYPE'
+  | 'SUSPECTED_TAMPERING'
+  | 'UNVERIFIABLE_REFERENCE'
+  | 'CRIMINAL_RECORD_DISQUALIFIED'
+  | 'OTHER';
+
+export type LegacyRejectionReasonCode =
   | 'TAMPERED_DOC'
   | 'EXPIRED_DOC'
   | 'REFERENCE_UNREACHABLE'
   | 'REFERENCE_NEGATIVE'
-  | 'ADDRESS_UNVERIFIABLE'
-  | 'OTHER';
+  | 'ADDRESS_UNVERIFIABLE';
 
-export const REJECTION_CATEGORIES: { key: RejectionReasonCategory; label: string }[] = [
-  { key: 'BLURRY_IMAGE', label: 'Blurry / Unreadable Document Image' },
-  { key: 'NAME_MISMATCH', label: 'Name or Details Mismatch on Document' },
-  { key: 'TAMPERED_DOC', label: 'Suspected Tampering / Inauthentic Document' },
-  { key: 'EXPIRED_DOC', label: 'Expired Document / Certificate' },
-  { key: 'REFERENCE_UNREACHABLE', label: 'Reference Contact Unreachable / Invalid Contact' },
-  { key: 'REFERENCE_NEGATIVE', label: 'Negative Reference / Employer Misconduct Feedback' },
-  { key: 'ADDRESS_UNVERIFIABLE', label: 'Address Proof Incomplete or Unverifiable' },
-  { key: 'OTHER', label: 'Other Specific Operational Reason' },
+export type RejectionReasonCategory = RejectionReasonCode | LegacyRejectionReasonCode;
+
+export interface RejectionReasonOption {
+  key: RejectionReasonCode;
+  label: string;
+  terminal?: boolean;
+  description?: string;
+}
+
+export const REJECTION_CATEGORIES: RejectionReasonOption[] = [
+  {
+    key: 'BLURRY_IMAGE',
+    label: 'Blurry / Unreadable Document Image',
+    description: 'Document scan/photo is illegible or out of focus.',
+  },
+  {
+    key: 'DOCUMENT_EXPIRED',
+    label: 'Expired Document / Certificate',
+    description: 'The validity date on the certificate or document has lapsed.',
+  },
+  {
+    key: 'NAME_MISMATCH',
+    label: 'Name or Details Mismatch on Document',
+    description: 'Name or key particulars do not match the worker profile.',
+  },
+  {
+    key: 'INCOMPLETE_DOCUMENT',
+    label: 'Incomplete Document or Missing Pages',
+    description: 'Document is missing back side, pages, or required sections.',
+  },
+  {
+    key: 'INVALID_DOCUMENT_TYPE',
+    label: 'Invalid Document Type Uploaded',
+    description: 'Document uploaded does not satisfy the requirements of this check.',
+  },
+  {
+    key: 'SUSPECTED_TAMPERING',
+    label: 'Suspected Tampering / Inauthentic Document (Terminal)',
+    terminal: true,
+    description: 'Document shows signs of physical or digital manipulation.',
+  },
+  {
+    key: 'UNVERIFIABLE_REFERENCE',
+    label: 'Unverifiable Reference / Invalid Contact',
+    description: 'Reference contact is invalid, unreachable, or untraceable.',
+  },
+  {
+    key: 'CRIMINAL_RECORD_DISQUALIFIED',
+    label: 'Criminal Record Disqualified (Terminal)',
+    terminal: true,
+    description: 'Worker is disqualified based on police verification or criminal record.',
+  },
+  {
+    key: 'OTHER',
+    label: 'Other Specific Operational Reason (Remarks Required)',
+    description: 'Mandatory operational explanation must be entered in remarks.',
+  },
 ];
+
+export function isTerminalRejectionCode(code?: string | null): boolean {
+  if (!code) return false;
+  return code === 'CRIMINAL_RECORD_DISQUALIFIED' || code === 'SUSPECTED_TAMPERING' || code === 'TAMPERED_DOC';
+}
 
 export interface VerificationDocumentMetadata {
   id?: string;
@@ -69,8 +130,11 @@ export interface VerificationContactDetails {
 }
 
 export interface VerificationCheckEvent {
+  action?: string;
+  checkType?: string;
   fromStatus?: string | null;
   toStatus: string;
+  rejectionCode?: string | null;
   actorUserId: string;
   actorName?: string;
   remarks?: string | null;
@@ -83,12 +147,16 @@ export interface VerificationCheck {
   type: VerificationCheckType;
   title: string;
   status: VerificationCheckStatus;
+  required?: boolean;
   evaluationMethod: 'DOCUMENT_INSPECTION' | 'TELEPHONIC_VETTING' | 'CERTIFICATE_TRACKING';
   documentMetadata?: VerificationDocumentMetadata;
   documents?: VerificationDocumentMetadata[];
   contactDetails?: VerificationContactDetails;
   mockDocumentUrl?: string;
   rejectionCategory?: RejectionReasonCategory;
+  rejectionCode?: RejectionReasonCode | string;
+  rejectionMessage?: string;
+  terminal?: boolean;
   rejectionRemarks?: string;
   verifiedAt?: string;
   verifiedBy?: string;
@@ -105,6 +173,9 @@ export interface VerificationDossier {
   applicationId?: string;
   workerId: string;
   workerName: string;
+  hasProfilePhoto?: boolean;
+  photoUrl?: string;
+  photo?: { url: string; expiresAt?: string } | string;
   category: string;
   locality: string;
   experienceYears: number;
@@ -157,6 +228,23 @@ export interface VerificationDossier {
   pendingChecks?: string[];
   contractInconsistency?: string;
   hasContractInconsistency?: boolean;
+  rejectionHistory?: {
+    rejectedAt: string;
+    rejectedBy?: string;
+    reasonCode?: string;
+    remarks?: string;
+    terminal?: boolean;
+  }[];
+  reconsiderationHistory?: {
+    reconsideredAt: string;
+    reconsideredBy?: string;
+    remarks: string;
+  }[];
+  approvalHistory?: {
+    approvedAt: string;
+    approvedBy?: string;
+    remarks?: string;
+  }[];
 }
 
 export interface VerificationFilterCriteria {
@@ -204,6 +292,8 @@ export interface AdminCheckView {
   reviewerUserId?: string | null;
   claimedAt?: string | null;
   history?: Array<Record<string, unknown>>;
+  rejectionCode?: string;
+  rejectionMessage?: string;
 }
 
 export interface AdminWorkerVerificationResponse {
@@ -258,6 +348,10 @@ export interface IVerificationRepository {
     category: RejectionReasonCategory | string,
     remarks: string
   ): Promise<AdminWorkerVerificationResponse | void>;
+  reconsiderApplication(
+    workerId: string,
+    remarks: string
+  ): Promise<AdminWorkerVerificationResponse | void>;
   activateWorker(
     workerId: string
   ): Promise<AdminWorkerVerificationResponse | FinalOnboardingResult>;
@@ -272,6 +366,7 @@ export interface FinalOnboardingResult {
   workerId: string;
   applicationId?: string;
   status: string;
+  applicationStatus?: string;
   activated?: boolean;
   signedOff?: boolean;
   activationError?: string;

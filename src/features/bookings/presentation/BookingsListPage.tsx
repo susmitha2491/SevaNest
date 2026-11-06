@@ -329,16 +329,16 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                   Booking ID
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Customer
+                  {selectedStatus === 'REPLACEMENT_REQUESTED' ? 'Customer & Contact' : 'Customer'}
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Service Details
+                  {selectedStatus === 'REPLACEMENT_REQUESTED' ? 'Prior Worker Details' : 'Service Details'}
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Assigned Worker
+                  {selectedStatus === 'REPLACEMENT_REQUESTED' ? 'Replacement Reason & Date' : 'Assigned Worker'}
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Operational Status
+                  {selectedStatus === 'REPLACEMENT_REQUESTED' ? 'Replacement Status' : 'Operational Status'}
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
@@ -349,81 +349,137 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               {bookingsData?.items.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                    No bookings found matching the selected criteria.
+                    {selectedStatus === 'REPLACEMENT_REQUESTED'
+                      ? 'No active replacement requests found.'
+                      : 'No bookings found matching the selected criteria.'}
                   </td>
                 </tr>
               ) : (
-                bookingsData?.items.map((booking) => (
-                  <tr
-                    key={booking.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`View booking details for ${booking.id}`}
-                    className="clickable-table-row"
-                    onClick={(e) => {
-                      const target = e.target as { closest?: (selector: string) => unknown };
-                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                        return;
-                      }
-                      setSelectedBooking(booking);
-                      setIsDetailOpen(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                bookingsData?.items.map((booking) => {
+                  const isReplacementTab = selectedStatus === 'REPLACEMENT_REQUESTED';
+                  const priorWorkerName = booking.replacement?.priorWorkerName || booking.assignedWorkerName || 'Prior Worker';
+                  const priorWorkerId = booking.replacement?.priorWorkerId || booking.assignedWorkerId;
+
+                  return (
+                    <tr
+                      key={booking.id}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`View booking details for ${booking.id}`}
+                      className="clickable-table-row"
+                      onClick={(e) => {
                         const target = e.target as { closest?: (selector: string) => unknown };
                         if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                           return;
                         }
-                        e.preventDefault();
                         setSelectedBooking(booking);
                         setIsDetailOpen(true);
-                      }
-                    }}
-                    style={{ borderBottom: '1px solid var(--color-border)' }}
-                  >
-                    {/* Booking ID */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                        {booking.id}
-                      </span>
-                    </td>
-
-                    {/* Customer */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.customerName}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {booking.customerLocality} • {booking.customerPhoneMasked}
-                      </div>
-                    </td>
-
-                    {/* Service */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.serviceCategory}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {booking.engagementType.replace(/_/g, ' ')}
-                      </div>
-                    </td>
-
-                    {/* Assigned Worker */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      {booking.assignedWorkerName ? (
-                        <div>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.assignedWorkerName}</div>
-                          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                            {booking.assignedWorkerId}
-                          </div>
-                        </div>
-                      ) : (
-                        <span style={{ color: 'var(--color-warning-dark)', fontStyle: 'italic', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: 'var(--font-size-xs)' }}>
-                          <UserPlus size={14} /> Unassigned / Needs Match
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          const target = e.target as { closest?: (selector: string) => unknown };
+                          if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                            return;
+                          }
+                          e.preventDefault();
+                          setSelectedBooking(booking);
+                          setIsDetailOpen(true);
+                        }
+                      }}
+                      style={{ borderBottom: '1px solid var(--color-border)' }}
+                    >
+                      {/* Booking ID */}
+                      <td style={{ padding: 'var(--space-4)' }}>
+                        <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
+                          {booking.id}
                         </span>
-                      )}
-                    </td>
+                        {isReplacementTab && booking.replacement?.id && (
+                          <div style={{ fontSize: '10px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
+                            Req: {booking.replacement.id}
+                          </div>
+                        )}
+                      </td>
 
-                    {/* Operational Status */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <StatusBadge status={booking.status} />
-                    </td>
+                      {/* Customer */}
+                      <td style={{ padding: 'var(--space-4)' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.customerName}</div>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                          {booking.customerLocality} • {booking.customerPhoneMasked}
+                        </div>
+                      </td>
+
+                      {/* Column 3: Prior Worker (if replacement tab) OR Service Details */}
+                      <td style={{ padding: 'var(--space-4)' }}>
+                        {isReplacementTab ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{priorWorkerName}</div>
+                            {priorWorkerId && (
+                              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
+                                {priorWorkerId}
+                              </div>
+                            )}
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+                              {booking.serviceCategory}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.serviceCategory}</div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                              {booking.engagementType.replace(/_/g, ' ')}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Column 4: Replacement Reason & Date (if replacement tab) OR Assigned Worker */}
+                      <td style={{ padding: 'var(--space-4)' }}>
+                        {isReplacementTab ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-warning-dark)' }}>
+                              {booking.replacement?.reasonCategory || 'Service Expectation Mismatch'}
+                            </div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                              Requested: {booking.replacement?.requestedAt || booking.createdAt}
+                            </div>
+                            {booking.replacement?.customerExplanation && (
+                              <div
+                                style={{
+                                  fontSize: '11px',
+                                  color: 'var(--color-text-tertiary)',
+                                  maxWidth: '240px',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={booking.replacement.customerExplanation}
+                              >
+                                &ldquo;{booking.replacement.customerExplanation}&rdquo;
+                              </div>
+                            )}
+                          </div>
+                        ) : booking.assignedWorkerName ? (
+                          <div>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.assignedWorkerName}</div>
+                            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
+                              {booking.assignedWorkerId}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--color-warning-dark)', fontStyle: 'italic', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: 'var(--font-size-xs)' }}>
+                            <UserPlus size={14} /> Unassigned / Needs Match
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Column 5: Operational Status OR Replacement Status */}
+                      <td style={{ padding: 'var(--space-4)' }}>
+                        {isReplacementTab && booking.replacement?.status ? (
+                          <StatusBadge status={booking.replacement.status} />
+                        ) : (
+                          <StatusBadge status={booking.status} />
+                        )}
+                      </td>
 
                     {/* Actions */}
                     <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
@@ -524,8 +580,8 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                           </button>
                         )}
 
-                        {/* Process Replacement (for REPLACEMENT_REQUESTED state) */}
-                        {canManage && booking.status === 'REPLACEMENT_REQUESTED' && (
+                        {/* Process Replacement (for REPLACEMENT_REQUESTED state or active replacement case) */}
+                        {canManage && (booking.status === 'REPLACEMENT_REQUESTED' || booking.replacement) && (
                           <button
                             onClick={() => {
                               setSelectedBooking(booking);
@@ -576,8 +632,9 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                       </div>
                     </td>
                   </tr>
-                ))
-              )}
+                );
+              })
+            )}
             </tbody>
           </table>
         </div>

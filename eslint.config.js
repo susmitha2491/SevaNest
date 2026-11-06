@@ -6,7 +6,7 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
   {
-    ignores: ['dist/**', 'node_modules/**', '.agents/**', 'scripts/**'],
+    ignores: ['dist/**', 'node_modules/**', '.agents/**', 'scripts/**', 'scratch/**'],
   },
   js.configs.recommended,
   {
@@ -40,6 +40,11 @@ export default [
         parseFloat: 'readonly',
         __dirname: 'readonly',
         process: 'readonly',
+        File: 'readonly',
+        FormData: 'readonly',
+        FileReader: 'readonly',
+        HTMLInputElement: 'readonly',
+        Blob: 'readonly',
       },
     },
     plugins: {

@@ -271,14 +271,14 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       expect(screen.getAllByText('W-10483').length).toBeGreaterThanOrEqual(1);
     });
 
-    it('keeps existing Inspect Dossier button functional without double-triggering row click', async () => {
+    it('keeps row click functional without double-triggering row click', async () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      const inspectBtn = screen.getByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = screen.getByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
     });
@@ -302,7 +302,7 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
   });
 
   describe('2. Status-Aware Action Column', () => {
-    it('renders Start Review and Inspect Dossier for PENDING_REVIEW worker', async () => {
+    it('renders Start Review and does not render Inspect Dossier for PENDING_REVIEW worker', async () => {
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
@@ -312,9 +312,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       expect(startReviewBtn).toBeInTheDocument();
       expect(startReviewBtn).toBeEnabled();
 
-      // Inspect Dossier button is also present
-      const inspectBtn = screen.getByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      expect(inspectBtn).toBeInTheDocument();
+      // Inspect Dossier button is removed from action column
+      expect(screen.queryByRole('button', { name: /Inspect Dossier for Sunita Devi/i })).not.toBeInTheDocument();
     });
 
     it('executes backend claimCheck when Start Review is clicked and opens dossier non-optimistically', async () => {
@@ -422,8 +421,9 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       // Operations Admin without canDecide has NO Start Review button
       expect(screen.queryByRole('button', { name: /Start Review/i })).not.toBeInTheDocument();
 
-      // Only Inspect Dossier is rendered
-      expect(screen.getByRole('button', { name: /Inspect Dossier for Sunita Devi/i })).toBeInTheDocument();
+      // Inspect Dossier is removed, row remains accessible
+      expect(screen.queryByRole('button', { name: /Inspect Dossier for Sunita Devi/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open verification dossier for Sunita Devi/i })).toBeInTheDocument();
     });
   });
 
@@ -484,13 +484,13 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       expect(modalContent).toBeInTheDocument();
     });
 
-    it('2. clicking the existing dossier action (Inspect Dossier) opens the same centered modal', async () => {
+    it('2. clicking row opens the same centered modal', async () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
-      const inspectBtn = screen.getByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = screen.getByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       const dialog = await screen.findByRole('dialog');
       expect(dialog).toBeInTheDocument();
@@ -530,8 +530,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = await screen.findByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
@@ -547,8 +547,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = await screen.findByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
@@ -563,8 +563,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = await screen.findByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       const dialog = await screen.findByRole('dialog');
       const modalContent = dialog.querySelector('.verification-dossier-modal-content');
@@ -587,8 +587,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
 
       expect(document.body.style.overflow).not.toBe('hidden');
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = await screen.findByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       expect(await screen.findByRole('dialog')).toBeInTheDocument();
       expect(document.body.style.overflow).toBe('hidden');
@@ -663,8 +663,8 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier for Sunita Devi/i });
-      await user.click(inspectBtn);
+      const rowBtn = await screen.findByRole('button', { name: /Open verification dossier for Sunita Devi/i });
+      await user.click(rowBtn);
 
       const dialog = await screen.findByRole('dialog');
 

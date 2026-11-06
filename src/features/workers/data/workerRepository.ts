@@ -689,6 +689,26 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   const rawPhone = rawCleanPhone || (rawPhoneCandidate && !rawPhoneCandidate.includes('*') ? formatPhoneNumber(rawPhoneCandidate) : undefined);
   const rawEmail = item.email ? String(item.email) : undefined;
 
+  const rawPhotoUrl =
+    typeof item.photo === 'string'
+      ? item.photo
+      : typeof item.photo === 'object' && item.photo !== null && 'url' in item.photo
+      ? String((item.photo as { url?: string }).url)
+      : item.photoUrl
+      ? String(item.photoUrl)
+      : item.avatarUrl
+      ? String(item.avatarUrl)
+      : item.profilePhotoUrl
+      ? String(item.profilePhotoUrl)
+      : undefined;
+
+  const photoObj =
+    typeof item.photo === 'object' && item.photo !== null && 'url' in item.photo
+      ? (item.photo as { url: string; expiresAt?: string })
+      : rawPhotoUrl
+      ? { url: rawPhotoUrl }
+      : undefined;
+
   return {
     id: rawId,
     userId: item.userId ? String(item.userId) : undefined,
@@ -705,6 +725,8 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     isFullyVerified: item.isFullyVerified !== undefined ? Boolean(item.isFullyVerified) : isVerified,
     status: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : item.status === 'BLACKLISTED' ? 'BLACKLISTED' : 'ACTIVE') as Worker['status'],
     accountStatus: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE') as Worker['accountStatus'],
+    photoUrl: rawPhotoUrl,
+    photo: photoObj,
     phoneMasked,
     phone: rawPhone,
     mobile: rawPhone,
@@ -1098,6 +1120,18 @@ export function mapBackendWorkerDetailToWorkerDetail(
     applicationReference: unwrappedData.applicationReference ? String(unwrappedData.applicationReference) : null,
     submittedAt: unwrappedData.submittedAt ? String(unwrappedData.submittedAt) : null,
     hasProfilePhoto: Boolean(unwrappedData.hasProfilePhoto),
+    photoUrl:
+      typeof unwrappedData.photo === 'string'
+        ? unwrappedData.photo
+        : typeof unwrappedData.photo === 'object' && unwrappedData.photo !== null && 'url' in unwrappedData.photo
+        ? String((unwrappedData.photo as { url?: string }).url)
+        : unwrappedData.photoUrl
+        ? String(unwrappedData.photoUrl)
+        : summary.photoUrl,
+    photo:
+      typeof unwrappedData.photo === 'object' && unwrappedData.photo !== null && 'url' in unwrappedData.photo
+        ? (unwrappedData.photo as { url: string; expiresAt?: string })
+        : summary.photo,
     hasEmergencyContact: Boolean(unwrappedData.hasEmergencyContact),
     emergencyContact,
     address,
@@ -1530,17 +1564,36 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
+      const mappedItems = list.map((item) => {
+        const id = String(item.id || item.workerId || '');
+        const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
+        return mapBackendWorkerToWorker({
+          ...item,
+          isFullyVerified: isVerifiedByBackend ? true : item.isFullyVerified,
+          verified: isVerifiedByBackend ? true : item.verified,
+        });
+      });
+
+      const finalItems = verifiedParam === true
+        ? mappedItems.filter((w) => {
+            const isVerified = Boolean(
+              w.isFullyVerified ||
+              w.verificationLevel === 'VERIFIED' ||
+              w.verificationStatus === 'VERIFIED' ||
+              w.applicationStatus === 'VERIFIED' ||
+              w.applicationStatus === 'ACTIVE' ||
+              Boolean(w.signedOffAt)
+            );
+            const isNotRejected =
+              w.verificationStatus !== 'REJECTED' &&
+              w.applicationStatus !== 'REJECTED';
+            return isVerified && isNotRejected;
+          })
+        : mappedItems;
+
       return {
-        items: list.map((item) => {
-          const id = String(item.id || item.workerId || '');
-          const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
-          return mapBackendWorkerToWorker({
-            ...item,
-            isFullyVerified: isVerifiedByBackend ? true : item.isFullyVerified,
-            verified: isVerifiedByBackend ? true : item.verified,
-          });
-        }),
-        total,
+        items: finalItems,
+        total: verifiedParam === true ? (total > finalItems.length && list.length === total ? finalItems.length : total) : total,
         page: currentPage,
         limit: currentLimit,
         hasMore,

@@ -21,8 +21,9 @@ import {
   Clock,
   Award,
   Eye,
+  RotateCcw,
 } from 'lucide-react';
-import { evaluateVerificationWorkflow } from '../domain/verificationWorkflow';
+import { evaluateVerificationWorkflow, VerificationStepDefinition } from '../domain/verificationWorkflow';
 import { formatDocumentVaultError } from '../domain/documentVaultErrorFormatter';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -36,6 +37,7 @@ import {
   VerificationDossier,
   VerificationCheck,
   VerificationDocumentMetadata,
+  isTerminalRejectionCode,
 } from '../domain/types';
 import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
@@ -83,7 +85,17 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   const canApproveWorker =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF) ||
-    (!user?.permissions?.length && user?.role === 'SUPER_ADMIN');
+    (!user?.permissions?.length && (user?.role === 'SUPER_ADMIN' || user?.role === 'OPERATIONS_ADMIN' || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR'));
+
+  const canRejectApplication =
+    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
+    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF) ||
+    (!user?.permissions?.length && (
+      user?.role === 'SUPER_ADMIN' ||
+      user?.role === 'OPERATIONS_ADMIN' ||
+      user?.role === 'VERIFICATION_EXECUTIVE' ||
+      user?.role === 'VERIFICATION_SUPERVISOR'
+    ));
 
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
@@ -92,12 +104,15 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   // Wizard navigation state
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
-  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set([1]));
+  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([1]));
+  const [inspectedDocIds, setInspectedDocIds] = useState<Set<string>>(new Set());
 
   // Document inspection state for Step 2
   const [activeDocType, setActiveDocType] = useState<VerificationCheckType>('IDENTITY');
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [isDocPreviewOpen, setIsDocPreviewOpen] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [isPhotoLoadError, setIsPhotoLoadError] = useState(false);
 
   // Operational check action dialogs
   const [checkToApprove, setCheckToApprove] = useState<{
@@ -120,6 +135,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   } | null>(null);
   const [rejectionCategory, setRejectionCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
   const [rejectionRemarks, setRejectionRemarks] = useState('');
+  const [rejectionError, setRejectionError] = useState<string | null>(null);
 
   const [isRecheckDialogOpen, setIsRecheckDialogOpen] = useState(false);
   const [recheckCheckId, setRecheckCheckId] = useState<string>('');
@@ -129,6 +145,17 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   const [isConfirmFinalApproveOpen, setIsConfirmFinalApproveOpen] = useState(false);
   const [finalApprovalNotes, setFinalApprovalNotes] = useState('');
   const [finalApprovalError, setFinalApprovalError] = useState<string | null>(null);
+
+  // Reject application dialog state
+  const [isConfirmRejectApplicationOpen, setIsConfirmRejectApplicationOpen] = useState(false);
+  const [rejectApplicationCategory, setRejectApplicationCategory] = useState<RejectionReasonCategory>('OTHER');
+  const [rejectApplicationRemarks, setRejectApplicationRemarks] = useState('');
+  const [rejectApplicationError, setRejectApplicationError] = useState<string | null>(null);
+
+  // Reconsider application dialog state
+  const [isConfirmReconsiderOpen, setIsConfirmReconsiderOpen] = useState(false);
+  const [reconsiderRemarks, setReconsiderRemarks] = useState('');
+  const [reconsiderError, setReconsiderError] = useState<string | null>(null);
 
   const [isOnboardedSuccess, setIsOnboardedSuccess] = useState(false);
   const [onboardedResult, setOnboardedResult] = useState<{
@@ -176,12 +203,24 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     queryClient.invalidateQueries({ queryKey: ['bookings'] });
   }, [queryClient]);
 
+  // Synchronize queue if dossier reports different authoritative status
+  useEffect(() => {
+    if (dossier && initialDossier && dossier.status !== initialDossier.status) {
+      invalidateRelated();
+    }
+  }, [dossier, initialDossier, invalidateRelated]);
+
+  // Reset photo error state when switching workers/dossiers
+  useEffect(() => {
+    setIsPhotoLoadError(false);
+  }, [dossierId, dossier?.workerId]);
+
   // Dynamic submitted documents list for Step 2
   const submittedDocs: VerificationDocumentMetadata[] = useMemo(() => {
     if (dossier?.submittedDocuments && dossier.submittedDocuments.length > 0) {
       return dossier.submittedDocuments.filter(
         (d) =>
-          d.reviewable === true &&
+          d.reviewable !== false &&
           d.available !== false &&
           d.availability !== 'DISCARDED' &&
           d.status !== 'PENDING_UPLOAD'
@@ -194,7 +233,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           c.documents.forEach((d) => {
             if (
               d.documentId &&
-              d.reviewable === true &&
+              d.reviewable !== false &&
               d.available !== false &&
               d.availability !== 'DISCARDED' &&
               d.status !== 'PENDING_UPLOAD'
@@ -204,7 +243,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           });
         } else if (
           c.documentMetadata?.documentId &&
-          c.documentMetadata.reviewable === true &&
+          c.documentMetadata.reviewable !== false &&
           c.documentMetadata.available !== false &&
           c.documentMetadata.availability !== 'DISCARDED'
         ) {
@@ -269,19 +308,47 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         activeDocId
       );
     },
-    enabled: !!dossier && canViewDocuments && !!activeDocId && (currentStep === 2 || isDocPreviewOpen),
+    enabled: !!dossier && canViewDocuments && !!activeDocId && isDocPreviewOpen,
     staleTime: 60 * 1000,
     retry: false,
   });
 
-  // Auto-open document overlay preview upon entering Step 2 or selecting a document
+  // Reset image load error state when document selection or preview state changes
   useEffect(() => {
-    if (currentStep === 2 && activeDoc) {
-      setIsDocPreviewOpen(true);
-    } else if (currentStep !== 2) {
+    setImageLoadError(false);
+  }, [activeDocId, isDocPreviewOpen]);
+
+  // Ensure document preview modal is closed when navigating between steps
+  useEffect(() => {
+    if (currentStep !== 2) {
       setIsDocPreviewOpen(false);
     }
-  }, [currentStep, activeDoc]);
+  }, [currentStep]);
+
+  // Close preview popup when Escape key is pressed
+  useEffect(() => {
+    if (!isDocPreviewOpen) return;
+    const handleKeyDown = (e: { key: string }) => {
+      if (e.key === 'Escape') {
+        setIsDocPreviewOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDocPreviewOpen]);
+
+  // Track document inspection
+  const markDocInspected = useCallback((docId: string | null | undefined) => {
+    if (docId) {
+      setInspectedDocIds((prev) => new Set([...prev, docId]));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isDocPreviewOpen && activeDocId) {
+      markDocInspected(activeDocId);
+    }
+  }, [isDocPreviewOpen, activeDocId, markDocInspected]);
 
   // Check evaluations and progress
   const preCheckOtpPassed = Boolean(dossier?.preCheckOtpVerified);
@@ -289,77 +356,223 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   const workflow = evaluateVerificationWorkflow(checks, preCheckOtpPassed);
 
+  // Dynamic required checks from backend (falling back to standard checks if not specified)
+  const dynamicRequiredCheckKeys = useMemo(() => {
+    if (Array.isArray(dossier?.requiredChecks) && dossier.requiredChecks.length > 0) {
+      return dossier.requiredChecks;
+    }
+    if (dossier?.checks) {
+      const explicitRequired = Object.values(dossier.checks)
+        .filter((c) => c.required === true && c.type)
+        .map((c) => c.type);
+      if (explicitRequired.length > 0) return explicitRequired;
+
+      if (dossier.status === 'APPROVED') {
+        const approvedKeys = Object.values(dossier.checks)
+          .filter((c) => c.status === 'APPROVED' && c.type)
+          .map((c) => c.type);
+        if (approvedKeys.length > 0) return approvedKeys;
+      }
+    }
+    return ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'REFERENCE', 'POLICE_CLEARANCE'];
+  }, [dossier?.requiredChecks, dossier?.checks, dossier?.status]);
+
   const mandatoryChecks: {
     type: 'PHONE_OTP' | VerificationCheckType;
     title: string;
     isPreCheck?: boolean;
+    required: boolean;
     status: VerificationCheckStatus | 'PASSED' | 'PENDING';
     check?: VerificationCheck;
-  }[] = [
-    {
-      type: 'PHONE_OTP',
-      title: 'Phone OTP Pre-Check',
-      isPreCheck: true,
-      status: preCheckOtpPassed ? 'PASSED' : 'PENDING',
-    },
-    {
-      type: 'IDENTITY',
-      title: 'Identity Proof',
-      status: checks?.IDENTITY?.status || 'PENDING',
-      check: checks?.IDENTITY,
-    },
-    {
-      type: 'ADDRESS',
-      title: 'Address Proof',
-      status: checks?.ADDRESS?.status || 'PENDING',
-      check: checks?.ADDRESS,
-    },
-    {
-      type: 'EMERGENCY_CONTACT',
-      title: 'Emergency Contact',
-      status: checks?.EMERGENCY_CONTACT?.status || 'PENDING',
-      check: checks?.EMERGENCY_CONTACT,
-    },
-    {
-      type: 'REFERENCE',
-      title: 'Employer Reference',
-      status: checks?.REFERENCE?.status || 'PENDING',
-      check: checks?.REFERENCE,
-    },
-    {
-      type: 'POLICE_CLEARANCE',
-      title: 'Police Clearance',
-      status: checks?.POLICE_CLEARANCE?.status || 'PENDING',
-      check: checks?.POLICE_CLEARANCE,
-    },
-  ];
+  }[] = useMemo(() => {
+    const list: {
+      type: 'PHONE_OTP' | VerificationCheckType;
+      title: string;
+      isPreCheck?: boolean;
+      required: boolean;
+      status: VerificationCheckStatus | 'PASSED' | 'PENDING';
+      check?: VerificationCheck;
+    }[] = [
+        {
+          type: 'PHONE_OTP',
+          title: 'Phone OTP Pre-Check',
+          isPreCheck: true,
+          required: true,
+          status: preCheckOtpPassed ? 'PASSED' : 'PENDING',
+        },
+      ];
 
-  const totalMandatoryCount = mandatoryChecks.length;
-  const approvedChecksCount = mandatoryChecks.filter(
-    (c) => c.status === 'APPROVED' || (c.isPreCheck && c.status === 'PASSED')
-  ).length;
-  const allMandatoryPassed = approvedChecksCount === totalMandatoryCount;
+    const standardTypes: { type: VerificationCheckType; title: string }[] = [
+      { type: 'IDENTITY', title: 'Identity Proof' },
+      { type: 'ADDRESS', title: 'Address Proof' },
+      { type: 'EMERGENCY_CONTACT', title: 'Emergency Contact' },
+      { type: 'REFERENCE', title: 'Employer Reference' },
+      { type: 'POLICE_CLEARANCE', title: 'Police Clearance' },
+    ];
 
-  // Track step completion dynamically
-  useEffect(() => {
-    setCompletedSteps((prev) => {
-      const next = new Set(prev);
-      next.add(1);
-      if (currentStep > 2) next.add(2);
-      if (allMandatoryPassed) {
-        next.add(3);
-        if (currentStep > 4) next.add(4);
-      } else {
-        next.delete(3);
-        next.delete(4);
-        next.delete(5);
-      }
-      if (isOnboardedSuccess || dossier?.status === 'APPROVED') {
-        next.add(5);
-      }
-      return next;
+    const allKnownTypes = new Set<string>(standardTypes.map((t) => t.type));
+    if (dossier?.checks) {
+      Object.keys(dossier.checks).forEach((k) => allKnownTypes.add(k));
+    }
+
+    allKnownTypes.forEach((key) => {
+      const normKey = (
+        key === 'PREVIOUS_EMPLOYMENT' ? 'REFERENCE' :
+          key === 'POLICE_VERIFICATION' ? 'POLICE_CLEARANCE' : key
+      ) as VerificationCheckType;
+      const chk = checks?.[normKey] || checks?.[key as VerificationCheckType];
+      const title =
+        chk?.title ||
+        standardTypes.find((s) => s.type === normKey)?.title ||
+        key.replace(/_/g, ' ');
+      const isReq = chk?.required ?? dynamicRequiredCheckKeys.includes(key);
+
+      list.push({
+        type: normKey,
+        title,
+        required: isReq,
+        status: chk?.status || 'PENDING',
+        check: chk,
+      });
     });
-  }, [currentStep, allMandatoryPassed, isOnboardedSuccess, dossier?.status]);
+
+    return list;
+  }, [preCheckOtpPassed, checks, dossier?.checks, dynamicRequiredCheckKeys]);
+
+  const totalMandatoryCount = useMemo(() => {
+    return mandatoryChecks.filter((c) => c.required).length;
+  }, [mandatoryChecks]);
+
+  const approvedChecksCount = useMemo(() => {
+    return mandatoryChecks.filter(
+      (c) => c.required && (c.status === 'APPROVED' || (c.isPreCheck && c.status === 'PASSED'))
+    ).length;
+  }, [mandatoryChecks]);
+
+  const allMandatoryPassed = totalMandatoryCount > 0 && approvedChecksCount === totalMandatoryCount;
+
+  const hasRejectedCheck = useMemo(() => {
+    return Boolean(
+      workflow?.hasRejectedCheck ||
+      (dossier?.checks && Object.values(dossier.checks).some((c) => c.status === 'REJECTED')) ||
+      dossier?.status === 'REJECTED' ||
+      dossier?.applicationStatus === 'REJECTED'
+    );
+  }, [workflow?.hasRejectedCheck, dossier?.checks, dossier?.status, dossier?.applicationStatus]);
+
+  // Dynamic list of checks for Step 3, ensuring backend-driven checks are not restricted to a fixed 5-item list
+  const allCheckItems = useMemo(() => {
+    const standardKeys = new Set(workflow.steps.map((s) => s.type as string));
+    const items = [...workflow.steps];
+
+    if (dossier?.checks) {
+      Object.entries(dossier.checks).forEach(([rawKey, chk]) => {
+        const normKey = (
+          rawKey === 'PREVIOUS_EMPLOYMENT' ? 'REFERENCE' :
+          rawKey === 'POLICE_VERIFICATION' ? 'POLICE_CLEARANCE' : rawKey
+        ) as VerificationCheckType;
+
+        if (!standardKeys.has(rawKey) && !standardKeys.has(normKey)) {
+          standardKeys.add(rawKey);
+          standardKeys.add(normKey);
+          items.push({
+            type: normKey,
+            stepNumber: items.length + 1,
+            order: items.length + 1,
+            title: chk.title || rawKey.replace(/_/g, ' '),
+            shortTitle: chk.title || rawKey.replace(/_/g, ' '),
+            evaluationMethod: (chk.evaluationMethod as VerificationStepDefinition['evaluationMethod']) || (chk.documentMetadata ? 'DOCUMENT_INSPECTION' : 'CERTIFICATE_TRACKING'),
+            isDocumentRequired: Boolean(chk.documentMetadata),
+            check: chk,
+            status: chk.status || 'PENDING',
+            isCompleted: chk.status === 'APPROVED',
+            isCurrentActionable: chk.status !== 'APPROVED',
+            isLocked: false,
+            prerequisiteBlockers: [],
+          });
+        }
+      });
+    }
+
+    return items;
+  }, [workflow.steps, dossier?.checks]);
+
+  // Active review checks vs historical verification state
+  const hasPendingOrInReviewChecks = useMemo(() => {
+    if (!dossier?.checks) return false;
+    return Object.values(dossier.checks).some(
+      (c) => c.status === 'SUBMITTED' || c.status === 'IN_REVIEW' || c.status === 'RECHECK_DUE'
+    );
+  }, [dossier?.checks]);
+
+  const isHistoricallyVerified = useMemo(() => {
+    return Boolean(
+      dossier?.status === 'APPROVED' &&
+      allMandatoryPassed &&
+      !dossier?.contractInconsistency &&
+      !hasPendingOrInReviewChecks
+    );
+  }, [dossier?.status, allMandatoryPassed, dossier?.contractInconsistency, hasPendingOrInReviewChecks]);
+
+  const isApplicationRejected = useMemo(() => {
+    return Boolean(
+      dossier?.status === 'REJECTED' ||
+      dossier?.applicationStatus === 'REJECTED'
+    );
+  }, [dossier?.status, dossier?.applicationStatus]);
+
+  const isTerminalDisqualified = useMemo(() => {
+    if (!dossier?.checks) return false;
+    const hasTerminalCheck = Object.values(dossier.checks).some(
+      (c) => c.terminal === true || isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory)
+    );
+    const hasTerminalInHistory = Boolean(
+      dossier.rejectionHistory &&
+      dossier.rejectionHistory.some((r) => r.terminal === true || isTerminalRejectionCode(r.reasonCode))
+    );
+    return hasTerminalCheck || hasTerminalInHistory;
+  }, [dossier?.checks, dossier?.rejectionHistory]);
+
+  const canReconsiderApplication = useMemo(() => {
+    return isApplicationRejected && !isTerminalDisqualified;
+  }, [isApplicationRejected, isTerminalDisqualified]);
+
+  // Derived wizard step completion states
+  const isApplicationValid = useMemo(() => {
+    if (!dossier) return false;
+    if (dossier.applicationStatus === 'DRAFT') return false;
+    return Boolean(dossier.submissionTime || dossier.applicationSubmittedAt || dossier.workerName);
+  }, [dossier]);
+
+  const isApplicationStepCompleted = useMemo(() => {
+    if (!isApplicationValid) return false;
+    return currentStep > 1 || visitedSteps.has(2) || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5);
+  }, [isApplicationValid, currentStep, visitedSteps]);
+
+  const isDocumentsStepCompleted = useMemo(() => {
+    if (submittedDocs.length === 0) {
+      return currentStep > 2 || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5);
+    }
+    const allDocsSatisfied = submittedDocs.every((doc) => {
+      const docId = doc.documentId || doc.id;
+      const relatedCheck = doc.checkType ? dossier?.checks?.[doc.checkType] : undefined;
+      return (docId && inspectedDocIds.has(docId)) || relatedCheck?.status === 'APPROVED';
+    });
+    return (allDocsSatisfied || isHistoricallyVerified || isApplicationRejected) && (currentStep > 2 || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5));
+  }, [isHistoricallyVerified, isApplicationRejected, submittedDocs, currentStep, visitedSteps, inspectedDocIds, dossier?.checks]);
+
+  const isKycStepCompleted = useMemo(() => {
+    return (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) && (currentStep > 3 || isOnboardedSuccess || visitedSteps.has(4) || visitedSteps.has(5));
+  }, [isHistoricallyVerified, isApplicationRejected, allMandatoryPassed, hasRejectedCheck, currentStep, isOnboardedSuccess, visitedSteps]);
+
+  const isSummaryStepCompleted = useMemo(() => {
+    if (!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected) return false;
+    return currentStep > 4 || isOnboardedSuccess || visitedSteps.has(5);
+  }, [isHistoricallyVerified, isApplicationRejected, allMandatoryPassed, hasRejectedCheck, currentStep, isOnboardedSuccess, visitedSteps]);
+
+  const isFinalApprovalStepCompleted = useMemo(() => {
+    return isOnboardedSuccess || isApplicationRejected;
+  }, [isOnboardedSuccess, isApplicationRejected]);
 
   // Start review mutation (claims check and transitions SUBMITTED / PENDING -> IN_REVIEW)
   const startReviewMutation = useMutation({
@@ -520,12 +733,23 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     onSuccess: () => {
       setCheckToReject(null);
       setRejectionRemarks('');
+      setRejectionError(null);
       invalidateRelated();
       setFeedbackMessage('Check rejected and flagged for corrections.');
       setTimeout(() => setFeedbackMessage(null), 4000);
     },
-    onError: (err: Error) => {
-      setFeedbackMessage(`Rejection failed: ${err.message || 'Server error occurred'}.`);
+    onError: (err: unknown) => {
+      const code = (err as { errorCode?: string })?.errorCode;
+      let msg = err instanceof Error ? err.message : 'Failed to reject check.';
+      if (code === 'CHECK_ALREADY_ASSIGNED' || code === 'CHECK_NOT_ASSIGNED_TO_YOU') {
+        msg = (err as Error).message || 'Check assignment conflict. You must claim this check before deciding.';
+      } else if (code === 'INVALID_TRANSITION') {
+        msg = (err as Error).message || 'Invalid transition: check must be in review before rejection.';
+      } else if (code === 'CHECK_DISQUALIFIED') {
+        msg = (err as Error).message || 'Check is permanently disqualified.';
+      }
+      setRejectionError(msg);
+      setFeedbackMessage(`Rejection failed: ${msg}.`);
     },
   });
 
@@ -608,6 +832,79 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     },
   });
 
+  // Reject application mutation
+  const rejectApplicationMutation = useMutation({
+    mutationFn: async ({
+      workerId,
+      category,
+      remarks,
+    }: {
+      workerId: string;
+      category: RejectionReasonCategory | string;
+      remarks: string;
+    }) => {
+      return await verificationRepository.rejectWorker(workerId, category, remarks);
+    },
+    onSuccess: () => {
+      setIsConfirmRejectApplicationOpen(false);
+      setRejectApplicationRemarks('');
+      setRejectApplicationError(null);
+      invalidateRelated();
+      refetchDossier();
+      const workerName = dossier?.workerName || 'Worker';
+      window.dispatchEvent(
+        new CustomEvent('sevanest:toast', {
+          detail: {
+            type: 'error',
+            message: `Worker application for ${workerName} has been rejected.`,
+          },
+        })
+      );
+      setFeedbackMessage(`Application for ${workerName} rejected successfully.`);
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as Error)?.message || 'Failed to reject application.';
+      setRejectApplicationError(msg);
+    },
+  });
+
+  // Reconsider application mutation
+  const reconsiderApplicationMutation = useMutation({
+    mutationFn: async ({
+      workerId,
+      remarks,
+    }: {
+      workerId: string;
+      remarks: string;
+    }) => {
+      return await verificationRepository.reconsiderApplication(workerId, remarks);
+    },
+    onSuccess: () => {
+      setIsConfirmReconsiderOpen(false);
+      setReconsiderRemarks('');
+      setReconsiderError(null);
+      invalidateRelated();
+      refetchDossier();
+      setCurrentStep(3);
+      const workerName = dossier?.workerName || 'Worker';
+      window.dispatchEvent(
+        new CustomEvent('sevanest:toast', {
+          detail: {
+            type: 'success',
+            message: `Application for ${workerName} reconsidered. Ready for KYC re-review.`,
+          },
+        })
+      );
+      setFeedbackMessage(`Application for ${workerName} reconsidered successfully. Ready for KYC re-review.`);
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    },
+    onError: (err: unknown) => {
+      const msg = (err as Error)?.message || 'Failed to reconsider application.';
+      setReconsiderError(msg);
+    },
+  });
+
   // Modal accessibility: body scroll-lock and keyboard listener
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
@@ -621,6 +918,14 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         }
         if (isConfirmFinalApproveOpen) {
           setIsConfirmFinalApproveOpen(false);
+          return;
+        }
+        if (isConfirmRejectApplicationOpen) {
+          setIsConfirmRejectApplicationOpen(false);
+          return;
+        }
+        if (isConfirmReconsiderOpen) {
+          setIsConfirmReconsiderOpen(false);
           return;
         }
         if (checkToReject) {
@@ -652,6 +957,8 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     checkToApprove,
     checkToReject,
     isConfirmFinalApproveOpen,
+    isConfirmRejectApplicationOpen,
+    isConfirmReconsiderOpen,
     isDocPreviewOpen,
     isRecheckDialogOpen,
     onClose,
@@ -695,28 +1002,38 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   // Safe navigation handlers
   const canAdvanceFromStep = (step: WizardStep): boolean => {
-    if (step === 1) return true;
+    if (isHistoricallyVerified || isApplicationRejected) return true;
+    if (step === 1) return isApplicationValid;
     if (step === 2) return true;
-    if (step === 3) return allMandatoryPassed;
-    if (step === 4) return allMandatoryPassed;
+    if (step === 3) return allMandatoryPassed || hasRejectedCheck;
+    if (step === 4) return allMandatoryPassed || hasRejectedCheck;
     return false;
   };
 
   const handleStepClick = (targetStep: WizardStep) => {
     if (targetStep === currentStep) return;
+    if (isHistoricallyVerified || isApplicationRejected) {
+      setVisitedSteps((prev) => new Set([...prev, targetStep]));
+      setCurrentStep(targetStep);
+      return;
+    }
     // Allow clicking backwards at any time
     if (targetStep < currentStep) {
+      setVisitedSteps((prev) => new Set([...prev, targetStep]));
       setCurrentStep(targetStep);
       return;
     }
     // Prevent clicking ahead if prerequisites not satisfied
     if (targetStep > currentStep) {
-      if (targetStep <= 3) {
+      if (targetStep === 2 && isApplicationValid) {
+        setVisitedSteps((prev) => new Set([...prev, 2]));
+        setCurrentStep(2);
+      } else if (targetStep === 3 && isApplicationValid) {
+        setVisitedSteps((prev) => new Set([...prev, 3]));
+        setCurrentStep(3);
+      } else if ((targetStep === 4 || targetStep === 5) && (allMandatoryPassed || hasRejectedCheck)) {
+        setVisitedSteps((prev) => new Set([...prev, targetStep]));
         setCurrentStep(targetStep);
-      } else if (targetStep === 4 && allMandatoryPassed) {
-        setCurrentStep(4);
-      } else if (targetStep === 5 && allMandatoryPassed) {
-        setCurrentStep(5);
       }
     }
   };
@@ -724,14 +1041,26 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   const handleNext = () => {
     if (currentStep < 5 && canAdvanceFromStep(currentStep)) {
       const nextStep = (currentStep + 1) as WizardStep;
-      setCompletedSteps((prev) => new Set([...prev, currentStep]));
+      setVisitedSteps((prev) => new Set([...prev, currentStep, nextStep]));
+      if (currentStep === 2 && submittedDocs.length > 0) {
+        setInspectedDocIds((prev) => {
+          const next = new Set(prev);
+          submittedDocs.forEach((d) => {
+            const id = d.documentId || d.id;
+            if (id) next.add(id);
+          });
+          return next;
+        });
+      }
       setCurrentStep(nextStep);
     }
   };
 
   const handlePrevious = () => {
     if (currentStep > 1) {
-      setCurrentStep((currentStep - 1) as WizardStep);
+      const prevStep = (currentStep - 1) as WizardStep;
+      setVisitedSteps((prev) => new Set([...prev, prevStep]));
+      setCurrentStep(prevStep);
     }
   };
 
@@ -944,7 +1273,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     View Worker Record
                   </button>
 
-                  {dossier.status === 'APPROVED' && (
+                  {isHistoricallyVerified && (
                     <span
                       style={{
                         display: 'inline-flex',
@@ -1031,7 +1360,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <CheckCircle2 size={14} />
-                    <span>All 6 Verification Criteria Satisfied</span>
+                    <span>All {totalMandatoryCount} Verification Criteria Satisfied</span>
                   </div>
                   <div style={{ fontSize: '11px', display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
                     <strong>Authoritative Status: VERIFIED</strong>
@@ -1041,7 +1370,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               )}
 
               {/* Approved Read-Only Mode Banner */}
-              {dossier.status === 'APPROVED' && (
+              {isHistoricallyVerified && (
                 <div
                   style={{
                     backgroundColor: 'var(--color-status-success-bg)',
@@ -1057,6 +1386,27 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                 >
                   <CheckCircle2 size={14} />
                   <span>Verification Approved & Complete — Dossier is in Read-Only Mode</span>
+                </div>
+              )}
+
+              {/* Rejected Application Read-Only Mode Banner */}
+              {isApplicationRejected && (
+                <div
+                  data-testid="application-rejected-header-banner"
+                  style={{
+                    backgroundColor: 'var(--color-error-bg)',
+                    border: '1px solid var(--color-error-border)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: 'var(--color-error-dark)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                  }}
+                >
+                  <AlertTriangle size={14} />
+                  <span>Worker Application Rejected — Dossier is in Read-Only Mode</span>
                 </div>
               )}
 
@@ -1104,20 +1454,30 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   }}
                 >
                   {([1, 2, 3, 4, 5] as WizardStep[]).map((stepNum, idx) => {
-                    const isCompleted = completedSteps.has(stepNum) && stepNum !== currentStep;
                     const isCurrent = stepNum === currentStep;
-                    const isBlocked =
-                      stepNum > currentStep &&
-                      ((stepNum === 4 || stepNum === 5) && !allMandatoryPassed);
 
-                    const canClick = stepNum <= 3 || allMandatoryPassed;
+                    const isStepCompleted =
+                      stepNum === 1 ? isApplicationStepCompleted && !isCurrent :
+                        stepNum === 2 ? isDocumentsStepCompleted && !isCurrent :
+                          stepNum === 3 ? isKycStepCompleted && !isCurrent :
+                            stepNum === 4 ? isSummaryStepCompleted && !isCurrent :
+                              stepNum === 5 ? (isFinalApprovalStepCompleted && !isCurrent) : false;
 
-                    const lineCompleted =
-                      stepNum < 5 &&
-                      ((stepNum === 1 && completedSteps.has(1)) ||
-                        (stepNum === 2 && completedSteps.has(2)) ||
-                        (stepNum === 3 && allMandatoryPassed) ||
-                        (stepNum === 4 && completedSteps.has(4)));
+                    const isBlocked = !isHistoricallyVerified && !isApplicationRejected && (
+                      (stepNum === 2 && !isApplicationValid) ||
+                      ((stepNum === 4 || stepNum === 5) && !allMandatoryPassed && !hasRejectedCheck)
+                    );
+
+                    const canClick = isHistoricallyVerified || isApplicationRejected || (stepNum <= 3 && isApplicationValid) || allMandatoryPassed || hasRejectedCheck;
+
+                    const lineCompleted = isHistoricallyVerified
+                      ? (currentStep > stepNum)
+                      : (
+                        stepNum === 1 ? isApplicationStepCompleted :
+                          stepNum === 2 ? isDocumentsStepCompleted :
+                            stepNum === 3 ? isKycStepCompleted :
+                              stepNum === 4 ? isSummaryStepCompleted : false
+                      );
 
                     return (
                       <React.Fragment key={stepNum}>
@@ -1138,7 +1498,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           title={
                             isBlocked
                               ? 'Blocked: All KYC checks must be approved before advancing'
-                              : `Step ${stepNum}: ${STEP_LABELS[stepNum]}`
+                              : isStepCompleted
+                                ? `Step ${stepNum}: ${STEP_LABELS[stepNum]} (Completed)`
+                                : `Step ${stepNum}: ${STEP_LABELS[stepNum]}`
                           }
                         >
                           <div
@@ -1152,33 +1514,35 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               fontSize: 'var(--font-size-xs)',
                               fontWeight: 700,
                               transition: 'all 0.2s ease',
-                              backgroundColor: isCompleted
+                              backgroundColor: isStepCompleted
                                 ? 'var(--color-success)'
                                 : isCurrent
-                                ? 'var(--color-primary)'
-                                : 'var(--color-bg-subtle)',
+                                  ? 'var(--color-primary)'
+                                  : 'var(--color-bg-subtle)',
                               border: isCurrent
-                                ? '2px solid var(--color-primary)'
-                                : isCompleted
-                                ? '2px solid var(--color-success)'
-                                : '2px solid var(--color-border)',
-                              color: isCompleted || isCurrent ? '#ffffff' : 'var(--color-text-secondary)',
-                              boxShadow: isCurrent ? '0 0 0 3px rgba(15, 118, 110, 0.2)' : 'none',
+                                ? (isHistoricallyVerified ? '2px solid var(--color-success)' : '2px solid var(--color-primary)')
+                                : isStepCompleted
+                                  ? '2px solid var(--color-success)'
+                                  : '2px solid var(--color-border)',
+                              color: isStepCompleted || isCurrent ? '#ffffff' : 'var(--color-text-secondary)',
+                              boxShadow: isCurrent
+                                ? (isHistoricallyVerified ? '0 0 0 3px rgba(16, 185, 129, 0.35)' : '0 0 0 3px rgba(15, 118, 110, 0.2)')
+                                : 'none',
                             }}
                           >
-                            {isCompleted ? <Check size={16} strokeWidth={2.5} /> : stepNum}
+                            {isStepCompleted ? <Check size={16} strokeWidth={2.5} /> : stepNum}
                           </div>
                           <span
                             style={{
                               fontSize: '11px',
-                              fontWeight: isCurrent ? 700 : isCompleted ? 600 : 500,
+                              fontWeight: isCurrent ? 700 : isStepCompleted ? 600 : 500,
                               color: isCurrent
-                                ? 'var(--color-primary)'
-                                : isCompleted
-                                ? 'var(--color-success)'
-                                : isBlocked
-                                ? 'var(--color-text-disabled)'
-                                : 'var(--color-text-secondary)',
+                                ? (isHistoricallyVerified ? 'var(--color-success)' : 'var(--color-primary)')
+                                : isStepCompleted
+                                  ? 'var(--color-success)'
+                                  : isBlocked
+                                    ? 'var(--color-text-disabled)'
+                                    : 'var(--color-text-secondary)',
                               whiteSpace: 'nowrap',
                             }}
                           >
@@ -1380,125 +1744,450 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     gap: 'var(--space-5)',
                   }}
                 >
-                  <div style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-3)' }}>
-                    <h3
-                      style={{
-                        fontSize: 'var(--font-size-lg)',
-                        fontWeight: 800,
-                        color: 'var(--color-navy)',
-                        margin: '0 0 4px 0',
-                      }}
-                    >
-                      Step 1 — Worker Application Details
-                    </h3>
-                    <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      Inspect the authentic application profile information submitted by the domestic worker.
-                    </p>
-                  </div>
-
-                  {/* Core Details Grid */}
+                  {/* Step Header */}
                   <div
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      borderBottom: '1px solid var(--color-border)',
+                      paddingBottom: 'var(--space-4)',
+                      flexWrap: 'wrap',
+                      gap: 'var(--space-2)',
+                    }}
+                  >
+                    <div>
+                      <h3
+                        style={{
+                          fontSize: 'var(--font-size-lg)',
+                          fontWeight: 800,
+                          color: 'var(--color-navy)',
+                          margin: '0 0 4px 0',
+                          letterSpacing: '-0.01em',
+                        }}
+                      >
+                        Step 1 — Worker Application Details
+                      </h3>
+                      <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
+                        Inspect the authentic application profile information submitted by the domestic worker.
+                      </p>
+                    </div>
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 12px',
+                        backgroundColor: 'var(--color-primary-subtle)',
+                        border: '1px solid var(--color-brand-100)',
+                        borderRadius: 'var(--radius-full)',
+                        fontSize: '11.5px',
+                        fontWeight: 600,
+                        color: 'var(--color-primary)',
+                      }}
+                    >
+                      <ShieldCheck size={13} color="var(--color-primary)" />
+                      <span>Official Intake Profile</span>
+                    </div>
+                  </div>
+
+                  {/* Hero Applicant Identity & Status Banner */}
+                  <div
+                    style={{
+                      padding: 'var(--space-4) var(--space-5)',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderRadius: 'var(--radius-lg)',
+                      border: '1px solid var(--color-border)',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                       gap: 'var(--space-4)',
                     }}
                   >
-                    {/* Full Name & Worker ID */}
+                    {/* Left: Avatar & Applicant Identity */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)', minWidth: '280px' }}>
+                      {(() => {
+                        const photoUrl =
+                          dossier.photoUrl ||
+                          (typeof dossier.photo === 'object' && dossier.photo !== null && 'url' in dossier.photo
+                            ? dossier.photo.url
+                            : typeof dossier.photo === 'string'
+                            ? dossier.photo
+                            : undefined);
+                        const hasUsablePhoto = Boolean(photoUrl) && !isPhotoLoadError;
+
+                        if (hasUsablePhoto) {
+                          return (
+                            <img
+                              src={photoUrl}
+                              alt={dossier.workerName || 'Worker profile photo'}
+                              onError={() => setIsPhotoLoadError(true)}
+                              style={{
+                                width: '48px',
+                                height: '48px',
+                                borderRadius: 'var(--radius-full)',
+                                objectFit: 'cover',
+                                border: '1.5px solid var(--color-brand-100)',
+                                flexShrink: 0,
+                              }}
+                            />
+                          );
+                        }
+
+                        return (
+                          <div
+                            style={{
+                              width: '48px',
+                              height: '48px',
+                              borderRadius: 'var(--radius-full)',
+                              backgroundColor: 'var(--color-primary-subtle)',
+                              border: '1.5px solid var(--color-brand-100)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'var(--color-primary)',
+                              fontWeight: 800,
+                              fontSize: '18px',
+                              flexShrink: 0,
+                            }}
+                            aria-label={dossier.workerName ? `${dossier.workerName} avatar placeholder` : 'Worker avatar'}
+                          >
+                            {dossier.workerName ? dossier.workerName.charAt(0).toUpperCase() : <User size={22} />}
+                          </div>
+                        );
+                      })()}
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+                          <User size={13} color="var(--color-primary)" />
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              color: 'var(--color-primary)',
+                            }}
+                          >
+                            Applicant Identity
+                          </span>
+                          {dossier.hasProfilePhoto && !dossier.photoUrl && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                color: '#1d4ed8',
+                                backgroundColor: '#eff6ff',
+                                border: '1px solid #bfdbfe',
+                                borderRadius: 'var(--radius-sm)',
+                                padding: '1px 6px',
+                                marginLeft: '4px',
+                              }}
+                              title="Worker uploaded profile photo in Workers App"
+                            >
+                              Photo on File
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '1.125rem',
+                            fontWeight: 800,
+                            color: 'var(--color-navy)',
+                            letterSpacing: '-0.01em',
+                          }}
+                        >
+                          {dossier.workerName}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+                          <span
+                            style={{
+                              fontSize: '11.5px',
+                              color: 'var(--color-text-secondary)',
+                              backgroundColor: 'var(--color-surface)',
+                              padding: '2px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border)',
+                            }}
+                          >
+                            Worker ID: <strong style={{ color: 'var(--color-text-primary)' }}>{dossier.workerId || dossier.id}</strong>
+                          </span>
+                          {dossier.applicationId && (
+                            <span
+                              style={{
+                                fontSize: '11.5px',
+                                color: 'var(--color-text-secondary)',
+                                backgroundColor: 'var(--color-surface)',
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm)',
+                                border: '1px solid var(--color-border)',
+                              }}
+                            >
+                              • App ID: <strong style={{ color: 'var(--color-text-primary)' }}>{dossier.applicationId}</strong>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Right: Application & Verification Status */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        padding: 'var(--space-3) var(--space-4)',
+                        backgroundColor: 'var(--color-surface)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        minWidth: '240px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+                        <Award size={14} color="var(--color-primary)" />
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: 'var(--color-text-secondary)',
+                          }}
+                        >
+                          Application & Verification Status
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                        <StatusBadge status={dossier.status} />
+                        <span
+                          style={{
+                            fontSize: '11.5px',
+                            fontWeight: 600,
+                            color: 'var(--color-text-secondary)',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-full)',
+                            border: '1px solid var(--color-border)',
+                          }}
+                        >
+                          {dossier.applicationStatus || 'SUBMITTED'}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 'var(--font-size-xs)',
+                          color: 'var(--color-text-secondary)',
+                          marginTop: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <Clock size={12} color="var(--color-text-secondary)" />
+                        <span>
+                          Submitted:{' '}
+                          <strong style={{ color: 'var(--color-text-primary)' }}>
+                            {dossier.submissionTime || dossier.applicationSubmittedAt
+                              ? formatDateTimeIST(dossier.submissionTime || dossier.applicationSubmittedAt)
+                              : 'Unavailable'}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Core Details Grid (Two Distinct Logical Panels) */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+                      gap: 'var(--space-4)',
+                    }}
+                  >
+                    {/* Panel A: Professional & Contact Profile */}
                     <div
                       style={{
                         padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
+                        backgroundColor: 'var(--color-surface)',
                         borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--color-border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-3)',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <User size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Applicant Identity
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          paddingBottom: 'var(--space-2)',
+                          borderBottom: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <Briefcase size={14} color="var(--color-primary)" />
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            color: 'var(--color-navy)',
+                          }}
+                        >
+                          Professional & Contact Profile
                         </span>
                       </div>
-                      <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {dossier.workerName}
+
+                      {/* Full Unmasked Mobile Number */}
+                      <div
+                        style={{
+                          padding: 'var(--space-3)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <Phone size={13} color="var(--color-primary)" />
+                          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                            Mobile Number (Unmasked)
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-primary)', letterSpacing: '0.02em' }}>
+                          {displayMobileNumber}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                          {dossier.phone ? 'Full unmasked mobile number' : 'Number status as provided by backend'}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                        Worker ID: <strong>{dossier.workerId || dossier.id}</strong>
-                        {dossier.applicationId && (
-                          <span style={{ marginLeft: 'var(--space-2)' }}>
-                            • App ID: <strong>{dossier.applicationId}</strong>
+
+                      {/* Service Category & Experience */}
+                      <div
+                        style={{
+                          padding: 'var(--space-3)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <Briefcase size={13} color="var(--color-primary)" />
+                          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                            Service Category & Experience
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {dossier.category || 'Unavailable'}
+                        </div>
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                          Experience: <strong>{dossier.experienceYears !== undefined ? `${dossier.experienceYears} Years` : 'Unavailable'}</strong>
+                        </div>
+                      </div>
+
+                      {/* Skills & Experience */}
+                      <div
+                        style={{
+                          padding: 'var(--space-3)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <h4
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            color: 'var(--color-text-secondary)',
+                            margin: '0 0 var(--space-2) 0',
+                          }}
+                        >
+                          Skills & Experience
+                        </h4>
+                        {dossier.skills && dossier.skills.length > 0 ? (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                            {dossier.skills.map((skill, sIdx) => (
+                              <span
+                                key={sIdx}
+                                style={{
+                                  padding: '3px 9px',
+                                  borderRadius: 'var(--radius-full)',
+                                  backgroundColor: 'var(--color-primary-subtle)',
+                                  color: 'var(--color-primary)',
+                                  border: '1px solid var(--color-brand-100)',
+                                  fontSize: '11.5px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                {skill}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                            No specific skills listed
                           </span>
                         )}
                       </div>
                     </div>
 
-                    {/* Full Unmasked Mobile Number */}
+                    {/* Panel B: Location & Schedule Logistics */}
                     <div
                       style={{
                         padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
+                        backgroundColor: 'var(--color-surface)',
                         borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--color-border)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-3)',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <Phone size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Mobile Number (Unmasked)
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          paddingBottom: 'var(--space-2)',
+                          borderBottom: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <MapPin size={14} color="var(--color-primary)" />
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            color: 'var(--color-navy)',
+                          }}
+                        >
+                          Location & Availability Logistics
                         </span>
                       </div>
-                      <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {displayMobileNumber}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                        {dossier.phone ? 'Full unmasked mobile number' : 'Number status as provided by backend'}
-                      </div>
-                    </div>
 
-                    {/* Service Category & Experience */}
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <Briefcase size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Service Category & Experience
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {dossier.category || 'Unavailable'}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                        Experience: <strong>{dossier.experienceYears !== undefined ? `${dossier.experienceYears} Years` : 'Unavailable'}</strong>
-                      </div>
-                    </div>
-
-                    {/* Locality & Service Area */}
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <MapPin size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Locality & Service Area
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                        {dossier.locality || 'Unavailable'}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                        {dossier.address
-                          ? [
+                      {/* Locality & Service Area */}
+                      <div
+                        style={{
+                          padding: 'var(--space-3)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <MapPin size={13} color="var(--color-primary)" />
+                          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                            Locality & Service Area
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {dossier.locality || 'Unavailable'}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', marginTop: '2px', lineHeight: 1.4 }}>
+                          {dossier.address
+                            ? [
                               dossier.address.line1,
                               dossier.address.line2,
                               dossier.address.city,
@@ -1507,151 +2196,146 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             ]
                               .filter(Boolean)
                               .join(', ')
-                          : 'Specific service address unavailable'}
+                            : 'Specific service address unavailable'}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* Availability */}
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <Calendar size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Availability Schedule
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                        {dossier.availability || 'Unavailable'}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                        Expected Compensation: {dossier.expectedSalary || 'Not specified'}
-                      </div>
-                    </div>
-
-                    {/* Application Submission & Verification Status */}
-                    <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
-                        <Award size={16} color="var(--color-primary)" />
-                        <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                          Application & Verification Status
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                        <StatusBadge status={dossier.status} />
-                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                          {dossier.applicationStatus || 'SUBMITTED'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '6px' }}>
-                        Submitted:{' '}
-                        <strong>
-                          {dossier.submissionTime || dossier.applicationSubmittedAt
-                            ? formatDateTimeIST(dossier.submissionTime || dossier.applicationSubmittedAt)
-                            : 'Unavailable'}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Skills Section */}
-                  <div>
-                    <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>
-                      Skills & Experience
-                    </h4>
-                    {dossier.skills && dossier.skills.length > 0 ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-                        {dossier.skills.map((skill, sIdx) => (
-                          <span
-                            key={sIdx}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: 'var(--radius-full)',
-                              backgroundColor: 'var(--color-primary-subtle)',
-                              color: 'var(--color-primary)',
-                              border: '1px solid var(--color-border)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {skill}
+                      {/* Availability Schedule */}
+                      <div
+                        style={{
+                          padding: 'var(--space-3)',
+                          backgroundColor: 'var(--color-bg-subtle)',
+                          borderRadius: 'var(--radius-sm)',
+                          border: '1px solid var(--color-border-subtle)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <Calendar size={13} color="var(--color-primary)" />
+                          <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
+                            Availability Schedule
                           </span>
-                        ))}
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                          {dossier.availability || 'Unavailable'}
+                        </div>
+                        <div style={{ fontSize: '11.5px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                          Expected Compensation: <strong style={{ color: 'var(--color-text-primary)' }}>{dossier.expectedSalary || 'Not specified'}</strong>
+                        </div>
                       </div>
-                    ) : (
-                      <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        No specific skills listed
-                      </span>
-                    )}
+                    </div>
                   </div>
 
                   {/* Verification Status & Document Attachment Overview */}
                   <div
                     style={{
-                      marginTop: 'var(--space-2)',
                       padding: 'var(--space-4)',
                       backgroundColor: 'var(--color-bg-subtle)',
                       borderRadius: 'var(--radius-md)',
                       border: '1px solid var(--color-border)',
                     }}
                   >
-                    <h4
+                    <div
                       style={{
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                        textTransform: 'uppercase',
-                        color: 'var(--color-text-secondary)',
-                        margin: '0 0 var(--space-3) 0',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: 'var(--space-2)',
+                        flexWrap: 'wrap',
+                        gap: 'var(--space-2)',
                       }}
                     >
-                      Verification Status & Document Attachment Overview
-                    </h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <ShieldCheck size={16} color="var(--color-primary)" />
+                        <h4
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: 'var(--color-navy)',
+                            margin: 0,
+                          }}
+                        >
+                          Verification Status & Document Attachment Overview
+                        </h4>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          color: 'var(--color-primary)',
+                          backgroundColor: 'var(--color-primary-subtle)',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-full)',
+                          border: '1px solid var(--color-brand-100)',
+                        }}
+                      >
+                        {mandatoryChecks.length} Criteria Tracked
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0 0 var(--space-3) 0' }}>
+                      Authoritative pre-inspection of submitted credentials and secure document vault readiness.
+                    </p>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                        gap: 'var(--space-3)',
+                      }}
+                    >
                       {mandatoryChecks.map((chkItem) => {
                         const hasDoc = Boolean(
                           chkItem.check?.documentMetadata?.documentId ||
                           (chkItem.check?.documentMetadata as { id?: string } | undefined)?.id
                         );
+                        const isApprovedOrPassed = chkItem.status === 'APPROVED' || chkItem.status === 'PASSED';
                         return (
                           <div
                             key={chkItem.type}
                             style={{
-                              padding: 'var(--space-2) var(--space-3)',
+                              padding: 'var(--space-3)',
                               backgroundColor: 'var(--color-surface)',
                               borderRadius: 'var(--radius-sm)',
                               border: '1px solid var(--color-border)',
                               fontSize: 'var(--font-size-xs)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              boxShadow: 'var(--shadow-sm)',
                             }}
                           >
-                            <strong style={{ display: 'block', color: 'var(--color-text-primary)', marginBottom: '2px' }}>
-                              {chkItem.title}
-                            </strong>
-                            <div style={{ color: 'var(--color-text-secondary)' }}>
-                              Check Status: <strong style={{ color: chkItem.status === 'APPROVED' || chkItem.status === 'PASSED' ? 'var(--color-success)' : 'var(--color-text-primary)' }}>{chkItem.status}</strong>
-                            </div>
-                            <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                              Document Attachment: {hasDoc ? (
-                                <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>Available</span>
-                              ) : (
-                                <span data-testid={!chkItem.isPreCheck && !hasDoc ? 'verification-doc-missing-id' : undefined} style={{ color: 'var(--color-text-secondary)' }}>
-                                  Document Vault Attachment Unavailable
-                                </span>
-                              )}
+                            <div>
+                              <strong style={{ display: 'block', color: 'var(--color-navy)', fontSize: '12.5px', fontWeight: 700, marginBottom: '4px' }}>
+                                {chkItem.title}
+                              </strong>
+                              <div style={{ color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                                Check Status: <strong style={{ color: isApprovedOrPassed ? 'var(--color-success)' : 'var(--color-text-primary)' }}>{chkItem.status}</strong>
+                              </div>
+                              <div style={{ color: 'var(--color-text-secondary)' }}>
+                                Document Attachment: {hasDoc ? (
+                                  <span style={{ color: 'var(--color-success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                                    <CheckCircle2 size={12} /> Available
+                                  </span>
+                                ) : (
+                                  <span data-testid={!chkItem.isPreCheck && !hasDoc ? 'verification-doc-missing-id' : undefined} style={{ color: 'var(--color-text-secondary)' }}>
+                                    Document Vault Attachment Unavailable
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             {!hasDoc && !chkItem.isPreCheck && (
-                              <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                              <div
+                                style={{
+                                  fontSize: '10px',
+                                  color: 'var(--color-text-secondary)',
+                                  marginTop: '6px',
+                                  backgroundColor: 'var(--color-bg-app)',
+                                  padding: '4px 6px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px dashed var(--color-border)',
+                                }}
+                              >
                                 No backend document reference ID is associated with this verification check
                               </div>
                             )}
@@ -1688,37 +2372,28 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       Step 2 — Documents Review
                     </h3>
                     <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                      Inspect submitted KYC documents securely via authorized vault links. Click any document box to view in an overlay.
+                      Inspect submitted KYC documents securely via authorized vault links. Click &apos;View Document&apos; to view in the secure previewer.
                     </p>
                   </div>
 
                   {/* Document Selection Grid */}
                   {submittedDocs.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 'var(--space-4)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
                       {submittedDocs.map((docItem) => {
                         const relatedCheck = docItem.checkType ? dossier.checks?.[docItem.checkType] : undefined;
                         const docStatus = relatedCheck?.status || docItem.status || 'SUBMITTED';
                         return (
-                          <button
+                          <div
                             key={docItem.documentId || docItem.id}
-                            type="button"
                             data-testid={`document-box-${docItem.documentId || docItem.id}`}
-                            onClick={() => {
-                              setSelectedDocId(docItem.documentId || docItem.id || null);
-                              if (docItem.checkType) setActiveDocType(docItem.checkType);
-                              setIsDocPreviewOpen(true);
-                            }}
                             style={{
                               padding: 'var(--space-4)',
                               borderRadius: 'var(--radius-md)',
                               border: '1px solid var(--color-border)',
                               backgroundColor: 'var(--color-surface)',
-                              cursor: 'pointer',
                               display: 'flex',
                               flexDirection: 'column',
-                              gap: 'var(--space-2)',
-                              minHeight: '110px',
-                              textAlign: 'left',
+                              gap: 'var(--space-3)',
                               boxShadow: 'var(--shadow-sm)',
                               transition: 'all 0.15s ease',
                             }}
@@ -1732,15 +2407,79 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               </div>
                               <StatusBadge status={docStatus} />
                             </div>
-                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                              {docItem.checkTitle || docItem.checkType || 'KYC Attachment'}
-                              {docItem.docNumberMasked ? ` • ${docItem.docNumberMasked}` : ''}
-                            </span>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--color-primary)', fontWeight: 600, marginTop: 'auto', paddingTop: '4px' }}>
-                              <Eye size={12} />
-                              <span>Click to inspect preview</span>
+
+                            <div
+                              style={{
+                                fontSize: '11px',
+                                color: 'var(--color-text-secondary)',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '3px',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                padding: 'var(--space-2) var(--space-3)',
+                                borderRadius: 'var(--radius-sm)',
+                              }}
+                            >
+                              <div>
+                                <span>Check: </span>
+                                <strong style={{ color: 'var(--color-text-primary)' }}>
+                                  {docItem.checkTitle || docItem.checkType || 'KYC Attachment'}
+                                </strong>
+                              </div>
+                              <div>
+                                <span>Doc ID: </span>
+                                <span style={{ fontFamily: 'monospace', color: 'var(--color-text-primary)' }}>
+                                  {docItem.documentId || docItem.id || 'Pending'}
+                                </span>
+                              </div>
+                              {docItem.docNumberMasked && (
+                                <div>
+                                  <span>Doc Number: </span>
+                                  <strong style={{ color: 'var(--color-text-primary)' }}>
+                                    {docItem.docNumberMasked}
+                                  </strong>
+                                </div>
+                              )}
+                              <div>
+                                <span>Format: </span>
+                                <span>
+                                  {docItem.contentType || docItem.mimeType || 'application/pdf'}
+                                  {docItem.sizeBytes ? ` • ${Math.round(docItem.sizeBytes / 1024)} KB` : ''}
+                                </span>
+                              </div>
                             </div>
-                          </button>
+
+                            <button
+                              type="button"
+                              data-testid={`view-document-btn-${docItem.documentId || docItem.id}`}
+                              aria-label={`View Document — ${docItem.documentTypeName || ''} (${docItem.checkTitle || docItem.checkType || ''})`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedDocId(docItem.documentId || docItem.id || null);
+                                if (docItem.checkType) setActiveDocType(docItem.checkType);
+                                setIsDocPreviewOpen(true);
+                              }}
+                              style={{
+                                padding: '8px 14px',
+                                borderRadius: 'var(--radius-md)',
+                                backgroundColor: 'var(--color-primary)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: 'var(--font-size-xs)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '6px',
+                                marginTop: 'auto',
+                                transition: 'opacity 0.15s ease',
+                              }}
+                            >
+                              <Eye size={14} />
+                              View Document
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -1814,13 +2553,69 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           Step 3 — KYC Verification
                         </h3>
                         <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                          Evaluate the mobile OTP pre-check and all 5 mandatory operational checks. Every check must be approved to proceed.
+                          Perform KYC verification of the domestic worker and submitted records. Each required check must be evaluated before platform onboarding.
                         </p>
                       </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        Progress: <strong style={{ color: allMandatoryPassed ? 'var(--color-success)' : 'var(--color-text-primary)' }}>
-                          {approvedChecksCount} of {totalMandatoryCount} Checks Approved
-                        </strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                          Progress: <strong style={{ color: allMandatoryPassed ? 'var(--color-success)' : 'var(--color-text-primary)' }}>
+                            {approvedChecksCount} of {totalMandatoryCount} Checks Approved
+                          </strong>
+                        </div>
+                        {!isHistoricallyVerified && !isApplicationRejected && canRejectApplication && (
+                          <button
+                            type="button"
+                            data-testid="step3-reject-application-btn"
+                            onClick={() => {
+                              setRejectApplicationError(null);
+                              setIsConfirmRejectApplicationOpen(true);
+                            }}
+                            disabled={rejectApplicationMutation.isPending}
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'transparent',
+                              color: 'var(--color-error)',
+                              border: '1px solid var(--color-error)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <X size={12} />
+                            Reject Application
+                          </button>
+                        )}
+                        {isApplicationRejected && canReconsiderApplication && (
+                          <button
+                            type="button"
+                            data-testid="step3-reconsider-application-btn"
+                            onClick={() => {
+                              setReconsiderError(null);
+                              setIsConfirmReconsiderOpen(true);
+                            }}
+                            disabled={reconsiderApplicationMutation.isPending}
+                            style={{
+                              padding: '3px 10px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: '#0284c7',
+                              color: '#ffffff',
+                              border: '1px solid #0369a1',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <RotateCcw size={12} />
+                            Reconsider Application
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1884,9 +2679,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </span>
                   </div>
 
-                  {/* 5 Operational Checks */}
+                  {/* Operational Checks (Backend-Driven dynamic list) */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-                    {workflow.steps.map((item) => {
+                    {allCheckItems.map((item) => {
                       const check = checks?.[item.type] || item.check || {
                         id: undefined,
                         type: item.type,
@@ -1896,6 +2691,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       };
                       const isApproved = check.status === 'APPROVED';
                       const isRejected = check.status === 'REJECTED';
+                      const isTerminal = check.terminal === true || isTerminalRejectionCode(check.rejectionCode || check.rejectionCategory);
                       const rawCheckId = check.id || check.checkId || (item.type ? checks?.[item.type]?.id : undefined);
                       const checkId = rawCheckId && typeof rawCheckId === 'string' && rawCheckId.trim() !== '' ? rawCheckId.trim() : '';
 
@@ -1904,19 +2700,18 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           key={check.type}
                           data-testid={`check-card-${check.type}`}
                           style={{
-                            border: `1px solid ${
-                              isApproved
+                            border: `1px solid ${isApproved
                                 ? 'var(--color-status-success-border)'
                                 : isRejected
-                                ? 'var(--color-error-border)'
-                                : 'var(--color-border)'
-                            }`,
+                                  ? 'var(--color-error-border)'
+                                  : 'var(--color-border)'
+                              }`,
                             borderRadius: 'var(--radius-md)',
                             backgroundColor: isApproved
                               ? 'var(--color-status-success-bg)'
                               : isRejected
-                              ? 'var(--color-error-bg)'
-                              : 'var(--color-surface)',
+                                ? 'var(--color-error-bg)'
+                                : 'var(--color-surface)',
                             padding: 'var(--space-4)',
                             display: 'flex',
                             flexDirection: 'column',
@@ -1988,21 +2783,106 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 Reference: <strong>{check.documentMetadata?.docNumberMasked || check.id || 'Manual Verification'}</strong>
                               </div>
                             )}
+                            {check.type !== 'IDENTITY' &&
+                              check.type !== 'ADDRESS' &&
+                              check.type !== 'EMERGENCY_CONTACT' &&
+                              check.type !== 'REFERENCE' &&
+                              check.type !== 'POLICE_CLEARANCE' && (
+                                <div>
+                                  {check.documentMetadata ? (
+                                    <div>
+                                      Document: <strong>{check.documentMetadata.documentTypeName || 'Submitted Document'}</strong>
+                                      {check.documentMetadata.docNumberMasked && (
+                                        <> • Number: <strong>{check.documentMetadata.docNumberMasked}</strong></>
+                                      )}
+                                      {check.documentMetadata.nameOnDoc && (
+                                        <> • Name: <strong>{check.documentMetadata.nameOnDoc}</strong></>
+                                      )}
+                                    </div>
+                                  ) : check.contactDetails ? (
+                                    <div>
+                                      Contact: <strong>{check.contactDetails.contactName}</strong> ({check.contactDetails.relationshipOrRole || 'Contact'}) •
+                                      Phone: <strong>{(check.contactDetails as { phone?: string; phoneMasked?: string })?.phone || check.contactDetails.phoneMasked || 'Unavailable'}</strong>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      Evaluation: <strong>{check.evaluationMethod || item.evaluationMethod || 'Manual Verification'}</strong> •
+                                      Status: <strong>{check.status || 'PENDING'}</strong>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                           </div>
 
                           {/* Rejection / Correction remarks display */}
-                          {isRejected && check.rejectionRemarks && (
+                          {isRejected && (
                             <div
                               style={{
-                                backgroundColor: 'rgba(220, 38, 38, 0.08)',
-                                border: '1px solid var(--color-error-border)',
+                                backgroundColor: isTerminal
+                                  ? 'rgba(220, 38, 38, 0.08)'
+                                  : 'rgba(245, 158, 11, 0.08)',
+                                border: `1px solid ${isTerminal ? 'var(--color-error-border)' : 'var(--color-status-warning-border)'
+                                  }`,
                                 borderRadius: 'var(--radius-sm)',
                                 padding: 'var(--space-2) var(--space-3)',
                                 fontSize: 'var(--font-size-xs)',
-                                color: 'var(--color-error-dark)',
+                                color: isTerminal ? 'var(--color-error-dark)' : 'var(--color-status-warning-text)',
                               }}
                             >
-                              <strong>Rejection Reason:</strong> {check.rejectionCategory || 'Operational Rejection'} — {check.rejectionRemarks}
+                              <div>
+                                <strong>Rejection Reason:</strong> {check.rejectionCode || check.rejectionCategory || 'Operational Rejection'}
+                                {check.rejectionRemarks ? ` — ${check.rejectionRemarks}` : ''}
+                              </div>
+                              <div style={{ marginTop: '4px', fontSize: '11px', fontWeight: 500 }}>
+                                {isTerminal
+                                  ? '⚠️ Terminal Disqualification: Resubmission is not permitted. Sign-off is blocked.'
+                                  : 'Worker correction required. The applicant must resubmit corrected document via Worker Mobile App.'}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Check Verification Event History Timeline */}
+                          {check.history && check.history.length > 0 && (
+                            <div
+                              style={{
+                                backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                                border: '1px solid var(--color-border-subtle)',
+                                borderRadius: 'var(--radius-sm)',
+                                padding: 'var(--space-2) var(--space-3)',
+                                fontSize: '11px',
+                              }}
+                            >
+                              <div style={{ fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                                Verification Audit History ({check.history.length})
+                              </div>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {check.history.map((ev, evIdx) => (
+                                  <div
+                                    key={evIdx}
+                                    style={{
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      padding: '3px 0',
+                                      borderBottom: evIdx < check.history!.length - 1 ? '1px dashed var(--color-border-subtle)' : 'none',
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <span>
+                                        <code>{ev.fromStatus || 'INITIAL'}</code> → <strong><code>{ev.toStatus}</code></strong>
+                                        <span style={{ color: 'var(--color-text-muted)', marginLeft: '6px' }}>({ev.actorUserId || 'Admin'})</span>
+                                      </span>
+                                      <span style={{ color: 'var(--color-text-muted)', fontSize: '10px' }}>
+                                        {formatDateTimeIST(ev.createdAt)}
+                                      </span>
+                                    </div>
+                                    {ev.remarks && (
+                                      <div style={{ color: 'var(--color-text-secondary)', fontStyle: 'italic', marginTop: '2px' }}>
+                                        Remarks: &quot;{ev.remarks}&quot;
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           )}
 
@@ -2014,7 +2894,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 (d.documentId && check.documents?.some((cd) => cd.documentId === d.documentId))
                             ) || (check.documentMetadata?.documentId && check.documentMetadata?.reviewable ? check.documentMetadata : null);
 
-                            const showActions = dossier.status !== 'APPROVED' && !isApproved && canReview;
+                            const showActions = !isHistoricallyVerified && !isApplicationRejected && !isApproved && canReview;
 
                             if (!checkDoc && !showActions) return null;
 
@@ -2051,129 +2931,170 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
                                 {showActions && (
                                   <>
-                                    {canDecide && (
+                                    {canDecide ? (
                                       <>
-                                        {(check.status === 'SUBMITTED' || check.status === 'PENDING') && (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              if (!checkId) return;
-                                              startReviewMutation.mutate({ checkId, checkType: check.type });
-                                            }}
-                                            disabled={!checkId || startReviewMutation.isPending || approveCheckMutation.isPending}
-                                            title={!checkId ? 'Check UUID not yet assigned by backend' : 'Start Review'}
-                                            style={{
-                                              padding: '4px 12px',
-                                              borderRadius: 'var(--radius-sm)',
-                                              backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-primary-subtle)',
-                                              color: !checkId ? 'var(--color-text-disabled)' : 'var(--color-primary)',
-                                              border: !checkId ? '1px solid var(--color-border)' : '1px solid var(--color-primary)',
-                                              fontSize: 'var(--font-size-xs)',
-                                              fontWeight: 600,
-                                              cursor: !checkId ? 'not-allowed' : 'pointer',
-                                              display: 'inline-flex',
-                                              alignItems: 'center',
-                                              gap: '4px',
-                                            }}
-                                          >
-                                            <Clock size={12} />
-                                            {startReviewMutation.isPending ? 'Starting Review...' : 'Start Review'}
-                                          </button>
+                                        {isTerminal ? (
+                                          <span style={{ fontSize: '11px', color: 'var(--color-error-dark)', fontWeight: 600, padding: '4px 0' }}>
+                                            Disqualified (Terminal)
+                                          </span>
+                                        ) : isRejected ? (
+                                          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                                            Awaiting worker resubmission before re-review
+                                          </span>
+                                        ) : (
+                                          <>
+                                            {(check.status === 'SUBMITTED' || check.status === 'PENDING') && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!checkId) return;
+                                                  startReviewMutation.mutate({ checkId, checkType: check.type });
+                                                }}
+                                                disabled={!checkId || startReviewMutation.isPending || approveCheckMutation.isPending}
+                                                title={!checkId ? 'Check UUID not yet assigned by backend' : 'Start Review'}
+                                                style={{
+                                                  padding: '4px 12px',
+                                                  borderRadius: 'var(--radius-sm)',
+                                                  backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-primary-subtle)',
+                                                  color: !checkId ? 'var(--color-text-disabled)' : 'var(--color-primary)',
+                                                  border: !checkId ? '1px solid var(--color-border)' : '1px solid var(--color-primary)',
+                                                  fontSize: 'var(--font-size-xs)',
+                                                  fontWeight: 600,
+                                                  cursor: !checkId ? 'not-allowed' : 'pointer',
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                }}
+                                              >
+                                                <Clock size={12} />
+                                                {startReviewMutation.isPending ? 'Starting Review...' : 'Start Review'}
+                                              </button>
+                                            )}
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (!checkId) return;
+                                                setCheckToApprove({
+                                                  checkId,
+                                                  checkType: check.type,
+                                                  title: item.title,
+                                                  existingReference: check.documentMetadata?.docNumberMasked || check.referenceNumber,
+                                                  existingExpiry: check.documentMetadata?.expiryDate || check.expiresOn,
+                                                });
+                                                if (check.type === 'REFERENCE') {
+                                                  setCallNotesInput(check.contactDetails?.callNotes || dossier?.previousEmployer?.feedback || '');
+                                                } else if (check.type === 'POLICE_CLEARANCE') {
+                                                  setReferenceNumberInput(check.documentMetadata?.docNumberMasked || check.referenceNumber || '');
+                                                  setExpiryDateInput(check.documentMetadata?.expiryDate || check.expiresOn || '');
+                                                }
+                                                setApprovalValidationError(null);
+                                              }}
+                                              disabled={!checkId || approveCheckMutation.isPending}
+                                              title={!checkId ? 'Check UUID not yet assigned by backend' : 'Approve Check'}
+                                              style={{
+                                                padding: '4px 12px',
+                                                borderRadius: 'var(--radius-sm)',
+                                                backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-success)',
+                                                color: !checkId ? 'var(--color-text-disabled)' : '#ffffff',
+                                                border: 'none',
+                                                fontSize: 'var(--font-size-xs)',
+                                                fontWeight: 600,
+                                                cursor: !checkId ? 'not-allowed' : 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                              }}
+                                            >
+                                              <Check size={12} />
+                                              Approve Check
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (!checkId) return;
+                                                setCheckToReject({ checkId, checkType: check.type, title: item.title });
+                                              }}
+                                              disabled={!checkId || rejectCheckMutation.isPending}
+                                              title={!checkId ? 'Check UUID not yet assigned by backend' : 'Reject Check'}
+                                              style={{
+                                                padding: '4px 12px',
+                                                borderRadius: 'var(--radius-sm)',
+                                                backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-error)',
+                                                color: !checkId ? 'var(--color-text-disabled)' : '#ffffff',
+                                                border: 'none',
+                                                fontSize: 'var(--font-size-xs)',
+                                                fontWeight: 600,
+                                                cursor: !checkId ? 'not-allowed' : 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                              }}
+                                            >
+                                              <X size={12} />
+                                              Reject Check
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (!checkId) return;
+                                                setRecheckCheckId(checkId);
+                                                setRecheckCheckType(check.type);
+                                                setIsRecheckDialogOpen(true);
+                                              }}
+                                              disabled={!checkId || requestRecheckMutation.isPending}
+                                              title={!checkId ? 'Check UUID not yet assigned by backend' : 'Request Re-Verification'}
+                                              style={{
+                                                padding: '4px 12px',
+                                                borderRadius: 'var(--radius-sm)',
+                                                backgroundColor: 'transparent',
+                                                color: 'var(--color-warning)',
+                                                border: '1px solid var(--color-warning)',
+                                                fontSize: 'var(--font-size-xs)',
+                                                fontWeight: 600,
+                                                cursor: !checkId ? 'not-allowed' : 'pointer',
+                                                display: 'inline-flex',
+                                                alignItems: 'center',
+                                                gap: '4px',
+                                              }}
+                                            >
+                                              <RefreshCw size={12} />
+                                              Request Re-Verification
+                                            </button>
+                                          </>
                                         )}
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (!checkId) return;
-                                            setCheckToApprove({
-                                              checkId,
-                                              checkType: check.type,
-                                              title: item.title,
-                                              existingReference: check.documentMetadata?.docNumberMasked || check.referenceNumber,
-                                              existingExpiry: check.documentMetadata?.expiryDate || check.expiresOn,
-                                            });
-                                            if (check.type === 'REFERENCE') {
-                                              setCallNotesInput(check.contactDetails?.callNotes || dossier?.previousEmployer?.feedback || '');
-                                            } else if (check.type === 'POLICE_CLEARANCE') {
-                                              setReferenceNumberInput(check.documentMetadata?.docNumberMasked || check.referenceNumber || '');
-                                              setExpiryDateInput(check.documentMetadata?.expiryDate || check.expiresOn || '');
-                                            }
-                                            setApprovalValidationError(null);
-                                          }}
-                                          disabled={!checkId || approveCheckMutation.isPending}
-                                          title={!checkId ? 'Check UUID not yet assigned by backend' : 'Approve Check'}
-                                          style={{
-                                            padding: '4px 12px',
-                                            borderRadius: 'var(--radius-sm)',
-                                            backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-success)',
-                                            color: !checkId ? 'var(--color-text-disabled)' : '#ffffff',
-                                            border: 'none',
-                                            fontSize: 'var(--font-size-xs)',
-                                            fontWeight: 600,
-                                            cursor: !checkId ? 'not-allowed' : 'pointer',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                          }}
-                                        >
-                                          <Check size={12} />
-                                          Approve Check
-                                        </button>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (!checkId) return;
-                                            setCheckToReject({ checkId, checkType: check.type, title: item.title });
-                                          }}
-                                          disabled={!checkId || rejectCheckMutation.isPending}
-                                          title={!checkId ? 'Check UUID not yet assigned by backend' : 'Reject Check'}
-                                          style={{
-                                            padding: '4px 12px',
-                                            borderRadius: 'var(--radius-sm)',
-                                            backgroundColor: !checkId ? 'var(--color-bg-disabled)' : 'var(--color-error)',
-                                            color: !checkId ? 'var(--color-text-disabled)' : '#ffffff',
-                                            border: 'none',
-                                            fontSize: 'var(--font-size-xs)',
-                                            fontWeight: 600,
-                                            cursor: !checkId ? 'not-allowed' : 'pointer',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '4px',
-                                          }}
-                                        >
-                                          <X size={12} />
-                                          Reject Check
-                                        </button>
                                       </>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (!checkId) return;
+                                          setRecheckCheckId(checkId);
+                                          setRecheckCheckType(check.type);
+                                          setIsRecheckDialogOpen(true);
+                                        }}
+                                        disabled={!checkId || requestRecheckMutation.isPending}
+                                        title={!checkId ? 'Check UUID not yet assigned by backend' : 'Request Re-Verification'}
+                                        style={{
+                                          padding: '4px 12px',
+                                          borderRadius: 'var(--radius-sm)',
+                                          backgroundColor: 'var(--color-surface)',
+                                          color: 'var(--color-text-secondary)',
+                                          border: '1px solid var(--color-border)',
+                                          fontSize: 'var(--font-size-xs)',
+                                          fontWeight: 600,
+                                          cursor: !checkId ? 'not-allowed' : 'pointer',
+                                          display: 'inline-flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
+                                        }}
+                                      >
+                                        <RefreshCw size={12} />
+                                        Request Re-Verification
+                                      </button>
                                     )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (!checkId) return;
-                                        setRecheckCheckId(checkId);
-                                        setRecheckCheckType(check.type);
-                                        setIsRecheckDialogOpen(true);
-                                      }}
-                                      disabled={!checkId || requestRecheckMutation.isPending}
-                                      style={{
-                                        padding: '4px 12px',
-                                        borderRadius: 'var(--radius-sm)',
-                                        backgroundColor: 'var(--color-surface)',
-                                        color: 'var(--color-text-secondary)',
-                                        border: '1px solid var(--color-border)',
-                                        fontSize: 'var(--font-size-xs)',
-                                        fontWeight: 600,
-                                        cursor: !checkId ? 'not-allowed' : 'pointer',
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: '4px',
-                                      }}
-                                    >
-                                      <RefreshCw size={12} />
-                                      Request Re-Verification
-                                    </button>
                                   </>
                                 )}
                               </div>
@@ -2181,9 +3102,39 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           })()}
 
                           {isApproved && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-xs)', color: 'var(--color-status-success-text)' }}>
-                              <CheckCircle2 size={14} />
-                              <span>Check Approved & Verified</span>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: 'var(--font-size-xs)', color: 'var(--color-status-success-text)' }}>
+                                <CheckCircle2 size={14} />
+                                <span>Check Approved & Verified</span>
+                              </div>
+                              {!isHistoricallyVerified && !isApplicationRejected && canDecide && checkId && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRecheckCheckId(checkId);
+                                    setRecheckCheckType(check.type);
+                                    setIsRecheckDialogOpen(true);
+                                  }}
+                                  disabled={requestRecheckMutation.isPending}
+                                  title="Request Re-Verification"
+                                  style={{
+                                    padding: '2px 8px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    backgroundColor: 'transparent',
+                                    color: 'var(--color-warning)',
+                                    border: '1px solid var(--color-warning)',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
+                                  <RefreshCw size={11} />
+                                  Request Re-Verification
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -2323,18 +3274,34 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                   {item.title}
                                 </td>
                                 <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)' }}>
-                                  {item.isPreCheck ? 'AUTOMATED_SMS_OTP' : item.check?.evaluationMethod || 'DOCUMENT_INSPECTION'}
+                                  {item.isPreCheck ? 'AUTOMATED_SMS_OTP' : item.check?.evaluationMethod || (item.required ? 'DOCUMENT_INSPECTION' : 'NOT_APPLICABLE')}
                                 </td>
                                 <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)' }}>
                                   {item.isPreCheck
                                     ? item.status === 'PASSED' ? 'Mobile OTP Verified Authentic' : 'OTP Pending'
-                                    : item.check?.documentMetadata?.docNumberMasked || item.check?.contactDetails?.contactName || 'Submitted'}
+                                    : !item.required && item.status !== 'APPROVED'
+                                      ? 'Not Required by Protocol'
+                                      : item.check?.documentMetadata?.docNumberMasked || item.check?.contactDetails?.contactName || 'Submitted'}
                                 </td>
                                 <td style={{ padding: '8px 12px' }}>
                                   {isCheckApproved ? (
                                     <span style={{ color: 'var(--color-status-success-text)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
                                       <CheckCircle2 size={12} />
                                       Approved
+                                    </span>
+                                  ) : !item.required && item.status !== 'APPROVED' ? (
+                                    <span
+                                      style={{
+                                        color: 'var(--color-text-secondary)',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        backgroundColor: 'var(--color-bg-subtle)',
+                                        padding: '2px 8px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        border: '1px solid var(--color-border)',
+                                      }}
+                                    >
+                                      Not Required
                                     </span>
                                   ) : (
                                     <StatusBadge status={item.status as VerificationCheckStatus} />
@@ -2368,6 +3335,128 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             • <strong>{c.title}:</strong> {c.check?.rejectionCategory} — {c.check?.rejectionRemarks}
                           </div>
                         ))}
+                    </div>
+                  )}
+
+                  {/* Verification Decision & Audit History Card */}
+                  {((dossier.rejectionHistory && dossier.rejectionHistory.length > 0) ||
+                    (dossier.reconsiderationHistory && dossier.reconsiderationHistory.length > 0) ||
+                    (dossier.approvalHistory && dossier.approvalHistory.length > 0)) && (
+                    <div
+                      data-testid="verification-audit-trail-card"
+                      style={{
+                        padding: 'var(--space-4)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-3)' }}>
+                        <Clock size={16} color="var(--color-text-secondary)" />
+                        <h4
+                          style={{
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            color: 'var(--color-text-secondary)',
+                            margin: 0,
+                          }}
+                        >
+                          Verification Decision & Audit History
+                        </h4>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)' }}>
+                        {/* Rejections */}
+                        {dossier.rejectionHistory?.map((rej, idx) => (
+                          <div
+                            key={`rej-${idx}`}
+                            data-testid={`audit-rejection-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#fff5f5',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #ef4444',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#b91c1c' }}>
+                                • Rejection #{idx + 1}: {rej.reasonCode || 'OPERATIONAL_REJECTION'} {rej.terminal ? '(Permanent Compliance Disqualification)' : '(Eligible for Reconsideration)'}
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(rej.rejectedAt)}
+                              </span>
+                            </div>
+                            {rej.remarks && (
+                              <div style={{ color: 'var(--color-text-primary)' }}>
+                                <strong>Reason Remarks:</strong> {rej.remarks}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Reconsiderations */}
+                        {dossier.reconsiderationHistory?.map((rec, idx) => (
+                          <div
+                            key={`rec-${idx}`}
+                            data-testid={`audit-reconsideration-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#eff6ff',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #3b82f6',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#1d4ed8' }}>
+                                • Reconsideration #{idx + 1} for KYC Re-Review
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(rec.reconsideredAt)}
+                              </span>
+                            </div>
+                            <div style={{ color: 'var(--color-text-primary)' }}>
+                              <strong>Executive Rationale:</strong> {rec.remarks}
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Approvals */}
+                        {dossier.approvalHistory?.map((appr, idx) => (
+                          <div
+                            key={`appr-${idx}`}
+                            data-testid={`audit-approval-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#f0fdf4',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #22c55e',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                                • Approved & Signed Off #{idx + 1}
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(appr.approvedAt)}
+                              </span>
+                            </div>
+                            {appr.remarks && (
+                              <div style={{ color: 'var(--color-text-primary)' }}>
+                                <strong>Sign-Off Notes:</strong> {appr.remarks}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
 
@@ -2527,35 +3616,46 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       Prerequisite Verification Criteria
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', fontSize: 'var(--font-size-xs)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: preCheckOtpPassed ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>1. Mobile OTP Pre-Check Passed</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: checks?.IDENTITY?.status === 'APPROVED' ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>2. Identity Proof Approved</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: checks?.ADDRESS?.status === 'APPROVED' ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>3. Address Proof Approved</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: checks?.EMERGENCY_CONTACT?.status === 'APPROVED' ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>4. Emergency Contact Vetted</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: checks?.REFERENCE?.status === 'APPROVED' ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>5. Employer Reference Vetted</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: checks?.POLICE_CLEARANCE?.status === 'APPROVED' ? 'var(--color-status-success-text)' : 'var(--color-error)' }}>
-                        <CheckCircle2 size={14} />
-                        <span>6. Police Clearance Verified</span>
-                      </div>
+                      {mandatoryChecks.map((item, idx) => {
+                        const isApproved = item.status === 'APPROVED' || (item.isPreCheck && item.status === 'PASSED');
+                        const isNotRequired = !item.required && item.status !== 'APPROVED';
+                        return (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              color: isApproved
+                                ? 'var(--color-status-success-text)'
+                                : isNotRequired
+                                  ? 'var(--color-text-secondary)'
+                                  : 'var(--color-error)',
+                            }}
+                          >
+                            {isApproved ? (
+                              <CheckCircle2 size={14} color="var(--color-status-success-text)" />
+                            ) : isNotRequired ? (
+                              <CheckCircle2 size={14} color="var(--color-text-tertiary)" />
+                            ) : (
+                              <AlertTriangle size={14} color="var(--color-error)" />
+                            )}
+                            <span>
+                              {idx + 1}. {item.title}{' '}
+                              {isApproved
+                                ? (item.isPreCheck ? 'Passed' : 'Approved')
+                                : isNotRequired
+                                  ? '(Not Required by Protocol)'
+                                  : 'Pending Approval'}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
                   {/* RBAC Permission Callout if Unauthorized */}
-                  {!canApproveWorker && (
+                  {!canApproveWorker && !isHistoricallyVerified && dossier.status !== 'APPROVED' && (
                     <div
                       style={{
                         padding: 'var(--space-3) var(--space-4)',
@@ -2577,7 +3677,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   )}
 
                   {/* Already Approved Notice */}
-                  {dossier.status === 'APPROVED' && (
+                  {(isHistoricallyVerified || dossier.status === 'APPROVED') && (
                     <div
                       style={{
                         padding: 'var(--space-3) var(--space-4)',
@@ -2589,6 +3689,233 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       }}
                     >
                       Worker application is already signed off and approved.
+                    </div>
+                  )}
+
+                  {/* Application Rejected Notice */}
+                  {isApplicationRejected && (
+                    <div
+                      data-testid="application-rejected-notice"
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        backgroundColor: 'var(--color-error-bg)',
+                        border: '1px solid var(--color-error-border)',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: 'var(--color-error-dark)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
+                      <AlertTriangle size={16} />
+                      <span>Worker application has been rejected. Platform activation is disabled.</span>
+                    </div>
+                  )}
+
+                  {/* Terminal Disqualification Banner */}
+                  {isApplicationRejected && isTerminalDisqualified && (
+                    <div
+                      data-testid="terminal-disqualification-banner"
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: '#991b1b',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-1)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontWeight: 700 }}>
+                        <AlertTriangle size={16} color="#dc2626" />
+                        <span>Permanent Compliance Disqualification</span>
+                      </div>
+                      <p style={{ margin: 0, color: '#7f1d1d', lineHeight: 1.4 }}>
+                        This worker application was rejected for terminal compliance reasons (criminal record or suspected document tampering). Under platform governance, terminal disqualifications permanently block reconsideration, re-review, and platform activation.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Reconsideration Eligible Banner */}
+                  {isApplicationRejected && !isTerminalDisqualified && (
+                    <div
+                      data-testid="reconsideration-eligible-banner"
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor: '#eff6ff',
+                        border: '1px solid #bfdbfe',
+                        borderRadius: 'var(--radius-md)',
+                        fontSize: 'var(--font-size-xs)',
+                        color: '#1e40af',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 'var(--space-4)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)' }}>
+                        <RotateCcw size={18} color="#2563eb" style={{ flexShrink: 0, marginTop: '2px' }} />
+                        <div>
+                          <strong style={{ display: 'block', marginBottom: '2px', color: '#1e3a8a' }}>
+                            Eligible for Reconsideration & Re-Review
+                          </strong>
+                          <span style={{ color: '#1d4ed8', lineHeight: 1.4 }}>
+                            This application was rejected for non-terminal reasons. If the applicant has submitted updated or corrected documentation, an authorized executive may initiate reconsideration to repeat the verification checks.
+                          </span>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        data-testid="reconsider-application-banner-btn"
+                        onClick={() => {
+                          setReconsiderError(null);
+                          setIsConfirmReconsiderOpen(true);
+                        }}
+                        disabled={reconsiderApplicationMutation.isPending}
+                        style={{
+                          padding: 'var(--space-2) var(--space-4)',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: '#2563eb',
+                          color: '#ffffff',
+                          border: 'none',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 700,
+                          cursor: reconsiderApplicationMutation.isPending ? 'not-allowed' : 'pointer',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
+                        }}
+                      >
+                        <RotateCcw size={14} />
+                        Reconsider Application
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Verification Decision & Audit History Card */}
+                  {((dossier.rejectionHistory && dossier.rejectionHistory.length > 0) ||
+                    (dossier.reconsiderationHistory && dossier.reconsiderationHistory.length > 0) ||
+                    (dossier.approvalHistory && dossier.approvalHistory.length > 0)) && (
+                    <div
+                      data-testid="verification-audit-trail-card"
+                      style={{
+                        padding: 'var(--space-4)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-bg-subtle)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--space-3)' }}>
+                        <Clock size={16} color="var(--color-text-secondary)" />
+                        <h4
+                          style={{
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            color: 'var(--color-text-secondary)',
+                            margin: 0,
+                          }}
+                        >
+                          Verification Decision & Audit History
+                        </h4>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)' }}>
+                        {/* Rejections */}
+                        {dossier.rejectionHistory?.map((rej, idx) => (
+                          <div
+                            key={`rej-s5-${idx}`}
+                            data-testid={`audit-rejection-s5-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#fff5f5',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #ef4444',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#b91c1c' }}>
+                                • Rejection #{idx + 1}: {rej.reasonCode || 'OPERATIONAL_REJECTION'} {rej.terminal ? '(Permanent Compliance Disqualification)' : '(Eligible for Reconsideration)'}
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(rej.rejectedAt)}
+                              </span>
+                            </div>
+                            {rej.remarks && (
+                              <div style={{ color: 'var(--color-text-primary)' }}>
+                                <strong>Reason Remarks:</strong> {rej.remarks}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+
+                        {/* Reconsiderations */}
+                        {dossier.reconsiderationHistory?.map((rec, idx) => (
+                          <div
+                            key={`rec-s5-${idx}`}
+                            data-testid={`audit-reconsideration-s5-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#eff6ff',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #3b82f6',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#1d4ed8' }}>
+                                • Reconsideration #{idx + 1} for KYC Re-Review
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(rec.reconsideredAt)}
+                              </span>
+                            </div>
+                            <div style={{ color: 'var(--color-text-primary)' }}>
+                              <strong>Executive Rationale:</strong> {rec.remarks}
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* Approvals */}
+                        {dossier.approvalHistory?.map((appr, idx) => (
+                          <div
+                            key={`appr-s5-${idx}`}
+                            data-testid={`audit-approval-s5-${idx}`}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: '#f0fdf4',
+                              borderRadius: 'var(--radius-sm)',
+                              borderLeft: '4px solid #22c55e',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '2px',
+                            }}
+                          >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontWeight: 700, color: '#15803d' }}>
+                                • Approved & Signed Off #{idx + 1}
+                              </span>
+                              <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                                {formatDateTimeIST(appr.approvedAt)}
+                              </span>
+                            </div>
+                            {appr.remarks && (
+                              <div style={{ color: 'var(--color-text-primary)' }}>
+                                <strong>Sign-Off Notes:</strong> {appr.remarks}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2690,21 +4017,21 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     <button
                       type="button"
                       onClick={handleNext}
-                      disabled={!allMandatoryPassed}
+                      disabled={!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected}
                       title={
-                        !allMandatoryPassed
+                        !allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected
                           ? 'All 5 KYC checks and mobile OTP must be approved before proceeding'
                           : 'Proceed to Verification Summary'
                       }
                       style={{
                         padding: 'var(--space-2) var(--space-5)',
                         borderRadius: 'var(--radius-md)',
-                        backgroundColor: allMandatoryPassed ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
-                        color: allMandatoryPassed ? '#ffffff' : 'var(--color-text-disabled)',
+                        backgroundColor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
+                        color: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? '#ffffff' : 'var(--color-text-disabled)',
                         border: 'none',
                         fontSize: 'var(--font-size-sm)',
                         fontWeight: 600,
-                        cursor: allMandatoryPassed ? 'pointer' : 'not-allowed',
+                        cursor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'pointer' : 'not-allowed',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
@@ -2720,21 +4047,21 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     <button
                       type="button"
                       onClick={handleNext}
-                      disabled={!allMandatoryPassed}
+                      disabled={!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected}
                       title={
-                        !allMandatoryPassed
+                        !allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected
                           ? 'All mandatory checks must be approved before continuing to final approval'
                           : 'Continue to Final Approval'
                       }
                       style={{
                         padding: 'var(--space-2) var(--space-5)',
                         borderRadius: 'var(--radius-md)',
-                        backgroundColor: allMandatoryPassed ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
-                        color: allMandatoryPassed ? '#ffffff' : 'var(--color-text-disabled)',
+                        backgroundColor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
+                        color: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? '#ffffff' : 'var(--color-text-disabled)',
                         border: 'none',
                         fontSize: 'var(--font-size-sm)',
                         fontWeight: 600,
-                        cursor: allMandatoryPassed ? 'pointer' : 'not-allowed',
+                        cursor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'pointer' : 'not-allowed',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
@@ -2745,56 +4072,162 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </button>
                   )}
 
-                  {/* Step 5: Approve Verification Worker ONLY */}
+                  {/* Step 5: Final Decision Actions */}
                   {currentStep === 5 && (
-                    <button
-                      type="button"
-                      onClick={() => setIsConfirmFinalApproveOpen(true)}
-                      disabled={
-                        !allMandatoryPassed ||
-                        !canApproveWorker ||
-                        dossier.status === 'APPROVED' ||
-                        finalApproveMutation.isPending
-                      }
-                      title={
-                        !allMandatoryPassed
-                          ? 'All mandatory checks must be approved'
-                          : !canApproveWorker
-                          ? 'Missing permission to approve worker'
-                          : dossier.status === 'APPROVED'
-                          ? 'Worker is already approved'
-                          : 'Approve and onboard worker'
-                      }
-                      style={{
-                        padding: 'var(--space-2) var(--space-6)',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor:
-                          allMandatoryPassed && canApproveWorker && dossier.status !== 'APPROVED'
-                            ? 'var(--color-success)'
-                            : 'var(--color-bg-disabled)',
-                        color:
-                          allMandatoryPassed && canApproveWorker && dossier.status !== 'APPROVED'
-                            ? '#ffffff'
-                            : 'var(--color-text-disabled)',
-                        border: 'none',
-                        fontSize: 'var(--font-size-sm)',
-                        fontWeight: 700,
-                        cursor:
-                          allMandatoryPassed && canApproveWorker && dossier.status !== 'APPROVED' && !finalApproveMutation.isPending
-                            ? 'pointer'
-                            : 'not-allowed',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow:
-                          allMandatoryPassed && canApproveWorker && dossier.status !== 'APPROVED'
-                            ? '0 2px 6px rgba(22, 163, 74, 0.3)'
-                            : 'none',
-                      }}
-                    >
-                      <CheckCircle2 size={16} />
-                      {finalApproveMutation.isPending ? 'Approving Worker...' : 'Approve Verification Worker'}
-                    </button>
+                    dossier.status === 'APPROVED' || isHistoricallyVerified ? (
+                      <button
+                        type="button"
+                        onClick={onClose}
+                        style={{
+                          padding: 'var(--space-2) var(--space-6)',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-navy)',
+                          color: '#ffffff',
+                          border: '1px solid var(--color-navy)',
+                          fontSize: 'var(--font-size-sm)',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        }}
+                      >
+                        <CheckCircle2 size={16} />
+                        Worker Verification Approved — Close Dossier
+                      </button>
+                    ) : isApplicationRejected ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                        {canReconsiderApplication && (
+                          <button
+                            type="button"
+                            data-testid="reconsider-application-btn"
+                            onClick={() => {
+                              setReconsiderError(null);
+                              setIsConfirmReconsiderOpen(true);
+                            }}
+                            disabled={reconsiderApplicationMutation.isPending}
+                            style={{
+                              padding: 'var(--space-2) var(--space-5)',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: '#0284c7',
+                              color: '#ffffff',
+                              border: '1px solid #0369a1',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 700,
+                              cursor: reconsiderApplicationMutation.isPending ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 2px 4px rgba(2, 132, 199, 0.2)',
+                            }}
+                          >
+                            <RotateCcw size={16} />
+                            {reconsiderApplicationMutation.isPending ? 'Reconsidering...' : 'Reconsider Application for Review'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={onClose}
+                          style={{
+                            padding: 'var(--space-2) var(--space-6)',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: '#991b1b',
+                            color: '#ffffff',
+                            border: '1px solid #7f1d1d',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 4px rgba(153, 27, 27, 0.2)',
+                          }}
+                        >
+                          <X size={16} />
+                          {isTerminalDisqualified ? 'Worker Application Disqualified — Close Dossier' : 'Worker Application Rejected — Close Dossier'}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                        {canRejectApplication && (
+                          <button
+                            type="button"
+                            data-testid="reject-application-btn"
+                            onClick={() => {
+                              setRejectApplicationError(null);
+                              setIsConfirmRejectApplicationOpen(true);
+                            }}
+                            disabled={rejectApplicationMutation.isPending}
+                            style={{
+                              padding: 'var(--space-2) var(--space-5)',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: '#dc2626',
+                              color: '#ffffff',
+                              border: '1px solid #b91c1c',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 700,
+                              cursor: rejectApplicationMutation.isPending ? 'not-allowed' : 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
+                            }}
+                          >
+                            <X size={16} />
+                            {rejectApplicationMutation.isPending ? 'Rejecting...' : 'Reject Application'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setIsConfirmFinalApproveOpen(true)}
+                          disabled={
+                            !allMandatoryPassed ||
+                            !canApproveWorker ||
+                            finalApproveMutation.isPending
+                          }
+                          title={
+                            !allMandatoryPassed
+                              ? 'All mandatory checks must be approved before final sign-off'
+                              : !canApproveWorker
+                                ? 'Missing permission to approve worker'
+                                : 'Approve and onboard worker'
+                          }
+                          style={{
+                            padding: 'var(--space-2) var(--space-6)',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor:
+                              allMandatoryPassed && canApproveWorker
+                                ? 'var(--color-success)'
+                                : '#e2e8f0',
+                            color:
+                              allMandatoryPassed && canApproveWorker
+                                ? '#ffffff'
+                                : '#475569',
+                            border:
+                              allMandatoryPassed && canApproveWorker
+                                ? '1px solid #15803d'
+                                : '1px solid #cbd5e1',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 700,
+                            cursor:
+                              allMandatoryPassed && canApproveWorker && !finalApproveMutation.isPending
+                                ? 'pointer'
+                                : 'not-allowed',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow:
+                              allMandatoryPassed && canApproveWorker
+                                ? '0 2px 6px rgba(22, 163, 74, 0.3)'
+                                : 'none',
+                          }}
+                        >
+                          <CheckCircle2 size={16} />
+                          {finalApproveMutation.isPending ? 'Approving Worker...' : 'Approve Verification Worker'}
+                        </button>
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -2814,8 +4247,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               left: 0,
               right: 0,
               bottom: 0,
-              backgroundColor: 'rgba(0, 0, 0, 0.65)',
-              zIndex: 1100,
+              backgroundColor: 'rgba(15, 23, 42, 0.75)',
+              backdropFilter: 'blur(3px)',
+              zIndex: 1200,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -2829,27 +4263,55 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               style={{
                 position: 'relative',
                 width: '100%',
-                maxWidth: '840px',
-                maxHeight: '90vh',
-                overflowY: 'auto',
+                maxWidth: '920px',
+                height: '86vh',
+                maxHeight: '780px',
                 backgroundColor: 'var(--color-surface)',
                 borderRadius: 'var(--radius-lg)',
                 boxShadow: 'var(--shadow-xl)',
-                padding: 'var(--space-6)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: 'var(--space-4)',
+                overflow: 'hidden',
               }}
             >
-              {/* Header with Close X */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--color-border)', paddingBottom: 'var(--space-3)' }}>
-                <div>
-                  <h3 style={{ margin: '0 0 4px 0', fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
-                    {activeDocMetadata?.documentTypeName || 'Submitted Document Inspection'}
-                  </h3>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                    Check: {activeDoc.checkTitle || activeDoc.checkType} • Status: {(activeDoc.checkType && dossier?.checks?.[activeDoc.checkType]?.status) || activeDoc.status || 'SUBMITTED'}
-                  </span>
+              {/* Header with Title, Status & Close X */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid var(--color-border)',
+                  padding: 'var(--space-4) var(--space-5)',
+                  backgroundColor: 'var(--color-surface)',
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                  <FileText size={22} color="var(--color-primary)" />
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: 'var(--font-size-md)',
+                          fontWeight: 700,
+                          color: 'var(--color-navy)',
+                        }}
+                      >
+                        {activeDocMetadata?.documentTypeName || 'Submitted Document Inspection'}
+                      </h3>
+                      <StatusBadge
+                        status={
+                          (activeDoc.checkType && dossier?.checks?.[activeDoc.checkType]?.status) ||
+                          activeDoc.status ||
+                          'SUBMITTED'
+                        }
+                      />
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                      Check: {activeDoc.checkTitle || activeDoc.checkType} • Worker: {activeDocMetadata?.nameOnDoc || dossier?.workerName || 'Applicant'}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -2858,201 +4320,250 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   onClick={() => setIsDocPreviewOpen(false)}
                   style={{
                     background: 'none',
-                    border: 'none',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
                     cursor: 'pointer',
                     padding: '6px',
-                    borderRadius: 'var(--radius-sm)',
                     color: 'var(--color-text-secondary)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
+                    transition: 'all 0.15s ease',
                   }}
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               </div>
 
-              {/* Document Metadata Grid */}
+              {/* Document Metadata Ribbon */}
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
                   gap: 'var(--space-3)',
                   fontSize: 'var(--font-size-xs)',
                   backgroundColor: 'var(--color-bg-subtle)',
-                  padding: 'var(--space-3)',
-                  borderRadius: 'var(--radius-md)',
+                  padding: 'var(--space-3) var(--space-5)',
+                  borderBottom: '1px solid var(--color-border)',
+                  flexShrink: 0,
                 }}
               >
                 <div>
-                  <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>Document Type</span>
+                  <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Document Type</span>
                   <strong style={{ color: 'var(--color-text-primary)' }}>
                     {activeDocMetadata?.documentTypeName || 'Document Type Unavailable'}
                   </strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>Document ID</span>
-                  <strong style={{ color: 'var(--color-text-primary)' }}>
+                  <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Document ID</span>
+                  <span style={{ fontFamily: 'monospace', color: 'var(--color-text-primary)', fontWeight: 600 }}>
                     {activeDocId || 'Unavailable'}
-                  </strong>
+                  </span>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>Document Number (Masked)</span>
+                  <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Document Number (Masked)</span>
                   <strong style={{ color: 'var(--color-text-primary)' }}>
                     {activeDocMetadata?.docNumberMasked || 'Unavailable'}
                   </strong>
                 </div>
                 <div>
-                  <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>Name on Document</span>
+                  <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Format & Size</span>
                   <strong style={{ color: 'var(--color-text-primary)' }}>
-                    {activeDocMetadata?.nameOnDoc || dossier?.workerName}
+                    {activeDocMetadata?.contentType || activeDocMetadata?.mimeType || 'application/pdf'}
+                    {activeDocMetadata?.sizeBytes ? ` (${Math.round(activeDocMetadata.sizeBytes / 1024)} KB)` : ''}
                   </strong>
                 </div>
-                {activeDocMetadata?.contentType && (
-                  <div>
-                    <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>Content / File Format</span>
-                    <strong style={{ color: 'var(--color-text-primary)' }}>
-                      {activeDocMetadata.contentType}
-                    </strong>
-                  </div>
-                )}
-                {activeDocMetadata?.sizeBytes && (
-                  <div>
-                    <span style={{ color: 'var(--color-text-secondary)', display: 'block' }}>File Size</span>
-                    <strong style={{ color: 'var(--color-text-primary)' }}>
-                      {Math.round(activeDocMetadata.sizeBytes / 1024)} KB
-                    </strong>
-                  </div>
-                )}
               </div>
 
               {/* Secure Document Viewer Frame */}
               <div
                 style={{
-                  border: '1px dashed var(--color-border)',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-surface)',
-                  padding: 'var(--space-4)',
+                  flex: 1,
                   display: 'flex',
                   flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minHeight: '260px',
-                  textAlign: 'center',
-                  gap: 'var(--space-3)',
+                  overflow: 'hidden',
+                  backgroundColor: '#f8fafc',
+                  position: 'relative',
                 }}
               >
-                {!canViewDocuments && (
-                  <div style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
-                    <Lock size={32} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2)' }} />
-                    <h4 style={{ margin: '0 0 4px 0', color: 'var(--color-text-primary)' }}>Restricted Personal Document (KYC)</h4>
-                    <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                      Access requires authorized document inspection privileges (documents.view_restricted).
-                    </p>
-                  </div>
-                )}
-
-                {canViewDocuments && isLoadingSignedDocUrl && (
-                  <LoadingSpinner message="Retrieving authorized document from secure vault..." />
-                )}
-
-                {canViewDocuments && isErrorSignedDocUrl && !isLoadingSignedDocUrl && (() => {
-                  const formattedErr = formatDocumentVaultError(signedDocUrlError);
-                  return (
-                    <div style={{ maxWidth: '450px' }} data-testid="document-vault-error-container">
-                      <AlertTriangle size={32} color="var(--color-error)" style={{ margin: '0 auto var(--space-2)' }} />
-                      <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-error-dark)', fontSize: 'var(--font-size-sm)' }}>
-                        {formattedErr.title.includes('Document Access Failed') ? formattedErr.title : `Document Access Failed — ${formattedErr.title}`}
-                      </h4>
-                      <p style={{ margin: '0 0 var(--space-3) 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {formattedErr.message}
-                      </p>
-                      {formattedErr.canRetry && (
-                        <button
-                          type="button"
-                          onClick={() => refetchSignedDocUrl()}
-                          aria-label="Retry Fetching Document — Retry Document Access"
-                          style={{
-                            padding: '6px 14px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-border)',
-                            backgroundColor: 'var(--color-surface)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                          }}
-                        >
-                          <RefreshCw size={12} />
-                          Retry Document Access
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {canViewDocuments && !isLoadingSignedDocUrl && !isErrorSignedDocUrl && signedDocUrlData && (
-                  <div
-                    data-testid="vault-document-inspection-viewer"
-                    style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
-                  >
-                    <div
+                {/* Confidentiality Notice Bar & External Link */}
+                <div
+                  style={{
+                    backgroundColor: '#0f172a',
+                    color: '#94a3b8',
+                    padding: '8px var(--space-5)',
+                    fontSize: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderBottom: '1px solid #1e293b',
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <ShieldCheck size={14} color="#38bdf8" />
+                    CONFIDENTIAL KYC ATTACHMENT • Authorized Document Vault Record • Watermarked for Confidential Inspection
+                  </span>
+                  {signedDocUrlData?.signedUrl && (
+                    <a
+                      href={signedDocUrlData.signedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="open-document-new-tab"
+                      aria-label="Open Secure Document Link in new tab"
                       style={{
-                        backgroundColor: 'var(--color-bg-subtle)',
-                        padding: 'var(--space-2) var(--space-3)',
-                        borderRadius: 'var(--radius-sm)',
-                        fontSize: '11px',
-                        color: 'var(--color-text-secondary)',
-                        display: 'flex',
+                        display: 'inline-flex',
                         alignItems: 'center',
-                        justifyContent: 'space-between',
-                        width: '100%',
+                        gap: '4px',
+                        color: '#38bdf8',
+                        fontWeight: 600,
+                        textDecoration: 'none',
                       }}
                     >
-                      <span>CONFIDENTIAL KYC ATTACHMENT • Authorized Document Vault Record • Watermarked for Confidential Inspection</span>
-                      {signedDocUrlData.signedUrl && (
-                        <a
-                          href={signedDocUrlData.signedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          data-testid="open-document-new-tab"
-                          aria-label="Open Secure Document Link in new tab"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            color: 'var(--color-primary)',
-                            fontWeight: 600,
-                            textDecoration: 'none',
-                          }}
-                        >
-                          Open Secure Document Link (Open in New Tab)
-                          <ExternalLink size={12} />
-                        </a>
-                      )}
-                    </div>
+                      Open Secure Document Link (Open in New Tab)
+                      <ExternalLink size={12} />
+                    </a>
+                  )}
+                </div>
 
+                {/* Viewport Core Content */}
+                <div
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                    position: 'relative',
+                  }}
+                >
+                  {!canViewDocuments && (
+                    <div style={{ padding: 'var(--space-6)', textAlign: 'center' }}>
+                      <Lock size={36} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2)' }} />
+                      <h4 style={{ margin: '0 0 4px 0', color: 'var(--color-text-primary)' }}>Restricted Personal Document (KYC)</h4>
+                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', maxWidth: '420px' }}>
+                        Access requires authorized document inspection privileges (documents.view_restricted).
+                      </p>
+                    </div>
+                  )}
+
+                  {canViewDocuments && isLoadingSignedDocUrl && (
+                    <div style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+                      <LoadingSpinner message="Retrieving authorized document from secure vault..." />
+                      <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '12px' }}>
+                        Communicating with authorized storage vault...
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setIsDocPreviewOpen(false)}
+                        style={{
+                          marginTop: '8px',
+                          padding: '4px 14px',
+                          fontSize: '11px',
+                          color: 'var(--color-text-secondary)',
+                          backgroundColor: 'var(--color-surface)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+
+                  {canViewDocuments && isErrorSignedDocUrl && !isLoadingSignedDocUrl && (() => {
+                    const formattedErr = formatDocumentVaultError(signedDocUrlError);
+                    return (
+                      <div
+                        data-testid="document-vault-error-container"
+                        style={{
+                          maxWidth: '480px',
+                          padding: 'var(--space-5)',
+                          backgroundColor: 'var(--color-surface)',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--color-border)',
+                          boxShadow: 'var(--shadow-sm)',
+                          textAlign: 'center',
+                        }}
+                      >
+                        <AlertTriangle size={36} color="var(--color-error)" style={{ margin: '0 auto var(--space-2)' }} />
+                        <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-error-dark)', fontSize: 'var(--font-size-sm)' }}>
+                          {formattedErr.title.includes('Document Access Failed') ? formattedErr.title : `Document Access Failed — ${formattedErr.title}`}
+                        </h4>
+                        <p style={{ margin: '0 0 var(--space-4) 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+                          {formattedErr.message}
+                        </p>
+                        <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'center' }}>
+                          {formattedErr.canRetry && (
+                            <button
+                              type="button"
+                              onClick={() => refetchSignedDocUrl()}
+                              aria-label="Retry Fetching Document — Retry Document Access"
+                              style={{
+                                padding: '6px 14px',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--color-border)',
+                                backgroundColor: 'var(--color-surface)',
+                                fontSize: 'var(--font-size-xs)',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              <RefreshCw size={12} />
+                              Retry Document Access
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setIsDocPreviewOpen(false)}
+                            style={{
+                              padding: '6px 14px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: 'var(--color-surface)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {canViewDocuments && !isLoadingSignedDocUrl && !isErrorSignedDocUrl && signedDocUrlData && (
                     <div
-                      style={{
-                        padding: 'var(--space-4)',
-                        border: '1px solid var(--color-border)',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: '#fafafa',
-                        fontSize: 'var(--font-size-sm)',
-                        color: 'var(--color-text-secondary)',
-                      }}
+                      data-testid="vault-document-inspection-viewer"
+                      style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                        <strong style={{ color: 'var(--color-text-primary)' }}>Authorized Document Vault Inspection</strong>
-                        <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                      <div
+                        style={{
+                          backgroundColor: '#e2e8f0',
+                          padding: '6px var(--space-5)',
+                          fontSize: '11px',
+                          color: '#475569',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          borderBottom: '1px solid #cbd5e1',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <strong style={{ color: '#1e293b' }}>Authorized Document Vault Inspection</strong>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>
                           Validity: {signedDocUrlData.expiresAt || '2026-10-25T18:00:00Z'}
                         </span>
                       </div>
 
-                      {/* Genuine Document Display */}
-                      {signedDocUrlData.signedUrl && (() => {
+                      {/* Genuine Document Display with Support for PDF and Images */}
+                      {signedDocUrlData.signedUrl ? (() => {
                         const docMimeType = (
                           signedDocUrlData.mimeType ||
                           activeDocMetadata?.mimeType ||
@@ -3062,49 +4573,138 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                         const isImage =
                           docMimeType.startsWith('image/') ||
                           Boolean(signedDocUrlData.signedUrl.match(/\.(jpg|jpeg|png|webp|gif|svg)($|\?)/i));
-                        return isImage ? (
-                          <img
-                            data-testid="kyc-document-image"
-                            src={signedDocUrlData.signedUrl}
-                            alt="Submitted KYC Document"
-                            style={{ maxWidth: '100%', maxHeight: '420px', objectFit: 'contain', borderRadius: 'var(--radius-sm)', marginTop: 'var(--space-2)' }}
-                          />
-                        ) : (
-                          <object
-                            data-testid="kyc-document-pdf"
-                            data={signedDocUrlData.signedUrl}
-                            type={docMimeType || 'application/pdf'}
-                            style={{ width: '100%', height: '420px', borderRadius: 'var(--radius-sm)', marginTop: 'var(--space-2)' }}
-                          >
-                            <iframe
-                              src={signedDocUrlData.signedUrl}
-                              title="PDF document preview"
-                              style={{ width: '100%', height: '100%', border: 'none' }}
-                            />
-                          </object>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                )}
 
-                {canViewDocuments && !isLoadingSignedDocUrl && !isErrorSignedDocUrl && !signedDocUrlData && !activeDocId && (
-                  <div
-                    data-testid="verification-doc-missing-id"
-                    style={{
-                      padding: 'var(--space-4)',
-                      textAlign: 'center',
-                      color: 'var(--color-text-secondary)',
-                      fontSize: 'var(--font-size-xs)',
-                    }}
-                  >
-                    <AlertTriangle size={24} color="var(--color-warning)" style={{ margin: '0 auto 6px' }} />
-                    <strong style={{ display: 'block', color: 'var(--color-text-primary)' }}>Document Vault Attachment Unavailable</strong>
-                    <p style={{ margin: '4px 0 0 0' }}>
-                      No backend document reference ID is associated with this verification check.
-                    </p>
-                  </div>
-                )}
+                        if (isImage) {
+                          return imageLoadError ? (
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-6)', textAlign: 'center', backgroundColor: '#0f172a', color: '#ffffff' }}>
+                              <AlertTriangle size={32} color="var(--color-warning)" style={{ marginBottom: '8px' }} />
+                              <strong style={{ display: 'block', fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
+                                Image Preview Unavailable directly in viewer
+                              </strong>
+                              <p style={{ fontSize: 'var(--font-size-xs)', color: '#94a3b8', margin: '0 0 12px 0' }}>
+                                The storage URL may have restricted framing or CORS policies. Use the direct link below.
+                              </p>
+                              <a
+                                href={signedDocUrlData.signedUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  color: '#38bdf8',
+                                  fontSize: 'var(--font-size-xs)',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Open Document Directly in New Tab
+                                <ExternalLink size={12} />
+                              </a>
+                            </div>
+                          ) : (
+                            <div
+                              style={{
+                                flex: 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                padding: 'var(--space-4)',
+                                overflow: 'auto',
+                                backgroundColor: '#0f172a',
+                              }}
+                            >
+                              <img
+                                data-testid="kyc-document-image"
+                                src={signedDocUrlData.signedUrl}
+                                alt="Submitted KYC Document"
+                                onError={() => setImageLoadError(true)}
+                                style={{
+                                  maxWidth: '100%',
+                                  maxHeight: '100%',
+                                  objectFit: 'contain',
+                                  borderRadius: 'var(--radius-sm)',
+                                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                                }}
+                              />
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div style={{ flex: 1, width: '100%', height: '100%', overflow: 'hidden' }}>
+                            <object
+                              data-testid="kyc-document-pdf"
+                              data={signedDocUrlData.signedUrl}
+                              type={docMimeType || 'application/pdf'}
+                              style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#ffffff' }}
+                            >
+                              <iframe
+                                src={signedDocUrlData.signedUrl}
+                                title="PDF document preview"
+                                style={{ width: '100%', height: '100%', border: 'none' }}
+                              />
+                            </object>
+                          </div>
+                        );
+                      })() : (
+                        <div
+                          data-testid="document-vault-error-container"
+                          style={{
+                            margin: 'auto',
+                            padding: 'var(--space-5)',
+                            textAlign: 'center',
+                            maxWidth: '420px',
+                          }}
+                        >
+                          <AlertTriangle size={32} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2)' }} />
+                          <h4 style={{ margin: '0 0 6px 0', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}>
+                            Document Attachment Unavailable
+                          </h4>
+                          <p style={{ margin: '0 0 var(--space-3) 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                            No active secure URL was returned by the storage vault.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => refetchSignedDocUrl()}
+                            style={{
+                              padding: '6px 14px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: 'var(--color-surface)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Retry Fetching Document
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {canViewDocuments && !isLoadingSignedDocUrl && !isErrorSignedDocUrl && !signedDocUrlData && !activeDocId && (
+                    <div
+                      data-testid="verification-doc-missing-id"
+                      style={{
+                        padding: 'var(--space-5)',
+                        textAlign: 'center',
+                        color: 'var(--color-text-secondary)',
+                        fontSize: 'var(--font-size-xs)',
+                        maxWidth: '420px',
+                        margin: 'auto',
+                      }}
+                    >
+                      <AlertTriangle size={32} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2)' }} />
+                      <strong style={{ display: 'block', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
+                        Document Vault Attachment Unavailable
+                      </strong>
+                      <p style={{ margin: 0 }}>
+                        No backend document reference ID is associated with this verification check.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Document Decision Actions in Overlay */}
@@ -3233,6 +4833,25 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       </>
                     );
                   })()}
+                  {(isHistoricallyVerified || (activeDoc.checkType && dossier?.checks?.[activeDoc.checkType]?.status === 'APPROVED')) && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: 'var(--color-status-success-bg)',
+                        border: '1px solid var(--color-status-success-border)',
+                        color: 'var(--color-status-success-text)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <CheckCircle2 size={12} />
+                      Verified & Approved
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setIsDocPreviewOpen(false)}
@@ -3409,28 +5028,39 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           requireRemarks={true}
           remarksPlaceholder="Enter mandatory operational remarks..."
           isLoading={rejectCheckMutation.isPending}
+          errorMessage={rejectionError || undefined}
           onConfirm={(remarks) => {
+            const finalRemarks = (remarks || rejectionRemarks || '').trim();
+            if (rejectionCategory === 'OTHER' && !finalRemarks) {
+              setRejectionError('Mandatory remarks explanation is required when selecting rejection reason OTHER.');
+              return;
+            }
             if (checkToReject) {
+              setRejectionError(null);
               rejectCheckMutation.mutate({
                 checkId: checkToReject.checkId,
                 checkType: checkToReject.checkType,
                 category: rejectionCategory,
-                remarks: remarks || rejectionRemarks.trim() || 'Fails KYC verification guidelines',
+                remarks: finalRemarks,
               });
             }
           }}
           onCancel={() => {
             setCheckToReject(null);
             setRejectionRemarks('');
+            setRejectionError(null);
           }}
         >
           <div style={{ marginBottom: 'var(--space-2)' }}>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px' }}>
-              Rejection Category:
+              Rejection Category: *
             </label>
             <select
               value={rejectionCategory}
-              onChange={(e) => setRejectionCategory(e.target.value as RejectionReasonCategory)}
+              onChange={(e) => {
+                setRejectionCategory(e.target.value as RejectionReasonCategory);
+                setRejectionError(null);
+              }}
               style={{
                 width: '100%',
                 padding: 'var(--space-2)',
@@ -3447,6 +5077,46 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                 </option>
               ))}
             </select>
+
+            {isTerminalRejectionCode(rejectionCategory) && (
+              <div
+                style={{
+                  marginTop: 'var(--space-2)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--color-status-danger-bg)',
+                  border: '1px solid var(--color-status-danger-border)',
+                  color: 'var(--color-status-danger-text)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <AlertTriangle size={14} />
+                <span>
+                  Terminal Rejection: This code permanently disqualifies the check and application. Worker resubmission and verification sign-off will be permanently blocked.
+                </span>
+              </div>
+            )}
+
+            {rejectionCategory === 'OTHER' && (
+              <div
+                style={{
+                  marginTop: 'var(--space-2)',
+                  padding: 'var(--space-2) var(--space-3)',
+                  borderRadius: 'var(--radius-sm)',
+                  backgroundColor: 'var(--color-status-warning-bg)',
+                  border: '1px solid var(--color-status-warning-border)',
+                  color: 'var(--color-status-warning-text)',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                }}
+              >
+                Mandatory explanation required: Detailed operational rationale must be entered in the remarks box below.
+              </div>
+            )}
           </div>
         </ConfirmDialog>
 
@@ -3524,6 +5194,104 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
             </div>
           </div>
         </ConfirmDialog>
+
+        {/* Reject Application Confirmation Dialog */}
+        <ConfirmDialog
+          isOpen={isConfirmRejectApplicationOpen}
+          title={`Reject Application: ${dossier?.workerName || 'Worker'}`}
+          description="This will formally reject the entire domestic worker application at the platform level. The applicant will be notified with the selected reason and explanation remarks."
+          confirmLabel={rejectApplicationMutation.isPending ? 'Rejecting Application...' : 'Confirm Reject Application'}
+          isDestructive={true}
+          requireRemarks={true}
+          remarksPlaceholder="Enter mandatory rejection remarks / rationale (minimum 5 characters)..."
+          isLoading={rejectApplicationMutation.isPending}
+          errorMessage={rejectApplicationError}
+          onConfirm={(remarks) => {
+            const finalRemarks = (remarks || rejectApplicationRemarks || '').trim();
+            if (!finalRemarks || finalRemarks.length < 5) {
+              setRejectApplicationError('Mandatory remarks must be at least 5 characters explaining the rejection rationale.');
+              return;
+            }
+            if (dossier?.workerId || dossierId) {
+              setRejectApplicationError(null);
+              rejectApplicationMutation.mutate({
+                workerId: dossier?.workerId || dossierId,
+                category: rejectApplicationCategory,
+                remarks: finalRemarks,
+              });
+            }
+          }}
+          onCancel={() => {
+            setIsConfirmRejectApplicationOpen(false);
+            setRejectApplicationRemarks('');
+            setRejectApplicationError(null);
+          }}
+        >
+          <div style={{ marginBottom: 'var(--space-2)' }}>
+            <label
+              htmlFor="reject-app-reason-category-select"
+              style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px' }}
+            >
+              Rejection Reason Code / Category: <span style={{ color: 'var(--color-error)' }}>*</span>
+            </label>
+            <select
+              id="reject-app-reason-category-select"
+              data-testid="reject-app-reason-category-select"
+              value={rejectApplicationCategory}
+              onChange={(e) => {
+                setRejectApplicationCategory(e.target.value as RejectionReasonCategory);
+                if (rejectApplicationError) setRejectApplicationError(null);
+              }}
+              style={{
+                width: '100%',
+                padding: 'var(--space-2)',
+                borderRadius: 'var(--radius-sm)',
+                border: '1px solid var(--color-border)',
+                fontSize: 'var(--font-size-xs)',
+                fontFamily: 'inherit',
+                backgroundColor: 'var(--color-surface)',
+              }}
+            >
+              {REJECTION_CATEGORIES.map((cat) => (
+                <option key={cat.key} value={cat.key}>
+                  {cat.label} ({cat.key})
+                </option>
+              ))}
+            </select>
+          </div>
+        </ConfirmDialog>
+
+        {/* Reconsider Application Confirmation Dialog */}
+        <ConfirmDialog
+          isOpen={isConfirmReconsiderOpen}
+          title={`Reconsider Application: ${dossier?.workerName || 'Worker'}`}
+          description="Initiate reconsideration and repeat the KYC verification workflow for this domestic worker. Previously rejected checks will be placed in SUBMITTED state for thorough inspection, and all decisions are preserved in the permanent audit trail."
+          confirmLabel={reconsiderApplicationMutation.isPending ? 'Reconsidering...' : 'Confirm Reconsideration'}
+          isDestructive={false}
+          requireRemarks={true}
+          remarksPlaceholder="Enter mandatory justification/rationale for reconsideration (minimum 5 characters)..."
+          isLoading={reconsiderApplicationMutation.isPending}
+          errorMessage={reconsiderError}
+          onConfirm={(remarks) => {
+            const finalRemarks = (remarks || reconsiderRemarks || '').trim();
+            if (!finalRemarks || finalRemarks.length < 5) {
+              setReconsiderError('Mandatory remarks must be at least 5 characters explaining the reconsideration rationale.');
+              return;
+            }
+            if (dossier?.workerId || dossierId) {
+              setReconsiderError(null);
+              reconsiderApplicationMutation.mutate({
+                workerId: dossier?.workerId || dossierId,
+                remarks: finalRemarks,
+              });
+            }
+          }}
+          onCancel={() => {
+            setIsConfirmReconsiderOpen(false);
+            setReconsiderRemarks('');
+            setReconsiderError(null);
+          }}
+        />
       </div>
     </div>
   );

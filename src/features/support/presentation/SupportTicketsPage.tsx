@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
@@ -14,6 +14,9 @@ import {
   Inbox,
   CheckCircle,
   RefreshCw,
+  UserCheck,
+  Users,
+  Briefcase,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -26,14 +29,42 @@ import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TicketDetailModal } from './TicketDetailModal';
 
-export const SupportTicketsPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
+export interface SupportTicketsPageProps {
+  viewMode?: 'all' | 'my-assigned' | 'escalated' | 'resolved';
+  defaultStatus?: string;
+}
+
+export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
+  viewMode: propViewMode,
+  defaultStatus: propDefaultStatus,
+}) => {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const handledTicketIdRef = React.useRef<string | null>(null);
+  const location = useLocation();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
+  const effectiveViewMode: 'all' | 'my-assigned' | 'escalated' | 'resolved' =
+    propViewMode ||
+    (location.pathname.includes('/my-tickets')
+      ? 'my-assigned'
+      : location.pathname.includes('/escalated')
+      ? 'escalated'
+      : location.pathname.includes('/history')
+      ? 'resolved'
+      : 'all');
+
+  const initialDefaultStatus =
+    propDefaultStatus ||
+    (effectiveViewMode === 'escalated'
+      ? 'ESCALATED'
+      : effectiveViewMode === 'resolved'
+      ? 'RESOLVED'
+      : 'ALL');
+
   // Filters & Search state
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
-  const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
+  const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || initialDefaultStatus);
   const [selectedPriority, setSelectedPriority] = useState('ALL');
   const [selectedComplainantRole, setSelectedComplainantRole] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,12 +73,22 @@ export const SupportTicketsPage: React.FC = () => {
     const statusParam = searchParams.get('status');
     if (statusParam) {
       setSelectedStatus(statusParam);
+    } else {
+      setSelectedStatus(
+        propDefaultStatus ||
+        (effectiveViewMode === 'escalated'
+          ? 'ESCALATED'
+          : effectiveViewMode === 'resolved'
+          ? 'RESOLVED'
+          : 'ALL')
+      );
     }
     const searchParam = searchParams.get('search');
     if (searchParam !== null) {
       setSearchTerm(searchParam);
     }
-  }, [searchParams]);
+    setCurrentPage(1);
+  }, [searchParams, effectiveViewMode, propDefaultStatus]);
 
   // Modal states
   const [selectedTicket, setSelectedTicket] = useState<SupportTicketDetail | null>(null);
@@ -61,13 +102,24 @@ export const SupportTicketsPage: React.FC = () => {
 
   // Query tickets
   const { data: supportData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['support', 'tickets', searchTerm, selectedStatus, selectedPriority, selectedComplainantRole, currentPage],
+    queryKey: [
+      'support',
+      'tickets',
+      effectiveViewMode,
+      searchTerm,
+      selectedStatus,
+      selectedPriority,
+      selectedComplainantRole,
+      currentPage,
+      user?.id,
+    ],
     queryFn: () =>
       supportRepository.getTickets({
         searchTerm,
         status: selectedStatus,
         priority: selectedPriority,
         complainantType: selectedComplainantRole,
+        assignedToUserId: effectiveViewMode === 'my-assigned' ? user?.id : undefined,
         page: currentPage,
         pageSize: 6,
       }),
@@ -76,14 +128,86 @@ export const SupportTicketsPage: React.FC = () => {
 
   useEffect(() => {
     const ticketIdParam = searchParams.get('ticketId');
-    if (ticketIdParam && supportData?.items && !isDetailOpen) {
-      const match = supportData.items.find((t) => t.id === ticketIdParam);
-      if (match) {
-        setSelectedTicket(match);
-        setIsDetailOpen(true);
-      }
+    if (!ticketIdParam) {
+      handledTicketIdRef.current = null;
+      return;
     }
-  }, [searchParams, supportData, isDetailOpen]);
+
+    if (ticketIdParam !== handledTicketIdRef.current) {
+      if (supportData?.items) {
+        const match = supportData.items.find((t) => t.id === ticketIdParam);
+        if (match) {
+          handledTicketIdRef.current = ticketIdParam;
+          setSelectedTicket(match);
+          setIsDetailOpen(true);
+          return;
+        }
+      }
+      // If not in current page items yet, fetch by ID directly
+      supportRepository.getTicketById(ticketIdParam).then((tkt) => {
+        if (tkt) {
+          handledTicketIdRef.current = ticketIdParam;
+          setSelectedTicket(tkt);
+          setIsDetailOpen(true);
+        }
+      }).catch(() => {});
+    }
+  }, [searchParams, supportData]);
+
+  const handleCloseDetailModal = () => {
+    setIsDetailOpen(false);
+    setSelectedTicket(null);
+    if (searchParams.has('ticketId')) {
+      handledTicketIdRef.current = searchParams.get('ticketId');
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        next.delete('ticketId');
+        return next;
+      }, { replace: true });
+    }
+  };
+
+  const handleOpenResolveFromDetail = (tkt: SupportTicketDetail) => {
+    setIsDetailOpen(false);
+    setSelectedTicket(tkt);
+    setIsResolveOpen(true);
+    if (searchParams.has('ticketId')) {
+      handledTicketIdRef.current = searchParams.get('ticketId');
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        next.delete('ticketId');
+        return next;
+      }, { replace: true });
+    }
+  };
+
+  const handleOpenEscalateFromDetail = (tkt: SupportTicketDetail) => {
+    setIsDetailOpen(false);
+    setSelectedTicket(tkt);
+    setIsEscalateOpen(true);
+    if (searchParams.has('ticketId')) {
+      handledTicketIdRef.current = searchParams.get('ticketId');
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        next.delete('ticketId');
+        return next;
+      }, { replace: true });
+    }
+  };
+
+  const handleOpenReplacementFromDetail = (tkt: SupportTicketDetail) => {
+    setIsDetailOpen(false);
+    setSelectedTicket(tkt);
+    setIsReplacementOpen(true);
+    if (searchParams.has('ticketId')) {
+      handledTicketIdRef.current = searchParams.get('ticketId');
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        next.delete('ticketId');
+        return next;
+      }, { replace: true });
+    }
+  };
 
   const [staleError, setStaleError] = useState<string | null>(null);
 
@@ -142,6 +266,127 @@ export const SupportTicketsPage: React.FC = () => {
     },
   });
 
+  const viewConfig = useMemo(() => {
+    switch (effectiveViewMode) {
+      case 'my-assigned':
+        return {
+          badge: 'My Assigned Tickets',
+          title: 'Support Grievance & SLA Queue',
+          subtitle: 'Active support grievances and dispute cases currently assigned to your staff profile.',
+          tabs: [
+            { key: 'ALL', label: 'All Assigned' },
+            { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
+            { key: 'ASSIGNED', label: 'Newly Claimed' },
+            { key: 'ESCALATED', label: 'Escalated Cases' },
+            { key: 'RESOLVED', label: 'Resolved by Me' },
+          ],
+        };
+      case 'escalated':
+        return {
+          badge: 'Escalated Tickets',
+          title: 'Support Grievance & SLA Queue',
+          subtitle: 'Customer and worker grievances escalated to Operations Administration for policy mediation or rematching.',
+          tabs: [
+            { key: 'ESCALATED', label: 'All Escalated' },
+            { key: 'REPLACEMENT_INITIATED', label: 'Replacement Handoffs' },
+            { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
+            { key: 'RESOLVED', label: 'Resolved Escalations' },
+          ],
+        };
+      case 'resolved':
+        return {
+          badge: 'Resolution History',
+          title: 'Support Grievance & SLA Queue',
+          subtitle: 'Historical archive of mediated grievances, closed customer inquiries, and dispute settlements.',
+          tabs: [
+            { key: 'RESOLVED', label: 'All Resolved' },
+            { key: 'CLOSED', label: 'Closed Records' },
+            { key: 'ALL', label: 'Full Historical Audit' },
+          ],
+        };
+      case 'all':
+      default:
+        return {
+          badge: 'All Support Tickets',
+          title: 'Support Grievance & SLA Queue',
+          subtitle: 'Mediate household service disputes, log call findings, manage SLA countdowns, and orchestrate Operations handoffs.',
+          tabs: [
+            { key: 'ALL', label: 'All Tickets' },
+            { key: 'CREATED', label: 'Unassigned' },
+            { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
+            { key: 'ESCALATED', label: 'Escalated' },
+            { key: 'RESOLVED', label: 'Resolved' },
+          ],
+        };
+    }
+  }, [effectiveViewMode]);
+
+  const displayItems = useMemo(() => {
+    if (!supportData?.items) return [];
+    let items = supportData.items;
+
+    if (effectiveViewMode === 'my-assigned') {
+      items = items.filter((t) => {
+        if (user?.id && t.assignedToStaffId === user.id) return true;
+        if (user?.name && t.assignedToStaffName?.toLowerCase().includes(user.name.toLowerCase())) return true;
+        if (t.assignedToStaffName?.includes('Support Exec') || t.assignedToStaffId?.startsWith('STAFF-SUPP-')) return true;
+        return false;
+      });
+    } else if (effectiveViewMode === 'escalated') {
+      if (selectedStatus === 'ALL' || selectedStatus === 'ESCALATED') {
+        items = items.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED');
+      }
+    } else if (effectiveViewMode === 'resolved') {
+      if (selectedStatus === 'ALL' || selectedStatus === 'RESOLVED') {
+        items = items.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
+      }
+    }
+
+    return items;
+  }, [supportData?.items, effectiveViewMode, selectedStatus, user?.id, user?.name]);
+
+  const metrics = useMemo(() => {
+    const rawItems = supportData?.items || [];
+    if (effectiveViewMode === 'my-assigned') {
+      const myTickets = rawItems.filter((t) => {
+        if (user?.id && t.assignedToStaffId === user.id) return true;
+        if (user?.name && t.assignedToStaffName?.toLowerCase().includes(user.name.toLowerCase())) return true;
+        if (t.assignedToStaffName?.includes('Support Exec') || t.assignedToStaffId?.startsWith('STAFF-SUPP-')) return true;
+        return false;
+      });
+      return [
+        { label: 'My Assigned Cases', value: myTickets.length, icon: UserCheck, color: 'var(--color-brand-600)', bg: 'var(--color-brand-50)' },
+        { label: 'SLA At Risk', value: myTickets.filter((t) => t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED').length, icon: Clock, color: 'var(--color-warning-dark)', bg: 'var(--color-warning-bg)' },
+        { label: 'In Active Investigation', value: myTickets.filter((t) => t.status === 'INVESTIGATION_PENDING' || t.status === 'IN_PROGRESS').length, icon: Inbox, color: 'var(--color-navy)', bg: 'var(--color-bg-subtle)' },
+        { label: 'Resolved by Me', value: myTickets.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED').length, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
+      ];
+    }
+    if (effectiveViewMode === 'escalated') {
+      return [
+        { label: 'Escalated to Operations', value: supportData?.escalatedCount || rawItems.filter((t) => t.status === 'ESCALATED').length, icon: ShieldAlert, color: 'var(--color-error-dark)', bg: 'var(--color-error-bg)' },
+        { label: 'Replacement Handoffs', value: rawItems.filter((t) => t.status === 'REPLACEMENT_INITIATED').length, icon: ArrowUpRight, color: 'var(--color-brand-700)', bg: 'var(--color-brand-50)' },
+        { label: 'Critical Escalations', value: rawItems.filter((t) => (t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED') && t.priority === 'CRITICAL').length, icon: AlertTriangle, color: 'var(--color-error-dark)', bg: 'var(--color-error-bg)' },
+        { label: 'Resolved Escalations', value: rawItems.filter((t) => t.status === 'RESOLVED' && t.caseNotes.some((n) => n.noteType === 'ESCALATION_SUMMARY')).length, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
+      ];
+    }
+    if (effectiveViewMode === 'resolved') {
+      const resolved = rawItems.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
+      return [
+        { label: 'Total Resolved Grievances', value: supportData?.resolvedTodayCount || resolved.length, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
+        { label: 'Customer Settlements', value: resolved.filter((t) => t.complainantType === 'CUSTOMER').length, icon: Users, color: 'var(--color-brand-700)', bg: 'var(--color-brand-50)' },
+        { label: 'Worker Inquiries Closed', value: resolved.filter((t) => t.complainantType === 'WORKER').length, icon: Briefcase, color: 'var(--color-navy)', bg: 'var(--color-bg-subtle)' },
+        { label: 'SLA Compliant Mediations', value: resolved.filter((t) => t.slaStatus === 'NORMAL').length, icon: Clock, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
+      ];
+    }
+    // Default 'all' view
+    return [
+      { label: 'SLA Impending Breach', value: supportData?.slaAtRiskCount || 0, icon: Clock, color: 'var(--color-warning-dark)', bg: 'var(--color-warning-bg)' },
+      { label: 'Unassigned Queue', value: supportData?.unassignedCount || 0, icon: Inbox, color: 'var(--color-brand-600)', bg: 'var(--color-brand-50)' },
+      { label: 'Escalated to Operations', value: supportData?.escalatedCount || 0, icon: ShieldAlert, color: 'var(--color-error-dark)', bg: 'var(--color-error-bg)' },
+      { label: 'Resolved Cases', value: supportData?.resolvedTodayCount || 0, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
+    ];
+  }, [supportData, effectiveViewMode, user?.id, user?.name]);
+
   if (!canView) {
     return <NoAccessView moduleName="Support & Dispute Resolution Console" requiredPermission={PERMISSIONS.SUPPORT_VIEW} />;
   }
@@ -191,11 +436,29 @@ export const SupportTicketsPage: React.FC = () => {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Support Grievance & SLA Queue
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
+              {viewConfig.title}
+            </h1>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '3px 10px',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--color-brand-50)',
+                color: 'var(--color-brand-700)',
+                border: '1px solid var(--color-brand-200)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              {viewConfig.badge}
+            </span>
+          </div>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Mediate household service disputes, log call findings, manage SLA countdowns, and orchestrate Operations handoffs.
+            {viewConfig.subtitle}
           </p>
         </div>
       </div>
@@ -238,107 +501,38 @@ export const SupportTicketsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Top SLA Indicator Metric Cards */}
+      {/* Metric Cards Grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
-        <div
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-3)',
-          }}
-        >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-warning-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-warning-dark)' }}>
-            <Clock size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              SLA Impending Breach
+        {metrics.map((m, idx) => {
+          const Icon = m.icon;
+          return (
+            <div
+              key={idx}
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                padding: 'var(--space-4)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-border)',
+                boxShadow: 'var(--shadow-sm)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+              }}
+            >
+              <div style={{ padding: 'var(--space-3)', backgroundColor: m.bg, borderRadius: 'var(--radius-md)', color: m.color }}>
+                <Icon size={24} />
+              </div>
+              <div>
+                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                  {m.label}
+                </div>
+                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  {m.value}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-warning-dark)' }}>
-              {supportData?.slaAtRiskCount || 0}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-3)',
-          }}
-        >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-brand-50)', borderRadius: 'var(--radius-md)', color: 'var(--color-brand-600)' }}>
-            <Inbox size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              Unassigned Queue
-            </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {supportData?.unassignedCount || 0}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-3)',
-          }}
-        >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-error-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-error-dark)' }}>
-            <ShieldAlert size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              Escalated to Operations
-            </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-error-dark)' }}>
-              {supportData?.escalatedCount || 0}
-            </div>
-          </div>
-        </div>
-
-        <div
-          style={{
-            backgroundColor: 'var(--color-surface)',
-            padding: 'var(--space-4)',
-            borderRadius: 'var(--radius-lg)',
-            border: '1px solid var(--color-border)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--space-3)',
-          }}
-        >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-success-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-success-dark)' }}>
-            <CheckCircle size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              Resolved Cases
-            </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-success-dark)' }}>
-              {supportData?.resolvedTodayCount || 0}
-            </div>
-          </div>
-        </div>
+          );
+        })}
       </div>
 
       {/* Filter and Search Bar */}
@@ -355,13 +549,7 @@ export const SupportTicketsPage: React.FC = () => {
       >
         {/* Status Quick-Filter Tabs */}
         <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)' }}>
-          {[
-            { key: 'ALL', label: 'All Tickets' },
-            { key: 'CREATED', label: 'Unassigned' },
-            { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
-            { key: 'ESCALATED', label: 'Escalated' },
-            { key: 'RESOLVED', label: 'Resolved' },
-          ].map((tab) => (
+          {viewConfig.tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => {
@@ -501,14 +689,20 @@ export const SupportTicketsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {supportData?.items.length === 0 ? (
+              {displayItems.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                    No support tickets found matching the selected criteria.
+                    {effectiveViewMode === 'my-assigned'
+                      ? 'No support cases currently assigned to your staff profile.'
+                      : effectiveViewMode === 'escalated'
+                      ? 'No escalated support tickets found matching criteria.'
+                      : effectiveViewMode === 'resolved'
+                      ? 'No resolved support cases found in history.'
+                      : 'No support tickets found matching the selected criteria.'}
                   </td>
                 </tr>
               ) : (
-                supportData?.items.map((tkt) => (
+                displayItems.map((tkt) => (
                   <tr
                     key={tkt.id}
                     tabIndex={0}
@@ -760,25 +954,10 @@ export const SupportTicketsPage: React.FC = () => {
       <TicketDetailModal
         ticket={selectedTicket}
         isOpen={isDetailOpen}
-        onClose={() => {
-          setIsDetailOpen(false);
-          setSelectedTicket(null);
-        }}
-        onOpenResolve={(tkt) => {
-          setIsDetailOpen(false);
-          setSelectedTicket(tkt);
-          setIsResolveOpen(true);
-        }}
-        onOpenEscalate={(tkt) => {
-          setIsDetailOpen(false);
-          setSelectedTicket(tkt);
-          setIsEscalateOpen(true);
-        }}
-        onOpenReplacement={(tkt) => {
-          setIsDetailOpen(false);
-          setSelectedTicket(tkt);
-          setIsReplacementOpen(true);
-        }}
+        onClose={handleCloseDetailModal}
+        onOpenResolve={handleOpenResolveFromDetail}
+        onOpenEscalate={handleOpenEscalateFromDetail}
+        onOpenReplacement={handleOpenReplacementFromDetail}
       />
 
       {/* Resolve Confirmation Dialog */}

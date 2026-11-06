@@ -1,9 +1,16 @@
 export type BookingStatus =
   | 'REQUESTED'
+  | 'NEW_REQUEST'
+  | 'MATCHED'
   | 'INTERVIEW_SCHEDULED'
+  | 'INTERVIEW_TRIAL_SCHEDULED'
+  | 'INTERVIEW_TRIAL_COMPLETED'
+  | 'PENDING_PAYMENT'
   | 'CONFIRMED'
   | 'SERVICE_ACTIVE'
+  | 'ACTIVE'
   | 'REPLACEMENT_REQUESTED'
+  | 'REPLACED'
   | 'COMPLETED'
   | 'CANCELLED';
 
@@ -45,6 +52,8 @@ export interface TrialOutcome {
 }
 
 export interface ReplacementDetail {
+  id?: string;
+  bookingId?: string;
   requestedAt: string;
   reasonCategory: string;
   customerExplanation: string;
@@ -54,8 +63,19 @@ export interface ReplacementDetail {
   priorWorkerName: string;
   replacementWorkerId?: string;
   replacementWorkerName?: string;
-  status: 'PENDING_REMATCH' | 'TRIAL_SCHEDULED' | 'FULFILLED' | 'REJECTED';
+  status:
+    | 'REQUESTED'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'CANCELLED'
+    | 'COMPLETED'
+    | 'PENDING_REMATCH'
+    | 'TRIAL_SCHEDULED'
+    | 'FULFILLED';
   operationalRemarks?: string;
+  decisionRemarks?: string;
+  decisionMessage?: string;
+  decidedAt?: string;
 }
 
 export interface BookingDetail {
@@ -116,6 +136,36 @@ export interface MatchRequirement {
   limit?: number;
 }
 
+export interface BookingHistoryData {
+  timeline: Array<{
+    from: string | null;
+    to: string;
+    by: string;
+    note: string | null;
+    at: string;
+    actorUserId: string | null;
+  }>;
+  interviews?: Array<{
+    id: string;
+    type: string;
+    status: string;
+    statusLabel?: string;
+    scheduledAt?: string;
+    outcomeNote?: string;
+    createdAt?: string;
+    timeline?: Array<{ title: string; state: string; at: string }>;
+  }>;
+  replacementChain?: Array<{
+    bookingId: string;
+    position: number;
+    status: string;
+    workerId: string;
+    startDate?: string;
+    createdAt: string;
+    current: boolean;
+  }>;
+}
+
 export interface IBookingRepository {
   getBookings(filter?: BookingFilterCriteria): Promise<PaginatedBookings>;
   getBookingById(id: string): Promise<BookingDetail | null>;
@@ -126,4 +176,9 @@ export interface IBookingRepository {
   confirmBooking(bookingId: string): Promise<void>;
   processReplacement(bookingId: string, replacementWorkerId: string, remarks: string): Promise<void>;
   cancelBooking(bookingId: string, remarks: string, reasonCategory: string): Promise<void>;
+  approveReplacement?(requestId: string, remarks?: string): Promise<void>;
+  rejectReplacement?(requestId: string, remarks: string): Promise<void>;
+  getReplacementCandidates?(requestId: string): Promise<CandidateMatch[]>;
+  selectReplacementWorker?(requestId: string, workerId: string): Promise<void>;
+  getBookingHistory?(bookingId: string): Promise<BookingHistoryData>;
 }

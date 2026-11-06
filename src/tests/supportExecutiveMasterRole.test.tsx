@@ -55,19 +55,21 @@ describe('Support Executive Master Role & Operational Workflows', () => {
   });
 
   describe('1. Support Operations Console Dashboard', () => {
-    it('renders the Support Operations Console with 5 KPI cards and 4 operational queues', async () => {
+    it('renders the Support Operations Console with 7 KPI cards and operational queues', async () => {
       const { router } = renderApp('/dashboard');
 
       expect(
         await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })
       ).toBeInTheDocument();
 
-      // Check all 5 KPI cards
-      expect(screen.getByText('Open Grievances')).toBeInTheDocument();
-      expect(screen.getByText('Assigned to Me')).toBeInTheDocument();
-      expect(screen.getByText('SLA At Risk')).toBeInTheDocument();
-      expect(screen.getByText('SLA Breached')).toBeInTheDocument();
-      expect(screen.getByText('Resolved Today')).toBeInTheDocument();
+      // Check all 7 KPI cards
+      expect(screen.getByText('Total Tickets')).toBeInTheDocument();
+      expect(screen.getByText('Unassigned Tickets')).toBeInTheDocument();
+      expect(screen.getAllByText('My Assigned Tickets').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('In Progress')).toBeInTheDocument();
+      expect(screen.getByText('SLA Imminent Breach')).toBeInTheDocument();
+      expect(screen.getAllByText('Escalated Tickets').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Resolved Tickets')).toBeInTheDocument();
 
       // Check Queue Tabs
       expect(screen.getByRole('button', { name: /SLA At Risk & Breached/i })).toBeInTheDocument();
@@ -95,9 +97,9 @@ describe('Support Executive Master Role & Operational Workflows', () => {
       // Click Claim Ticket drill-down action
       await user.click(claimButtons[0]);
 
-      // Should drill-down navigate to /support with searchParams
+      // Should drill-down navigate to /support/tickets with searchParams
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
+        expect(router.state.location.pathname).toBe('/support/tickets');
         expect(router.state.location.search).toContain('ticketId=');
       });
     });

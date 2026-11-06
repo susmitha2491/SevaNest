@@ -245,7 +245,57 @@ export const routes: RouteObject[] = [
         element: (
           <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
             <LazyRoute label="Loading support console...">
-              <SupportTicketsPage />
+              <SupportTicketsPage viewMode="all" />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'support/tickets',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
+            <LazyRoute label="Loading all support tickets...">
+              <SupportTicketsPage viewMode="all" />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'support/my-tickets',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
+            <LazyRoute label="Loading my assigned tickets...">
+              <SupportTicketsPage viewMode="my-assigned" />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'support/escalated',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
+            <LazyRoute label="Loading escalated tickets...">
+              <SupportTicketsPage viewMode="escalated" />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'support/history',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
+            <LazyRoute label="Loading resolution history...">
+              <SupportTicketsPage viewMode="resolved" />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'support/dashboard',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.SUPPORT_VIEW}>
+            <LazyRoute label="Loading support dashboard...">
+              <DashboardPage />
             </LazyRoute>
           </ProtectedRoute>
         ),

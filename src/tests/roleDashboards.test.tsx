@@ -145,24 +145,40 @@ describe('Role-Based Operational Dashboards', () => {
       renderApp('/dashboard');
 
       expect(await screen.findByText('Trust & Verification Console')).toBeInTheDocument();
-      expect(await screen.findByText('Pending Review')).toBeInTheDocument();
-      expect(await screen.findByText('In-Progress Review')).toBeInTheDocument();
-      expect(await screen.findByText('Re-Check Due')).toBeInTheDocument();
-      expect(await screen.findByText('Decisions Today')).toBeInTheDocument();
+      expect(await screen.findByText('Pending Applications')).toBeInTheDocument();
+      expect(await screen.findByText('Pending KYC / Submitted')).toBeInTheDocument();
+      expect((await screen.findAllByText('In Review')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Corrections Required')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Re-check Due')).length).toBeGreaterThan(0);
       expect(await screen.findByText('Mandatory 6-Point Verification Directive')).toBeInTheDocument();
     });
 
-    it('displays pending worker KYC queue sorted oldest-first and allows tab switching', async () => {
+    it('renders the approved 5 sections: Overview, Status Distribution, Recent Applications, SLA Overview, and Quick Navigation', async () => {
       renderApp('/dashboard');
 
-      expect(await screen.findByText(/Pending Review \(Oldest First\) \(\d+\)/)).toBeInTheDocument();
+      // Section A: Overview Cards
+      expect(await screen.findByText('Pending Applications')).toBeInTheDocument();
+      expect((await screen.findAllByText('Corrections Required')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Re-check Due')).length).toBeGreaterThan(0);
+
+      // Section B: Application Status Distribution
+      expect(await screen.findByText('Application Status Distribution')).toBeInTheDocument();
+      expect(await screen.findByText(/Breakdown of applications across verification lifecycle stages/i)).toBeInTheDocument();
+
+      // Section C: Recent Applications Requiring Attention
+      expect(await screen.findByText('Recent Applications Requiring Attention')).toBeInTheDocument();
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       expect((await screen.findAllByText('Review KYC')).length).toBeGreaterThan(0);
 
-      // Switch to Re-Check Due tab
-      const reCheckTab = await screen.findByText(/Re-Check Due \/ Expiring Certs \(\d+\)/);
-      fireEvent.click(reCheckTab);
-      expect(await screen.findByText('Devendra Singh')).toBeInTheDocument();
+      // Section D: Verification SLA Overview
+      expect(await screen.findByText('Verification SLA Overview')).toBeInTheDocument();
+      expect((await screen.findAllByText('Within SLA')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Approaching SLA')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('SLA Exceeded')).length).toBeGreaterThan(0);
+
+      // Section E: Quick Navigation
+      const navBtn = await screen.findByRole('button', { name: /Open Verification Queue/i });
+      expect(navBtn).toBeInTheDocument();
     });
   });
 
@@ -189,11 +205,13 @@ describe('Role-Based Operational Dashboards', () => {
       renderApp('/dashboard');
 
       expect(await screen.findByText('Support Operations Console')).toBeInTheDocument();
-      expect(await screen.findByText('Open Grievances')).toBeInTheDocument();
-      expect(await screen.findByText('Assigned to Me')).toBeInTheDocument();
-      expect(await screen.findByText('SLA At Risk')).toBeInTheDocument();
-      expect(await screen.findByText('SLA Breached')).toBeInTheDocument();
-      expect(await screen.findByText('Resolved Today')).toBeInTheDocument();
+      expect(await screen.findByText('Total Tickets')).toBeInTheDocument();
+      expect(await screen.findByText('Unassigned Tickets')).toBeInTheDocument();
+      expect((await screen.findAllByText('My Assigned Tickets')).length).toBeGreaterThanOrEqual(1);
+      expect(await screen.findByText('In Progress')).toBeInTheDocument();
+      expect(await screen.findByText('SLA Imminent Breach')).toBeInTheDocument();
+      expect((await screen.findAllByText('Escalated Tickets')).length).toBeGreaterThanOrEqual(1);
+      expect(await screen.findByText('Resolved Tickets')).toBeInTheDocument();
     });
 
     it('allows toggling between SLA At Risk, Unassigned, Active Cases, and Escalated tabs', async () => {

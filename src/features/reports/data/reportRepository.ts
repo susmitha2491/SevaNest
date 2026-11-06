@@ -1,313 +1,754 @@
-import {
-  ReportItem,
-  ReportCategory,
-  ExportResult,
-  IReportRepository,
-  ReportFilterCriteria,
-} from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
+import {
+  ReportItem,
+  ReportCategory,
+  ReportFilterCriteria,
+  ReportMetricSummary,
+  ExportResult,
+  IReportRepository,
+} from '../domain/types';
+import {
+  generateProfessionalExcel,
+  generateCleanCsv,
+  getReportCanonicalFilename,
+} from '../utils/reportExportGenerator';
 
-export class MockReportRepository implements IReportRepository {
-  private reports: ReportItem[] = [
-    {
-      id: 'REP-01',
-      name: 'New Customer Acquisition by Period & Locality',
-      category: 'Growth',
-      description: 'Tracks customer onboarding velocity, mobile app signups, and neighborhood cluster penetration across Hyderabad.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Signups', value: '1,248', change: '+14.2%', isPositive: true },
-        { label: 'Top Cluster', value: 'HITEC City (38%)' },
-        { label: 'Signup-to-Booking Conversion', value: '42.8%', change: '+3.1%', isPositive: true },
-      ],
-      previewColumns: ['Locality Cluster', 'New Accounts', 'Active Bookers', 'Repeat Booking %'],
-      previewRows: [
-        { 'Locality Cluster': 'HITEC City', 'New Accounts': 480, 'Active Bookers': 210, 'Repeat Booking %': '43.7%' },
-        { 'Locality Cluster': 'Madhapur', 'New Accounts': 310, 'Active Bookers': 135, 'Repeat Booking %': '43.5%' },
-        { 'Locality Cluster': 'Gachibowli', 'New Accounts': 260, 'Active Bookers': 105, 'Repeat Booking %': '40.3%' },
-        { 'Locality Cluster': 'Kondapur', 'New Accounts': 198, 'Active Bookers': 84, 'Repeat Booking %': '42.4%' },
-      ],
-    },
-    {
-      id: 'REP-02',
-      name: 'Worker Registration & Onboarding Drop-off Funnel',
-      category: 'Workforce',
-      description: 'Analyzes friction stages in worker onboarding from initial mobile OTP to full KYC document submission.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Initiated Registrations', value: '840' },
-        { label: 'Document Submissions', value: '620', change: '73.8% step rate' },
-        { label: 'Complete Dossiers', value: '512', change: '60.9% full funnel' },
-      ],
-      previewColumns: ['Funnel Stage', 'Worker Count', 'Stage Conversion %', 'Drop-off Reasons'],
-      previewRows: [
-        { 'Funnel Stage': '1. Phone OTP Verified', 'Worker Count': 840, 'Stage Conversion %': '100%', 'Drop-off Reasons': 'N/A' },
-        { 'Funnel Stage': '2. Skill Profile Selected', 'Worker Count': 750, 'Stage Conversion %': '89.2%', 'Drop-off Reasons': 'Incomplete Category Details' },
-        { 'Funnel Stage': '3. Aadhaar Uploaded', 'Worker Count': 620, 'Stage Conversion %': '73.8%', 'Drop-off Reasons': 'Document Clarity Issues' },
-        { 'Funnel Stage': '4. References Submitted', 'Worker Count': 512, 'Stage Conversion %': '60.9%', 'Drop-off Reasons': 'Awaiting Employer Contacts' },
-      ],
-    },
-    {
-      id: 'REP-03',
-      name: 'Verification Conversion & Approval Ratio',
-      category: 'Trust & Safety',
-      description: 'Audit of 6-point verification pass rates, rejection breakdowns, and average document turnaround time.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Approved Dossiers', value: '468', change: '91.4% pass' },
-        { label: 'Rejected Dossiers', value: '44', change: '8.6% fail' },
-        { label: 'Avg Turnaround', value: '18.4 Hours' },
-      ],
-      previewColumns: ['Verification Check', 'Checks Conducted', 'Approved', 'Rejected', 'Pass Rate %'],
-      previewRows: [
-        { 'Verification Check': '1. Aadhaar ID & Photo', 'Checks Conducted': 512, Approved: 492, Rejected: 20, 'Pass Rate %': '96.1%' },
-        { 'Verification Check': '2. Address Proof', 'Checks Conducted': 512, Approved: 485, Rejected: 27, 'Pass Rate %': '94.7%' },
-        { 'Verification Check': '3. Emergency Contact Vetting', 'Checks Conducted': 512, Approved: 476, Rejected: 36, 'Pass Rate %': '92.9%' },
-        { 'Verification Check': '4. Prior Employer Reference', 'Checks Conducted': 512, Approved: 470, Rejected: 42, 'Pass Rate %': '91.8%' },
-        { 'Verification Check': '5. Police Clearance Certificate', 'Checks Conducted': 512, Approved: 468, Rejected: 44, 'Pass Rate %': '91.4%' },
-      ],
-    },
-    {
-      id: 'REP-04',
-      name: 'Booking Requests vs Confirmed Conversion',
-      category: 'Marketplace',
-      description: 'End-to-end booking funnel from initial search request to active service commencement.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Booking Requests', value: '620' },
-        { label: 'Interviews Scheduled', value: '510', change: '82.2%' },
-        { label: 'Active Placements', value: '442', change: '71.3% conversion' },
-      ],
-      previewColumns: ['Service Category', 'Total Inquiries', 'Trial Scheduled', 'Service Confirmed', 'Net Conversion %'],
-      previewRows: [
-        { 'Service Category': 'House Maid', 'Total Inquiries': 280, 'Trial Scheduled': 240, 'Service Confirmed': 210, 'Net Conversion %': '75.0%' },
-        { 'Service Category': 'Cook', 'Total Inquiries': 150, 'Trial Scheduled': 120, 'Service Confirmed': 102, 'Net Conversion %': '68.0%' },
-        { 'Service Category': 'Driver', 'Total Inquiries': 110, 'Trial Scheduled': 88, 'Service Confirmed': 76, 'Net Conversion %': '69.1%' },
-        { 'Service Category': 'Babysitter', 'Total Inquiries': 80, 'Trial Scheduled': 62, 'Service Confirmed': 54, 'Net Conversion %': '67.5%' },
-      ],
-    },
-    {
-      id: 'REP-05',
-      name: 'Category-Wise Demand Distribution',
-      category: 'Marketplace',
-      description: 'Market share and volume analysis across all 6 active domestic service categories.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Dominant Category', value: 'House Maid (45.1%)' },
-        { label: 'Fastest Growing', value: 'Cook (+22% MoM)' },
-      ],
-      previewColumns: ['Category', 'Active Bookings', 'Demand Share %', 'Avg Monthly Wage (INR)'],
-      previewRows: [
-        { Category: 'House Maid', 'Active Bookings': 210, 'Demand Share %': '45.1%', 'Avg Monthly Wage (INR)': '₹12,500' },
-        { Category: 'Cook', 'Active Bookings': 102, 'Demand Share %': '21.9%', 'Avg Monthly Wage (INR)': '₹16,000' },
-        { Category: 'Driver', 'Active Bookings': 76, 'Demand Share %': '16.3%', 'Avg Monthly Wage (INR)': '₹22,000' },
-        { Category: 'Babysitter', 'Active Bookings': 54, 'Demand Share %': '11.6%', 'Avg Monthly Wage (INR)': '₹18,500' },
-        { Category: 'Elderly Care Helper', 'Active Bookings': 24, 'Demand Share %': '5.1%', 'Avg Monthly Wage (INR)': '₹20,000' },
-      ],
-    },
-    {
-      id: 'REP-06',
-      name: 'Area-Wise Demand & Cluster Heatmap',
-      category: 'Marketplace',
-      description: 'Geographic concentration of booking requests and supply density across operational clusters.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'High Demand Zone', value: 'HITEC City & Gachibowli' },
-        { label: 'Supply Surplus Cluster', value: 'Kukatpally' },
-      ],
-      previewColumns: ['Cluster Name', 'Open Demand', 'Active Supply', 'Match Ratio', 'Status'],
-      previewRows: [
-        { 'Cluster Name': 'HITEC City', 'Open Demand': 180, 'Active Supply': 142, 'Match Ratio': '0.78', Status: 'High Utilization' },
-        { 'Cluster Name': 'Gachibowli', 'Open Demand': 140, 'Active Supply': 135, 'Match Ratio': '0.96', Status: 'Balanced' },
-        { 'Cluster Name': 'Madhapur', 'Open Demand': 110, 'Active Supply': 118, 'Match Ratio': '1.07', Status: 'Balanced' },
-        { 'Cluster Name': 'Kondapur', 'Open Demand': 90, 'Active Supply': 96, 'Match Ratio': '1.06', Status: 'Balanced' },
-        { 'Cluster Name': 'Kukatpally', 'Open Demand': 40, 'Active Supply': 64, 'Match Ratio': '1.60', Status: 'Supply Surplus' },
-      ],
-    },
-    {
-      id: 'REP-07',
-      name: 'Worker Utilization & Active Roster Ratio',
-      category: 'Workforce',
-      description: 'Proportion of verified workforce placed in active household engagements vs idle roster capacity.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Verified Roster', value: '468' },
-        { label: 'Actively Engaged', value: '384', change: '82.1% utilization' },
-        { label: 'Available for Dispatch', value: '84', change: '17.9% ready' },
-      ],
-      previewColumns: ['Skill Category', 'Total Roster', 'Engaged Workers', 'Available Workers', 'Utilization %'],
-      previewRows: [
-        { 'Skill Category': 'House Maid', 'Total Roster': 210, 'Engaged Workers': 180, 'Available Workers': 30, 'Utilization %': '85.7%' },
-        { 'Skill Category': 'Cook', 'Total Roster': 115, 'Engaged Workers': 98, 'Available Workers': 17, 'Utilization %': '85.2%' },
-        { 'Skill Category': 'Driver', 'Total Roster': 85, 'Engaged Workers': 68, 'Available Workers': 17, 'Utilization %': '80.0%' },
-        { 'Skill Category': 'Babysitter', 'Total Roster': 58, 'Engaged Workers': 38, 'Available Workers': 20, 'Utilization %': '65.5%' },
-      ],
-    },
-    {
-      id: 'REP-08',
-      name: 'Interview-to-Confirmation Conversion Rate',
-      category: 'Marketplace',
-      description: 'Evaluates trial outcome success rates, instant confirmations, and customer rematch triggers.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Trials', value: '510' },
-        { label: 'Passed 1st Trial', value: '432', change: '84.7% success' },
-        { label: 'Required 2nd Trial', value: '78', change: '15.3% rematch' },
-      ],
-      previewColumns: ['Trial Outcome', 'Instances', 'Percentage Share %', 'Primary Feedback Factors'],
-      previewRows: [
-        { 'Trial Outcome': 'Accepted & Confirmed', Instances: 432, 'Percentage Share %': '84.7%', 'Primary Feedback Factors': 'Punctuality, Clear Communication' },
-        { 'Trial Outcome': 'Dietary/Skill Mismatch', Instances: 42, 'Percentage Share %': '8.2%', 'Primary Feedback Factors': 'Cook regional cuisine preference' },
-        { 'Trial Outcome': 'Timing/Commute Incompatibility', Instances: 24, 'Percentage Share %': '4.7%', 'Primary Feedback Factors': 'Early morning start conflict' },
-        { 'Trial Outcome': 'Customer Unresponsive', Instances: 12, 'Percentage Share %': '2.4%', 'Primary Feedback Factors': 'Customer cancelled post-schedule' },
-      ],
-    },
-    {
-      id: 'REP-09',
-      name: 'Booking Cancellation Rate Analysis',
-      category: 'Operations',
-      description: 'Systematic review of booking cancellation causes across pre-trial, post-trial, and operational stages.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Placements', value: '480' },
-        { label: 'Cancellations', value: '38', change: '7.9% cancellation rate' },
-      ],
-      previewColumns: ['Cancellation Stage', 'Count', 'Share %', 'Key Cause Category'],
-      previewRows: [
-        { 'Cancellation Stage': 'Pre-Interview Cancellation', Count: 14, 'Share %': '36.8%', 'Key Cause Category': 'Customer relocation / Change of plan' },
-        { 'Cancellation Stage': 'Trial Rejection No Rematch', Count: 16, 'Share %': '42.1%', 'Key Cause Category': 'Candidate preference mismatch' },
-        { 'Cancellation Stage': 'Operational Unavailability', Count: 8, 'Share %': '21.1%', 'Key Cause Category': 'Worker personal/medical emergency' },
-      ],
-    },
-    {
-      id: 'REP-10',
-      name: 'Replacement Rate & Early Attrition Trends',
-      category: 'Operations',
-      description: 'Measures 30-day replacement requests, worker attrition triggers, and rematch turnaround times.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: '30-Day Guarantee Claims', value: '28' },
-        { label: 'Successful Rematches', value: '26', change: '92.8% fulfillment' },
-        { label: 'Avg Rematch Time', value: '34 Hours' },
-      ],
-      previewColumns: ['Dispute Trigger', 'Replacement Count', 'Rematch Succeeded', 'Avg Resolution (Hrs)'],
-      previewRows: [
-        { 'Dispute Trigger': 'Attendance / Unannounced Absences', 'Replacement Count': 14, 'Rematch Succeeded': 13, 'Avg Resolution (Hrs)': '28.5' },
-        { 'Dispute Trigger': 'Skill / Quality Mismatch', 'Replacement Count': 8, 'Rematch Succeeded': 8, 'Avg Resolution (Hrs)': '32.0' },
-        { 'Dispute Trigger': 'Household Relocation', 'Replacement Count': 4, 'Rematch Succeeded': 3, 'Avg Resolution (Hrs)': '48.0' },
-        { 'Dispute Trigger': 'Behavioral Friction', 'Replacement Count': 2, 'Rematch Succeeded': 2, 'Avg Resolution (Hrs)': '24.0' },
-      ],
-    },
-    {
-      id: 'REP-11',
-      name: 'Complaint Frequency by Category & Resolution Turnaround',
-      category: 'Support',
-      description: 'Support grievance intake volume, dispute categorization, and SLA resolution performance.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Total Grievances', value: '74' },
-        { label: 'Resolved within SLA', value: '68', change: '91.9% SLA compliance' },
-        { label: 'Escalated to Ops', value: '6', change: '8.1% escalation rate' },
-      ],
-      previewColumns: ['Complaint Category', 'Tickets Logged', 'Resolved via Support', 'Escalated to Ops', 'Avg Turnaround (Hrs)'],
-      previewRows: [
-        { 'Complaint Category': 'Attendance Breach', 'Tickets Logged': 32, 'Resolved via Support': 28, 'Escalated to Ops': 4, 'Avg Turnaround (Hrs)': '4.2' },
-        { 'Complaint Category': 'Payment & Payout Clarifications', 'Tickets Logged': 22, 'Resolved via Support': 22, 'Escalated to Ops': 0, 'Avg Turnaround (Hrs)': '1.8' },
-        { 'Complaint Category': 'Replacement Rematch Demands', 'Tickets Logged': 14, 'Resolved via Support': 12, 'Escalated to Ops': 2, 'Avg Turnaround (Hrs)': '6.5' },
-        { 'Complaint Category': 'Conduct / Misconduct Review', 'Tickets Logged': 6, 'Resolved via Support': 6, 'Escalated to Ops': 0, 'Avg Turnaround (Hrs)': '3.0' },
-      ],
-    },
-    {
-      id: 'REP-12',
-      name: 'Gross Booking Value, Fee Realization & Refunds',
-      category: 'Finance',
-      description: 'Financial ledger analytics summarizing booking fees, placement commissions, subscriptions, and audited refunds.',
-      lastRun: 'Recent Baseline',
-      metricsSummary: [
-        { label: 'Gross Platform Collections', value: '₹4,82,600' },
-        { label: 'Platform Net Commission', value: '₹1,24,500' },
-        { label: 'Total Refund Realization', value: '₹14,970', change: '3.1% refund rate' },
-      ],
-      previewColumns: ['Fee Classification', 'Gross Invoiced', 'Settled (INR)', 'Refunds Issued (INR)', 'Net Realization (INR)'],
-      previewRows: [
-        { 'Fee Classification': 'Booking / Matching Fees', 'Gross Invoiced': '₹1,80,000', 'Settled (INR)': '₹1,74,500', 'Refunds Issued (INR)': '₹5,500', 'Net Realization (INR)': '₹1,69,000' },
-        { 'Fee Classification': 'Placement Commission', 'Gross Invoiced': '₹2,10,000', 'Settled (INR)': '₹2,02,000', 'Refunds Issued (INR)': '₹8,000', 'Net Realization (INR)': '₹1,94,000' },
-        { 'Fee Classification': 'Monthly Subscriptions', 'Gross Invoiced': '₹72,600', 'Settled (INR)': '₹71,130', 'Refunds Issued (INR)': '₹1,470', 'Net Realization (INR)': '₹69,660' },
-        { 'Fee Classification': 'Replacement Plan Add-ons', 'Gross Invoiced': '₹20,000', 'Settled (INR)': '₹20,000', 'Refunds Issued (INR)': '₹0', 'Net Realization (INR)': '₹20,000' },
-      ],
-    },
-  ];
+export interface ReportMetaDefinition {
+  slug: string;
+  requirement: string;
+  name: string;
+  category: Exclude<ReportCategory, 'ALL'>;
+  cadence: string;
+  defaultDescription: string;
+  supportedFilters: {
+    dateRange: boolean;
+    interval: boolean;
+    minRatings: boolean;
+  };
+}
 
-  async getReports(category?: ReportCategory, search?: string): Promise<ReportItem[]> {
-    let result = this.reports;
-    if (category && category !== 'ALL') {
-      result = result.filter((r) => r.category === category);
-    }
-    if (search && search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter((r) => r.name.toLowerCase().includes(q) || r.id.toLowerCase().includes(q) || r.description.toLowerCase().includes(q));
-    }
-    return JSON.parse(JSON.stringify(result));
+export const REPORT_DEFINITIONS: Record<string, ReportMetaDefinition> = {
+  'new-customers': {
+    slug: 'new-customers',
+    requirement: 'FR-RPT-001',
+    name: 'New Customers by Period',
+    category: 'Growth',
+    cadence: 'Periodic (Daily / Weekly / Monthly)',
+    defaultDescription: 'Customer accounts created per day/week/month (registers on first OTP verification).',
+    supportedFilters: { dateRange: true, interval: true, minRatings: false },
+  },
+  'worker-registrations': {
+    slug: 'worker-registrations',
+    requirement: 'FR-RPT-002',
+    name: 'Worker Registrations & Verification Conversion',
+    category: 'Workforce',
+    cadence: 'Periodic (Daily / Weekly / Monthly)',
+    defaultDescription: 'Worker profiles created in the period, and how many are fully verified today.',
+    supportedFilters: { dateRange: true, interval: true, minRatings: false },
+  },
+  'booking-funnel': {
+    slug: 'booking-funnel',
+    requirement: 'FR-RPT-003',
+    name: 'Booking Requests vs Confirmed Bookings',
+    category: 'Marketplace',
+    cadence: 'Periodic (Daily / Weekly / Monthly)',
+    defaultDescription: 'Booking requests created in the period, and how many reached confirmed status.',
+    supportedFilters: { dateRange: true, interval: true, minRatings: false },
+  },
+  'demand-by-category': {
+    slug: 'demand-by-category',
+    requirement: 'FR-RPT-004',
+    name: 'Category-Wise Demand Distribution',
+    category: 'Marketplace',
+    cadence: 'Monthly / Cohort Demand',
+    defaultDescription: 'Booking requests created in the period, grouped across all configured service categories.',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+  'demand-by-area': {
+    slug: 'demand-by-area',
+    requirement: 'FR-RPT-005',
+    name: 'Area-Wise Demand Distribution',
+    category: 'Marketplace',
+    cadence: 'Geographic Cohort (Paginated)',
+    defaultDescription: 'Booking requests created in the period, grouped by service area clusters (busiest first).',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+  'worker-utilization': {
+    slug: 'worker-utilization',
+    requirement: 'FR-RPT-006',
+    name: 'Domestic Worker Utilization Snapshot',
+    category: 'Workforce',
+    cadence: 'Point-in-Time Snapshot',
+    defaultDescription: 'Share of fully verified, active, submitted workers holding an active booking right now.',
+    supportedFilters: { dateRange: false, interval: false, minRatings: false },
+  },
+  'interview-conversion': {
+    slug: 'interview-conversion',
+    requirement: 'FR-RPT-007',
+    name: 'Interview-to-Confirmation Conversion',
+    category: 'Operations',
+    cadence: 'Cohort Conversion Ratio',
+    defaultDescription: 'Of bookings that completed an interview/trial, the share that reached confirmed.',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+  'cancellation-rate': {
+    slug: 'cancellation-rate',
+    requirement: 'FR-RPT-008',
+    name: 'Booking Cancellation Rate',
+    category: 'Operations',
+    cadence: 'Cohort Cancellation Ratio',
+    defaultDescription: 'Bookings created in the period that are cancelled now, divided by all bookings created.',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+  'replacement-rate': {
+    slug: 'replacement-rate',
+    requirement: 'FR-RPT-009',
+    name: 'Worker Replacement Rate',
+    category: 'Operations',
+    cadence: 'Active Placements Cohort',
+    defaultDescription: 'Replacement requests raised for bookings created in the period that reached active status.',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+  'payment-collections': {
+    slug: 'payment-collections',
+    requirement: 'FR-RPT-010',
+    name: 'Payment Collections & Fee Realization',
+    category: 'Finance',
+    cadence: 'Financial Period Ledger',
+    defaultDescription: 'Gross collections, fee codes, count, and refunds recorded in the period (INR).',
+    supportedFilters: { dateRange: true, interval: true, minRatings: false },
+  },
+  'support-tickets': {
+    slug: 'support-tickets',
+    requirement: 'FR-RPT-011',
+    name: 'Support Ticket Volume & Resolution Time',
+    category: 'Support',
+    cadence: 'Service Quality Metric',
+    defaultDescription: 'Tickets created in the period by status, and average turnaround time to closure.',
+    supportedFilters: { dateRange: true, interval: true, minRatings: false },
+  },
+  'top-rated-workers-repeat-customers': {
+    slug: 'top-rated-workers-repeat-customers',
+    requirement: 'FR-RPT-012',
+    name: 'Top-Rated Workers & Repeat Customers',
+    category: 'Retention',
+    cadence: 'Quality & Retention Cohort (Paginated)',
+    defaultDescription: 'Workers ranked by average consumer rating, and customer cohorts creating repeat bookings in the period (PRD Section 14).',
+    supportedFilters: { dateRange: true, interval: false, minRatings: true },
+  },
+  'top-rated-workers': {
+    slug: 'top-rated-workers',
+    requirement: 'FR-RPT-012',
+    name: 'Top-Rated Domestic Workers',
+    category: 'Retention',
+    cadence: 'All-Time Ranked (Paginated)',
+    defaultDescription: 'Domestic workers ranked by average consumer rating, count of ratings, and verified status.',
+    supportedFilters: { dateRange: false, interval: false, minRatings: true },
+  },
+  'repeat-customers': {
+    slug: 'repeat-customers',
+    requirement: 'FR-RPT-012',
+    name: 'Repeat Customers & Retention',
+    category: 'Retention',
+    cadence: 'Customer Cohort (Paginated)',
+    defaultDescription: 'Customers who created more than one booking in the period (most bookings first).',
+    supportedFilters: { dateRange: true, interval: false, minRatings: false },
+  },
+};
+
+export function resolveReportSlug(id: string): string {
+  const trimmed = id.trim().toLowerCase();
+  if (trimmed.includes('/')) return trimmed.split('/').pop() || trimmed;
+  if (trimmed === 'rep-01') return 'new-customers';
+  if (trimmed === 'rep-02') return 'worker-registrations';
+  if (trimmed === 'rep-03') return 'booking-funnel';
+  if (trimmed === 'rep-04') return 'demand-by-category';
+  if (trimmed === 'rep-05') return 'demand-by-area';
+  if (trimmed === 'rep-06') return 'worker-utilization';
+  if (trimmed === 'rep-07') return 'interview-conversion';
+  if (trimmed === 'rep-08') return 'cancellation-rate';
+  if (trimmed === 'rep-09') return 'replacement-rate';
+  if (trimmed === 'rep-10') return 'payment-collections';
+  if (trimmed === 'rep-11') return 'support-tickets';
+  if (trimmed === 'rep-12' || trimmed === 'fr-rpt-012') return 'top-rated-workers-repeat-customers';
+  return trimmed;
+}
+
+export function formatReportTitle(slug: string): string {
+  const meta = REPORT_DEFINITIONS[slug];
+  if (meta) return meta.name;
+  return slug
+    .split('-')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+export function buildStandardDateRange(criteria?: ReportFilterCriteria): { from: string; to: string } {
+  const now = new Date();
+  const to = criteria?.to || now.toISOString().slice(0, 10);
+
+  if (criteria?.from) {
+    return { from: criteria.from, to };
   }
 
-  async getReportById(id: string): Promise<ReportItem | null> {
-    const rep = this.reports.find((r) => r.id === id);
-    return rep ? JSON.parse(JSON.stringify(rep)) : null;
+  if (criteria?.period === 'LAST_7_DAYS') {
+    const fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { from: fromDate.toISOString().slice(0, 10), to };
   }
 
-  async generateExport(reportId: string, format: 'CSV' | 'PDF'): Promise<ExportResult> {
-    const report = this.reports.find((r) => r.id === reportId);
-    if (!report) {
-      throw new Error(`Report ${reportId} not found.`);
-    }
-
-    let csvContent = '';
-    if (format === 'CSV') {
-      const headers = report.previewColumns.join(',');
-      const rows = report.previewRows.map((row) =>
-        report.previewColumns.map((col) => `"${row[col] || ''}"`).join(',')
-      );
-      csvContent = [headers, ...rows].join('\n');
-    }
-
-    return {
-      fileName: `SevaNest_${report.id}_Export.${format.toLowerCase()}`,
-      csvContent,
-      format,
-      rowCount: report.previewRows.length,
-      generatedAt: 'Recent Export',
-    };
+  if (criteria?.period === 'LAST_30_DAYS') {
+    const fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    return { from: fromDate.toISOString().slice(0, 10), to };
   }
+
+  if (criteria?.period === 'LAST_90_DAYS') {
+    const fromDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return { from: fromDate.toISOString().slice(0, 10), to };
+  }
+
+  // Default to year-to-date starting from 2026-01-01 to capture all test data
+  return { from: '2026-01-01', to };
+}
+
+export function generateExcelXml(
+  sheetName: string,
+  columns: string[],
+  rows: Array<Record<string, string | number>>
+): string {
+  const sanitize = (val: string | number | undefined | null) => {
+    if (val === undefined || val === null) return '';
+    return String(val)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+  };
+
+  const xmlHeader = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+ <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+  <Title>${sanitize(sheetName)}</Title>
+  <Created>${new Date().toISOString()}</Created>
+ </DocumentProperties>
+ <Styles>
+  <Style ss:ID="Default" ss:Name="Normal">
+   <Alignment ss:Vertical="Bottom"/>
+   <Borders/>
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#000000"/>
+   <Interior/>
+   <NumberFormat/>
+   <Protection/>
+  </Style>
+  <Style ss:ID="HeaderStyle">
+   <Font ss:FontName="Calibri" x:Family="Swiss" ss:Size="11" ss:Color="#FFFFFF" ss:Bold="1"/>
+   <Interior ss:Color="#1E3A8A" ss:Pattern="Solid"/>
+   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="DataCell">
+   <Alignment ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+  <Style ss:ID="NumberCell">
+   <Alignment ss:Horizontal="Right" ss:Vertical="Center"/>
+   <Borders>
+    <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+    <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E2E8F0"/>
+   </Borders>
+  </Style>
+ </Styles>
+ <Worksheet ss:Name="${sanitize(sheetName).slice(0, 31)}">
+  <Table>
+`;
+
+  const headerCells = columns
+    .map((col) => `    <Cell ss:StyleID="HeaderStyle"><Data ss:Type="String">${sanitize(col)}</Data></Cell>`)
+    .join('\n');
+  const headerRow = `   <Row ss:Height="24">\n${headerCells}\n   </Row>\n`;
+
+  const dataRows = rows
+    .map((row) => {
+      const cells = columns
+        .map((col) => {
+          const val = row[col];
+          const isNum =
+            typeof val === 'number' ||
+            (typeof val === 'string' &&
+              val.trim() !== '' &&
+              !isNaN(Number(val)) &&
+              !val.startsWith('0') &&
+              !val.includes('-'));
+          if (isNum) {
+            return `    <Cell ss:StyleID="NumberCell"><Data ss:Type="Number">${val}</Data></Cell>`;
+          }
+          return `    <Cell ss:StyleID="DataCell"><Data ss:Type="String">${sanitize(val)}</Data></Cell>`;
+        })
+        .join('\n');
+      return `   <Row ss:Height="20">\n${cells}\n   </Row>`;
+    })
+    .join('\n');
+
+  const xmlFooter = `
+  </Table>
+ </Worksheet>
+</Workbook>`;
+
+  return xmlHeader + headerRow + dataRows + xmlFooter;
+}
+
+interface ParsedReportPayload {
+  metricsSummary: ReportMetricSummary[];
+  previewColumns: string[];
+  previewRows: Array<Record<string, string | number>>;
+}
+
+export function parseBackendReportData(slug: string, rawData: unknown): ParsedReportPayload {
+  const metricsSummary: ReportMetricSummary[] = [];
+  let previewColumns: string[] = [];
+  let previewRows: Array<Record<string, string | number>> = [];
+
+  if (!rawData) {
+    return { metricsSummary, previewColumns: ['Metric', 'Value'], previewRows: [] };
+  }
+
+  switch (slug) {
+    case 'new-customers': {
+      if (Array.isArray(rawData)) {
+        previewColumns = ['Date Bucket', 'Count'];
+        previewRows = rawData.map((d: { date?: string; period?: string; count?: number }) => ({
+          'Date Bucket': d.date || d.period || '',
+          Count: Number(d.count || 0),
+        }));
+        const totalCount = previewRows.reduce((sum, r) => sum + Number(r.Count || 0), 0);
+        metricsSummary.push({ label: 'Total New Customers', value: totalCount });
+        break;
+      }
+
+      const data = rawData as { interval?: string; total?: number; series?: Array<{ period: string; count: number }> };
+      const total = Number(data?.total ?? 0);
+      metricsSummary.push({ label: 'Total New Customers', value: total });
+      metricsSummary.push({ label: 'Cadence Interval', value: (data?.interval || 'month').toUpperCase() });
+      metricsSummary.push({ label: 'Recorded Periods', value: data?.series?.length || 0 });
+
+      previewColumns = ['Reporting Period', 'New Customer Accounts', 'Share of Total %'];
+      if (Array.isArray(data?.series)) {
+        previewRows = data.series.map((s) => {
+          const count = Number(s.count || 0);
+          const share = total > 0 ? `${((count / total) * 100).toFixed(1)}%` : '0.0%';
+          return {
+            'Reporting Period': s.period,
+            'New Customer Accounts': count,
+            'Share of Total %': share,
+          };
+        });
+      }
+      break;
+    }
+
+    case 'worker-registrations': {
+      const data = rawData as {
+        interval?: string;
+        registered?: number;
+        verified?: number;
+        verificationConversion?: number;
+        series?: Array<{ period: string; registered: number; verified: number; verificationConversion: number }>;
+      };
+      const reg = Number(data?.registered ?? 0);
+      const ver = Number(data?.verified ?? 0);
+      const conv = Number(data?.verificationConversion ?? (reg > 0 ? ver / reg : 0));
+
+      metricsSummary.push({ label: 'Total Registrations', value: reg });
+      metricsSummary.push({ label: 'Fully Verified Today', value: ver });
+      metricsSummary.push({ label: 'Overall Conversion', value: `${(conv * 100).toFixed(1)}%`, isPositive: conv >= 0.5 });
+
+      previewColumns = ['Period', 'Registered Workers', 'Fully Verified Today', 'Conversion Rate %'];
+      if (Array.isArray(data?.series)) {
+        previewRows = data.series.map((s) => ({
+          Period: s.period,
+          'Registered Workers': Number(s.registered || 0),
+          'Fully Verified Today': Number(s.verified || 0),
+          'Conversion Rate %': `${(Number(s.verificationConversion || 0) * 100).toFixed(1)}%`,
+        }));
+      }
+      break;
+    }
+
+    case 'booking-funnel': {
+      const data = rawData as {
+        interval?: string;
+        requests?: number;
+        confirmed?: number;
+        confirmationRate?: number;
+        series?: Array<{ period: string; requests: number; confirmed: number; confirmationRate: number }>;
+      };
+      const reqs = Number(data?.requests ?? 0);
+      const conf = Number(data?.confirmed ?? 0);
+      const rate = Number(data?.confirmationRate ?? (reqs > 0 ? conf / reqs : 0));
+
+      metricsSummary.push({ label: 'Booking Requests', value: reqs });
+      metricsSummary.push({ label: 'Reached Confirmed', value: conf });
+      metricsSummary.push({ label: 'Net Confirmation Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate >= 0.2 });
+
+      previewColumns = ['Period', 'Booking Requests Created', 'Reached Confirmed', 'Confirmation Rate %'];
+      if (Array.isArray(data?.series)) {
+        previewRows = data.series.map((s) => ({
+          Period: s.period,
+          'Booking Requests Created': Number(s.requests || 0),
+          'Reached Confirmed': Number(s.confirmed || 0),
+          'Confirmation Rate %': `${(Number(s.confirmationRate || 0) * 100).toFixed(1)}%`,
+        }));
+      }
+      break;
+    }
+
+    case 'demand-by-category': {
+      const data = rawData as { total?: number; categories?: Array<{ categoryId: string; code: string; name: string; requests: number }> };
+      const total = Number(data?.total ?? 0);
+      metricsSummary.push({ label: 'Total Demand Requests', value: total });
+      metricsSummary.push({ label: 'Configured Categories', value: data?.categories?.length || 0 });
+
+      previewColumns = ['Service Category', 'Category Code', 'Booking Requests', 'Share of Total %'];
+      if (Array.isArray(data?.categories)) {
+        previewRows = data.categories.map((c) => {
+          const reqs = Number(c.requests || 0);
+          const share = total > 0 ? `${((reqs / total) * 100).toFixed(1)}%` : '0.0%';
+          return {
+            'Service Category': c.name,
+            'Category Code': c.code,
+            'Booking Requests': reqs,
+            'Share of Total %': share,
+          };
+        });
+      }
+      break;
+    }
+
+    case 'demand-by-area': {
+      const areas = Array.isArray(rawData) ? (rawData as Array<{ areaId: string; code: string; name: string; requests: number }>) : [];
+      const total = areas.reduce((sum, a) => sum + Number(a.requests || 0), 0);
+      metricsSummary.push({ label: 'Total Area Requests', value: total });
+      metricsSummary.push({ label: 'Active Clusters', value: areas.length });
+
+      previewColumns = ['Geographic Service Area', 'Area Code', 'Booking Requests', 'Share of Demand %'];
+      previewRows = areas.map((a) => {
+        const reqs = Number(a.requests || 0);
+        const share = total > 0 ? `${((reqs / total) * 100).toFixed(1)}%` : '0.0%';
+        return {
+          'Geographic Service Area': a.name,
+          'Area Code': a.code,
+          'Booking Requests': reqs,
+          'Share of Demand %': share,
+        };
+      });
+      break;
+    }
+
+    case 'worker-utilization': {
+      const data = rawData as { verifiedWorkers?: number; workersWithActiveBooking?: number; utilization?: number };
+      const verified = Number(data?.verifiedWorkers ?? 0);
+      const active = Number(data?.workersWithActiveBooking ?? 0);
+      const util = Number(data?.utilization ?? (verified > 0 ? active / verified : 0));
+
+      metricsSummary.push({ label: 'Fully Verified Worker Pool', value: verified });
+      metricsSummary.push({ label: 'Workers with Active Booking', value: active });
+      metricsSummary.push({ label: 'Current Utilization Rate', value: `${(util * 100).toFixed(1)}%`, isPositive: util >= 0.5 });
+      metricsSummary.push({ label: 'Available Standby Pool', value: Math.max(0, verified - active) });
+
+      previewColumns = ['Operational Telemetry Metric', 'Current Snapshot Value'];
+      previewRows = [
+        { 'Operational Telemetry Metric': 'Verified Workers (Available Capacity)', 'Current Snapshot Value': verified },
+        { 'Operational Telemetry Metric': 'Workers with Active Engagement', 'Current Snapshot Value': active },
+        { 'Operational Telemetry Metric': 'Standby Pool Awaiting Placement', 'Current Snapshot Value': Math.max(0, verified - active) },
+        { 'Operational Telemetry Metric': 'Workforce Utilization Ratio', 'Current Snapshot Value': `${(util * 100).toFixed(2)}%` },
+      ];
+      break;
+    }
+
+    case 'interview-conversion': {
+      const data = rawData as { interviewsHeld?: number; confirmed?: number; conversion?: number };
+      const held = Number(data?.interviewsHeld ?? 0);
+      const conf = Number(data?.confirmed ?? 0);
+      const conv = Number(data?.conversion ?? (held > 0 ? conf / held : 0));
+
+      metricsSummary.push({ label: 'Interviews & Trials Held', value: held });
+      metricsSummary.push({ label: 'Confirmed Placements', value: conf });
+      metricsSummary.push({ label: 'Conversion Ratio', value: `${(conv * 100).toFixed(1)}%`, isPositive: conv >= 0.6 });
+
+      previewColumns = ['Metric Indicator', 'Cohort Measurement'];
+      previewRows = [
+        { 'Metric Indicator': 'Interviews & Candidate Trials Completed', 'Cohort Measurement': held },
+        { 'Metric Indicator': 'Job Confirmations Accepted', 'Cohort Measurement': conf },
+        { 'Metric Indicator': 'Placement Realization Ratio', 'Cohort Measurement': `${(conv * 100).toFixed(2)}%` },
+      ];
+      break;
+    }
+
+    case 'cancellation-rate': {
+      const data = rawData as { totalBookings?: number; cancelled?: number; cancellationRate?: number };
+      const total = Number(data?.totalBookings ?? 0);
+      const cancelled = Number(data?.cancelled ?? 0);
+      const rate = Number(data?.cancellationRate ?? (total > 0 ? cancelled / total : 0));
+
+      metricsSummary.push({ label: 'Total Created Bookings', value: total });
+      metricsSummary.push({ label: 'Cancelled Bookings', value: cancelled });
+      metricsSummary.push({ label: 'Cancellation Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate <= 0.15 });
+
+      previewColumns = ['Booking Cohort Metric', 'Observed Value'];
+      previewRows = [
+        { 'Booking Cohort Metric': 'Total Booking Volume in Period', 'Observed Value': total },
+        { 'Booking Cohort Metric': 'Cancelled Bookings Count', 'Observed Value': cancelled },
+        { 'Booking Cohort Metric': 'Cancellation Proportion %', 'Observed Value': `${(rate * 100).toFixed(2)}%` },
+      ];
+      break;
+    }
+
+    case 'replacement-rate': {
+      const data = rawData as { activeBookings?: number; replacementRequests?: number; replacementRate?: number };
+      const active = Number(data?.activeBookings ?? 0);
+      const replacements = Number(data?.replacementRequests ?? 0);
+      const rate = Number(data?.replacementRate ?? (active > 0 ? replacements / active : 0));
+
+      metricsSummary.push({ label: 'Active Placements Cohort', value: active });
+      metricsSummary.push({ label: 'Replacement Requests Raised', value: replacements });
+      metricsSummary.push({ label: 'Replacement Incident Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate <= 0.1 });
+
+      previewColumns = ['Placement Lifecycle Metric', 'Observed Measurement'];
+      previewRows = [
+        { 'Placement Lifecycle Metric': 'Active Placements in Scope', 'Observed Measurement': active },
+        { 'Placement Lifecycle Metric': 'Customer Replacement Requests', 'Observed Measurement': replacements },
+        { 'Placement Lifecycle Metric': 'Replacement Request Ratio %', 'Observed Measurement': `${(rate * 100).toFixed(2)}%` },
+      ];
+      break;
+    }
+
+    case 'payment-collections': {
+      const data = rawData as {
+        interval?: string;
+        totalsByFeeType?: Record<string, { payments: number; grossMinor: number; refundedMinor: number }>;
+        series?: Array<{ period: string; feeType: string; count: number; grossMinor: number; refundedMinor: number }>;
+      };
+
+      let totalGrossMinor = 0;
+      let totalRefundedMinor = 0;
+      let totalPayments = 0;
+
+      if (data?.totalsByFeeType) {
+        for (const stats of Object.values(data.totalsByFeeType)) {
+          totalGrossMinor += Number(stats.grossMinor || 0);
+          totalRefundedMinor += Number(stats.refundedMinor || 0);
+          totalPayments += Number(stats.payments || 0);
+        }
+      }
+
+      metricsSummary.push({ label: 'Gross Settled Collections', value: `₹${(totalGrossMinor / 100).toLocaleString('en-IN')}` });
+      metricsSummary.push({ label: 'Refunded Realizations', value: `₹${(totalRefundedMinor / 100).toLocaleString('en-IN')}` });
+      metricsSummary.push({ label: 'Total Invoices Recorded', value: totalPayments });
+
+      previewColumns = ['Period', 'Fee Classification', 'Payments Count', 'Gross Collections (₹)', 'Refunded Amount (₹)'];
+      if (Array.isArray(data?.series)) {
+        previewRows = data.series.map((s) => ({
+          Period: s.period,
+          'Fee Classification': s.feeType,
+          'Payments Count': Number(s.count || 0),
+          'Gross Collections (₹)': `₹${(Number(s.grossMinor || 0) / 100).toLocaleString('en-IN')}`,
+          'Refunded Amount (₹)': `₹${(Number(s.refundedMinor || 0) / 100).toLocaleString('en-IN')}`,
+        }));
+      }
+      break;
+    }
+
+    case 'support-tickets': {
+      const data = rawData as {
+        created?: number;
+        closed?: number;
+        averageResolutionSeconds?: number;
+        byStatus?: Array<{ status: string; count: number }>;
+      };
+
+      const created = Number(data?.created ?? 0);
+      const closed = Number(data?.closed ?? 0);
+      const avgSec = Number(data?.averageResolutionSeconds ?? 0);
+      const avgHours = avgSec > 0 ? `${(avgSec / 3600).toFixed(1)} hrs` : 'N/A';
+
+      metricsSummary.push({ label: 'Tickets Logged', value: created });
+      metricsSummary.push({ label: 'Closed & Resolved', value: closed });
+      metricsSummary.push({ label: 'Avg Resolution Turnaround', value: avgHours });
+
+      previewColumns = ['Ticket Status', 'Ticket Count', 'Share of Volume %'];
+      if (Array.isArray(data?.byStatus)) {
+        previewRows = data.byStatus.map((b) => {
+          const count = Number(b.count || 0);
+          const share = created > 0 ? `${((count / created) * 100).toFixed(1)}%` : '0.0%';
+          return {
+            'Ticket Status': b.status,
+            'Ticket Count': count,
+            'Share of Volume %': share,
+          };
+        });
+      }
+      break;
+    }
+
+    case 'top-rated-workers': {
+      const workers = Array.isArray(rawData) ? (rawData as Array<{ workerId: string; name: string; ratingCount: number; averageRating: number }>) : [];
+      metricsSummary.push({ label: 'Ranked Workers', value: workers.length });
+      metricsSummary.push({ label: 'Top Rating', value: workers.length > 0 ? `${workers[0].averageRating.toFixed(1)} ★` : 'N/A' });
+      const totalRatings = workers.reduce((s, w) => s + Number(w.ratingCount || 0), 0);
+      metricsSummary.push({ label: 'Consumer Reviews Evaluated', value: totalRatings });
+
+      previewColumns = ['Worker Name', 'Worker Reference ID', 'Ratings Count', 'Average Rating'];
+      previewRows = workers.map((w) => ({
+        'Worker Name': w.name,
+        'Worker Reference ID': w.workerId,
+        'Ratings Count': Number(w.ratingCount || 0),
+        'Average Rating': `${Number(w.averageRating || 0).toFixed(1)} ★`,
+      }));
+      break;
+    }
+
+    case 'repeat-customers': {
+      const customers = Array.isArray(rawData) ? (rawData as Array<{ customerUserId: string; name: string; bookings: number }>) : [];
+      metricsSummary.push({ label: 'Repeat Customers', value: customers.length });
+      metricsSummary.push({ label: 'Top Repeat Customer', value: customers.length > 0 ? `${customers[0].name} (${customers[0].bookings})` : 'N/A' });
+      const totalBookings = customers.reduce((s, c) => s + Number(c.bookings || 0), 0);
+      metricsSummary.push({ label: 'Total Repeat Bookings', value: totalBookings });
+
+      previewColumns = ['Customer Name', 'Customer User ID', 'Completed Bookings', 'Retention Tier'];
+      previewRows = customers.map((c) => {
+        const count = Number(c.bookings || 0);
+        return {
+          'Customer Name': c.name,
+          'Customer User ID': c.customerUserId,
+          'Completed Bookings': count,
+          'Retention Tier': count >= 5 ? 'High Frequency Booker' : 'Repeat Booker',
+        };
+      });
+      break;
+    }
+
+    default: {
+      previewColumns = ['Metric', 'Value'];
+      if (typeof rawData === 'object' && rawData !== null) {
+        for (const [k, v] of Object.entries(rawData as Record<string, unknown>)) {
+          if (typeof v !== 'object') {
+            previewRows.push({ Metric: formatReportTitle(k), Value: String(v) });
+            metricsSummary.push({ label: formatReportTitle(k), value: String(v) });
+          }
+        }
+      }
+      break;
+    }
+  }
+
+  return { metricsSummary, previewColumns, previewRows };
 }
 
 export class RealReportRepository implements IReportRepository {
   async getReports(category?: ReportCategory, search?: string): Promise<ReportItem[]> {
     try {
-      const res = await httpClient.get<{ success: boolean; data: Record<string, unknown>[] }>('/admin/reports');
-      const catalog = Array.isArray(res.data.data) ? res.data.data : [];
+      const res = await httpClient.get<unknown>('/admin/reports');
+      const catalog = Array.isArray(res.data)
+        ? (res.data as Record<string, unknown>[])
+        : res.data && typeof res.data === 'object' && 'data' in res.data && Array.isArray((res.data as { data: unknown }).data)
+        ? (res.data as { data: Record<string, unknown>[] }).data
+        : [];
 
-      let items: ReportItem[] = catalog.map((raw: Record<string, unknown>) => ({
-        id: String(raw.code || raw.id || 'REP'),
-        name: String(raw.title || raw.name || 'Report'),
-        category: (raw.category as Exclude<ReportCategory, 'ALL'>) || 'Operations',
-        description: String(raw.description || ''),
-        lastRun: String(raw.lastRun || 'Recent Baseline'),
-        metricsSummary: Array.isArray(raw.metricsSummary)
-          ? (raw.metricsSummary as ReportItem['metricsSummary'])
-          : [{ label: 'Data Points', value: String(raw.totalRecords || 'Available') }],
-        previewColumns: Array.isArray(raw.columns) ? (raw.columns as string[]) : ['Metric', 'Value'],
-        previewRows: Array.isArray(raw.previewRows) ? (raw.previewRows as ReportItem['previewRows']) : [],
-      }));
+      // Group by requirement to unify FR-RPT-012 into a single report matching PRD Section 14
+      const itemsMap = new Map<string, ReportItem>();
+
+      for (const raw of catalog) {
+        const slug = String(raw.report || raw.code || raw.id || 'report');
+        const req = String(raw.requirement || 'FR-RPT-000');
+
+        if (req === 'FR-RPT-012') {
+          if (!itemsMap.has('FR-RPT-012')) {
+            const meta = REPORT_DEFINITIONS['top-rated-workers-repeat-customers'];
+            itemsMap.set('FR-RPT-012', {
+              id: 'top-rated-workers-repeat-customers',
+              requirement: 'FR-RPT-012',
+              name: meta.name,
+              category: meta.category,
+              description: meta.defaultDescription,
+              cadence: meta.cadence,
+              notes: [
+                'Combines top-rated worker ranking and repeat customer retention defined in PRD Section 14 bullet 12.',
+                'Top-rated workers: all-time totals ranked by average rating and rating count.',
+                'Repeat customers: customer cohorts who created more than one booking in the selected date range.',
+              ],
+              metricsSummary: [{ label: 'PRD Requirement', value: 'FR-RPT-012' }],
+              previewColumns: ['Metric', 'Value'],
+              previewRows: [],
+              supportedFilters: meta.supportedFilters,
+              subTabs: [
+                { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
+                { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
+              ],
+              activeSubTab: 'top-rated-workers',
+            });
+          }
+          continue;
+        }
+
+        const meta = REPORT_DEFINITIONS[slug] || {
+          slug,
+          requirement: req,
+          name: formatReportTitle(slug),
+          category: 'Operations',
+          cadence: 'Live Telemetry',
+          defaultDescription: String(raw.definition || ''),
+          supportedFilters: { dateRange: true, interval: false, minRatings: false },
+        };
+
+        const notes = Array.isArray(raw.notes) ? (raw.notes as string[]) : [];
+
+        itemsMap.set(slug, {
+          id: slug,
+          requirement: meta.requirement,
+          name: meta.name,
+          category: meta.category,
+          description: String(raw.definition || meta.defaultDescription),
+          cadence: meta.cadence,
+          notes,
+          metricsSummary: [{ label: 'PRD Requirement', value: meta.requirement }],
+          previewColumns: ['Metric', 'Value'],
+          previewRows: [],
+          supportedFilters: meta.supportedFilters,
+        });
+      }
+
+      let items: ReportItem[] = Array.from(itemsMap.values());
 
       if (category && category !== 'ALL') {
         items = items.filter((r) => r.category === category);
       }
-      if (search) {
-        const q = search.toLowerCase();
+      if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
         items = items.filter(
-          (r) => r.name.toLowerCase().includes(q) || r.description.toLowerCase().includes(q)
+          (r) =>
+            r.name.toLowerCase().includes(q) ||
+            r.description.toLowerCase().includes(q) ||
+            r.id.toLowerCase().includes(q) ||
+            r.requirement.toLowerCase().includes(q)
         );
       }
 
@@ -319,47 +760,96 @@ export class RealReportRepository implements IReportRepository {
 
   async getReportById(id: string, criteria?: ReportFilterCriteria): Promise<ReportItem | null> {
     try {
-      const from = '2026-01-01';
-      const to = '2026-12-31';
-      const params: Record<string, unknown> = {
-        from,
-        to,
-        interval: criteria?.period === 'LAST_7_DAYS' ? 'day' : 'month',
+      const rawSlug = resolveReportSlug(id);
+      let actualEndpointSlug = rawSlug;
+      let isUnified12 = false;
+      let activeSubTab = criteria?.subTab || 'top-rated-workers';
+
+      if (rawSlug === 'top-rated-workers-repeat-customers' || rawSlug === 'fr-rpt-012') {
+        isUnified12 = true;
+        actualEndpointSlug = activeSubTab === 'repeat-customers' ? 'repeat-customers' : 'top-rated-workers';
+      }
+
+      const meta = REPORT_DEFINITIONS[actualEndpointSlug] || REPORT_DEFINITIONS[rawSlug] || {
+        slug: actualEndpointSlug,
+        requirement: 'FR-RPT-000',
+        name: formatReportTitle(actualEndpointSlug),
+        category: 'Operations',
+        cadence: 'Live Telemetry',
+        defaultDescription: 'Authoritative telemetry report calculated by backend services.',
+        supportedFilters: { dateRange: true, interval: false, minRatings: false },
       };
 
-      // If id matches a specific report endpoint code, query that endpoint
-      const endpoint =
-        id.startsWith('REP-01') || id.toLowerCase().includes('customer')
-          ? '/admin/reports/new-customers'
-          : id.startsWith('REP-02') || id.toLowerCase().includes('worker')
-          ? '/admin/reports/worker-registrations'
-          : id.startsWith('REP-04') || id.toLowerCase().includes('funnel')
-          ? '/admin/reports/booking-funnel'
-          : id.toLowerCase().includes('payment') || id.toLowerCase().includes('collection')
-          ? '/admin/reports/payment-collections'
-          : id.toLowerCase().includes('support') || id.toLowerCase().includes('ticket')
-          ? '/admin/reports/support-tickets'
-          : '/admin/reports';
+      const dateRange = buildStandardDateRange(criteria);
+      const params: Record<string, unknown> = {};
 
-      const res = await httpClient.get<{ success: boolean; data: Record<string, unknown> | Record<string, unknown>[] }>(endpoint, { params });
-      const raw = res.data.data;
+      if (meta.supportedFilters.dateRange) {
+        params.from = dateRange.from;
+        params.to = dateRange.to;
+      }
+      if (meta.supportedFilters.interval) {
+        params.interval = criteria?.interval || 'month';
+      }
+      if (meta.supportedFilters.minRatings && criteria?.minRatings !== undefined) {
+        params.minRatings = criteria.minRatings;
+      }
+      if (criteria?.page) params.page = criteria.page;
+      if (criteria?.limit) params.limit = criteria.limit;
+
+      const endpoint = `/admin/reports/${encodeURIComponent(actualEndpointSlug)}`;
+      const res = await httpClient.get<Record<string, unknown>>(endpoint, { params });
+      const envelope = res.data;
+      const rawData = envelope?.data !== undefined ? envelope.data : envelope;
+
+      const definition = typeof envelope?.definition === 'string'
+        ? envelope.definition
+        : meta.defaultDescription;
+      const notes = Array.isArray(envelope?.notes) ? (envelope.notes as string[]) : [];
+
+      const parsed = parseBackendReportData(actualEndpointSlug, rawData);
+
+      if (isUnified12) {
+        const unifiedMeta = REPORT_DEFINITIONS['top-rated-workers-repeat-customers'];
+        return {
+          id: 'top-rated-workers-repeat-customers',
+          requirement: 'FR-RPT-012',
+          name: unifiedMeta.name,
+          category: unifiedMeta.category,
+          description: definition || unifiedMeta.defaultDescription,
+          cadence: unifiedMeta.cadence,
+          notes,
+          metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
+          previewColumns: parsed.previewColumns,
+          previewRows: parsed.previewRows,
+          from: (envelope?.from as string) || (params.from as string) || null,
+          to: (envelope?.to as string) || (params.to as string) || null,
+          interval: (params.interval as 'day' | 'week' | 'month') || undefined,
+          supportedFilters: actualEndpointSlug === 'top-rated-workers'
+            ? { dateRange: false, interval: false, minRatings: true }
+            : { dateRange: true, interval: false, minRatings: false },
+          subTabs: [
+            { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
+            { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
+          ],
+          activeSubTab,
+        };
+      }
 
       return {
-        id,
-        name: (!Array.isArray(raw) && raw?.title) ? String(raw.title) : id,
-        category: 'Operations',
-        description: (!Array.isArray(raw) && raw?.description) ? String(raw.description) : 'Detailed operational report breakdown',
-        lastRun: 'Live Data',
-        metricsSummary: [
-          { label: 'Data Points', value: Array.isArray(raw) ? raw.length : 1 },
-        ],
-        previewColumns: ['Date Bucket', 'Count'],
-        previewRows: Array.isArray(raw)
-          ? raw.map((r: Record<string, unknown>) => ({
-              'Date Bucket': String(r.bucket || r.date || 'Period'),
-              Count: Number(r.count || r.value || 0),
-            }))
-          : [],
+        id: actualEndpointSlug,
+        requirement: meta.requirement,
+        name: meta.name,
+        category: meta.category,
+        description: definition,
+        cadence: meta.cadence,
+        notes,
+        metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
+        previewColumns: parsed.previewColumns,
+        previewRows: parsed.previewRows,
+        from: (envelope?.from as string) || (params.from as string) || null,
+        to: (envelope?.to as string) || (params.to as string) || null,
+        interval: (params.interval as 'day' | 'week' | 'month') || undefined,
+        supportedFilters: meta.supportedFilters,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -368,34 +858,298 @@ export class RealReportRepository implements IReportRepository {
 
   async generateExport(
     reportId: string,
-    format: 'CSV' | 'PDF',
+    format: 'CSV' | 'XLSX' | 'PDF' = 'CSV',
     criteria?: ReportFilterCriteria
   ): Promise<ExportResult> {
     try {
-      const report = await this.getReportById(reportId, criteria);
-      if (!report) {
-        throw new Error(`Report ${reportId} not found.`);
+      const rep = await this.getReportById(reportId, criteria);
+      const rows = rep?.previewRows || [];
+      const columns = rep?.previewColumns || (rows.length > 0 ? Object.keys(rows[0]) : ['Metric', 'Value']);
+      const activeSubTab = criteria?.subTab || rep?.activeSubTab;
+
+      if (format === 'XLSX') {
+        const fileName = rep
+          ? getReportCanonicalFilename(rep, 'xlsx', activeSubTab)
+          : `FR-RPT_${reportId}.xlsx`;
+        const xlsxBuffer = rep
+          ? await generateProfessionalExcel(rep, criteria)
+          : new Uint8Array();
+
+        return {
+          fileName,
+          xlsxBuffer,
+          format: 'XLSX',
+          rowCount: rows.length,
+          generatedAt: new Date().toISOString(),
+        };
       }
 
-      let csvContent = '';
-      if (format === 'CSV') {
-        const headers = report.previewColumns.join(',');
-        const rows = report.previewRows.map((row) =>
-          report.previewColumns.map((col) => `"${row[col] ?? ''}"`).join(',')
-        );
-        csvContent = [headers, ...rows].join('\n');
-      }
+      // Default CSV export
+      const fileName = rep
+        ? getReportCanonicalFilename(rep, 'csv', activeSubTab)
+        : `FR-RPT_${reportId}.csv`;
+      const csvContent = generateCleanCsv(columns, rows);
 
       return {
-        fileName: `SevaNest_${report.id}_Export.${format.toLowerCase()}`,
+        fileName,
         csvContent,
-        format,
-        rowCount: report.previewRows.length,
+        format: 'CSV',
+        rowCount: rows.length,
         generatedAt: new Date().toISOString(),
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
+  }
+}
+
+export class MockReportRepository implements IReportRepository {
+  private reports: ReportItem[] = [
+    {
+      id: 'new-customers',
+      requirement: 'FR-RPT-001',
+      name: 'New Customer Acquisition by Period & Locality',
+      category: 'Growth',
+      description: 'Customer accounts created per day/week/month (registers on first OTP verification).',
+      cadence: 'Periodic (Daily / Weekly / Monthly)',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Total New Customers', value: 12 }],
+      previewColumns: ['Date Bucket', 'Count'],
+      previewRows: [
+        { 'Date Bucket': '2026-10-01', Count: 5 },
+        { 'Date Bucket': '2026-10-15', Count: 7 },
+      ],
+      supportedFilters: { dateRange: true, interval: true, minRatings: false },
+    },
+    {
+      id: 'worker-registrations',
+      requirement: 'FR-RPT-002',
+      name: 'Worker Registration & Onboarding Drop-off Funnel',
+      category: 'Workforce',
+      description: 'Worker profiles created in the period, and how many are fully verified today.',
+      cadence: 'Periodic (Daily / Weekly / Monthly)',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Total Registrations', value: 35 }],
+      previewColumns: ['Period', 'Registered Workers', 'Fully Verified Today', 'Conversion Rate %'],
+      previewRows: [{ Period: '2026-10', 'Registered Workers': 35, 'Fully Verified Today': 24, 'Conversion Rate %': '68.6%' }],
+      supportedFilters: { dateRange: true, interval: true, minRatings: false },
+    },
+    {
+      id: 'booking-funnel',
+      requirement: 'FR-RPT-003',
+      name: 'Booking Requests vs Confirmed Bookings',
+      category: 'Marketplace',
+      description: 'Booking requests created in the period, and how many reached confirmed status.',
+      cadence: 'Periodic (Daily / Weekly / Monthly)',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Booking Requests', value: 48 }],
+      previewColumns: ['Period', 'Booking Requests Created', 'Reached Confirmed', 'Confirmation Rate %'],
+      previewRows: [{ Period: '2026-10', 'Booking Requests Created': 48, 'Reached Confirmed': 32, 'Confirmation Rate %': '66.7%' }],
+      supportedFilters: { dateRange: true, interval: true, minRatings: false },
+    },
+    {
+      id: 'demand-by-category',
+      requirement: 'FR-RPT-004',
+      name: 'Category-Wise Demand Distribution',
+      category: 'Marketplace',
+      description: 'Booking requests created in the period, grouped across all configured service categories.',
+      cadence: 'Monthly / Cohort Demand',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Total Demand Requests', value: 48 }],
+      previewColumns: ['Service Category', 'Category Code', 'Booking Requests', 'Share of Total %'],
+      previewRows: [{ 'Service Category': 'House Maid', 'Category Code': 'HOUSE_MAID', 'Booking Requests': 28, 'Share of Total %': '58.3%' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: false },
+    },
+    {
+      id: 'demand-by-area',
+      requirement: 'FR-RPT-005',
+      name: 'Area-Wise Demand Distribution',
+      category: 'Marketplace',
+      description: 'Booking requests created in the period, grouped by service area clusters (busiest first).',
+      cadence: 'Geographic Cohort (Paginated)',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Total Area Requests', value: 48 }],
+      previewColumns: ['Geographic Service Area', 'Area Code', 'Booking Requests', 'Share of Demand %'],
+      previewRows: [{ 'Geographic Service Area': 'Madhapur', 'Area Code': 'HYD_MADHAPUR', 'Booking Requests': 22, 'Share of Demand %': '45.8%' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: false },
+    },
+    {
+      id: 'worker-utilization',
+      requirement: 'FR-RPT-006',
+      name: 'Domestic Worker Utilization Snapshot',
+      category: 'Workforce',
+      description: 'Share of fully verified, active, submitted workers holding an active booking right now.',
+      cadence: 'Point-in-Time Snapshot',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Fully Verified Worker Pool', value: 24 }],
+      previewColumns: ['Operational Telemetry Metric', 'Current Snapshot Value'],
+      previewRows: [{ 'Operational Telemetry Metric': 'Workforce Utilization Ratio', 'Current Snapshot Value': '8.33%' }],
+      supportedFilters: { dateRange: false, interval: false, minRatings: false },
+    },
+    {
+      id: 'interview-conversion',
+      requirement: 'FR-RPT-007',
+      name: 'Interview-to-Confirmation Conversion',
+      category: 'Operations',
+      description: 'Of bookings that completed an interview/trial, the share that reached confirmed.',
+      cadence: 'Cohort Conversion Ratio',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Interviews & Trials Held', value: 30 }],
+      previewColumns: ['Metric Indicator', 'Cohort Measurement'],
+      previewRows: [{ 'Metric Indicator': 'Placement Realization Ratio', 'Cohort Measurement': '73.33%' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: false },
+    },
+    {
+      id: 'cancellation-rate',
+      requirement: 'FR-RPT-008',
+      name: 'Booking Cancellation Rate',
+      category: 'Operations',
+      description: 'Bookings created in the period that are cancelled now, divided by all bookings created.',
+      cadence: 'Cohort Cancellation Ratio',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Total Created Bookings', value: 48 }],
+      previewColumns: ['Booking Cohort Metric', 'Observed Value'],
+      previewRows: [{ 'Booking Cohort Metric': 'Cancellation Proportion %', 'Observed Value': '6.25%' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: false },
+    },
+    {
+      id: 'replacement-rate',
+      requirement: 'FR-RPT-009',
+      name: 'Worker Replacement Rate',
+      category: 'Operations',
+      description: 'Replacement requests raised for bookings created in the period that reached active status.',
+      cadence: 'Active Placements Cohort',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Active Placements Cohort', value: 20 }],
+      previewColumns: ['Placement Lifecycle Metric', 'Observed Measurement'],
+      previewRows: [{ 'Placement Lifecycle Metric': 'Replacement Request Ratio %', 'Observed Measurement': '5.00%' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: false },
+    },
+    {
+      id: 'payment-collections',
+      requirement: 'FR-RPT-010',
+      name: 'Payment Collections & Fee Realization',
+      category: 'Finance',
+      description: 'Gross collections, fee codes, count, and refunds recorded in the period (INR).',
+      cadence: 'Financial Period Ledger',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Gross Settled Collections', value: '₹4,000' }],
+      previewColumns: ['Period', 'Fee Classification', 'Payments Count', 'Gross Collections (₹)', 'Refunded Amount (₹)'],
+      previewRows: [{ Period: '2026-10', 'Fee Classification': 'BOOKING_FEE', 'Payments Count': 8, 'Gross Collections (₹)': '₹4,000', 'Refunded Amount (₹)': '₹0' }],
+      supportedFilters: { dateRange: true, interval: true, minRatings: false },
+    },
+    {
+      id: 'support-tickets',
+      requirement: 'FR-RPT-011',
+      name: 'Support Ticket Volume & Resolution Time',
+      category: 'Support',
+      description: 'Tickets created in the period by status, and average turnaround time to closure.',
+      cadence: 'Service Quality Metric',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Tickets Logged', value: 14 }],
+      previewColumns: ['Ticket Status', 'Ticket Count', 'Share of Volume %'],
+      previewRows: [{ 'Ticket Status': 'RESOLVED', 'Ticket Count': 12, 'Share of Volume %': '85.7%' }],
+      supportedFilters: { dateRange: true, interval: true, minRatings: false },
+    },
+    {
+      id: 'top-rated-workers-repeat-customers',
+      requirement: 'FR-RPT-012',
+      name: 'Top-Rated Workers & Repeat Customers',
+      category: 'Retention',
+      description: 'Workers ranked by average consumer rating, and customer cohorts creating repeat bookings in the period (PRD Section 14).',
+      cadence: 'Quality & Retention Cohort (Paginated)',
+      notes: ['Mock baseline evaluation for unit tests.'],
+      metricsSummary: [{ label: 'Ranked Workers', value: 3 }],
+      previewColumns: ['Worker Name', 'Worker Reference ID', 'Ratings Count', 'Average Rating'],
+      previewRows: [{ 'Worker Name': 'Shabana Begum', 'Worker Reference ID': 'W-001', 'Ratings Count': 1, 'Average Rating': '5.0 ★' }],
+      supportedFilters: { dateRange: true, interval: false, minRatings: true },
+      subTabs: [
+        { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
+        { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
+      ],
+      activeSubTab: 'top-rated-workers',
+    },
+  ];
+
+  async getReports(category?: ReportCategory, search?: string): Promise<ReportItem[]> {
+    let result = this.reports;
+    if (category && category !== 'ALL') {
+      result = result.filter((r) => r.category === category);
+    }
+    if (search && search.trim()) {
+      const q = search.toLowerCase().trim();
+      result = result.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          r.description.toLowerCase().includes(q) ||
+          r.id.toLowerCase().includes(q) ||
+          r.requirement.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }
+
+  async getReportById(id: string, criteria?: ReportFilterCriteria): Promise<ReportItem | null> {
+    const slug = resolveReportSlug(id);
+    const rep = this.reports.find((r) => r.id === slug || r.requirement.toLowerCase() === slug.toLowerCase()) || this.reports[0];
+
+    if (slug === 'top-rated-workers-repeat-customers' && criteria?.subTab === 'repeat-customers') {
+      return {
+        ...rep,
+        activeSubTab: 'repeat-customers',
+        previewColumns: ['Customer Name', 'Customer User ID', 'Completed Bookings', 'Retention Tier'],
+        previewRows: [
+          { 'Customer Name': 'Rohan Rao', 'Customer User ID': 'C-1092', 'Completed Bookings': 3, 'Retention Tier': 'Repeat Booker' },
+        ],
+        metricsSummary: [
+          { label: 'Repeat Customers', value: 1 },
+          { label: 'Total Repeat Bookings', value: 3 },
+        ],
+      };
+    }
+
+    return rep;
+  }
+
+  async generateExport(
+    reportId: string,
+    format: 'CSV' | 'XLSX' | 'PDF' = 'CSV',
+    criteria?: ReportFilterCriteria
+  ): Promise<ExportResult> {
+    const rep = await this.getReportById(reportId, criteria);
+    const rows = rep?.previewRows || [];
+    const columns = rep?.previewColumns || ['Metric', 'Value'];
+    const activeSubTab = criteria?.subTab || rep?.activeSubTab;
+
+    if (format === 'XLSX') {
+      const fileName = rep
+        ? getReportCanonicalFilename(rep, 'xlsx', activeSubTab)
+        : `FR-RPT_${reportId}.xlsx`;
+      const xlsxBuffer = rep
+        ? await generateProfessionalExcel(rep, criteria)
+        : new Uint8Array();
+
+      return {
+        fileName,
+        xlsxBuffer,
+        format: 'XLSX',
+        rowCount: rows.length,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    const fileName = rep
+      ? getReportCanonicalFilename(rep, 'csv', activeSubTab)
+      : `FR-RPT_${reportId}.csv`;
+    const csvContent = generateCleanCsv(columns, rows);
+
+    return {
+      fileName,
+      csvContent,
+      format: 'CSV',
+      rowCount: rows.length,
+      generatedAt: new Date().toISOString(),
+    };
   }
 }
 
@@ -407,4 +1161,4 @@ export const createReportRepository = (
   return useMock ? new MockReportRepository() : new RealReportRepository();
 };
 
-export const reportRepository = createReportRepository();
+export const reportRepository: IReportRepository = createReportRepository();

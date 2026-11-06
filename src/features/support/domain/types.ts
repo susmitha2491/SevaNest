@@ -69,6 +69,7 @@ export interface SupportFilterCriteria {
   slaStatus?: string;
   priority?: string;
   complainantType?: string;
+  assignedToUserId?: string;
   page?: number;
   pageSize?: number;
   sortBy?: 'createdAt' | 'priority' | 'slaStatus';

@@ -202,7 +202,7 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
 
         if (url === '/admin/verification/queue') {
           const status = (config?.params as Record<string, unknown> | undefined)?.status;
-          if (status === 'PENDING_REVIEW') {
+          if (status === 'SUBMITTED' || status === 'PENDING_REVIEW') {
             return {
               data: {
                 success: true,
@@ -233,17 +233,24 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
                     status: 'IN_REVIEW',
                     pendingCheckTypes: ['Driving License'],
                   },
+                  {
+                    id: 'VQ-REAL-03',
+                    workerId: 'W-9903',
+                    workerName: 'Devendra Singh',
+                    category: 'Driver',
+                    status: 'RECHECK_DUE',
+                    pendingCheckTypes: ['Police Clearance Renewal'],
+                  },
+                  {
+                    id: 'VQ-REAL-04',
+                    workerId: 'W-9904',
+                    workerName: 'Pooja Verma',
+                    category: 'Cook',
+                    status: 'RECHECK_DUE',
+                    pendingCheckTypes: ['License Revalidation'],
+                  },
                 ],
                 meta: { totalItems: 8 },
-              },
-            } as never;
-          }
-          if (status === 'RECHECK_DUE') {
-            return {
-              data: {
-                success: true,
-                data: [],
-                meta: { totalItems: 2 },
               },
             } as never;
           }
@@ -253,6 +260,15 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
                 success: true,
                 data: [],
                 meta: { totalItems: 142 },
+              },
+            } as never;
+          }
+          if (status === 'REJECTED') {
+            return {
+              data: {
+                success: true,
+                data: [],
+                meta: { totalItems: 0 },
               },
             } as never;
           }
@@ -267,24 +283,31 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
       expect(result.kpis.pendingReview).toBe(25);
       expect(result.kpis.inProgressReview).toBe(8);
       expect(result.kpis.reCheckDue).toBe(2);
-      expect(result.kpis.completedReviews).toBe(142);
+      expect(result.kpis.completedReviews).toBeNull();
       expect(result.kpis.decisionsToday).toBe(0);
 
       expect(result.queues.PENDING_REVIEW).toHaveLength(1);
       expect(result.queues.PENDING_REVIEW[0].workerName).toBe('Geeta Kumari');
       expect(result.queues.IN_REVIEW).toHaveLength(1);
       expect(result.queues.IN_REVIEW[0].workerName).toBe('Mohan Lal');
-      expect(result.queues.RECHECK_DUE).toHaveLength(0);
+      expect(result.queues.RECHECK_DUE).toHaveLength(2);
+      expect(result.queues.RECHECK_DUE[0].workerName).toBe('Devendra Singh');
     });
 
     it('renders genuine empty queue state in UI without fabricating records', async () => {
       vi.spyOn(dashboardRepository, 'getVerificationExecutiveDashboard').mockResolvedValueOnce({
         kpis: {
+          registeredWorkers: 50,
+          verifiedAndActiveWorkers: 40,
+          pendingKycSubmitted: 0,
+          inReview: 0,
+          openAlerts: 0,
+          criticalAlerts: 0,
+          warningAlerts: 0,
           pendingReview: 0,
           inProgressReview: 0,
           reCheckDue: 0,
           decisionsToday: 0,
-          completedReviews: 50,
         },
         queues: {
           PENDING_REVIEW: [],
@@ -316,7 +339,7 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
 
       expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i })).toBeInTheDocument();
       expect(screen.getByText(/All verification queues are up to date\. Zero pending worker documents awaiting review\./i)).toBeInTheDocument();
-      expect(screen.getByText('Completed Reviews')).toBeInTheDocument();
+      expect(screen.getByText('Registered Workers')).toBeInTheDocument();
       expect(screen.getByText('50')).toBeInTheDocument();
     });
 

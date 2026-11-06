@@ -11,6 +11,7 @@ export interface AdminUser {
   status?: string | null;
   createdAt?: string | null;
   userType?: string | null;
+  avatarUrl?: string | null;
 }
 
 export interface AuthSession {
@@ -41,6 +42,12 @@ export interface UpdateProfileDto {
   name?: string;
   email?: string;
   phone?: string;
+  avatarUrl?: string | null;
+}
+
+export interface ChangePasswordDto {
+  currentPassword: string;
+  newPassword: string;
 }
 
 export interface IAuthRepository {
@@ -51,5 +58,8 @@ export interface IAuthRepository {
   listSessions?(): Promise<ActiveSessionItem[]>;
   revokeSession?(sessionId: string): Promise<void>;
   updateProfile(dto: UpdateProfileDto): Promise<AdminUser>;
+  changePassword(dto: ChangePasswordDto): Promise<void>;
+  uploadProfilePhoto?(file: File): Promise<{ photoUrl: string }>;
   supportsProfileUpdate: boolean;
+  supportsProfilePhotoUpload?: boolean;
 }

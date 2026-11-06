@@ -48,7 +48,9 @@ export interface PaymentTransaction {
   customerId: string;
   customerName: string;
   customerPhoneMasked: string;
+  customerPhone?: string;
   bookingRef: string;
+  bookingId?: string;
   serviceCategory: string;
   feeType: FeeClassification;
   feeDescription: string;
@@ -56,7 +58,16 @@ export interface PaymentTransaction {
   paymentMethod: string;
   gatewayRef: string;
   status: PaymentStatus;
+  rawStatus?: string;
   timestamp: string;
+  createdAt?: string;
+  paidAt?: string;
+  refundedAt?: string;
+  providerOrderId?: string;
+  providerPaymentId?: string;
+  receiptNumber?: string;
+  failureReason?: string;
+  failureCode?: string;
   breakdown: FeeBreakdown;
   refund?: RefundRecord;
 }
@@ -81,9 +92,16 @@ export interface PaginatedPayments {
   pendingRefundsCount: number;
 }
 
+export interface FinancialOverviewMetrics {
+  grossSettledCollectionsINR: number;
+  pendingRefundsCount: number;
+  totalLedgerRecords: number;
+}
+
 export interface IPaymentRepository {
   getTransactions(filter?: PaymentFilterCriteria): Promise<PaginatedPayments>;
   getTransactionById(id: string): Promise<PaymentTransaction | null>;
+  getFinancialOverview(): Promise<FinancialOverviewMetrics>;
   processRefund(
     transactionId: string,
     amount: number,
@@ -91,5 +109,7 @@ export interface IPaymentRepository {
     remarks: string,
     idempotencyKey?: string
   ): Promise<void>;
+  reconcilePayment(paymentId: string): Promise<void>;
+  exportPaymentsCsv(from: string, to: string): Promise<string>;
 }
 

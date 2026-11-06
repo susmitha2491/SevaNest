@@ -60,8 +60,8 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
     totalReviews: 24,
     status: 'ACTIVE',
     locality: 'Gachibowli',
-    isFullyVerified: true,
-    verificationStatus: 'VERIFIED',
+    isFullyVerified: false,
+    verificationStatus: 'IN_REVIEW',
     createdAt: '2026-01-10T10:00:00Z',
   };
 
@@ -77,8 +77,8 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
     totalReviews: 18,
     status: 'ACTIVE',
     locality: 'HITEC City',
-    isFullyVerified: true,
-    verificationStatus: 'VERIFIED',
+    isFullyVerified: false,
+    verificationStatus: 'IN_REVIEW',
     createdAt: '2026-01-15T11:30:00Z',
   };
 
@@ -111,8 +111,8 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
     totalReviews: 31,
     status: 'ACTIVE',
     locality: 'Madhapur',
-    isFullyVerified: true,
-    verificationStatus: 'VERIFIED',
+    isFullyVerified: false,
+    verificationStatus: 'IN_REVIEW',
     createdAt: '2026-02-15T14:20:00Z',
   };
 
@@ -306,26 +306,23 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
     });
   });
 
-  it('preserves row actions and allows opening detail modal and reject dialog', async () => {
+  it('preserves row actions and allows opening detail modal while maintaining verification separation of concerns', async () => {
     vi.spyOn(workerRepository, 'getWorkersPage').mockResolvedValue(page1);
 
     renderComponent();
 
     expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-    // Row action buttons exist
+    // Row action buttons exist for View Profile
     const rowButtons = screen.getAllByRole('button', { name: /View profile for/i });
     expect(rowButtons.length).toBeGreaterThan(0);
 
-    const approveButtons = screen.getAllByRole('button', { name: /Approve verification for/i });
-    expect(approveButtons.length).toBeGreaterThan(0);
+    // Independent Approve and Reject buttons are removed from Worker Management per PRD
+    expect(screen.queryByRole('button', { name: /Approve verification for/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Reject verification for/i })).not.toBeInTheDocument();
 
-    const rejectButtons = screen.getAllByRole('button', { name: /Reject verification for/i });
-    expect(rejectButtons.length).toBeGreaterThan(0);
-
-    // Clicking Reject opens the Reject Worker Verification dialog
-    fireEvent.click(rejectButtons[0]);
-    expect(await screen.findByText(/Reject Verification: Sunita Devi/i)).toBeInTheDocument();
-    expect(screen.getByText(/Select an operational rejection reason category/i)).toBeInTheDocument();
+    // Clicking View Profile opens the WorkerDetailModal
+    fireEvent.click(rowButtons[0]);
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
   });
 });

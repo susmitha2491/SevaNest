@@ -6,10 +6,14 @@ import {
   OperationsAdminDashboardData,
   OperationsQueueItem,
   OperationsQueueTab,
-  VerificationExecutiveKPIs,
   VerificationDashboardQueueItem,
+  VerificationExecutiveDashboardData,
+  VerificationAttentionApplication,
+  VerificationSLAOverview,
+  VerificationStatusDistributionItem,
   SupportExecutiveKPIs,
   SupportDashboardQueueItem,
+  SupportDashboardQueues,
   SuperAdminAnalyticsData,
   BookingFunnelData,
   CategoryDemandData,
@@ -26,6 +30,7 @@ import {
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
+import { useAuthStore } from '../../../core/auth/authStore';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
@@ -366,19 +371,77 @@ export class MockDashboardRepository implements IDashboardRepository {
     };
   }
 
-  async getVerificationExecutiveDashboard(): Promise<{
-    kpis: VerificationExecutiveKPIs;
-    queues: Record<'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED', VerificationDashboardQueueItem[]>;
-  }> {
+  async getVerificationExecutiveDashboard(): Promise<VerificationExecutiveDashboardData> {
     return {
+      overview: {
+        pendingApplications: 3,
+        inReview: 1,
+        correctionsRequired: 1,
+        recheckDue: 1,
+      },
+      statusDistribution: [
+        { status: 'PENDING_REVIEW', label: 'Pending Review', count: 3, color: '#F59E0B' },
+        { status: 'IN_REVIEW', label: 'In Review', count: 1, color: '#3B82F6' },
+        { status: 'REJECTED', label: 'Corrections Required / Rejected', count: 1, color: '#EF4444' },
+        { status: 'RECHECK_DUE', label: 'Re-check Due', count: 1, color: '#8B5CF6' },
+        { status: 'APPROVED', label: 'Approved', count: 22, color: '#10B981' },
+      ],
+      recentAttentionApplications: [
+        {
+          id: 'VQ-101',
+          workerId: 'W-10482',
+          applicationId: 'APP-10482',
+          applicantName: 'Sunita Devi',
+          serviceCategory: 'House Maid',
+          submissionDate: '2026-11-01T08:30:00.000Z',
+          status: 'PENDING_REVIEW',
+          isOverdue: false,
+          slaFlags: [],
+        },
+        {
+          id: 'VQ-103',
+          workerId: 'W-10484',
+          applicationId: 'APP-10484',
+          applicantName: 'Meena Bai',
+          serviceCategory: 'Cook',
+          submissionDate: '2026-11-02T10:15:00.000Z',
+          status: 'PENDING_REVIEW',
+          isOverdue: false,
+          slaFlags: [],
+        },
+        {
+          id: 'VQ-105',
+          workerId: 'W-10488',
+          applicationId: 'APP-10488',
+          applicantName: 'Anil Rao',
+          serviceCategory: 'Elderly Care',
+          submissionDate: '2026-10-20T12:00:00.000Z',
+          status: 'PENDING_REVIEW',
+          isOverdue: true,
+          slaFlags: ['OVERDUE'],
+        },
+      ],
+      slaOverview: {
+        withinSla: 2,
+        approachingSla: 0,
+        slaExceeded: 1,
+        notes: 'Duration telemetry pending backend contract',
+      },
       kpis: {
-        pendingReview: 24,
-        inProgressReview: 6,
-        reCheckDue: 12,
-        decisionsToday: 18,
-        completedReviews: 42,
-        correctionsRequired: 5,
-        overdueReviews: null,
+        registeredWorkers: 29,
+        verifiedAndActiveWorkers: 22,
+        pendingKycSubmitted: 6,
+        inReview: 1,
+        openAlerts: 0,
+        criticalAlerts: 0,
+        warningAlerts: 0,
+        pendingReview: 6,
+        inProgressReview: 1,
+        reCheckDue: 1,
+        decisionsToday: 0,
+        completedReviews: null,
+        correctionsRequired: 1,
+        overdueReviews: 1,
         avgProcessingTimeMinutes: null,
       },
       queues: {
@@ -402,10 +465,17 @@ export class MockDashboardRepository implements IDashboardRepository {
 
   async getSupportExecutiveDashboard(): Promise<{
     kpis: SupportExecutiveKPIs;
-    queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
+    queues: SupportDashboardQueues;
   }> {
     return {
       kpis: {
+        totalTickets: 20,
+        unassignedTickets: 11,
+        myAssignedTickets: 4,
+        inProgressTickets: 3,
+        slaImminentBreach: 1,
+        escalatedTickets: 1,
+        resolvedTickets: 19,
         openUnassignedGrievances: 11,
         myActiveCases: 4,
         slaAtRiskCount: null,
@@ -413,6 +483,15 @@ export class MockDashboardRepository implements IDashboardRepository {
         resolvedTodayCount: 19,
       },
       queues: {
+        ALL: [
+          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
+          { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
+          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
+          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
+          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
+          { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
+          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record' },
+        ],
         AT_RISK: [
           { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
           { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
@@ -424,8 +503,15 @@ export class MockDashboardRepository implements IDashboardRepository {
         MY_CASES: [
           { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
         ],
+        IN_PROGRESS: [
+          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
+          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
+        ],
         ESCALATED: [
           { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
+        ],
+        RESOLVED: [
+          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record' },
         ],
       },
     };
@@ -1355,10 +1441,7 @@ export class RealDashboardRepository implements IDashboardRepository {
     }
   }
 
-  async getVerificationExecutiveDashboard(): Promise<{
-    kpis: VerificationExecutiveKPIs;
-    queues: Record<'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED', VerificationDashboardQueueItem[]>;
-  }> {
+  async getVerificationExecutiveDashboard(): Promise<VerificationExecutiveDashboardData> {
     const parseVerifQueueList = (list: unknown, tabName: string): VerificationDashboardQueueItem[] => {
       if (!list) return [];
       if (!Array.isArray(list)) {
@@ -1387,6 +1470,10 @@ export class RealDashboardRepository implements IDashboardRepository {
 
     try {
       // 1. Attempt dedicated /admin/dashboard endpoint if available and authorized
+      let dashboardPendingKyc: { submitted?: number; inReview?: number } | undefined;
+      let dashboardWorkers: { registered?: number; verifiedAndActive?: number } | undefined;
+      let dashboardAlerts: { open?: number; critical?: number; warning?: number } | undefined;
+
       try {
         const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
         const root = res.data;
@@ -1399,7 +1486,7 @@ export class RealDashboardRepository implements IDashboardRepository {
             ? (raw.kpis as Record<string, unknown>)
             : undefined;
 
-          // If payload explicitly contains verification-specific KPI structure
+          // If payload explicitly contains dedicated verification KPI structure
           if (kpisRecord || ('pendingReview' in raw) || ('pendingQueue' in raw)) {
             const metricsSource = kpisRecord || raw;
             const pendingReview = parseRequiredMetric(
@@ -1427,24 +1514,78 @@ export class RealDashboardRepository implements IDashboardRepository {
             }
 
             const rawQueues = raw.queues as Record<string, unknown>;
+            const pendingQueueList = rawQueues.PENDING_REVIEW ? parseVerifQueueList(rawQueues.PENDING_REVIEW, 'PENDING_REVIEW') : [];
+            const inReviewQueueList = rawQueues.IN_REVIEW ? parseVerifQueueList(rawQueues.IN_REVIEW, 'IN_REVIEW') : [];
+            const recheckQueueList = rawQueues.RECHECK_DUE ? parseVerifQueueList(rawQueues.RECHECK_DUE, 'RECHECK_DUE') : [];
+            const rejectedQueueList = rawQueues.REJECTED ? parseVerifQueueList(rawQueues.REJECTED, 'REJECTED') : [];
 
             return {
+              overview: {
+                pendingApplications: pendingReview,
+                inReview: inProgressReview,
+                correctionsRequired,
+                recheckDue: reCheckDue,
+              },
+              statusDistribution: [
+                { status: 'PENDING_REVIEW', label: 'Pending Review', count: pendingReview, color: '#F59E0B' },
+                { status: 'IN_REVIEW', label: 'In Review', count: inProgressReview, color: '#3B82F6' },
+                { status: 'REJECTED', label: 'Corrections Required / Rejected', count: correctionsRequired, color: '#EF4444' },
+                { status: 'RECHECK_DUE', label: 'Re-check Due', count: reCheckDue, color: '#8B5CF6' },
+                { status: 'APPROVED', label: 'Approved', count: Number(metricsSource.verifiedAndActiveWorkers ?? 0), color: '#10B981' },
+              ],
+              recentAttentionApplications: pendingQueueList.map((q) => ({
+                id: q.id,
+                workerId: q.workerId,
+                applicationId: q.id,
+                applicantName: q.workerName,
+                serviceCategory: q.category,
+                submissionDate: q.submissionTime,
+                status: q.status,
+              })),
+              slaOverview: {
+                withinSla: pendingReview,
+                approachingSla: 0,
+                slaExceeded: 0,
+                notes: 'Authoritative SLA performance tracked from server-side check deadlines. Duration telemetry pending backend contract.',
+              },
               kpis: {
+                registeredWorkers: metricsSource.registeredWorkers ? Number(metricsSource.registeredWorkers) : null,
+                verifiedAndActiveWorkers: metricsSource.verifiedAndActiveWorkers ? Number(metricsSource.verifiedAndActiveWorkers) : null,
+                pendingKycSubmitted: pendingReview,
+                inReview: inProgressReview,
+                openAlerts: metricsSource.openAlerts !== undefined ? Number(metricsSource.openAlerts) : 0,
+                criticalAlerts: metricsSource.criticalAlerts !== undefined ? Number(metricsSource.criticalAlerts) : 0,
+                warningAlerts: metricsSource.warningAlerts !== undefined ? Number(metricsSource.warningAlerts) : 0,
                 pendingReview,
                 inProgressReview,
                 reCheckDue,
                 decisionsToday,
                 correctionsRequired,
+                completedReviews: null,
                 overdueReviews: null,
                 avgProcessingTimeMinutes: null,
               },
               queues: {
-                PENDING_REVIEW: parseVerifQueueList(rawQueues.PENDING_REVIEW, 'PENDING_REVIEW'),
-                IN_REVIEW: parseVerifQueueList(rawQueues.IN_REVIEW, 'IN_REVIEW'),
-                RECHECK_DUE: parseVerifQueueList(rawQueues.RECHECK_DUE, 'RECHECK_DUE'),
-                REJECTED: parseVerifQueueList(rawQueues.REJECTED, 'REJECTED'),
+                PENDING_REVIEW: pendingQueueList,
+                IN_REVIEW: inReviewQueueList,
+                RECHECK_DUE: recheckQueueList,
+                REJECTED: rejectedQueueList,
               },
             };
+          }
+
+          // Inspect observed backend sections payload
+          if (raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections)) {
+            const sections = raw.sections as Record<string, unknown>;
+            if (sections.pendingKyc && typeof sections.pendingKyc === 'object') {
+              dashboardPendingKyc = sections.pendingKyc as { submitted?: number; inReview?: number };
+            }
+            if (sections.workers && typeof sections.workers === 'object') {
+              dashboardWorkers = sections.workers as { registered?: number; verifiedAndActive?: number };
+            }
+            if (sections.alerts && typeof sections.alerts === 'object') {
+              dashboardAlerts = sections.alerts as { open?: number; critical?: number; warning?: number };
+            }
           }
         }
       } catch (err: unknown) {
@@ -1462,7 +1603,7 @@ export class RealDashboardRepository implements IDashboardRepository {
             success?: boolean;
             data: Record<string, unknown>[];
             meta?: { total?: number; totalItems?: number };
-          }>('/admin/verification/queue', { params: { status: primaryStatus, limit: 10 } });
+          }>('/admin/verification/queue', { params: { status: primaryStatus, limit: 50 } });
         } catch {
           if (fallbackStatus) {
             try {
@@ -1470,7 +1611,7 @@ export class RealDashboardRepository implements IDashboardRepository {
                 success?: boolean;
                 data: Record<string, unknown>[];
                 meta?: { total?: number; totalItems?: number };
-              }>('/admin/verification/queue', { params: { status: fallbackStatus, limit: 10 } });
+              }>('/admin/verification/queue', { params: { status: fallbackStatus, limit: 50 } });
             } catch {
               return null;
             }
@@ -1479,12 +1620,11 @@ export class RealDashboardRepository implements IDashboardRepository {
         }
       };
 
-      const [pendingRes, inReviewRes, recheckRes, approvedRes, rejectedRes] = await Promise.all([
-        fetchQueueSafe('PENDING_REVIEW', 'SUBMITTED'),
+      const [pendingRes, inReviewRes, rejectedRes, approvedRes] = await Promise.all([
+        fetchQueueSafe('SUBMITTED', 'PENDING_REVIEW'),
         fetchQueueSafe('IN_REVIEW'),
-        fetchQueueSafe('RECHECK_DUE'),
-        fetchQueueSafe('APPROVED'),
         fetchQueueSafe('REJECTED'),
+        fetchQueueSafe('APPROVED'),
       ]);
 
       const parseQueueItems = (items: Record<string, unknown>[] | undefined, fallbackStatus: string, defaultAction: string): VerificationDashboardQueueItem[] => {
@@ -1507,7 +1647,7 @@ export class RealDashboardRepository implements IDashboardRepository {
           }
 
           return {
-            id: String(raw.id || raw.checkId || raw.dossierId || ''),
+            id: String(raw.checkId || raw.id || raw.dossierId || ''),
             workerId: String(raw.workerId || worker?.id || raw.id || ''),
             workerName: String(raw.workerName || worker?.fullName || 'Worker'),
             category: String(raw.category || worker?.category || raw.checkType || 'General Service'),
@@ -1521,32 +1661,225 @@ export class RealDashboardRepository implements IDashboardRepository {
 
       const pendingItems = Array.isArray(pendingRes?.data?.data) ? pendingRes.data.data : [];
       const inReviewItems = Array.isArray(inReviewRes?.data?.data) ? inReviewRes.data.data : [];
-      const recheckItems = Array.isArray(recheckRes?.data?.data) ? recheckRes.data.data : [];
-      const approvedItems = Array.isArray(approvedRes?.data?.data) ? approvedRes.data.data : [];
       const rejectedItems = Array.isArray(rejectedRes?.data?.data) ? rejectedRes.data.data : [];
+      const approvedItems = Array.isArray(approvedRes?.data?.data) ? approvedRes.data.data : [];
 
-      const pendingReview = pendingRes?.data?.meta?.total ?? pendingRes?.data?.meta?.totalItems ?? pendingItems.length;
-      const inProgressReview = inReviewRes?.data?.meta?.total ?? inReviewRes?.data?.meta?.totalItems ?? inReviewItems.length;
-      const reCheckDue = recheckRes?.data?.meta?.total ?? recheckRes?.data?.meta?.totalItems ?? recheckItems.length;
-      const completedReviews = approvedRes?.data?.meta?.total ?? approvedRes?.data?.meta?.totalItems ?? approvedItems.length;
-      const correctionsRequired = rejectedRes?.data?.meta?.total ?? rejectedRes?.data?.meta?.totalItems ?? rejectedItems.length;
+      const isRecheckItem = (i: Record<string, unknown>) => {
+        const s = String(i.status || '').toUpperCase();
+        if (s === 'RECHECK_DUE') return true;
+        if (i.isRecheck === true) return true;
+        if (String(i.checkType || '').toUpperCase().includes('RECHECK')) return true;
+        if (Array.isArray(i.pendingCheckTypes) && i.pendingCheckTypes.some((t: unknown) => String(t).toLowerCase().includes('renewal') || String(t).toLowerCase().includes('recheck') || String(t).toLowerCase().includes('expiry') || String(t).toLowerCase().includes('revalidation'))) return true;
+        return false;
+      };
 
-      const overdueCount = pendingItems.filter((i) => i.isOverdue || (Array.isArray(i.slaFlags) && i.slaFlags.includes('OVERDUE'))).length;
+      const recheckItems = inReviewItems.filter(isRecheckItem);
+      const activeInReviewItems = inReviewItems.filter((i) => !isRecheckItem(i));
+
+      // Build unique application aggregates from queue checks to prevent double-counting
+      interface WorkerAppAggregate {
+        workerId: string;
+        applicantName: string;
+        applicationId: string;
+        serviceCategory: string;
+        submissionDate: string;
+        isOverdue: boolean;
+        slaFlags: string[];
+        dueAt?: string;
+        checkStatuses: string[];
+        rawChecks: Record<string, unknown>[];
+      }
+
+      const workerMap = new Map<string, WorkerAppAggregate>();
+
+      const registerCheck = (raw: Record<string, unknown>, fallbackStatus: string) => {
+        const worker = (raw.worker && typeof raw.worker === 'object') ? (raw.worker as Record<string, unknown>) : undefined;
+        const wId = String(raw.workerId || worker?.id || raw.id || '');
+        if (!wId) return;
+
+        const wName = String(raw.workerName || worker?.fullName || 'Worker');
+        const appRef = String(raw.applicationReference || raw.id || wId);
+        const category = String(raw.category || worker?.category || raw.checkType || 'General Service');
+        const subDate = String(raw.applicationSubmittedAt || raw.submittedAt || raw.createdAt || raw.submissionTime || '');
+        const checkStatus = String(raw.status || fallbackStatus).toUpperCase();
+        const isOverdue = Boolean(raw.isOverdue || (Array.isArray(raw.slaFlags) && raw.slaFlags.includes('OVERDUE')));
+        const slaFlags = Array.isArray(raw.slaFlags) ? raw.slaFlags.map(String) : [];
+        const dueAt = raw.dueAt ? String(raw.dueAt) : undefined;
+
+        let existing = workerMap.get(wId);
+        if (!existing) {
+          existing = {
+            workerId: wId,
+            applicantName: wName,
+            applicationId: appRef,
+            serviceCategory: category,
+            submissionDate: subDate,
+            isOverdue,
+            slaFlags: [...slaFlags],
+            dueAt,
+            checkStatuses: [checkStatus],
+            rawChecks: [raw],
+          };
+          workerMap.set(wId, existing);
+        } else {
+          existing.rawChecks.push(raw);
+          existing.checkStatuses.push(checkStatus);
+          if (!existing.submissionDate && subDate) existing.submissionDate = subDate;
+          if (isOverdue) existing.isOverdue = true;
+          for (const f of slaFlags) {
+            if (!existing.slaFlags.includes(f)) existing.slaFlags.push(f);
+          }
+          if (dueAt && (!existing.dueAt || dueAt < existing.dueAt)) {
+            existing.dueAt = dueAt;
+          }
+        }
+      };
+
+      pendingItems.forEach((c) => registerCheck(c, 'SUBMITTED'));
+      activeInReviewItems.forEach((c) => registerCheck(c, 'IN_REVIEW'));
+      recheckItems.forEach((c) => registerCheck(c, 'RECHECK_DUE'));
+      rejectedItems.forEach((c) => registerCheck(c, 'REJECTED'));
+      approvedItems.forEach((c) => registerCheck(c, 'APPROVED'));
+
+      // Authoritative API response fields from /admin/dashboard
+      const registeredWorkers = dashboardWorkers?.registered !== undefined
+        ? Number(dashboardWorkers.registered)
+        : null;
+
+      const verifiedAndActiveWorkers = dashboardWorkers?.verifiedAndActive !== undefined
+        ? Number(dashboardWorkers.verifiedAndActive)
+        : null;
+
+      // Resolve application-level status from check statuses
+      const getAppLevelStatus = (app: WorkerAppAggregate): 'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED' | 'APPROVED' => {
+        const statuses = app.checkStatuses;
+        if (statuses.includes('REJECTED')) return 'REJECTED';
+        if (statuses.includes('RECHECK_DUE') || app.rawChecks.some(isRecheckItem)) return 'RECHECK_DUE';
+        if (statuses.includes('IN_REVIEW')) return 'IN_REVIEW';
+        if (statuses.includes('SUBMITTED') || statuses.includes('PENDING_REVIEW') || statuses.includes('NOT_SUBMITTED')) return 'PENDING_REVIEW';
+        if (statuses.length > 0 && statuses.every((s) => s === 'APPROVED')) return 'APPROVED';
+        return 'PENDING_REVIEW';
+      };
+
+      let pendingAppCount = 0;
+      let inReviewAppCount = 0;
+      let recheckAppCount = 0;
+      let rejectedAppCount = 0;
+      let approvedAppCount = 0;
+
+      for (const app of workerMap.values()) {
+        const appStatus = getAppLevelStatus(app);
+        if (appStatus === 'PENDING_REVIEW') pendingAppCount++;
+        else if (appStatus === 'IN_REVIEW') inReviewAppCount++;
+        else if (appStatus === 'RECHECK_DUE') recheckAppCount++;
+        else if (appStatus === 'REJECTED') rejectedAppCount++;
+        else if (appStatus === 'APPROVED') approvedAppCount++;
+      }
+
+      // If workerMap has records, use application counts; otherwise fall back to meta counts
+      const pendingApplications = workerMap.size > 0
+        ? pendingAppCount
+        : (dashboardPendingKyc?.submitted !== undefined ? Number(dashboardPendingKyc.submitted) : (pendingRes?.data?.meta?.totalItems ?? pendingRes?.data?.meta?.total ?? pendingItems.length));
+
+      const inReview = workerMap.size > 0
+        ? inReviewAppCount
+        : (dashboardPendingKyc?.inReview !== undefined ? Number(dashboardPendingKyc.inReview) : (inReviewRes?.data?.meta?.totalItems ?? inReviewRes?.data?.meta?.total ?? activeInReviewItems.length));
+
+      const recheckDue = workerMap.size > 0 ? recheckAppCount : recheckItems.length;
+      const correctionsRequired = workerMap.size > 0 ? rejectedAppCount : (rejectedRes?.data?.meta?.totalItems ?? rejectedRes?.data?.meta?.total ?? rejectedItems.length);
+      const approvedTotal = workerMap.size > 0 ? approvedAppCount : (approvedRes?.data?.meta?.totalItems ?? approvedRes?.data?.meta?.total ?? approvedItems.length);
+
+      const recentAttentionApplications: VerificationAttentionApplication[] = Array.from(workerMap.values())
+        .filter((app) => getAppLevelStatus(app) !== 'APPROVED')
+        .map((app) => ({
+          id: app.applicationId || app.workerId,
+          workerId: app.workerId,
+          applicationId: app.applicationId,
+          applicantName: app.applicantName,
+          serviceCategory: app.serviceCategory,
+          submissionDate: app.submissionDate || 'Recently Submitted',
+          status: getAppLevelStatus(app),
+          isOverdue: app.isOverdue,
+          slaFlags: app.slaFlags,
+          dueAt: app.dueAt,
+        }))
+        .sort((a, b) => {
+          if (!a.submissionDate) return 1;
+          if (!b.submissionDate) return -1;
+          return new Date(a.submissionDate).getTime() - new Date(b.submissionDate).getTime();
+        });
+
+      let withinSla = 0;
+      let approachingSla = 0;
+      let slaExceeded = 0;
+
+      for (const app of recentAttentionApplications) {
+        if (app.isOverdue || (app.slaFlags && app.slaFlags.includes('OVERDUE'))) {
+          slaExceeded++;
+        } else if (app.slaFlags && app.slaFlags.includes('APPROACHING')) {
+          approachingSla++;
+        } else {
+          withinSla++;
+        }
+      }
+
+      const slaOverview: VerificationSLAOverview = {
+        withinSla: recentAttentionApplications.length > 0 ? withinSla : pendingApplications,
+        approachingSla,
+        slaExceeded,
+        notes: 'Authoritative SLA performance tracked from server-side check deadlines (dueAt, isOverdue). Duration telemetry pending backend contract.',
+      };
+
+      const statusDistribution: VerificationStatusDistributionItem[] = [
+        { status: 'PENDING_REVIEW', label: 'Pending Review', count: pendingApplications, color: '#F59E0B' },
+        { status: 'IN_REVIEW', label: 'In Review', count: inReview, color: '#3B82F6' },
+        { status: 'REJECTED', label: 'Corrections Required / Rejected', count: correctionsRequired, color: '#EF4444' },
+        { status: 'RECHECK_DUE', label: 'Re-check Due', count: recheckDue, color: '#8B5CF6' },
+        { status: 'APPROVED', label: 'Approved', count: approvedTotal || (verifiedAndActiveWorkers ?? 0), color: '#10B981' },
+      ];
+
+      const openAlerts = dashboardAlerts?.open !== undefined
+        ? Number(dashboardAlerts.open)
+        : 0;
+
+      const criticalAlerts = dashboardAlerts?.critical !== undefined
+        ? Number(dashboardAlerts.critical)
+        : 0;
+
+      const warningAlerts = dashboardAlerts?.warning !== undefined
+        ? Number(dashboardAlerts.warning)
+        : 0;
 
       return {
-        kpis: {
-          pendingReview,
-          inProgressReview,
-          reCheckDue,
-          decisionsToday: 0,
-          completedReviews,
+        overview: {
+          pendingApplications,
+          inReview,
           correctionsRequired,
-          overdueReviews: overdueCount > 0 ? overdueCount : null,
+          recheckDue,
+        },
+        statusDistribution,
+        recentAttentionApplications,
+        slaOverview,
+        kpis: {
+          registeredWorkers,
+          verifiedAndActiveWorkers,
+          pendingKycSubmitted: pendingRes?.data?.meta?.totalItems ?? pendingRes?.data?.meta?.total ?? pendingApplications,
+          inReview: inReviewRes?.data?.meta?.totalItems ?? inReviewRes?.data?.meta?.total ?? inReview,
+          openAlerts,
+          criticalAlerts,
+          warningAlerts,
+          pendingReview: pendingRes?.data?.meta?.totalItems ?? pendingRes?.data?.meta?.total ?? pendingApplications,
+          inProgressReview: inReviewRes?.data?.meta?.totalItems ?? inReviewRes?.data?.meta?.total ?? inReview,
+          reCheckDue: recheckDue,
+          decisionsToday: 0,
+          completedReviews: null,
+          correctionsRequired,
+          overdueReviews: slaExceeded > 0 ? slaExceeded : null,
           avgProcessingTimeMinutes: null,
         },
         queues: {
           PENDING_REVIEW: parseQueueItems(pendingItems, 'PENDING_REVIEW', 'Start Review'),
-          IN_REVIEW: parseQueueItems(inReviewItems, 'IN_REVIEW', 'Resume Review'),
+          IN_REVIEW: parseQueueItems(activeInReviewItems, 'IN_REVIEW', 'Resume Review'),
           RECHECK_DUE: parseQueueItems(recheckItems, 'RECHECK_DUE', 'Inspect Expiry'),
           REJECTED: parseQueueItems(rejectedItems, 'REJECTED', 'Inspect Rejection'),
         },
@@ -1558,7 +1891,7 @@ export class RealDashboardRepository implements IDashboardRepository {
 
   async getSupportExecutiveDashboard(): Promise<{
     kpis: SupportExecutiveKPIs;
-    queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
+    queues: SupportDashboardQueues;
   }> {
     const parseSupportQueueList = (list: unknown, tabName: string): SupportDashboardQueueItem[] => {
       if (!list) return [];
@@ -1596,7 +1929,7 @@ export class RealDashboardRepository implements IDashboardRepository {
         'User'
       );
       const isBreached = Boolean(raw.slaBreachedAt) || raw.slaStatus === 'BREACHED';
-      const isAtRisk = raw.slaStatus === 'AT_RISK';
+      const isAtRisk = raw.slaStatus === 'AT_RISK' || (!isBreached && Boolean(raw.dueAt) && raw.status !== 'CLOSED' && raw.status !== 'RESOLVED' && (new Date(String(raw.dueAt)).getTime() - Date.now() <= 24 * 3600 * 1000));
       const slaIndicator = isBreached ? 'BREACHED' : isAtRisk ? 'AT_RISK' : 'NORMAL';
 
       return {
@@ -1665,8 +1998,37 @@ export class RealDashboardRepository implements IDashboardRepository {
 
             const rawQueues = raw.queues as Record<string, unknown>;
 
+            const totalTickets = typeof metricsSource.totalTickets === 'number'
+              ? metricsSource.totalTickets
+              : (openUnassignedGrievances ?? 0) + (myActiveCases ?? 0) + (slaBreachedCount ?? 0) + (resolvedTodayCount ?? 0);
+            const unassignedTickets = typeof metricsSource.unassignedTickets === 'number'
+              ? metricsSource.unassignedTickets
+              : openUnassignedGrievances;
+            const myAssignedTickets = typeof metricsSource.myAssignedTickets === 'number'
+              ? metricsSource.myAssignedTickets
+              : myActiveCases;
+            const inProgressTickets = typeof metricsSource.inProgressTickets === 'number'
+              ? metricsSource.inProgressTickets
+              : myActiveCases;
+            const slaImminentBreach = typeof metricsSource.slaImminentBreach === 'number'
+              ? metricsSource.slaImminentBreach
+              : (slaAtRiskCount ?? 0);
+            const escalatedTickets = typeof metricsSource.escalatedTickets === 'number'
+              ? metricsSource.escalatedTickets
+              : slaBreachedCount;
+            const resolvedTickets = typeof metricsSource.resolvedTickets === 'number'
+              ? metricsSource.resolvedTickets
+              : resolvedTodayCount;
+
             return {
               kpis: {
+                totalTickets,
+                unassignedTickets,
+                myAssignedTickets,
+                inProgressTickets,
+                slaImminentBreach,
+                escalatedTickets,
+                resolvedTickets,
                 openUnassignedGrievances,
                 myActiveCases,
                 slaAtRiskCount,
@@ -1711,51 +2073,117 @@ export class RealDashboardRepository implements IDashboardRepository {
           complaintsSection.inProgress ?? complaintsSection.investigationPending,
           'complaints.inProgress'
         );
-        // SLA-at-risk threshold is not defined on backend; do not invent client-side thresholds.
-        // Return null so UI shows "—" rather than fabricated 0.
+        // SLA-at-risk threshold is not defined on backend complaints summary; do not invent client-side thresholds for complaintsSection.
         const slaAtRiskCount: number | null = null;
         const slaBreachedCount = complaintsSection.escalated !== undefined
           ? parseOptionalMetric(complaintsSection.escalated, 'complaints.escalated')
           : null;
         const resolvedTodayCount: number | null = null;
 
+        // Fetch authorized support tickets API for queue breakdown and exact KPI resolution
+        const ticketsRes = await httpClient.get<{
+          success: boolean;
+          data: Record<string, unknown>[];
+          meta?: { total?: number; totalItems?: number };
+        }>('/admin/support/tickets', { params: { limit: 100 } });
+        const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
+        const metaObj = ticketsRes.data?.meta;
+        const metaTotal = typeof metaObj?.total === 'number' ? metaObj.total : (typeof metaObj?.totalItems === 'number' ? metaObj.totalItems : undefined);
+        const totalTickets = typeof metaTotal === 'number' ? metaTotal : (rawTickets.length > 0 ? rawTickets.length : ((openUnassignedGrievances ?? 0) + (myActiveCases ?? 0) + (slaBreachedCount ?? 0)));
+
+        const currentUser = useAuthStore.getState().user;
+        const currentUserId = currentUser?.id;
+        const currentUserName = currentUser?.name;
+
+        const unassignedTickets = complaintsSection.unassigned !== undefined
+          ? Number(complaintsSection.unassigned)
+          : rawTickets.filter((t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED').length;
+
+        const myAssignedTickets = rawTickets.filter((t) => {
+          if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+          if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
+          if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
+          return false;
+        }).length;
+
+        const inProgressTickets = complaintsSection.inProgress !== undefined
+          ? Number(complaintsSection.inProgress)
+          : rawTickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED').length;
+
+        const now = Date.now();
+        const slaImminentBreach = rawTickets.filter((t) => {
+          if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+          if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return false;
+          if (t.slaStatus === 'AT_RISK') return true;
+          if (t.dueAt) {
+            const dueMs = new Date(String(t.dueAt)).getTime();
+            return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
+          }
+          return false;
+        }).length;
+
+        const escalatedTickets = complaintsSection.escalated !== undefined
+          ? Number(complaintsSection.escalated)
+          : rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt)).length;
+
+        const resolvedTickets = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt)).length;
+
         // Populate queues
-        let queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
+        let queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]> & {
+          ALL?: SupportDashboardQueueItem[];
+          IN_PROGRESS?: SupportDashboardQueueItem[];
+          RESOLVED?: SupportDashboardQueueItem[];
+        };
         if (rawQueues && ('AT_RISK' in rawQueues || 'UNASSIGNED' in rawQueues)) {
           queues = {
+            ALL: 'ALL' in rawQueues ? parseSupportQueueList(rawQueues.ALL, 'ALL') : undefined,
             AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
             UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
             MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
+            IN_PROGRESS: 'IN_PROGRESS' in rawQueues ? parseSupportQueueList(rawQueues.IN_PROGRESS, 'IN_PROGRESS') : undefined,
             ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+            RESOLVED: 'RESOLVED' in rawQueues ? parseSupportQueueList(rawQueues.RESOLVED, 'RESOLVED') : undefined,
           };
         } else {
-          // Fetch authorized support tickets API for queue breakdown
-          const ticketsRes = await httpClient.get<{
-            success: boolean;
-            data: Record<string, unknown>[];
-          }>('/admin/support/tickets', { params: { limit: 50 } });
-          const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
           const atRiskTickets = rawTickets.filter(
-            (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED'
+            (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED' ||
+              (t.dueAt && t.status !== 'CLOSED' && t.status !== 'RESOLVED' && (new Date(String(t.dueAt)).getTime() - now <= 24 * 3600 * 1000))
           );
-          const unassignedTickets = rawTickets.filter(
+          const unassignedTicketsList = rawTickets.filter(
             (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
           );
-          const myCasesTickets = rawTickets.filter(
-            (t) => (Boolean(t.assignedToUserId) || Boolean(t.assignedToStaffId) || Boolean(t.assigneeUserId)) && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+          const myCasesTicketsList = rawTickets.filter((t) => {
+            if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+            if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
+            if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
+            return false;
+          });
+          const inProgressTicketsList = rawTickets.filter(
+            (t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED'
           );
-          const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED');
+          const escalatedTicketsList = rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt));
+          const resolvedTicketsList = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt));
 
           queues = {
+            ALL: rawTickets.map((t) => mapTicketToQueueItem(t, 'View Ticket')),
             AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
-            UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
-            MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
-            ESCALATED: escalatedTickets.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
+            UNASSIGNED: unassignedTicketsList.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
+            MY_CASES: myCasesTicketsList.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
+            IN_PROGRESS: inProgressTicketsList.map((t) => mapTicketToQueueItem(t, 'Investigate')),
+            ESCALATED: escalatedTicketsList.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
+            RESOLVED: resolvedTicketsList.map((t) => mapTicketToQueueItem(t, 'Inspect Record')),
           };
         }
 
         return {
           kpis: {
+            totalTickets,
+            unassignedTickets,
+            myAssignedTickets,
+            inProgressTickets,
+            slaImminentBreach,
+            escalatedTickets,
+            resolvedTickets,
             openUnassignedGrievances,
             myActiveCases,
             slaAtRiskCount,
@@ -1770,25 +2198,49 @@ export class RealDashboardRepository implements IDashboardRepository {
       const ticketsRes = await httpClient.get<{
         success: boolean;
         data: Record<string, unknown>[];
-        meta?: { totalItems?: number };
-      }>('/admin/support/tickets', { params: { limit: 50 } });
+        meta?: { total?: number; totalItems?: number };
+      }>('/admin/support/tickets', { params: { limit: 100 } });
 
       const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
+      const metaObj = ticketsRes.data?.meta;
+      const metaTotal = typeof metaObj?.total === 'number' ? metaObj.total : (typeof metaObj?.totalItems === 'number' ? metaObj.totalItems : undefined);
+      const totalTickets = typeof metaTotal === 'number' ? metaTotal : rawTickets.length;
 
+      const currentUser = useAuthStore.getState().user;
+      const currentUserId = currentUser?.id;
+      const currentUserName = currentUser?.name;
+
+      const now = Date.now();
       const atRiskTickets = rawTickets.filter(
-        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED'
+        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED' ||
+          (t.dueAt && t.status !== 'CLOSED' && t.status !== 'RESOLVED' && (new Date(String(t.dueAt)).getTime() - now <= 24 * 3600 * 1000))
       );
       const unassignedTickets = rawTickets.filter(
         (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
       );
-      const myCasesTickets = rawTickets.filter(
-        (t) => (Boolean(t.assignedToUserId) || Boolean(t.assignedToStaffId) || Boolean(t.assigneeUserId)) && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
-      );
-      const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED');
+      const myCasesTickets = rawTickets.filter((t) => {
+        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+        if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
+        if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
+        return false;
+      });
+      const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt));
+      const inProgressTickets = rawTickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED');
+      const resolvedTickets = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt));
+
+      const slaImminentBreach = rawTickets.filter((t) => {
+        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+        if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return false;
+        if (t.slaStatus === 'AT_RISK') return true;
+        if (t.dueAt) {
+          const dueMs = new Date(String(t.dueAt)).getTime();
+          return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
+        }
+        return false;
+      }).length;
 
       const openUnassignedGrievances = unassignedTickets.length;
       const myActiveCases = myCasesTickets.length;
-      // Do not invent SLA-at-risk threshold; check if backend explicitly returns slaStatus === 'AT_RISK'
       const hasExplicitAtRisk = rawTickets.some((t) => t.slaStatus === 'AT_RISK');
       const slaAtRiskCount: number | null = hasExplicitAtRisk
         ? rawTickets.filter((t) => t.slaStatus === 'AT_RISK').length
@@ -1806,6 +2258,13 @@ export class RealDashboardRepository implements IDashboardRepository {
 
       return {
         kpis: {
+          totalTickets,
+          unassignedTickets: unassignedTickets.length,
+          myAssignedTickets: myCasesTickets.length,
+          inProgressTickets: inProgressTickets.length,
+          slaImminentBreach,
+          escalatedTickets: escalatedTickets.length,
+          resolvedTickets: resolvedTickets.length,
           openUnassignedGrievances,
           myActiveCases,
           slaAtRiskCount,
@@ -1813,10 +2272,13 @@ export class RealDashboardRepository implements IDashboardRepository {
           resolvedTodayCount,
         },
         queues: {
+          ALL: rawTickets.map((t) => mapTicketToQueueItem(t, 'View Ticket')),
           AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
           UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
           MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
+          IN_PROGRESS: inProgressTickets.map((t) => mapTicketToQueueItem(t, 'Investigate')),
           ESCALATED: escalatedTickets.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
+          RESOLVED: resolvedTickets.map((t) => mapTicketToQueueItem(t, 'Inspect Record')),
         },
       };
     } catch (err) {

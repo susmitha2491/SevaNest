@@ -37,22 +37,38 @@ export type OperationsQueueTab =
   | 'SUPPORT_HANDOFFS';
 
 export interface VerificationExecutiveKPIs {
+  registeredWorkers?: number | null;
+  verifiedAndActiveWorkers?: number | null;
+  pendingKycSubmitted?: number | null;
+  inReview?: number | null;
+  openAlerts?: number | null;
+  criticalAlerts?: number | null;
+  warningAlerts?: number | null;
   pendingReview: number;
   inProgressReview: number;
-  reCheckDue: number;
-  decisionsToday: number;
-  completedReviews?: number;
-  correctionsRequired?: number;
+  reCheckDue?: number | null;
+  decisionsToday?: number | null;
+  completedReviews?: number | null;
+  correctionsRequired?: number | null;
   overdueReviews?: number | null;
   avgProcessingTimeMinutes?: number | null;
 }
 
 export interface SupportExecutiveKPIs {
-  openUnassignedGrievances: number | null;
-  myActiveCases: number | null;
-  slaAtRiskCount: number | null;
-  slaBreachedCount: number | null;
-  resolvedTodayCount: number | null;
+  totalTickets?: number | null;
+  unassignedTickets?: number | null;
+  myAssignedTickets?: number | null;
+  inProgressTickets?: number | null;
+  slaImminentBreach?: number | null;
+  escalatedTickets?: number | null;
+  resolvedTickets?: number | null;
+
+  // Legacy aliases for backward compatibility with existing tests and contracts
+  openUnassignedGrievances?: number | null;
+  myActiveCases?: number | null;
+  slaAtRiskCount?: number | null;
+  slaBreachedCount?: number | null;
+  resolvedTodayCount?: number | null;
 }
 
 export interface SuperAdminQueueItem {
@@ -318,16 +334,62 @@ export interface OperationsAdminDashboardData {
   sections?: SuperAdminDashboardSections;
 }
 
+export interface VerificationAttentionApplication {
+  id: string;
+  workerId: string;
+  applicationId: string;
+  applicantName: string;
+  serviceCategory: string;
+  submissionDate: string;
+  status: string;
+  isOverdue?: boolean;
+  slaFlags?: string[];
+  dueAt?: string;
+}
+
+export interface VerificationSLAOverview {
+  withinSla: number;
+  approachingSla: number;
+  slaExceeded: number;
+  notes?: string;
+}
+
+export interface VerificationStatusDistributionItem {
+  status: string;
+  label: string;
+  count: number;
+  color?: string;
+}
+
+export interface VerificationExecutiveDashboardOverview {
+  pendingApplications: number;
+  inReview: number;
+  correctionsRequired: number;
+  recheckDue: number;
+}
+
+export interface VerificationExecutiveDashboardData {
+  overview?: VerificationExecutiveDashboardOverview;
+  statusDistribution?: VerificationStatusDistributionItem[];
+  recentAttentionApplications?: VerificationAttentionApplication[];
+  slaOverview?: VerificationSLAOverview;
+  kpis: VerificationExecutiveKPIs;
+  queues: Record<'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED', VerificationDashboardQueueItem[]>;
+}
+
+export type SupportDashboardQueues = Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]> & {
+  ALL?: SupportDashboardQueueItem[];
+  IN_PROGRESS?: SupportDashboardQueueItem[];
+  RESOLVED?: SupportDashboardQueueItem[];
+};
+
 export interface IDashboardRepository {
   getSuperAdminDashboard(): Promise<SuperAdminDashboardData>;
   getSuperAdminAnalytics(from?: string, to?: string): Promise<SuperAdminAnalyticsData>;
   getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData>;
-  getVerificationExecutiveDashboard(): Promise<{
-    kpis: VerificationExecutiveKPIs;
-    queues: Record<'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED', VerificationDashboardQueueItem[]>;
-  }>;
+  getVerificationExecutiveDashboard(): Promise<VerificationExecutiveDashboardData>;
   getSupportExecutiveDashboard(): Promise<{
     kpis: SupportExecutiveKPIs;
-    queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]>;
+    queues: SupportDashboardQueues;
   }>;
 }

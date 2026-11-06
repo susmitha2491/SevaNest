@@ -229,8 +229,9 @@ describe('Phase 3: Verification Claim Handling and Queue Filtering Contracts', (
       renderWithProviders(<VerificationQueuePage />, '/verification');
 
       expect(await screen.findByText('Anita Roy')).toBeInTheDocument();
-      const inspectBtn = screen.getByRole('button', { name: /Inspect Dossier/i });
-      expect(inspectBtn).toBeInTheDocument();
+      const rowBtn = screen.getByRole('button', { name: /Open verification dossier for Anita Roy/i });
+      expect(rowBtn).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Inspect Dossier/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Claim Unavailable/i })).not.toBeInTheDocument();
     });
   });

@@ -80,10 +80,13 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   ) {
     return true;
   }
-  // Support canonical dashboard overview via dashboard.view or alert.view
+  // Support canonical dashboard overview via dashboard.view, alert.view, or support.view / support.manage
   if (
     (required === PERMISSIONS.DASHBOARD_VIEW || required === 'dashboard.view') &&
-    (userPermissions.includes('dashboard.view') || userPermissions.includes('alert.view'))
+    (userPermissions.includes('dashboard.view') ||
+     userPermissions.includes('alert.view') ||
+     userPermissions.includes('support.view') ||
+     userPermissions.includes('support.manage'))
   ) {
     return true;
   }
@@ -119,6 +122,17 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   if (
     (required === PERMISSIONS.REPORTS_VIEW || required === 'reports.view' || required === 'report.view') &&
     (userPermissions.includes('reports.view') || userPermissions.includes('report.view'))
+  ) {
+    return true;
+  }
+  // Support canonical export generation via exports.generate, report.export, or reporting access
+  if (
+    (required === PERMISSIONS.EXPORTS_GENERATE || required === 'exports.generate' || required === 'report.export' || required === 'reports.export') &&
+    (userPermissions.includes('exports.generate') ||
+     userPermissions.includes('report.export') ||
+     userPermissions.includes('reports.export') ||
+     userPermissions.includes('report.view') ||
+     userPermissions.includes('reports.view'))
   ) {
     return true;
   }
@@ -161,12 +175,12 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
   }
   const permissions = user.permissions;
 
-  // 1. Role-specific command center / dashboard when authorized with dashboard.view
-  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
+  // 1. Role-specific command center / dashboard when explicitly authorized with dashboard.view
+  if (permissions.includes(PERMISSIONS.DASHBOARD_VIEW) || permissions.includes('dashboard.view') || permissions.includes('*')) {
     return '/dashboard';
   }
 
-  // 2. Role-specific primary operational workstations when dashboard is not authorized
+  // 2. Role-specific primary operational workstations when dashboard.view is not granted
   if (
     (user.role === 'VERIFICATION_EXECUTIVE' || user.role === 'VERIFICATION_SUPERVISOR') &&
     hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
@@ -179,6 +193,11 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
     (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) || hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE))
   ) {
     return '/support';
+  }
+
+  // 3. Fallback: Role-specific command center / dashboard via alias permissions
+  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
+    return '/dashboard';
   }
 
   // 3. Granular fallbacks to authorized operational workstations

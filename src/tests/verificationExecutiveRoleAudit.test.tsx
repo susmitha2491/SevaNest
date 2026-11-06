@@ -362,7 +362,7 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(await screen.findByTestId('header-user-name')).toHaveTextContent('Support Executive');
       expect(screen.getByTestId('header-user-role')).toHaveTextContent('Support Executive');
       expect(screen.getByTestId('sidebar-user-role')).toHaveTextContent('Support Executive');
-      expect(screen.getByRole('link', { name: /^Support$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Support Tickets$/i })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Verification/i })).not.toBeInTheDocument();
     });
   });

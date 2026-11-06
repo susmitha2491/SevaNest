@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, FileSpreadsheet, FileText, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
 import { ReportItem } from '../domain/types';
 import { reportRepository } from '../data/reportRepository';
 
@@ -17,15 +17,50 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   canExport = true,
 }) => {
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
+  const [loadedReport, setLoadedReport] = useState<ReportItem | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !report) {
+      setLoadedReport(null);
+      return;
+    }
+
+    if (report.previewRows && report.previewRows.length > 0) {
+      setLoadedReport(report);
+      return;
+    }
+
+    let isSubscribed = true;
+    setIsLoading(true);
+    reportRepository
+      .getReportById(report.id)
+      .then((full) => {
+        if (isSubscribed && full) {
+          setLoadedReport(full);
+        }
+      })
+      .catch(() => {
+        if (isSubscribed) setLoadedReport(report);
+      })
+      .finally(() => {
+        if (isSubscribed) setIsLoading(false);
+      });
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [isOpen, report]);
 
   if (!isOpen || !report) return null;
+
+  const currentReport = loadedReport || report;
 
   const handleExport = async (format: 'CSV' | 'PDF') => {
     try {
       const result = await reportRepository.generateExport(report.id, format);
 
       if (format === 'CSV' && result.csvContent) {
-        // Trigger browser file download if available in environment
         if (typeof window !== 'undefined' && typeof window.URL?.createObjectURL === 'function') {
           const blob = new window.Blob([result.csvContent], { type: 'text/csv;charset=utf-8;' });
           const url = window.URL.createObjectURL(blob);
@@ -39,7 +74,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
         }
       }
 
-      setExportFeedback(`Audited ${format} exported: ${result.fileName} (${result.rowCount} rows)`);
+      setExportFeedback(`Audited CSV exported: ${result.fileName} (${result.rowCount} rows)`);
       setTimeout(() => setExportFeedback(null), 4000);
     } catch {
       setExportFeedback('Export failed. Please try again.');
@@ -90,7 +125,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: '4px' }}>
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                {report.id}
+                {currentReport.requirement || currentReport.id}
               </span>
               <span
                 style={{
@@ -102,14 +137,14 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   color: 'var(--color-brand-700)',
                 }}
               >
-                {report.category}
+                {currentReport.category}
               </span>
             </div>
             <h2 id="report-preview-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {report.name}
+              {currentReport.name}
             </h2>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              {report.description}
+              {currentReport.description}
             </p>
           </div>
           <button
@@ -130,7 +165,6 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
         {/* Scrollable Content */}
         <div style={{ padding: 'var(--space-6)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-
           {exportFeedback && (
             <div
               style={{
@@ -157,9 +191,9 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               Key Report Indicators
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
-              {report.metricsSummary.map((m) => (
+              {currentReport.metricsSummary.map((m, idx) => (
                 <div
-                  key={m.label}
+                  key={idx}
                   style={{
                     backgroundColor: 'var(--color-bg-subtle)',
                     padding: 'var(--space-3) var(--space-4)',
@@ -198,7 +232,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
                   <tr>
-                    {report.previewColumns.map((col) => (
+                    {currentReport.previewColumns.map((col) => (
                       <th
                         key={col}
                         style={{
@@ -214,103 +248,94 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {report.previewRows.map((row, idx) => (
-                    <tr
-                      key={idx}
-                      tabIndex={0}
-                      className="clickable-table-row"
-                      style={{ borderBottom: '1px solid var(--color-border)', cursor: 'pointer' }}
-                    >
-                      {report.previewColumns.map((col) => (
-                        <td
-                          key={col}
-                          style={{
-                            padding: 'var(--space-2) var(--space-3)',
-                            fontSize: 'var(--font-size-xs)',
-                            color: 'var(--color-text-primary)',
-                          }}
-                        >
-                          {row[col] ?? '—'}
-                        </td>
-                      ))}
+                  {isLoading ? (
+                    <tr>
+                      <td colSpan={currentReport.previewColumns.length} style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+                        Loading report data...
+                      </td>
                     </tr>
-                  ))}
+                  ) : currentReport.previewRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={currentReport.previewColumns.length} style={{ padding: 'var(--space-4)', textAlign: 'center', color: 'var(--color-text-tertiary)' }}>
+                        No data records available in this telemetry snapshot.
+                      </td>
+                    </tr>
+                  ) : (
+                    currentReport.previewRows.map((row, idx) => (
+                      <tr
+                        key={idx}
+                        style={{
+                          borderBottom: '1px solid var(--color-border)',
+                          backgroundColor: idx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
+                        }}
+                      >
+                        {currentReport.previewColumns.map((col) => (
+                          <td
+                            key={col}
+                            style={{
+                              padding: 'var(--space-2) var(--space-3)',
+                              fontSize: 'var(--font-size-xs)',
+                              color: 'var(--color-text-primary)',
+                            }}
+                          >
+                            {row[col] !== undefined ? String(row[col]) : '—'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        {/* Footer CTAs */}
+        {/* Footer Actions */}
         <div
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderTop: '1px solid var(--color-border)',
-            backgroundColor: 'var(--color-bg-subtle)',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 'var(--space-3)',
+            backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)' }}>
-            Exported records include full timestamped metadata.
-          </span>
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Close
+          </button>
+          {canExport && (
             <button
-              onClick={onClose}
+              onClick={() => handleExport('CSV')}
               style={{
-                padding: '8px 14px',
+                padding: '8px 16px',
                 borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-surface)',
+                border: 'none',
+                backgroundColor: 'var(--color-brand-600)',
+                color: '#ffffff',
                 fontSize: 'var(--font-size-xs)',
-                fontWeight: 600,
+                fontWeight: 700,
                 cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
               }}
             >
-              Close
+              <FileSpreadsheet size={16} /> Export CSV
             </button>
-            {canExport && (
-              <>
-                <button
-                  onClick={() => handleExport('CSV')}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    backgroundColor: 'var(--color-surface)',
-                    color: 'var(--color-text-primary)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <FileSpreadsheet size={14} /> Export CSV
-                </button>
-                <button
-                  onClick={() => handleExport('PDF')}
-                  style={{
-                    padding: '8px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    border: 'none',
-                    backgroundColor: 'var(--color-brand-600)',
-                    color: '#ffffff',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <FileText size={14} /> Export PDF
-                </button>
-              </>
-            )}
-          </div>
+          )}
         </div>
       </div>
     </div>

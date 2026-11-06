@@ -163,7 +163,7 @@ describe('Phase 1: Worker Verification Integration Fixes', () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectBtn = await screen.findByRole('button', { name: /Inspect Dossier/i });
+      const inspectBtn = await screen.findByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectBtn);
 
       await waitFor(() => {

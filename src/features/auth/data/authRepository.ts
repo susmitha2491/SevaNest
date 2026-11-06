@@ -1,4 +1,4 @@
-import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto } from '../../../core/auth/authTypes';
+import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto, ChangePasswordDto } from '../../../core/auth/authTypes';
 import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError } from '../../../core/errors/DomainError';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { httpClient } from '../../../core/api/httpClient';
@@ -70,6 +70,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.VERIFICATION_REVIEW,
       PERMISSIONS.VERIFICATION_DECIDE,
+      PERMISSIONS.VERIFICATION_SIGNOFF,
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
     aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal'],
@@ -156,6 +157,7 @@ export function getDefaultPermissionsForRole(role: AdminRole): string[] {
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.VERIFICATION_REVIEW,
         PERMISSIONS.VERIFICATION_DECIDE,
+        PERMISSIONS.VERIFICATION_SIGNOFF,
         PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       ];
     case 'VERIFICATION_SUPERVISOR':
@@ -522,6 +524,42 @@ export class RealAuthRepository implements IAuthRepository {
   }
 
   /**
+   * Changes the authenticated administrator's password.
+   * Calls the authoritative backend endpoint POST /api/v1/admin/account/password.
+   * Revokes all other sessions while keeping the current session active.
+   */
+  async changePassword(dto: ChangePasswordDto): Promise<void> {
+    try {
+      await httpClient.post('/admin/account/password', {
+        currentPassword: dto.currentPassword,
+        newPassword: dto.newPassword,
+      });
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  public supportsProfilePhotoUpload: boolean = false;
+
+  async uploadProfilePhoto(_file: File): Promise<{ photoUrl: string }> {
+    if (!this.supportsProfilePhotoUpload) {
+      throw new ValidationError(
+        'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint ("POST /api/v1/admin/account/photo" or "POST /api/v1/users/me/photo").'
+      );
+    }
+    try {
+      const formData = new FormData();
+      formData.append('photo', _file);
+      const res = await httpClient.post<{ photoUrl: string }>('/admin/account/photo', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      return res.data;
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  /**
    * Indicates whether profile editing is supported by the deployed backend.
    * In the deployed OpenAPI spec, profile editing endpoints (PATCH /users/me) do not exist.
    * Can be configured or toggled when the backend team deploys the required contract.
@@ -662,6 +700,34 @@ export class MockAuthRepository implements IAuthRepository {
   }
 
   public supportsProfileUpdate: boolean = false;
+  public supportsProfilePhotoUpload: boolean = true;
+
+  async changePassword(dto: ChangePasswordDto): Promise<void> {
+    if (!dto.currentPassword) {
+      throw new ValidationError('Current password is required.');
+    }
+    if (!dto.newPassword || dto.newPassword.length < 8) {
+      throw new ValidationError('New password must be at least 8 characters long.');
+    }
+    if (dto.currentPassword === dto.newPassword) {
+      throw new ValidationError('New password cannot be identical to current password.');
+    }
+    return Promise.resolve();
+  }
+
+  async uploadProfilePhoto(file: File): Promise<{ photoUrl: string }> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result as string;
+        resolve({ photoUrl: result });
+      };
+      reader.onerror = () => {
+        reject(new Error('Failed to read image file.'));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
 
   async updateProfile(dto: UpdateProfileDto): Promise<AdminUser> {
     const currentUser = useAuthStore.getState().user;
@@ -673,6 +739,7 @@ export class MockAuthRepository implements IAuthRepository {
       ...(dto.name ? { name: dto.name.trim() } : {}),
       ...(dto.email ? { email: dto.email.trim() } : {}),
       ...(dto.phone ? { phone: dto.phone.trim(), mobile: dto.phone.trim() } : {}),
+      ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl } : {}),
     };
     useAuthStore.getState().setUser(updatedUser);
     return Promise.resolve(updatedUser);

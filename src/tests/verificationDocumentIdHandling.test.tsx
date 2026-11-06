@@ -178,7 +178,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButton = await screen.findByRole('button', { name: /Inspect Dossier/i });
+      const inspectButton = await screen.findByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButton);
 
       // Verify clear unavailable state rendered
@@ -234,13 +234,17 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       // Navigate to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      // Explicitly open document preview
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       // Confirm secure link is displayed
       const openLink = await screen.findByRole('link', { name: /Open Secure Document Link/i });
@@ -350,13 +354,16 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       // Move to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       expect(
         await screen.findByText(/Failed to load document attachment/i)
@@ -385,13 +392,16 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       // Move to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       const retryBtn = await screen.findByRole('button', { name: /Retry Fetching Document/i });
       await user.click(retryBtn);
@@ -417,7 +427,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectDossierBtns[0]);
 
       // Move to Step 2: Documents Review
@@ -426,7 +436,9 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       await user.click(nextBtn);
 
       expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Identity Proof/i })).toBeInTheDocument();
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      expect(viewDocBtns[0]).toBeInTheDocument();
+      await user.click(viewDocBtns[0]);
 
       // Verifies backend contract GET /api/v1/admin/verification/documents/{documentId}/link called with actual documentId
       await waitFor(() => {
@@ -467,13 +479,16 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectDossierBtns[0]);
 
       // Move to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       // Confirm image tag rendered
       const img = await screen.findByRole('img', { name: /Submitted KYC Document/i });
@@ -542,7 +557,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectDossierBtns[0]);
 
       // Verify clear unavailable state rendered in overview
@@ -559,13 +574,16 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectDossierBtns[0]);
 
       // Move to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       expect(await screen.findByText(/Failed to load document attachment/i)).toBeInTheDocument();
       expect(
@@ -597,13 +615,16 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectDossierBtns = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectDossierBtns[0]);
 
       // Move to Step 2: Documents Review
       const dialog = await screen.findByRole('dialog');
       const nextBtn = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn);
+
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      await user.click(viewDocBtns[0]);
 
       // Restricted Access is shown
       expect(await screen.findByText(/Restricted Personal Document \(KYC\)/i)).toBeInTheDocument();

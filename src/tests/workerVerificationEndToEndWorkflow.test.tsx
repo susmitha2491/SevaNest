@@ -65,11 +65,11 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       expect(screen.getAllByText(/App: APP-10483/i).length).toBeGreaterThan(0);
     });
 
-    it('opens clean review modal when Inspect Dossier is clicked and displays 5-step wizard with visual stepper', async () => {
+    it('opens clean review modal when dossier row is clicked and displays 5-step wizard with visual stepper', async () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       expect(inspectButtons.length).toBeGreaterThan(0);
       await user.click(inspectButtons[0]);
 
@@ -92,7 +92,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       // Step 1 fields
@@ -120,7 +120,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
@@ -141,7 +141,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
@@ -152,9 +152,9 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       await user.click(nextBtn);
 
       expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Identity Proof/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Address Proof/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Police Clearance/i })).toBeInTheDocument();
+      const viewDocBtns = await screen.findAllByRole('button', { name: /View Document/i });
+      expect(viewDocBtns.length).toBeGreaterThanOrEqual(3);
+      await user.click(viewDocBtns[0]);
 
       // Secure document viewer renders
       expect(await screen.findByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
@@ -165,7 +165,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
@@ -191,7 +191,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
 
       renderWithProviders(<VerificationQueuePage />);
 
-      const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+      const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();

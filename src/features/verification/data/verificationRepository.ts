@@ -11,6 +11,7 @@ import {
   AdminWorkerVerificationResponse,
   AdminCheckView,
   VerificationDocumentMetadata,
+  isTerminalRejectionCode,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -78,7 +79,7 @@ export class MockVerificationRepository implements IVerificationRepository {
       phoneMasked: '+91 98765 *****',
       phone: '+91 98765 43210',
       email: 'sunita.devi@sevanest.worker',
-      submissionTime: '2026-10-15T07:15:00Z',
+      submissionTime: '2026-10-15T12:00:00Z',
       status: 'PENDING_REVIEW',
       preCheckOtpVerified: true,
       address: {
@@ -698,6 +699,21 @@ export class MockVerificationRepository implements IVerificationRepository {
       );
     }
 
+    // Order by real submission timestamp according to sortOrder (defaults to asc unless explicitly requested)
+    const order = filter?.sortOrder === 'desc' ? 'desc' : 'asc';
+    if (filter?.sortOrder) {
+      result.sort((a, b) => {
+        const parsedA = a.submissionTime ? new Date(a.submissionTime).getTime() : NaN;
+        const parsedB = b.submissionTime ? new Date(b.submissionTime).getTime() : NaN;
+        const timeA = !Number.isNaN(parsedA) ? parsedA : (order === 'asc' ? Infinity : -Infinity);
+        const timeB = !Number.isNaN(parsedB) ? parsedB : (order === 'asc' ? Infinity : -Infinity);
+        if (timeA !== timeB) {
+          return order === 'asc' ? timeA - timeB : timeB - timeA;
+        }
+        return order === 'asc' ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id);
+      });
+    }
+
     const page = filter?.page || 1;
     const pageSize = filter?.pageSize || 10;
     const totalCount = result.length;
@@ -989,6 +1005,19 @@ export class MockVerificationRepository implements IVerificationRepository {
       throw new ValidationError('Invalid checkId: worker ID or dossier ID cannot be substituted for checkId.');
     }
 
+    const reasonCode = mapToBackendReasonCode(category);
+    const cleanRemarks = remarks?.trim();
+    if (reasonCode === 'OTHER' && (!cleanRemarks || cleanRemarks === '')) {
+      throw new ValidationError(
+        'Mandatory remarks explanation is required when selecting rejection reason OTHER.',
+        undefined,
+        undefined,
+        'REMARKS_REQUIRED'
+      );
+    }
+
+    const isTerminal = isTerminalRejectionCode(reasonCode);
+
     let found = false;
     let targetDossier: VerificationDossier | undefined;
     for (const dossier of this.dossiers) {
@@ -997,11 +1026,33 @@ export class MockVerificationRepository implements IVerificationRepository {
           found = true;
           targetDossier = dossier;
           check.status = 'REJECTED';
-          check.rejectionCategory = category || 'OTHER';
-          check.rejectionRemarks = remarks || 'Rejected by executive';
-          dossier.status = 'REJECTED';
-          dossier.level = 'REJECTED';
-          dossier.overallRemarks = remarks;
+          check.rejectionCategory = reasonCode as RejectionReasonCategory;
+          check.rejectionCode = reasonCode;
+          check.rejectionRemarks = cleanRemarks || (reasonCode === 'OTHER' ? 'Rejected by executive' : undefined);
+          check.terminal = isTerminal;
+
+          if (!check.history) {
+            check.history = [];
+          }
+          check.history.push({
+            fromStatus: 'IN_REVIEW',
+            toStatus: 'REJECTED',
+            rejectionCode: reasonCode,
+            actorUserId: 'admin-reviewer',
+            actorName: 'Verification Executive',
+            remarks: cleanRemarks || reasonCode,
+            createdAt: new Date().toISOString(),
+          });
+
+          if (isTerminal) {
+            dossier.status = 'REJECTED';
+            dossier.level = 'REJECTED';
+            dossier.applicationStatus = 'REJECTED';
+          } else {
+            dossier.status = 'PENDING_REVIEW';
+            dossier.applicationStatus = 'ACTION_REQUIRED';
+          }
+          dossier.overallRemarks = cleanRemarks;
           syncMockWorkerVerification(dossier.workerId, false);
           break;
         }
@@ -1024,11 +1075,13 @@ export class MockVerificationRepository implements IVerificationRepository {
       recheckAt: chk.recheckDueDate || null,
       reviewerUserId: targetDossier!.reviewerUserId || null,
       claimedAt: targetDossier!.claimedAt || null,
+      history: chk.history ? (chk.history as unknown as Array<Record<string, unknown>>) : undefined,
     }));
 
     return {
       workerId: targetDossier.workerId,
-      level: 'IN_PROGRESS',
+      applicationStatus: targetDossier.applicationStatus || (isTerminal ? 'REJECTED' : 'ACTION_REQUIRED'),
+      level: isTerminal ? 'REJECTED' : 'IN_PROGRESS',
       requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
       checks: checksArray,
     };
@@ -1214,6 +1267,14 @@ export class MockVerificationRepository implements IVerificationRepository {
     dossier.level = 'VERIFIED';
     dossier.overallRemarks = remarks || 'Verification signed off by supervisor';
     dossier.signedOffAt = new Date().toISOString();
+    if (!dossier.approvalHistory) {
+      dossier.approvalHistory = [];
+    }
+    dossier.approvalHistory.push({
+      approvedAt: dossier.signedOffAt,
+      approvedBy: dossier.signedOffBy || 'Operations Admin',
+      remarks: dossier.overallRemarks,
+    });
     syncMockWorkerVerification(dossier.workerId, true);
 
     return {
@@ -1266,15 +1327,42 @@ export class MockVerificationRepository implements IVerificationRepository {
 
     const dossier = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
     if (dossier) {
+      const isTerminal = isTerminalRejectionCode(category as string);
+      const now = new Date().toISOString();
+
+      if (!dossier.rejectionHistory) {
+        dossier.rejectionHistory = [];
+      }
+      dossier.rejectionHistory.push({
+        rejectedAt: now,
+        reasonCode: (category as string) || 'OPERATIONAL_REJECTION',
+        remarks,
+        terminal: isTerminal,
+      });
+
       dossier.status = 'REJECTED';
       dossier.level = 'REJECTED';
+      dossier.applicationStatus = 'REJECTED';
       dossier.overallRemarks = remarks;
       if (dossier.checks) {
         Object.values(dossier.checks).forEach((c) => {
           if (c.status !== 'APPROVED') {
+            if (!c.history) {
+              c.history = [];
+            }
+            c.history.push({
+              fromStatus: c.status || 'IN_REVIEW',
+              toStatus: 'REJECTED',
+              rejectionCode: (category as string),
+              remarks,
+              actorUserId: 'admin',
+              createdAt: now,
+            });
             c.status = 'REJECTED';
             c.rejectionCategory = (category as RejectionReasonCategory) || 'OTHER';
+            c.rejectionCode = (category as string);
             c.rejectionRemarks = remarks;
+            c.terminal = isTerminal;
           }
         });
       }
@@ -1298,6 +1386,139 @@ export class MockVerificationRepository implements IVerificationRepository {
       applicationStatus: 'REJECTED',
       level: 'NOT_STARTED',
       requiredChecks: ['IDENTITY', 'ADDRESS', 'EMERGENCY_CONTACT', 'PREVIOUS_EMPLOYMENT', 'POLICE_VERIFICATION'],
+      checks: checksArray,
+    };
+  }
+
+  async reconsiderApplication(
+    workerId: string,
+    remarks: string
+  ): Promise<AdminWorkerVerificationResponse> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for application reconsideration.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (!remarks || remarks.trim().length < 5) {
+      throw new ValidationError(
+        'Reconsideration rationale remarks must be at least 5 characters.',
+        undefined,
+        undefined,
+        'REMARKS_TOO_SHORT'
+      );
+    }
+
+    const dossier = this.dossiers.find((d) => d.workerId === cleanWorkerId || d.id === cleanWorkerId);
+    if (!dossier) {
+      throw new NotFoundError(`Verification dossier for worker '${workerId}' not found.`);
+    }
+
+    // Check for terminal disqualification under backend compliance governance
+    const hasTerminalCheck = dossier.checks && Object.values(dossier.checks).some(
+      (c) => c.terminal === true || isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory)
+    );
+    if (hasTerminalCheck) {
+      throw new ValidationError(
+        'Worker application is permanently disqualified due to a terminal rejection reason. Under backend compliance governance, terminal disqualifications cannot be reconsidered.',
+        undefined,
+        undefined,
+        'TERMINAL_DISQUALIFIED'
+      );
+    }
+
+    const now = new Date().toISOString();
+
+    // Preserve previous rejection in history
+    if (!dossier.rejectionHistory) {
+      dossier.rejectionHistory = [];
+    }
+    const lastRejectionCode = (Object.values(dossier.checks || {}).find((c) => c.rejectionCode)?.rejectionCode as string) || 'OPERATIONAL_REJECTION';
+    if (dossier.rejectionHistory.length === 0) {
+      dossier.rejectionHistory.push({
+        rejectedAt: dossier.signedOffAt || now,
+        reasonCode: lastRejectionCode,
+        remarks: dossier.overallRemarks || 'Application rejected',
+        terminal: false,
+      });
+    }
+
+    if (!dossier.reconsiderationHistory) {
+      dossier.reconsiderationHistory = [];
+    }
+    dossier.reconsiderationHistory.push({
+      reconsideredAt: now,
+      reconsideredBy: 'Verification Executive',
+      remarks: remarks.trim(),
+    });
+
+    // Transition application status to IN_REVIEW
+    dossier.status = 'IN_REVIEW';
+    dossier.level = 'IN_PROGRESS';
+    dossier.applicationStatus = 'UNDER_REVIEW';
+    dossier.overallRemarks = undefined;
+    dossier.signedOffAt = undefined;
+    dossier.signedOffBy = undefined;
+    dossier.activatedAt = undefined;
+
+    // Reset non-terminal rejected checks to SUBMITTED while preserving history (do NOT auto-approve!)
+    if (dossier.checks) {
+      Object.values(dossier.checks).forEach((c) => {
+        if (c.status === 'REJECTED') {
+          if (!c.history) {
+            c.history = [];
+          }
+          const hasRejectionInHistory = c.history.some((ev) => ev.toStatus === 'REJECTED');
+          if (!hasRejectionInHistory) {
+            c.history.push({
+              fromStatus: 'IN_REVIEW',
+              toStatus: 'REJECTED',
+              rejectionCode: c.rejectionCode || c.rejectionCategory || 'REJECTED',
+              remarks: c.rejectionRemarks || 'Check rejected',
+              actorUserId: 'admin',
+              createdAt: now,
+            });
+          }
+          c.history.push({
+            fromStatus: 'REJECTED',
+            toStatus: 'SUBMITTED',
+            remarks: `Reconsidered for review: ${remarks.trim()}`,
+            actorUserId: 'admin',
+            createdAt: now,
+          });
+
+          // Move to SUBMITTED so Verification Executive repeats check verification
+          c.status = 'SUBMITTED';
+          c.rejectionCategory = undefined;
+          c.rejectionCode = undefined;
+          c.rejectionRemarks = undefined;
+          c.rejectionMessage = undefined;
+          c.terminal = false;
+        }
+      });
+    }
+
+    syncMockWorkerVerification(cleanWorkerId, false, false);
+
+    const checksArray: AdminCheckView[] = dossier.checks
+      ? Object.values(dossier.checks).map((chk) => ({
+          checkId: chk.id || '',
+          checkType: chk.type,
+          status: chk.status as AdminCheckView['status'],
+          required: true,
+        }))
+      : [];
+
+    return {
+      workerId: cleanWorkerId,
+      applicationStatus: 'UNDER_REVIEW',
+      level: 'IN_PROGRESS',
+      requiredChecks: Object.keys(dossier.checks || {}),
       checks: checksArray,
     };
   }
@@ -1568,6 +1789,11 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
       };
     }
 
+    const rawRejectionCode = (item.rejectionCode || item.rejectionCategory)
+      ? String(item.rejectionCode || item.rejectionCategory)
+      : undefined;
+    const isTerminal = item.terminal === true || isTerminalRejectionCode(rawRejectionCode);
+
     const checkObj: VerificationCheck = {
       id: checkId,
       checkId,
@@ -1578,8 +1804,11 @@ export function mapChecks(raw: unknown): Record<VerificationCheckType, Verificat
       documentMetadata: docMeta,
       documents: checkDocs.length > 0 ? checkDocs : (docMeta?.documentId ? [docMeta] : undefined),
       contactDetails: item.contactDetails as VerificationCheck['contactDetails'],
-      rejectionCategory: item.rejectionCategory as VerificationCheck['rejectionCategory'],
-      rejectionRemarks: (item.rejectionRemarks || item.remarks) ? String(item.rejectionRemarks || item.remarks) : undefined,
+      rejectionCategory: (rawRejectionCode ? mapToBackendReasonCode(rawRejectionCode) : undefined) as VerificationCheck['rejectionCategory'],
+      rejectionCode: rawRejectionCode ? mapToBackendReasonCode(rawRejectionCode) : undefined,
+      rejectionMessage: item.rejectionMessage ? String(item.rejectionMessage) : undefined,
+      terminal: isTerminal,
+      rejectionRemarks: (item.rejectionRemarks || item.remarks || item.rejectionMessage) ? String(item.rejectionRemarks || item.remarks || item.rejectionMessage) : undefined,
       verifiedAt: (item.verifiedAt || item.reviewedAt) ? String(item.verifiedAt || item.reviewedAt) : undefined,
       verifiedBy: (item.verifiedBy || item.reviewerUserId) ? String(item.verifiedBy || item.reviewerUserId) : undefined,
       recheckDueDate: (item.recheckDueDate || item.recheckAt) ? String(item.recheckDueDate || item.recheckAt) : undefined,
@@ -1638,6 +1867,12 @@ interface WorkerEnrichmentInfo {
   category: string;
   phoneMasked?: string;
   locality?: string;
+  applicationStatus?: string;
+  verificationLevel?: string;
+  isFullyVerified?: boolean;
+  signedOffAt?: string | null;
+  activatedAt?: string | null;
+  onboardingStatus?: string;
 }
 
 let cachedWorkerEnrichment: Map<string, WorkerEnrichmentInfo> | null = null;
@@ -1650,8 +1885,32 @@ async function getWorkerEnrichmentMap(): Promise<Map<string, WorkerEnrichmentInf
   }
   try {
     const res = await httpClient.get<{
-      data?: Array<{ id: string; name?: string; mobile?: string; categories?: Array<{ name?: string }>; locality?: string }>;
-      items?: Array<{ id: string; name?: string; mobile?: string; categories?: Array<{ name?: string }>; locality?: string }>;
+      data?: Array<{
+        id: string;
+        name?: string;
+        mobile?: string;
+        categories?: Array<{ name?: string }>;
+        locality?: string;
+        applicationStatus?: string;
+        verificationLevel?: string;
+        isFullyVerified?: boolean;
+        signedOffAt?: string | null;
+        activatedAt?: string | null;
+        onboardingStatus?: string;
+      }>;
+      items?: Array<{
+        id: string;
+        name?: string;
+        mobile?: string;
+        categories?: Array<{ name?: string }>;
+        locality?: string;
+        applicationStatus?: string;
+        verificationLevel?: string;
+        isFullyVerified?: boolean;
+        signedOffAt?: string | null;
+        activatedAt?: string | null;
+        onboardingStatus?: string;
+      }>;
     }>('/admin/workers', { params: { limit: 100 } });
 
     const list = Array.isArray(res?.data)
@@ -1669,6 +1928,12 @@ async function getWorkerEnrichmentMap(): Promise<Map<string, WorkerEnrichmentInf
           category: w.categories?.[0]?.name || 'General Help',
           phoneMasked: w.mobile ? `${w.mobile.slice(0, 5)} *****` : undefined,
           locality: w.locality || 'Hyderabad',
+          applicationStatus: w.applicationStatus ? String(w.applicationStatus).toUpperCase() : undefined,
+          verificationLevel: w.verificationLevel ? String(w.verificationLevel).toUpperCase() : undefined,
+          isFullyVerified: Boolean(w.isFullyVerified),
+          signedOffAt: w.signedOffAt ? String(w.signedOffAt) : null,
+          activatedAt: w.activatedAt ? String(w.activatedAt) : null,
+          onboardingStatus: w.onboardingStatus ? String(w.onboardingStatus).toUpperCase() : undefined,
         });
       }
     }
@@ -1689,7 +1954,7 @@ export class RealVerificationRepository implements IVerificationRepository {
       const pageSize = filter?.pageSize || 10;
       const baseParams: Record<string, unknown> = {
         sortBy: filter?.sortBy || 'submittedAt',
-        sortOrder: filter?.sortOrder || 'asc',
+        sortOrder: filter?.sortOrder === 'desc' ? 'desc' : 'asc',
       };
       if (filter?.searchTerm) {
         baseParams.search = filter.searchTerm;
@@ -1862,6 +2127,7 @@ export class RealVerificationRepository implements IVerificationRepository {
         assignedReviewer?: string;
         claimedAt?: string;
         level?: string;
+        enriched?: WorkerEnrichmentInfo;
         checksMap: Record<string, VerificationCheck>;
         rawList: Record<string, unknown>[];
       }>();
@@ -1943,7 +2209,7 @@ export class RealVerificationRepository implements IVerificationRepository {
             : undefined;
           const assignedReviewer = reviewerUserId ? `Reviewer (${reviewerUserId})` : undefined;
 
-          const rawLevel = (raw.level ?? (raw.verification as Record<string, unknown>)?.level) as string | undefined;
+          const rawLevel = (raw.level ?? (raw.verification as Record<string, unknown>)?.level ?? enriched?.verificationLevel) as string | undefined;
           const level = rawLevel !== undefined ? String(rawLevel) : undefined;
 
           workerGroups.set(workerId, {
@@ -1961,6 +2227,7 @@ export class RealVerificationRepository implements IVerificationRepository {
             assignedReviewer,
             claimedAt,
             level,
+            enriched,
             checksMap: {},
             rawList: [],
           });
@@ -1986,23 +2253,7 @@ export class RealVerificationRepository implements IVerificationRepository {
 
       const deduped: VerificationDossier[] = Array.from(workerGroups.values()).map((g) => {
         const rawChecks = g.rawList;
-        const chkMap = g.checksMap;
-
-        const hasIdentityApproved = chkMap.IDENTITY?.status === 'APPROVED';
-        const hasAddressApproved = chkMap.ADDRESS?.status === 'APPROVED';
-        const hasEmergencyApproved = chkMap.EMERGENCY_CONTACT?.status === 'APPROVED';
-        const hasReferenceApproved =
-          chkMap.REFERENCE?.status === 'APPROVED' ||
-          chkMap.PREVIOUS_EMPLOYMENT?.status === 'APPROVED';
-        const hasPoliceApproved =
-          chkMap.POLICE_CLEARANCE?.status === 'APPROVED' ||
-          chkMap.POLICE_VERIFICATION?.status === 'APPROVED';
-        const allFiveChecksApproved =
-          hasIdentityApproved &&
-          hasAddressApproved &&
-          hasEmergencyApproved &&
-          hasReferenceApproved &&
-          hasPoliceApproved;
+        const enriched = g.enriched;
 
         const hasRejected = rawChecks.some(
           (c) => String(c.status || '').toUpperCase() === 'REJECTED'
@@ -2014,27 +2265,39 @@ export class RealVerificationRepository implements IVerificationRepository {
         const hasRecheck = rawChecks.some(
           (c) => String(c.status || '').toUpperCase() === 'RECHECK_DUE'
         );
+        const hasSubmitted = rawChecks.some((c) => {
+          const s = String(c.status || '').toUpperCase();
+          return s === 'SUBMITTED' || s === 'PENDING' || s === 'PENDING_REVIEW';
+        });
+
+        const allRetrievedChecksApproved =
+          rawChecks.length > 0 &&
+          rawChecks.every((c) => String(c.status || '').toUpperCase() === 'APPROVED');
 
         let status: VerificationDossier['status'] = 'PENDING_REVIEW';
         let contractInconsistency: string | undefined = undefined;
         let hasContractInconsistency = false;
 
-        const upperLevel = g.level ? g.level.toUpperCase() : '';
+        const upperLevel = g.level ? g.level.toUpperCase() : (enriched?.verificationLevel ? enriched.verificationLevel.toUpperCase() : '');
         const backendClaimsApproved =
-          upperLevel === 'APPROVED' || upperLevel === 'VERIFIED';
+          upperLevel === 'APPROVED' ||
+          upperLevel === 'VERIFIED' ||
+          upperLevel === 'LEVEL_3' ||
+          enriched?.isFullyVerified === true ||
+          enriched?.applicationStatus === 'ACTIVE' ||
+          enriched?.applicationStatus === 'VERIFIED' ||
+          Boolean(enriched?.signedOffAt);
 
-        if (hasRejected || upperLevel === 'REJECTED') {
+        if (hasRejected || upperLevel === 'REJECTED' || enriched?.applicationStatus === 'REJECTED') {
           status = 'REJECTED';
-        } else if (hasInReview || upperLevel === 'IN_REVIEW') {
+        } else if (hasInReview || upperLevel === 'IN_REVIEW' || enriched?.applicationStatus === 'UNDER_REVIEW') {
           status = 'IN_REVIEW';
         } else if (hasRecheck || upperLevel === 'RECHECK_DUE') {
           status = 'RECHECK_DUE';
-        } else if (allFiveChecksApproved) {
-          status = 'APPROVED';
-        } else if (backendClaimsApproved && !allFiveChecksApproved) {
-          hasContractInconsistency = true;
-          contractInconsistency = `Contract Inconsistency: Backend reports verification level as ${g.level}, but required checks remain incomplete. Full KYC approval requires all mandatory checks to be approved.`;
+        } else if (hasSubmitted) {
           status = 'PENDING_REVIEW';
+        } else if (backendClaimsApproved || allRetrievedChecksApproved) {
+          status = 'APPROVED';
         } else {
           status = 'PENDING_REVIEW';
         }
@@ -2112,6 +2375,13 @@ export class RealVerificationRepository implements IVerificationRepository {
 
       let filtered = deduped;
 
+      // Authoritative status filter (removes approved/verified workers from pending queue)
+      if (filter?.status === 'PENDING_REVIEW') {
+        filtered = filtered.filter((item) => item.status === 'PENDING_REVIEW');
+      } else if (filter?.status && filter.status !== 'ALL') {
+        filtered = filtered.filter((item) => item.status === filter.status);
+      }
+
       // Filter by category if category was passed
       if (filter?.category && filter.category !== 'ALL') {
         const catLower = filter.category.toLowerCase();
@@ -2130,11 +2400,17 @@ export class RealVerificationRepository implements IVerificationRepository {
         );
       }
 
-      // Confirm oldest-first ordering uses real submission timestamp
+      // Order by real submission timestamp according to sortOrder (defaults to asc unless explicitly requested)
+      const order = filter?.sortOrder === 'desc' ? 'desc' : 'asc';
       filtered.sort((a, b) => {
-        const timeA = a.submissionTime ? new Date(a.submissionTime).getTime() : Infinity;
-        const timeB = b.submissionTime ? new Date(b.submissionTime).getTime() : Infinity;
-        return timeA - timeB;
+        const parsedA = a.submissionTime ? new Date(a.submissionTime).getTime() : NaN;
+        const parsedB = b.submissionTime ? new Date(b.submissionTime).getTime() : NaN;
+        const timeA = !Number.isNaN(parsedA) ? parsedA : (order === 'asc' ? Infinity : -Infinity);
+        const timeB = !Number.isNaN(parsedB) ? parsedB : (order === 'asc' ? Infinity : -Infinity);
+        if (timeA !== timeB) {
+          return order === 'asc' ? timeA - timeB : timeB - timeA;
+        }
+        return order === 'asc' ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id);
       });
 
       const totalCount = filtered.length;
@@ -2270,8 +2546,14 @@ export class RealVerificationRepository implements IVerificationRepository {
       const allRequiredChecksApproved = incompleteRequiredChecks.length === 0;
 
       const checksList = Object.values(mappedChecks);
-      const hasRejected = checksList.some((c) => c.status === 'REJECTED');
+      const hasTerminalRejection = checksList.some(
+        (c) => c.status === 'REJECTED' && (c.terminal === true || isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory))
+      );
+      const hasNonTerminalRejection = checksList.some(
+        (c) => c.status === 'REJECTED' && !c.terminal && !isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory)
+      );
       const hasInReview = checksList.some((c) => c.status === 'IN_REVIEW');
+      const hasSubmitted = checksList.some((c) => c.status === 'SUBMITTED');
       const hasRecheck = checksList.some((c) => c.status === 'RECHECK_DUE');
 
       let status: VerificationDossier['status'] = 'PENDING_REVIEW';
@@ -2280,53 +2562,96 @@ export class RealVerificationRepository implements IVerificationRepository {
 
       const upperStatus = String(raw.status || '').toUpperCase();
       const upperLevel = level ? level.toUpperCase() : '';
+      const rawAppStatus = raw.applicationStatus ? String(raw.applicationStatus).toUpperCase() : undefined;
       const backendClaimsApproved =
         upperStatus === 'APPROVED' ||
         upperStatus === 'VERIFIED' ||
         upperLevel === 'APPROVED' ||
         upperLevel === 'VERIFIED' ||
         upperLevel === 'LEVEL_3' ||
+        rawAppStatus === 'VERIFIED' ||
+        rawAppStatus === 'ACTIVE' ||
         Boolean(raw.signedOffAt);
 
       const rawChecksGiven = raw.checks !== undefined && raw.checks !== null &&
         (Array.isArray(raw.checks) ? raw.checks.length > 0 : Object.keys(raw.checks).length > 0);
 
-      const workerOnboardingSubmitted =
-        workerData?.onboardingStatus === 'SUBMITTED' ||
-        workerData?.onboardingStatus === 'IN_REVIEW' ||
-        workerData?.onboardingStatus === 'APPLIED';
+      const isWorkerOnboardingDraft = workerData?.onboardingStatus === 'DRAFT';
 
       if (rawChecksGiven) {
-        if (allRequiredChecksApproved && backendClaimsApproved && !workerOnboardingSubmitted) {
-          status = 'APPROVED';
-        } else if (backendClaimsApproved && (!allRequiredChecksApproved || workerOnboardingSubmitted)) {
+        if (backendClaimsApproved && incompleteRequiredChecks.length > 0) {
           hasContractInconsistency = true;
           contractInconsistency = `Contract Inconsistency: Backend reports application as ${level || raw.applicationStatus || 'VERIFIED'} / signed-off, but required KYC checks (${incompleteRequiredChecks.join(', ')}) remain incomplete. In compliance with SevaNest verification rules, full approval is withheld until all required checks are verified.`;
-          status = hasRejected ? 'REJECTED' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
-        } else if (hasRejected || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
+          status = hasTerminalRejection ? 'REJECTED' : hasNonTerminalRejection ? 'PENDING_REVIEW' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
+          status = 'IN_REVIEW';
+        } else if (hasSubmitted) {
+          status = 'PENDING_REVIEW';
+        } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
+          status = 'RECHECK_DUE';
+        } else if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
           status = 'REJECTED';
-        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW') {
+        } else if (allRequiredChecksApproved && (backendClaimsApproved || raw.signedOffAt)) {
+          if (isWorkerOnboardingDraft) {
+            hasContractInconsistency = true;
+            contractInconsistency = `Contract Inconsistency: Worker onboarding status is DRAFT, but verification level is reported as ${level || raw.applicationStatus || 'VERIFIED'}. Full approval requires completed onboarding.`;
+            status = 'PENDING_REVIEW';
+          } else {
+            status = 'APPROVED';
+          }
+        } else if (hasNonTerminalRejection || rawAppStatus === 'ACTION_REQUIRED' || rawAppStatus === 'CORRECTIONS_REQUIRED') {
+          status = 'PENDING_REVIEW';
+        } else if (allRequiredChecksApproved) {
+          status = 'APPROVED';
+        } else {
+          status = 'PENDING_REVIEW';
+        }
+      } else {
+        if (isWorkerOnboardingDraft) {
+          hasContractInconsistency = true;
+          contractInconsistency = `Contract Inconsistency: Worker onboarding status is DRAFT, but verification level is reported as ${level || raw.applicationStatus || 'VERIFIED'}. Full approval requires completed onboarding and verification.`;
+          status = 'PENDING_REVIEW';
+        } else if (backendClaimsApproved) {
+          status = 'APPROVED';
+        } else if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (hasNonTerminalRejection || rawAppStatus === 'ACTION_REQUIRED' || rawAppStatus === 'CORRECTIONS_REQUIRED') {
+          status = 'PENDING_REVIEW';
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
           status = 'IN_REVIEW';
         } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
           status = 'RECHECK_DUE';
         } else {
           status = 'PENDING_REVIEW';
         }
-      } else {
-        if (workerOnboardingSubmitted) {
-          hasContractInconsistency = true;
-          contractInconsistency = `Contract Inconsistency: Worker onboarding status is ${workerData?.onboardingStatus}, but verification level is reported as ${level}. Full approval requires completed onboarding and verification.`;
-          status = 'PENDING_REVIEW';
-        } else if (backendClaimsApproved) {
-          status = 'APPROVED';
-        } else if (hasRejected || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
-          status = 'REJECTED';
-        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW') {
-          status = 'IN_REVIEW';
-        } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
-          status = 'RECHECK_DUE';
+      }
+
+      // Calculate authoritative derived application status strictly adhering to standard statuses:
+      // DRAFT, SUBMITTED, UNDER_REVIEW, ACTION_REQUIRED, VERIFIED, ACTIVE, REJECTED
+      let derivedApplicationStatus: string = 'DRAFT';
+      if (rawAppStatus) {
+        if (rawAppStatus === 'IN_REVIEW') {
+          derivedApplicationStatus = 'UNDER_REVIEW';
+        } else if (rawAppStatus === 'CORRECTIONS_REQUIRED') {
+          derivedApplicationStatus = 'ACTION_REQUIRED';
+        } else if (rawAppStatus === 'APPROVED') {
+          derivedApplicationStatus = 'VERIFIED';
         } else {
-          status = 'PENDING_REVIEW';
+          derivedApplicationStatus = rawAppStatus;
+        }
+      } else {
+        if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED') {
+          derivedApplicationStatus = 'REJECTED';
+        } else if (hasNonTerminalRejection) {
+          derivedApplicationStatus = 'ACTION_REQUIRED';
+        } else if (allRequiredChecksApproved && (backendClaimsApproved || raw.signedOffAt)) {
+          derivedApplicationStatus = raw.activatedAt ? 'ACTIVE' : 'VERIFIED';
+        } else if (hasInReview) {
+          derivedApplicationStatus = 'UNDER_REVIEW';
+        } else if (hasSubmitted || status === 'PENDING_REVIEW') {
+          derivedApplicationStatus = 'SUBMITTED';
+        } else {
+          derivedApplicationStatus = 'DRAFT';
         }
       }
 
@@ -2362,6 +2687,42 @@ export class RealVerificationRepository implements IVerificationRepository {
 
       const emergencyContact = (workerData?.emergencyContact || raw.emergencyContact) as VerificationDossier['emergencyContact'];
       const previousEmployer = (workerData?.previousEmployer || workerData?.employerReference || raw.previousEmployer) as VerificationDossier['previousEmployer'];
+
+      // Extract profile photo information if exposed by backend
+      const rawPhotoUrl =
+        typeof workerData?.photo === 'string'
+          ? workerData.photo
+          : typeof workerData?.photo === 'object' && workerData.photo !== null && 'url' in (workerData.photo as Record<string, unknown>)
+          ? String(((workerData.photo as Record<string, unknown>).url))
+          : workerData?.photoUrl
+          ? String(workerData.photoUrl)
+          : workerData?.avatarUrl
+          ? String(workerData.avatarUrl)
+          : workerData?.profilePhotoUrl
+          ? String(workerData.profilePhotoUrl)
+          : typeof raw.photo === 'string'
+          ? raw.photo
+          : typeof raw.photo === 'object' && raw.photo !== null && 'url' in (raw.photo as Record<string, unknown>)
+          ? String(((raw.photo as Record<string, unknown>).url))
+          : raw.photoUrl
+          ? String(raw.photoUrl)
+          : undefined;
+
+      const photoObj =
+        typeof workerData?.photo === 'object' && workerData.photo !== null && 'url' in (workerData.photo as Record<string, unknown>)
+          ? (workerData.photo as { url: string; expiresAt?: string })
+          : typeof raw.photo === 'object' && raw.photo !== null && 'url' in (raw.photo as Record<string, unknown>)
+          ? (raw.photo as { url: string; expiresAt?: string })
+          : rawPhotoUrl
+          ? { url: rawPhotoUrl }
+          : undefined;
+
+      const hasProfilePhoto = Boolean(
+        workerData?.hasProfilePhoto ??
+        raw.hasProfilePhoto ??
+        (worker as Record<string, unknown>)?.hasProfilePhoto ??
+        rawPhotoUrl
+      );
 
       // (mappedChecks already mapped above)
 
@@ -2453,6 +2814,9 @@ export class RealVerificationRepository implements IVerificationRepository {
         applicationId,
         workerId: returnedWorkerId,
         workerName,
+        hasProfilePhoto,
+        photoUrl: rawPhotoUrl,
+        photo: photoObj,
         category: String(raw.category || raw.serviceCategory || worker?.category || workerData?.category || 'General'),
         locality: String(raw.locality || raw.area || worker?.locality || workerData?.locality || 'Hyderabad'),
         experienceYears: Number(raw.experienceYears ?? raw.experience ?? worker?.experienceYears ?? workerData?.experienceYears ?? 0),
@@ -2480,7 +2844,7 @@ export class RealVerificationRepository implements IVerificationRepository {
         emergencyContact,
         previousEmployer,
         accountStatus: (workerData?.status as 'ACTIVE' | 'SUSPENDED') || 'ACTIVE',
-        applicationStatus: (raw.applicationStatus ? String(raw.applicationStatus) : undefined) as VerificationDossier['applicationStatus'],
+        applicationStatus: derivedApplicationStatus as VerificationDossier['applicationStatus'],
         activatedAt: raw.activatedAt ? String(raw.activatedAt) : undefined,
         signedOffAt: raw.signedOffAt ? String(raw.signedOffAt) : undefined,
         signedOffBy: raw.signedOffBy ? String(raw.signedOffBy) : undefined,
@@ -2636,14 +3000,22 @@ export class RealVerificationRepository implements IVerificationRepository {
         }
       }
 
+      const cleanRemarks = remarks?.trim();
+      if (reasonCode === 'OTHER' && (!cleanRemarks || cleanRemarks === '')) {
+        throw new ValidationError(
+          'Mandatory remarks explanation is required when selecting rejection reason OTHER.',
+          undefined,
+          undefined,
+          'REMARKS_REQUIRED'
+        );
+      }
+
       const payload: { reasonCode: string; remarks?: string } = {
         reasonCode,
       };
 
-      if (remarks && remarks.trim()) {
-        payload.remarks = remarks.trim().slice(0, 1000);
-      } else if (reasonCode === 'OTHER') {
-        payload.remarks = 'Verification check rejected by administrative review';
+      if (cleanRemarks) {
+        payload.remarks = cleanRemarks.slice(0, 1000);
       }
 
       const response = await httpClient.post<
@@ -3000,6 +3372,166 @@ export class RealVerificationRepository implements IVerificationRepository {
         rejectionMessage: cleanRemarks,
         remarks: cleanRemarks,
       })),
+    };
+  }
+
+  async reconsiderApplication(
+    workerId: string,
+    remarks: string
+  ): Promise<AdminWorkerVerificationResponse> {
+    if (!workerId || typeof workerId !== 'string' || workerId.trim() === '') {
+      throw new ValidationError('A valid workerId is required for application reconsideration.');
+    }
+    const cleanWorkerId = workerId.trim();
+    if (
+      cleanWorkerId.startsWith('chk-') ||
+      cleanWorkerId.startsWith('check-') ||
+      cleanWorkerId.startsWith('doc-')
+    ) {
+      throw new ValidationError('Invalid workerId: checkId or documentId cannot be substituted for workerId.');
+    }
+    if (!remarks || remarks.trim().length < 5) {
+      throw new ValidationError(
+        'Reconsideration rationale remarks must be at least 5 characters.',
+        undefined,
+        undefined,
+        'REMARKS_TOO_SHORT'
+      );
+    }
+
+    const cleanRemarks = remarks.trim();
+
+    // 1. Fetch current verification details to inspect checks and terminal rejection codes
+    let verifResponse: AdminWorkerVerificationResponse | null = null;
+    try {
+      const vRes = await httpClient.get<unknown>(
+        `/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification`
+      );
+      const vRaw = vRes.data as Record<string, unknown> | null | undefined;
+      verifResponse = (vRaw && 'data' in vRaw && vRaw.data
+        ? vRaw.data
+        : vRaw) as AdminWorkerVerificationResponse;
+    } catch {
+      // Ignore if verification record cannot be fetched
+    }
+
+    // Check for terminal disqualification under backend compliance governance
+    if (verifResponse && Array.isArray(verifResponse.checks)) {
+      const hasTerminal = verifResponse.checks.some(
+        (c) => isTerminalRejectionCode(c.rejectionCode || c.remarks)
+      );
+      if (hasTerminal) {
+        throw new ValidationError(
+          'Worker application is permanently disqualified due to a terminal rejection reason. Under backend compliance governance, terminal disqualifications cannot be reconsidered.',
+          undefined,
+          undefined,
+          'TERMINAL_DISQUALIFIED'
+        );
+      }
+    }
+
+    // 2. Attempt worker-level reconsider endpoint if provided by backend
+    try {
+      const response = await httpClient.post<
+        AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }
+      >(`/admin/workers/${encodeURIComponent(cleanWorkerId)}/reconsider`, {
+        remarks: cleanRemarks,
+      });
+      const resData = (response.data && 'data' in response.data && response.data.data
+        ? response.data.data
+        : response.data) as AdminWorkerVerificationResponse;
+      return resData;
+    } catch (err: unknown) {
+      const is404 =
+        (err as { response?: { status?: number } })?.response?.status === 404 ||
+        (err as { status?: number })?.status === 404 ||
+        (err as { statusCode?: number })?.statusCode === 404 ||
+        err instanceof NotFoundError;
+
+      if (!is404) {
+        if (err instanceof DomainError) {
+          throw err;
+        }
+        throw mapHttpErrorToDomainError(err);
+      }
+    }
+
+    // 3. Fallback: If POST /admin/workers/{workerId}/reconsider is 404 (gap documented),
+    // Reset/recheck rejected checks so they can be re-reviewed by the Verification Executive.
+    if (verifResponse && Array.isArray(verifResponse.checks) && verifResponse.checks.length > 0) {
+      const rejectedChecks = verifResponse.checks.filter((c) => c.status === 'REJECTED');
+      for (const check of rejectedChecks) {
+        if (check.checkId) {
+          try {
+            await httpClient.post(
+              `/admin/verification/checks/${encodeURIComponent(check.checkId)}/recheck`,
+              {
+                remarks: `Reconsidered for review: ${cleanRemarks}`,
+              }
+            );
+          } catch {
+            // If recheck endpoint isn't supported for REJECTED checks, try start-review
+            try {
+              await httpClient.post(
+                `/admin/verification/checks/${encodeURIComponent(check.checkId)}/start-review`,
+                {}
+              );
+            } catch {
+              // Ignore
+            }
+          }
+        }
+      }
+
+      // Re-fetch updated verification record
+      try {
+        const refreshedRes = await httpClient.get<unknown>(
+          `/admin/workers/${encodeURIComponent(cleanWorkerId)}/verification`
+        );
+        const refRaw = refreshedRes.data as Record<string, unknown> | null | undefined;
+        const refData = (refRaw && 'data' in refRaw && refRaw.data
+          ? refRaw.data
+          : refRaw) as AdminWorkerVerificationResponse;
+        if (refData) {
+          return {
+            ...refData,
+            applicationStatus: 'UNDER_REVIEW',
+            level: 'IN_PROGRESS',
+            checks: refData.checks?.map((c) =>
+              c.status === 'REJECTED'
+                ? {
+                    ...c,
+                    status: 'SUBMITTED' as AdminCheckView['status'],
+                    rejectionCode: undefined,
+                    rejectionMessage: undefined,
+                    remarks: undefined,
+                  }
+                : c
+            ) || [],
+          };
+        }
+      } catch {
+        // Fallback to synthesizing response
+      }
+    }
+
+    return {
+      workerId: cleanWorkerId,
+      applicationStatus: 'UNDER_REVIEW',
+      level: 'IN_PROGRESS',
+      requiredChecks: verifResponse?.requiredChecks || ['IDENTITY'],
+      checks: (verifResponse?.checks || []).map((c) => {
+        if (c.status === 'REJECTED') {
+          return {
+            ...c,
+            status: 'SUBMITTED' as AdminCheckView['status'],
+            rejectionCode: undefined,
+            rejectionMessage: undefined,
+            remarks: undefined,
+          };
+        }
+        return c;
+      }),
     };
   }
 

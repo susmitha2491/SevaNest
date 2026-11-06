@@ -249,6 +249,34 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
     expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
   });
 
+  it('navigates to Step 2 without auto-opening document preview and opens preview only on explicit click', async () => {
+    const user = userEvent.setup();
+    renderModal({ dossierId: 'W-10482', initialDossier: mockDossierPending });
+
+    const dialog = await screen.findByRole('dialog');
+
+    // Step 1 -> Next: navigates to Step 2
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+
+    // Must NOT auto-open preview overlay
+    expect(screen.queryByLabelText('Document Preview Overlay')).not.toBeInTheDocument();
+
+    // Submitted documents list is visible
+    const viewDocButtons = screen.getAllByRole('button', { name: /View Document/i });
+    expect(viewDocButtons.length).toBeGreaterThan(0);
+
+    // Open preview explicitly by clicking View Document
+    await user.click(viewDocButtons[0]);
+    expect(await screen.findByLabelText('Document Preview Overlay')).toBeInTheDocument();
+
+    // Close preview overlay
+    const closeBtn = screen.getByRole('button', { name: /Close document preview/i });
+    await user.click(closeBtn);
+    expect(screen.queryByLabelText('Document Preview Overlay')).not.toBeInTheDocument();
+    expect(screen.getByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+  });
+
   it('displays document retrieval error and offers retry action when signed url fails', async () => {
     vi.spyOn(verificationRepository, 'getSignedDocumentUrl').mockRejectedValueOnce(
       new Error('S3 signature expired or network timeout.')
@@ -262,6 +290,10 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
     // Go to Step 2
     await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
     expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+
+    // Explicitly click View Document to open preview
+    const viewDocButtons = screen.getAllByRole('button', { name: /View Document/i });
+    await user.click(viewDocButtons[0]);
 
     // Error state rendered
     expect(await screen.findByText(/Document Access Failed/i)).toBeInTheDocument();
@@ -441,5 +473,45 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
     // Actual backend error banner is shown
     expect(await screen.findByText(/Final approval failed:/i)).toBeInTheDocument();
     expect(screen.getByText(/Database lock timeout during onboarding/i)).toBeInTheDocument();
+  });
+
+  it('does not prematurely display completed checkmarks on Steps 2, 3, 4, 5 for pending worker on initial load', async () => {
+    renderModal({ dossierId: 'W-10482', initialDossier: mockDossierPending });
+
+    await screen.findByRole('dialog');
+
+    // Step 1 is active, so numbers 1, 2, 3, 4, 5 are visible in stepper circles rather than premature checkmarks
+    expect(screen.getByText('1')).toBeInTheDocument();
+    expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+
+    // Pending review badge is shown, NOT Approved or Verified
+    expect(screen.getAllByText('Pending review').length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Verification Approved & Complete — Dossier is in Read-Only Mode/i)).not.toBeInTheDocument();
+  });
+
+  it('displays authentic completed checkmarks and read-only mode for an already verified worker', async () => {
+    const historicallyVerifiedDossier: VerificationDossier = {
+      ...mockDossierAllApproved,
+      status: 'APPROVED',
+      signedOffAt: '2026-10-26T05:37:43.402Z',
+    };
+
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(
+      JSON.parse(JSON.stringify(historicallyVerifiedDossier))
+    );
+
+    renderModal({ dossierId: 'W-10482', initialDossier: historicallyVerifiedDossier });
+
+    await screen.findByRole('dialog');
+
+    // Approved header badge and read-only banner are displayed
+    expect(screen.getAllByText('Approved').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Verification Approved & Complete — Dossier is in Read-Only Mode/i)).toBeInTheDocument();
+
+    // Since historically verified, completed checkmarks are shown across steps
+    expect(screen.queryByRole('button', { name: /Approve Verification Worker/i })).not.toBeInTheDocument();
   });
 });

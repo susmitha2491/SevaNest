@@ -58,11 +58,11 @@ describe('Worker Verification & Trust Workstation', () => {
     expect(screen.getByText(/W-10482/i)).toBeInTheDocument();
   });
 
-  it('opens redesigned verification review modal when Inspect Dossier is clicked', async () => {
+  it('opens redesigned verification review modal when dossier row is clicked', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
-    const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+    const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
     expect(inspectButtons.length).toBeGreaterThan(0);
     await user.click(inspectButtons[0]);
 
@@ -81,9 +81,15 @@ describe('Worker Verification & Trust Workstation', () => {
     await user.click(nextBtn1);
     expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
 
-    // Check document viewer authorized container
+    // Check document viewer authorized container on explicit View Document click
+    const viewDocBtn = (await screen.findAllByRole('button', { name: /View Document/i }))[0];
+    await user.click(viewDocBtn);
     expect(await screen.findByText(/CONFIDENTIAL KYC ATTACHMENT/i)).toBeInTheDocument();
     expect(screen.getByText(/Authorized Document Vault Record • Watermarked for Confidential Inspection/i)).toBeInTheDocument();
+
+    // Close preview overlay before advancing
+    const closePreviewBtn = screen.getByRole('button', { name: /Close document preview/i });
+    await user.click(closePreviewBtn);
 
     // Navigate to Step 3: KYC Verification
     const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
@@ -105,7 +111,7 @@ describe('Worker Verification & Trust Workstation', () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
-    const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+    const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
     await user.click(inspectButtons[0]);
 
     const dialog = await screen.findByRole('dialog');
@@ -125,7 +131,7 @@ describe('Worker Verification & Trust Workstation', () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
-    const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+    const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
     await user.click(inspectButtons[0]);
 
     const dialog = await screen.findByRole('dialog');
@@ -147,7 +153,7 @@ describe('Worker Verification & Trust Workstation', () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
-    const inspectButtons = await screen.findAllByRole('button', { name: /Inspect Dossier/i });
+    const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
     await user.click(inspectButtons[0]);
 
     const dialog = await screen.findByRole('dialog');

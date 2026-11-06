@@ -38,6 +38,7 @@ import {
   VerificationCheck,
   AdminWorkerVerificationResponse,
   AdminCheckView,
+  isTerminalRejectionCode,
 } from '../../verification/domain/types';
 import { ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { evaluateVerificationWorkflow } from '../../verification/domain/verificationWorkflow';
@@ -64,6 +65,7 @@ interface WorkerDetailModalProps {
   onClose: () => void;
   onStatusChanged?: () => void;
   initialStep?: WorkerModalWorkflowStep;
+  readOnly?: boolean;
 }
 
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -107,6 +109,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   onClose,
   onStatusChanged,
   initialStep = 'worker-info',
+  readOnly = false,
 }) => {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -122,10 +125,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
   const canDecide =
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-    user?.role === 'VERIFICATION_EXECUTIVE' ||
-    user?.role === 'SUPER_ADMIN';
-  const canSignOff = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
+    !readOnly &&
+    (hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
+      user?.role === 'VERIFICATION_EXECUTIVE' ||
+      user?.role === 'SUPER_ADMIN');
+  const canSignOff = !readOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
   const canActivate = hasPermission(user?.permissions, PERMISSIONS.WORKER_ACTIVATE);
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
@@ -139,6 +143,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
   // Sensitive PII reveal
   const [isPhoneRevealed, setIsPhoneRevealed] = useState(false);
+  const [isPhotoLoadError, setIsPhotoLoadError] = useState(false);
   const [revealedEmergencyContact, setRevealedEmergencyContact] = useState<{ name: string; mobile: string } | null>(null);
   const [isEmergencyContactRevealed, setIsEmergencyContactRevealed] = useState(false);
   const [isRevealingEmergency, setIsRevealingEmergency] = useState(false);
@@ -196,6 +201,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const [rejectCheckId, setRejectCheckId] = useState<string | null>(null);
   const [rejectCategory, setRejectCategory] = useState<RejectionReasonCategory>('BLURRY_IMAGE');
   const [rejectRemarks, setRejectRemarks] = useState('');
+  const [rejectCheckError, setRejectCheckError] = useState<string | null>(null);
 
   // Worker-Level Rejection State (Stage 4 & Final Application Rejection)
   const [isRejectWorkerDialogOpen, setIsRejectWorkerDialogOpen] = useState(false);
@@ -252,6 +258,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     setRejectCheckId(checkId);
     setRejectCheckType(checkType);
     setRejectRemarks('');
+    setRejectCheckError(null);
     setActiveDocDialog('REJECT');
   };
 
@@ -273,6 +280,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       closeButtonRef.current.focus();
     }
   }, []);
+
+  useEffect(() => {
+    setIsPhotoLoadError(false);
+  }, [workerId]);
 
   // Modal accessibility: body scroll lock and Escape key listener
   useEffect(() => {
@@ -696,6 +707,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       const code = (err as { errorCode?: string })?.errorCode;
       if (code === 'CHECK_ALREADY_ASSIGNED' || code === 'CHECK_NOT_ASSIGNED_TO_YOU') {
         const msg = (err as Error).message || 'Check assignment conflict. Refreshing authoritative data...';
+        setRejectCheckError(msg);
         setActionFeedback({
           type: 'error',
           message: msg,
@@ -705,6 +717,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       }
       if (code === 'INVALID_TRANSITION') {
         const msg = (err as Error).message || 'Invalid transition: check must be in review before rejection.';
+        setRejectCheckError(`${msg} Please start review first and retry.`);
         setActionFeedback({
           type: 'error',
           message: `${msg} Please start review first and retry.`,
@@ -712,7 +725,18 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         invalidateAll();
         return;
       }
+      if (code === 'CHECK_DISQUALIFIED') {
+        const msg = (err as Error).message || 'Check is permanently disqualified and cannot be modified.';
+        setRejectCheckError(msg);
+        setActionFeedback({
+          type: 'error',
+          message: msg,
+        });
+        invalidateAll();
+        return;
+      }
       const msg = err instanceof Error ? err.message : 'Failed to reject check.';
+      setRejectCheckError(msg);
       setActionFeedback({
         type: 'error',
         message: `Rejection failed: ${msg}`,
@@ -974,6 +998,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   if (!canViewWorker) {
     return (
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Worker Profile Access Denied"
         className="worker-detail-modal-backdrop"
         style={{
           position: 'fixed',
@@ -1025,6 +1052,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   if (isWorkerLoading || isDossierLoading) {
     return (
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Loading Worker Profile"
         className="worker-detail-modal-backdrop"
         style={{
           position: 'fixed',
@@ -1274,18 +1304,33 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
   const allMandatoryChecksApproved = otpPassed && (requiredChecksCount > 0 ? approvedRequiredCount === requiredChecksCount : true);
 
-  // Authoritative Rejection check
-  const isRejected = Boolean(
-    worker?.verificationStatus === 'REJECTED' ||
-      (worker?.onboardingStatus as string) === 'REJECTED' ||
-      worker?.applicationStatus === 'REJECTED' ||
-      dossier?.status === 'REJECTED' ||
-      dossier?.level === 'REJECTED' ||
-      dossier?.applicationStatus === 'REJECTED'
+  // Distinguish non-terminal and terminal rejection
+  const checksArray = Object.values(checksRecord);
+  const terminalCheck = checksArray.find(
+    (c) => c.status === 'REJECTED' && (c.terminal === true || isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory))
+  );
+  const isTerminalRejected = Boolean(
+    worker?.applicationStatus === 'REJECTED' ||
+      dossier?.applicationStatus === 'REJECTED' ||
+      terminalCheck ||
+      worker?.verificationStatus === 'REJECTED'
   );
 
+  const nonTerminalCheck = checksArray.find(
+    (c) => c.status === 'REJECTED' && !c.terminal && !isTerminalRejectionCode(c.rejectionCode || c.rejectionCategory)
+  );
+  const hasActionRequired = Boolean(
+    !isTerminalRejected && (
+      worker?.applicationStatus === 'ACTION_REQUIRED' ||
+      dossier?.applicationStatus === 'ACTION_REQUIRED' ||
+      nonTerminalCheck
+    )
+  );
+
+  const isRejected = isTerminalRejected;
+
   // Authoritative Sign-Off and Active Onboarding state
-  const isSignedOff = !isRejected && Boolean(
+  const isSignedOff = !isTerminalRejected && !hasActionRequired && Boolean(
     dossier?.signedOffAt ||
       worker?.signedOffAt ||
       dossier?.applicationStatus === 'VERIFIED' ||
@@ -1294,13 +1339,19 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       worker?.applicationStatus === 'ACTIVE'
   );
 
-  const currentAppStatus = isRejected
+  const currentAppStatus = isTerminalRejected
     ? 'REJECTED'
+    : hasActionRequired
+    ? 'ACTION_REQUIRED'
     : dossier?.applicationStatus || worker?.applicationStatus || (isSignedOff ? 'VERIFIED' : 'UNDER_REVIEW');
 
-  const effectiveAppStatus = isRejected ? 'REJECTED' : dossier?.applicationStatus || worker?.applicationStatus;
-  const effectiveActivatedAt = isRejected ? null : (dossier?.activatedAt || worker?.activatedAt);
-  const isOnboarded = !isRejected && effectiveAppStatus === 'ACTIVE' && Boolean(effectiveActivatedAt);
+  const effectiveAppStatus = isTerminalRejected
+    ? 'REJECTED'
+    : hasActionRequired
+    ? 'ACTION_REQUIRED'
+    : dossier?.applicationStatus || worker?.applicationStatus;
+  const effectiveActivatedAt = isTerminalRejected ? null : (dossier?.activatedAt || worker?.activatedAt);
+  const isOnboarded = !isTerminalRejected && effectiveAppStatus === 'ACTIVE' && Boolean(effectiveActivatedAt);
 
   // Authoritative Matching Eligibility
   const isMatchingEligible = !isRejected && worker.status === 'ACTIVE' && (worker.isFullyVerified || isSignedOff || isOnboarded);
@@ -1381,6 +1432,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     const hasValidCheckId = Boolean(safeTargetCheckId);
     const isApproved = check?.status === 'APPROVED';
     const isRejected = check?.status === 'REJECTED';
+    const isTerminal = isRejected && (check?.terminal === true || isTerminalRejectionCode(check?.rejectionCode || check?.rejectionCategory));
 
     const effectiveStatus: WorkerDocumentMetadata['status'] =
       isApproved
@@ -1399,12 +1451,24 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       hasValidCheckId,
       isApproved,
       isRejected,
+      isTerminal,
       effectiveStatus,
     };
   };
 
+  const isChildDialogOpen = Boolean(
+    isSignOffDialogOpen ||
+    isActivateDialogOpen ||
+    isRejectWorkerDialogOpen ||
+    isApproveDialogOpen ||
+    isRejectDialogOpen ||
+    isAddManualDocOpen
+  );
+
   return (
     <div
+      role={isChildDialogOpen ? undefined : 'dialog'}
+      aria-modal={isChildDialogOpen ? undefined : 'true'}
       aria-labelledby="worker-detail-modal-title"
       className="worker-detail-modal-backdrop"
       onClick={onClose}
@@ -1814,6 +1878,54 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             </div>
           )}
 
+          {/* Top-Level Terminal Rejection Banner */}
+          {isTerminalRejected && (
+            <div
+              data-testid="terminal-rejection-banner"
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                border: '1px solid var(--color-status-danger-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-status-danger-text)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+              }}
+            >
+              <AlertTriangle size={16} />
+              <div>
+                <strong>Terminal Verification Rejection:</strong> Check disqualified permanently due to criminal record or suspected tampering. Worker resubmission and verification sign-off are blocked.
+              </div>
+            </div>
+          )}
+
+          {/* Top-Level Action Required Banner */}
+          {hasActionRequired && !isTerminalRejected && (
+            <div
+              data-testid="action-required-banner"
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                backgroundColor: 'var(--color-status-warning-bg)',
+                border: '1px solid var(--color-status-warning-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-status-warning-text)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+              }}
+            >
+              <Clock size={16} />
+              <div>
+                <strong>Action Required:</strong> One or more verification checks were rejected for operational reasons. Awaiting worker correction and resubmission via mobile app.
+              </div>
+            </div>
+          )}
+
           {/* ======================================================== */}
           {/* STEP 1: WORKER INFORMATION (Complete Backend Data View)    */}
           {/* ======================================================== */}
@@ -1942,52 +2054,69 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 >
                   {/* Full Name & Avatar */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                    <div
-                      style={{
-                        width: '52px',
-                        height: '52px',
-                        borderRadius: '50%',
-                        backgroundColor: '#eff6ff',
-                        color: '#1d4ed8',
-                        border: '2px solid #bfdbfe',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '18px',
-                        fontWeight: 800,
-                        flexShrink: 0,
-                      }}
-                    >
-                      {worker.name
-                        ? worker.name
-                            .split(' ')
-                            .map((n) => n[0])
-                            .join('')
-                            .slice(0, 2)
-                            .toUpperCase()
-                        : 'W'}
-                    </div>
+                    {(() => {
+                      const photoUrl =
+                        worker.photoUrl ||
+                        (typeof worker.photo === 'object' && worker.photo !== null
+                          ? worker.photo.url
+                          : typeof worker.photo === 'string'
+                          ? worker.photo
+                          : undefined);
+                      const hasUsablePhoto = Boolean(photoUrl) && !isPhotoLoadError;
+
+                      if (hasUsablePhoto) {
+                        return (
+                          <img
+                            src={photoUrl}
+                            alt={worker.name || 'Worker'}
+                            onError={() => setIsPhotoLoadError(true)}
+                            style={{
+                              width: '52px',
+                              height: '52px',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
+                              border: '2px solid #bfdbfe',
+                              flexShrink: 0,
+                            }}
+                          />
+                        );
+                      }
+
+                      return (
+                        <div
+                          style={{
+                            width: '52px',
+                            height: '52px',
+                            borderRadius: '50%',
+                            backgroundColor: '#eff6ff',
+                            color: '#1d4ed8',
+                            border: '2px solid #bfdbfe',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '18px',
+                            fontWeight: 800,
+                            flexShrink: 0,
+                          }}
+                          aria-label={worker.name ? `${worker.name} avatar placeholder` : 'Worker avatar'}
+                        >
+                          {worker.name
+                            ? worker.name
+                                .split(' ')
+                                .map((n) => n[0])
+                                .join('')
+                                .slice(0, 2)
+                                .toUpperCase()
+                            : 'W'}
+                        </div>
+                      );
+                    })()}
                     <div>
                       <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
                         Full Name & Photo
                       </div>
                       <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
                         {worker.name}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '3px' }}>
-                        <span
-                          style={{
-                            fontSize: '10px',
-                            fontWeight: 700,
-                            padding: '1px 6px',
-                            borderRadius: 'var(--radius-sm)',
-                            backgroundColor: worker.hasProfilePhoto ? 'var(--color-status-success-bg)' : 'var(--color-bg-subtle)',
-                            color: worker.hasProfilePhoto ? 'var(--color-status-success-text)' : 'var(--color-text-muted)',
-                            border: `1px solid ${worker.hasProfilePhoto ? 'var(--color-status-success-border)' : 'var(--color-border)'}`,
-                          }}
-                        >
-                          Photo: {worker.hasProfilePhoto ? 'Uploaded' : 'Not provided'}
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -3252,6 +3381,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                             targetCheckId,
                             hasValidCheckId,
                             isApproved,
+                            isRejected,
+                            isTerminal,
                             effectiveStatus,
                           } = getCheckForDoc(doc);
 
@@ -3331,6 +3462,13 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                               </td>
                               <td style={{ padding: '10px 12px' }}>
                                 <span
+                                  data-testid={
+                                    isTerminal
+                                      ? `terminal-disqualified-${checkType}`
+                                      : isRejected
+                                      ? `awaiting-resubmission-${checkType}`
+                                      : undefined
+                                  }
                                   style={{
                                     padding: '2px 8px',
                                     borderRadius: 'var(--radius-sm)',
@@ -3339,18 +3477,22 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                     backgroundColor:
                                       effectiveStatus === 'VERIFIED'
                                         ? 'var(--color-status-success-bg)'
-                                        : effectiveStatus === 'REJECTED'
+                                        : isTerminal
                                         ? 'var(--color-status-danger-bg)'
+                                        : isRejected
+                                        ? 'var(--color-status-warning-bg)'
                                         : 'var(--color-status-warning-bg)',
                                     color:
                                       effectiveStatus === 'VERIFIED'
                                         ? 'var(--color-status-success-text)'
-                                        : effectiveStatus === 'REJECTED'
+                                        : isTerminal
                                         ? 'var(--color-status-danger-text)'
+                                        : isRejected
+                                        ? 'var(--color-status-warning-text)'
                                         : 'var(--color-status-warning-text)',
                                   }}
                                 >
-                                  {effectiveStatus}
+                                  {isTerminal ? 'Disqualified (Terminal)' : isRejected ? 'Awaiting Resubmission' : effectiveStatus}
                                 </span>
                               </td>
                               <td style={{ padding: '10px 12px', textAlign: 'right' }}>
@@ -3404,140 +3546,149 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                   )}
 
                                   {canDecide && (
-                                    <>
-                                      <button
-                                        disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
-                                        title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (targetCheckId) {
-                                            openRecheckDialog(targetCheckId, checkType);
-                                          }
-                                        }}
+                                    isApproved ? (
+                                      <span
+                                        data-testid={`accepted-badge-${checkType}`}
                                         style={{
-                                          padding: '4px 8px',
+                                          padding: '4px 10px',
                                           borderRadius: 'var(--radius-sm)',
-                                          border: '1px solid var(--color-warning-dark)',
-                                          backgroundColor: 'var(--color-warning-bg)',
-                                          color: 'var(--color-warning-dark)',
+                                          border: '1px solid var(--color-status-success-border, #bbf7d0)',
+                                          backgroundColor: 'var(--color-status-success-bg, #f0fdf4)',
+                                          color: 'var(--color-status-success-text, #166534)',
                                           fontSize: '11px',
                                           fontWeight: 600,
-                                          cursor:
-                                            approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
-                                              ? 'not-allowed'
-                                              : 'pointer',
-                                          opacity:
-                                            approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
-                                              ? 0.6
-                                              : 1,
                                           display: 'inline-flex',
                                           alignItems: 'center',
                                           gap: '4px',
                                         }}
                                       >
-                                        <RotateCcw size={12} />
-                                        <span>Re-verify</span>
-                                      </button>
+                                        <CheckCircle2 size={12} />
+                                        <span>Accepted</span>
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <button
+                                          disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
+                                          title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (targetCheckId) {
+                                              openRecheckDialog(targetCheckId, checkType);
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '4px 8px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            border: '1px solid var(--color-warning-dark)',
+                                            backgroundColor: 'var(--color-warning-bg)',
+                                            color: 'var(--color-warning-dark)',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor:
+                                              approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
+                                                ? 'not-allowed'
+                                                : 'pointer',
+                                            opacity:
+                                              approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
+                                                ? 0.6
+                                                : 1,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                          }}
+                                        >
+                                          <RotateCcw size={12} />
+                                          <span>Re-verify</span>
+                                        </button>
 
-                                      <button
-                                        disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
-                                        title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (targetCheckId) {
-                                            openRejectDialog(targetCheckId, checkType);
-                                          }
-                                        }}
-                                        style={{
-                                          padding: '4px 8px',
-                                          borderRadius: 'var(--radius-sm)',
-                                          border: '1px solid var(--color-error-dark)',
-                                          backgroundColor: 'var(--color-error-bg)',
-                                          color: 'var(--color-error-dark)',
-                                          fontSize: '11px',
-                                          fontWeight: 600,
-                                          cursor:
-                                            approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
-                                              ? 'not-allowed'
-                                              : 'pointer',
-                                          opacity:
-                                            approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
-                                              ? 0.6
-                                              : 1,
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '4px',
-                                        }}
-                                      >
-                                        <XCircle size={12} />
-                                        <span>Reject</span>
-                                      </button>
+                                        <button
+                                          disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId}
+                                          title={!hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (targetCheckId) {
+                                              openRejectDialog(targetCheckId, checkType);
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '4px 8px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            border: '1px solid var(--color-error-dark)',
+                                            backgroundColor: 'var(--color-error-bg)',
+                                            color: 'var(--color-error-dark)',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor:
+                                              approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
+                                                ? 'not-allowed'
+                                                : 'pointer',
+                                            opacity:
+                                              approveCheckMutation.isPending || rejectCheckMutation.isPending || !hasValidCheckId
+                                                ? 0.6
+                                                : 1,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                          }}
+                                        >
+                                          <XCircle size={12} />
+                                          <span>Reject</span>
+                                        </button>
 
-                                      <button
-                                        disabled={
-                                          approveCheckMutation.isPending ||
-                                          rejectCheckMutation.isPending ||
-                                          isApproved ||
-                                          !hasValidCheckId
-                                        }
-                                        title={
-                                          !hasValidCheckId
-                                            ? 'Contract gap: Backend verification check ID missing for this document'
-                                            : isApproved
-                                            ? 'Check is already approved'
-                                            : undefined
-                                        }
-                                        aria-label={isApproved ? 'Accepted' : 'Accept'}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          if (targetCheckId) {
-                                            const rawCheck = dossier?.checks?.[checkType];
-                                            const docMeta = {
-                                              referenceNumber: (rawCheck as unknown as { referenceNumber?: string })?.referenceNumber,
-                                              docNumberMasked: (rawCheck as unknown as { maskedDocumentNumber?: string })?.maskedDocumentNumber || rawCheck?.documentMetadata?.docNumberMasked || doc.docNumberMasked,
-                                              expiryDate: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || (rawCheck?.documentMetadata as { expiryDate?: string } | undefined)?.expiryDate || rawCheck?.recheckDueDate || (doc as unknown as { expiryDate?: string }).expiryDate,
-                                              expiresOn: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || rawCheck?.recheckDueDate,
-                                            };
-                                            openApproveDialog(targetCheckId, checkType, doc.documentTypeName, docMeta);
+                                        <button
+                                          disabled={
+                                            approveCheckMutation.isPending ||
+                                            rejectCheckMutation.isPending ||
+                                            !hasValidCheckId
                                           }
-                                        }}
-                                        style={{
-                                          padding: '4px 12px',
-                                          borderRadius: 'var(--radius-sm)',
-                                          border: '1px solid var(--color-brand-600)',
-                                          backgroundColor: isApproved
-                                            ? 'var(--color-status-success-bg)'
-                                            : 'var(--color-brand-600)',
-                                          color: isApproved
-                                            ? 'var(--color-status-success-text)'
-                                            : '#ffffff',
-                                          fontSize: '11px',
-                                          fontWeight: 600,
-                                          cursor: isApproved || !hasValidCheckId ? 'not-allowed' : 'pointer',
-                                          opacity: !hasValidCheckId ? 0.6 : 1,
-                                          display: 'inline-flex',
-                                          alignItems: 'center',
-                                          gap: '4px',
-                                        }}
-                                      >
-                                        {isApproved ? (
-                                          <>
-                                            <CheckCircle2 size={12} />
-                                            <span>Accepted</span>
-                                          </>
-                                        ) : approveCheckMutation.isPending && approveCheckId === targetCheckId ? (
-                                          <>
-                                            <Clock size={12} />
-                                            <span>Accepting...</span>
-                                          </>
-                                        ) : (
-                                          <>
-                                            <CheckCircle2 size={12} />
-                                            <span>Accept</span>
-                                          </>
-                                        )}
-                                      </button>
-                                    </>
+                                          title={
+                                            !hasValidCheckId
+                                              ? 'Contract gap: Backend verification check ID missing for this document'
+                                              : undefined
+                                          }
+                                          aria-label="Accept"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (targetCheckId) {
+                                              const rawCheck = dossier?.checks?.[checkType];
+                                              const docMeta = {
+                                                referenceNumber: (rawCheck as unknown as { referenceNumber?: string })?.referenceNumber,
+                                                docNumberMasked: (rawCheck as unknown as { maskedDocumentNumber?: string })?.maskedDocumentNumber || rawCheck?.documentMetadata?.docNumberMasked || doc.docNumberMasked,
+                                                expiryDate: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || (rawCheck?.documentMetadata as { expiryDate?: string } | undefined)?.expiryDate || rawCheck?.recheckDueDate || (doc as unknown as { expiryDate?: string }).expiryDate,
+                                                expiresOn: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || rawCheck?.recheckDueDate,
+                                              };
+                                              openApproveDialog(targetCheckId, checkType, doc.documentTypeName, docMeta);
+                                            }
+                                          }}
+                                          style={{
+                                            padding: '4px 12px',
+                                            borderRadius: 'var(--radius-sm)',
+                                            border: '1px solid var(--color-brand-600)',
+                                            backgroundColor: 'var(--color-brand-600)',
+                                            color: '#ffffff',
+                                            fontSize: '11px',
+                                            fontWeight: 600,
+                                            cursor: !hasValidCheckId ? 'not-allowed' : 'pointer',
+                                            opacity: !hasValidCheckId ? 0.6 : 1,
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '4px',
+                                          }}
+                                        >
+                                          {approveCheckMutation.isPending && approveCheckId === targetCheckId ? (
+                                            <>
+                                              <Clock size={12} />
+                                              <span>Accepting...</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <CheckCircle2 size={12} />
+                                              <span>Accept</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      </>
+                                    )
                                   )}
                                 </div>
                               </td>
@@ -3916,143 +4067,149 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                               </button>
 
                               {canDecide && (
-                                <>
-                                  <button
-                                    disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId}
-                                    title={!inspInfo.hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (inspInfo.targetCheckId) {
-                                        openRecheckDialog(inspInfo.targetCheckId, inspInfo.checkType);
-                                      }
-                                    }}
+                                inspInfo.isApproved ? (
+                                  <span
+                                    data-testid={`inspect-accepted-badge-${inspInfo.checkType}`}
                                     style={{
-                                      padding: '6px 12px',
+                                      padding: '6px 14px',
                                       borderRadius: 'var(--radius-sm)',
-                                      border: '1px solid var(--color-warning-dark)',
-                                      backgroundColor: 'var(--color-warning-bg)',
-                                      color: 'var(--color-warning-dark)',
+                                      border: '1px solid var(--color-status-success-border, #bbf7d0)',
+                                      backgroundColor: 'var(--color-status-success-bg, #f0fdf4)',
+                                      color: 'var(--color-status-success-text, #166534)',
                                       fontSize: '11px',
                                       fontWeight: 600,
-                                      cursor:
-                                        approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
-                                          ? 'not-allowed'
-                                          : 'pointer',
-                                      opacity:
-                                        approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
-                                          ? 0.6
-                                          : 1,
                                       display: 'inline-flex',
                                       alignItems: 'center',
-                                      gap: '4px',
+                                      gap: '6px',
                                     }}
                                   >
-                                    <RotateCcw size={12} />
-                                    <span>Request Re-Verification</span>
-                                  </button>
+                                    <CheckCircle2 size={13} />
+                                    <span>Verified & Accepted</span>
+                                  </span>
+                                ) : (
+                                  <>
+                                    <button
+                                      disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId}
+                                      title={!inspInfo.hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (inspInfo.targetCheckId) {
+                                          openRecheckDialog(inspInfo.targetCheckId, inspInfo.checkType);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px 12px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        border: '1px solid var(--color-warning-dark)',
+                                        backgroundColor: 'var(--color-warning-bg)',
+                                        color: 'var(--color-warning-dark)',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        cursor:
+                                          approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
+                                            ? 'not-allowed'
+                                            : 'pointer',
+                                        opacity:
+                                          approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
+                                            ? 0.6
+                                            : 1,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
+                                    >
+                                      <RotateCcw size={12} />
+                                      <span>Request Re-Verification</span>
+                                    </button>
 
-                                  <button
-                                    disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId}
-                                    title={!inspInfo.hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (inspInfo.targetCheckId) {
-                                        openRejectDialog(inspInfo.targetCheckId, inspInfo.checkType);
-                                      }
-                                    }}
-                                    style={{
-                                      padding: '6px 12px',
-                                      borderRadius: 'var(--radius-sm)',
-                                      border: '1px solid var(--color-error-dark)',
-                                      backgroundColor: 'var(--color-error-bg)',
-                                      color: 'var(--color-error-dark)',
-                                      fontSize: '11px',
-                                      fontWeight: 600,
-                                      cursor:
-                                        approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
-                                          ? 'not-allowed'
-                                          : 'pointer',
-                                      opacity:
-                                        approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
-                                          ? 0.6
-                                          : 1,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                    }}
-                                  >
-                                    <XCircle size={12} />
-                                    <span>Reject Document</span>
-                                  </button>
+                                    <button
+                                      disabled={approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId}
+                                      title={!inspInfo.hasValidCheckId ? 'Check ID unavailable from backend data' : undefined}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (inspInfo.targetCheckId) {
+                                          openRejectDialog(inspInfo.targetCheckId, inspInfo.checkType);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px 12px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        border: '1px solid var(--color-error-dark)',
+                                        backgroundColor: 'var(--color-error-bg)',
+                                        color: 'var(--color-error-dark)',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        cursor:
+                                          approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
+                                            ? 'not-allowed'
+                                            : 'pointer',
+                                        opacity:
+                                          approveCheckMutation.isPending || rejectCheckMutation.isPending || !inspInfo.hasValidCheckId
+                                            ? 0.6
+                                            : 1,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
+                                    >
+                                      <XCircle size={12} />
+                                      <span>Reject Document</span>
+                                    </button>
 
-                                  <button
-                                    disabled={
-                                      approveCheckMutation.isPending ||
-                                      rejectCheckMutation.isPending ||
-                                      inspInfo.isApproved ||
-                                      !inspInfo.hasValidCheckId
-                                    }
-                                    title={
-                                      !inspInfo.hasValidCheckId
-                                        ? 'Contract gap: Backend verification check ID missing for this document'
-                                        : inspInfo.isApproved
-                                        ? 'Check is already approved'
-                                        : undefined
-                                    }
-                                    aria-label={inspInfo.isApproved ? 'Verified' : 'Accept'}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (inspInfo.targetCheckId) {
-                                        const rawCheck = dossier?.checks?.[inspInfo.checkType];
-                                        const docMeta = {
-                                          referenceNumber: (rawCheck as unknown as { referenceNumber?: string })?.referenceNumber,
-                                          docNumberMasked: (rawCheck as unknown as { maskedDocumentNumber?: string })?.maskedDocumentNumber || rawCheck?.documentMetadata?.docNumberMasked || inspectingDoc.docNumber,
-                                          expiryDate: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || (rawCheck?.documentMetadata as { expiryDate?: string } | undefined)?.expiryDate || rawCheck?.recheckDueDate || (inspectingDoc as unknown as { expiryDate?: string }).expiryDate,
-                                          expiresOn: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || rawCheck?.recheckDueDate,
-                                        };
-                                        openApproveDialog(inspInfo.targetCheckId, inspInfo.checkType, inspectingDoc.title, docMeta);
+                                    <button
+                                      disabled={
+                                        approveCheckMutation.isPending ||
+                                        rejectCheckMutation.isPending ||
+                                        !inspInfo.hasValidCheckId
                                       }
-                                    }}
-                                    style={{
-                                      padding: '6px 16px',
-                                      borderRadius: 'var(--radius-sm)',
-                                      border: '1px solid var(--color-brand-600)',
-                                      backgroundColor: inspInfo.isApproved
-                                        ? 'var(--color-status-success-bg)'
-                                        : 'var(--color-brand-600)',
-                                      color: inspInfo.isApproved
-                                        ? 'var(--color-status-success-text)'
-                                        : '#ffffff',
-                                      fontSize: '11px',
-                                      fontWeight: 600,
-                                      cursor:
-                                        inspInfo.isApproved || !inspInfo.hasValidCheckId
-                                          ? 'not-allowed'
-                                          : 'pointer',
-                                      opacity: !inspInfo.hasValidCheckId ? 0.6 : 1,
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      gap: '4px',
-                                    }}
-                                  >
-                                    {inspInfo.isApproved ? (
-                                      <>
-                                        <CheckCircle2 size={12} />
-                                        <span>Verified</span>
-                                      </>
-                                    ) : approveCheckMutation.isPending && approveCheckId === inspInfo.targetCheckId ? (
-                                      <>
-                                        <Clock size={12} />
-                                        <span>Approving...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <CheckCircle2 size={12} />
-                                        <span>Mark as Verified / Approve Document</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </>
+                                      title={
+                                        !inspInfo.hasValidCheckId
+                                          ? 'Contract gap: Backend verification check ID missing for this document'
+                                          : undefined
+                                      }
+                                      aria-label="Accept"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (inspInfo.targetCheckId) {
+                                          const rawCheck = dossier?.checks?.[inspInfo.checkType];
+                                          const docMeta = {
+                                            referenceNumber: (rawCheck as unknown as { referenceNumber?: string })?.referenceNumber,
+                                            docNumberMasked: (rawCheck as unknown as { maskedDocumentNumber?: string })?.maskedDocumentNumber || rawCheck?.documentMetadata?.docNumberMasked || inspectingDoc.docNumber,
+                                            expiryDate: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || (rawCheck?.documentMetadata as { expiryDate?: string } | undefined)?.expiryDate || rawCheck?.recheckDueDate || (inspectingDoc as unknown as { expiryDate?: string }).expiryDate,
+                                            expiresOn: (rawCheck as unknown as { documentExpiresOn?: string })?.documentExpiresOn || rawCheck?.recheckDueDate,
+                                          };
+                                          openApproveDialog(inspInfo.targetCheckId, inspInfo.checkType, inspectingDoc.title, docMeta);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: '6px 16px',
+                                        borderRadius: 'var(--radius-sm)',
+                                        border: '1px solid var(--color-brand-600)',
+                                        backgroundColor: 'var(--color-brand-600)',
+                                        color: '#ffffff',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        cursor: !inspInfo.hasValidCheckId ? 'not-allowed' : 'pointer',
+                                        opacity: !inspInfo.hasValidCheckId ? 0.6 : 1,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
+                                    >
+                                      {approveCheckMutation.isPending && approveCheckId === inspInfo.targetCheckId ? (
+                                        <>
+                                          <Clock size={12} />
+                                          <span>Approving...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <CheckCircle2 size={12} />
+                                          <span>Mark as Verified / Approve Document</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </>
+                                )
                               )}
                             </div>
                           </div>
@@ -4938,106 +5095,195 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 </button>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  {/* Reject Worker Action Button: always visible */}
-                  {isRejected ? (
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '10px 18px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--color-status-danger-bg)',
-                        color: 'var(--color-status-danger-text)',
-                        border: '1px solid var(--color-status-danger-border)',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <XCircle size={15} />
-                      <span>Worker Rejected</span>
-                    </div>
+                  {readOnly ? (
+                    <>
+                      {isSignedOff || worker.isFullyVerified || worker.verificationStatus === 'VERIFIED' ? (
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '10px 18px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-status-success-bg)',
+                            color: 'var(--color-status-success-text)',
+                            border: '1px solid var(--color-status-success-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <CheckCircle2 size={15} />
+                          <span>Worker Approved & Signed Off (Read-Only)</span>
+                        </div>
+                      ) : isRejected ? (
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '10px 18px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-status-danger-bg)',
+                            color: 'var(--color-status-danger-text)',
+                            border: '1px solid var(--color-status-danger-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <XCircle size={15} />
+                          <span>Worker Rejected (Read-Only)</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              padding: '8px 14px',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor: 'var(--color-status-warning-bg)',
+                              color: 'var(--color-status-warning-text)',
+                              border: '1px solid var(--color-status-warning-border)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                            }}
+                          >
+                            <Clock size={14} />
+                            <span>Verification Pending — Review required in Verification Queue</span>
+                          </div>
+                          {canReview && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onClose();
+                                navigate(`/verification?workerId=${worker.id}`);
+                              }}
+                              style={{
+                                padding: '8px 14px',
+                                borderRadius: 'var(--radius-md)',
+                                backgroundColor: 'var(--color-brand-600, #2563eb)',
+                                color: '#ffffff',
+                                border: 'none',
+                                fontSize: 'var(--font-size-xs)',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                              }}
+                            >
+                              <ExternalLink size={14} />
+                              <span>Open Verification Queue</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
                   ) : (
-                    <button
-                      type="button"
-                      id="stage4-bottom-reject-btn"
-                      data-testid="stage4-bottom-reject-btn"
-                      disabled={rejectWorkerMutation.isPending}
-                      onClick={() => {
-                        setRejectWorkerCategory('OTHER');
-                        setRejectWorkerRemarks('');
-                        setRejectWorkerError(null);
-                        setIsRejectWorkerDialogOpen(true);
-                      }}
-                      style={{
-                        padding: '10px 18px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: '#ffffff',
-                        color: 'var(--color-status-danger-text)',
-                        border: '1px solid var(--color-status-danger-border)',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                        cursor: rejectWorkerMutation.isPending ? 'not-allowed' : 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                      }}
-                    >
-                      <XCircle size={16} />
-                      <span>{rejectWorkerMutation.isPending ? 'Rejecting Worker...' : 'Reject Worker'}</span>
-                    </button>
-                  )}
+                    <>
+                      {/* Reject Worker Action Button: always visible */}
+                      {isRejected ? (
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '10px 18px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-status-danger-bg)',
+                            color: 'var(--color-status-danger-text)',
+                            border: '1px solid var(--color-status-danger-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <XCircle size={15} />
+                          <span>Worker Rejected</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          id="stage4-bottom-reject-btn"
+                          data-testid="stage4-bottom-reject-btn"
+                          disabled={rejectWorkerMutation.isPending}
+                          onClick={() => {
+                            setRejectWorkerCategory('OTHER');
+                            setRejectWorkerRemarks('');
+                            setRejectWorkerError(null);
+                            setIsRejectWorkerDialogOpen(true);
+                          }}
+                          style={{
+                            padding: '10px 18px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: '#ffffff',
+                            color: 'var(--color-status-danger-text)',
+                            border: '1px solid var(--color-status-danger-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                            cursor: rejectWorkerMutation.isPending ? 'not-allowed' : 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                          }}
+                        >
+                          <XCircle size={16} />
+                          <span>{rejectWorkerMutation.isPending ? 'Rejecting Worker...' : 'Reject Worker'}</span>
+                        </button>
+                      )}
 
-                  {/* Approve Worker Action Button */}
-                  {isSignedOff ? (
-                    <div
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '10px 18px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--color-status-success-bg)',
-                        color: 'var(--color-status-success-text)',
-                        border: '1px solid var(--color-status-success-border)',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <CheckCircle2 size={15} />
-                      <span>Worker Approved & Signed Off</span>
-                    </div>
-                  ) : canSignOff ? (
-                    <button
-                      type="button"
-                      id="stage4-bottom-approve-btn"
-                      data-testid="stage4-bottom-approve-btn"
-                      disabled={isRejected || !allMandatoryChecksApproved || signOffMutation.isPending}
-                      onClick={() => {
-                        if (!isRejected && allMandatoryChecksApproved) {
-                          setIsSignOffDialogOpen(true);
-                        }
-                      }}
-                      style={{
-                        padding: '10px 20px',
-                        borderRadius: 'var(--radius-md)',
-                        backgroundColor: (!isRejected && allMandatoryChecksApproved) ? 'var(--color-brand-600, #2563eb)' : 'var(--color-bg-surface)',
-                        color: (!isRejected && allMandatoryChecksApproved) ? '#ffffff' : 'var(--color-text-muted)',
-                        border: (!isRejected && allMandatoryChecksApproved) ? 'none' : '1px solid var(--color-border)',
-                        fontSize: 'var(--font-size-xs)',
-                        fontWeight: 700,
-                        cursor: isRejected || !allMandatoryChecksApproved || signOffMutation.isPending ? 'not-allowed' : 'pointer',
-                        opacity: isRejected || !allMandatoryChecksApproved || signOffMutation.isPending ? 0.6 : 1,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        boxShadow: (!isRejected && allMandatoryChecksApproved) ? 'var(--shadow-sm)' : 'none',
-                      }}
-                    >
-                      <CheckCircle2 size={16} />
-                      <span>{signOffMutation.isPending ? 'Approving Worker...' : 'Approve Worker'}</span>
-                    </button>
-                  ) : null}
+                      {/* Approve Worker Action Button */}
+                      {isSignedOff ? (
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '10px 18px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-status-success-bg)',
+                            color: 'var(--color-status-success-text)',
+                            border: '1px solid var(--color-status-success-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                          }}
+                        >
+                          <CheckCircle2 size={15} />
+                          <span>Worker Approved & Signed Off</span>
+                        </div>
+                      ) : canSignOff ? (
+                        <button
+                          type="button"
+                          id="stage4-bottom-approve-btn"
+                          data-testid="stage4-bottom-approve-btn"
+                          disabled={isRejected || !allMandatoryChecksApproved || signOffMutation.isPending}
+                          onClick={() => {
+                            if (!isRejected && allMandatoryChecksApproved) {
+                              setIsSignOffDialogOpen(true);
+                            }
+                          }}
+                          style={{
+                            padding: '10px 20px',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: (!isRejected && allMandatoryChecksApproved) ? 'var(--color-brand-600, #2563eb)' : 'var(--color-bg-surface)',
+                            color: (!isRejected && allMandatoryChecksApproved) ? '#ffffff' : 'var(--color-text-muted)',
+                            border: (!isRejected && allMandatoryChecksApproved) ? 'none' : '1px solid var(--color-border)',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                            cursor: isRejected || !allMandatoryChecksApproved || signOffMutation.isPending ? 'not-allowed' : 'pointer',
+                            opacity: isRejected || !allMandatoryChecksApproved || signOffMutation.isPending ? 0.6 : 1,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: (!isRejected && allMandatoryChecksApproved) ? 'var(--shadow-sm)' : 'none',
+                          }}
+                        >
+                          <CheckCircle2 size={16} />
+                          <span>{signOffMutation.isPending ? 'Approving Worker...' : 'Approve Worker'}</span>
+                        </button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -5392,18 +5638,25 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         isOpen={isRejectDialogOpen}
         title={`Reject ${rejectCheckType} Verification Check`}
         description="Select an operational rejection reason category and provide mandatory remarks. The applicant will be notified to re-upload or rectify."
-        confirmLabel="Confirm Rejection"
+        confirmLabel={rejectCheckMutation.isPending ? 'Rejecting...' : 'Confirm Rejection'}
         isDestructive={true}
         requireRemarks={true}
-        remarksPlaceholder="Enter mandatory operational remarks (e.g., Image is blurred, name mismatch with registration records)..."
+        remarksPlaceholder="Enter mandatory operational remarks..."
         isLoading={rejectCheckMutation.isPending}
+        errorMessage={rejectCheckError || undefined}
         onConfirm={(remarks) => {
+          const finalRemarks = (remarks || rejectRemarks || '').trim();
+          if (rejectCategory === 'OTHER' && !finalRemarks) {
+            setRejectCheckError('Mandatory remarks explanation is required when selecting rejection reason OTHER.');
+            return;
+          }
           if (rejectCheckId) {
+            setRejectCheckError(null);
             rejectCheckMutation.mutate({
               checkId: rejectCheckId,
               checkType: rejectCheckType,
               category: rejectCategory,
-              remarks: remarks || rejectRemarks || 'Verification check rejected by executive.',
+              remarks: finalRemarks,
             });
           }
         }}
@@ -5419,11 +5672,14 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               marginBottom: 'var(--space-1)',
             }}
           >
-            Rejection Reason Category:
+            Rejection Category: *
           </label>
           <select
             value={rejectCategory}
-            onChange={(e) => setRejectCategory(e.target.value as RejectionReasonCategory)}
+            onChange={(e) => {
+              setRejectCategory(e.target.value as RejectionReasonCategory);
+              setRejectCheckError(null);
+            }}
             style={{
               width: '100%',
               padding: 'var(--space-2)',
@@ -5439,6 +5695,46 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               </option>
             ))}
           </select>
+
+          {isTerminalRejectionCode(rejectCategory) && (
+            <div
+              style={{
+                marginTop: 'var(--space-2)',
+                padding: 'var(--space-2) var(--space-3)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                border: '1px solid var(--color-status-danger-border)',
+                color: 'var(--color-status-danger-text)',
+                fontSize: '11px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <AlertTriangle size={14} />
+              <span>
+                Terminal Rejection: This code permanently disqualifies the check and application. Worker resubmission and verification sign-off will be permanently blocked.
+              </span>
+            </div>
+          )}
+
+          {rejectCategory === 'OTHER' && (
+            <div
+              style={{
+                marginTop: 'var(--space-2)',
+                padding: 'var(--space-2) var(--space-3)',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-status-warning-bg)',
+                border: '1px solid var(--color-status-warning-border)',
+                color: 'var(--color-status-warning-text)',
+                fontSize: '11px',
+                fontWeight: 500,
+              }}
+            >
+              Mandatory explanation required: Detailed operational rationale must be entered in the remarks box below.
+            </div>
+          )}
         </div>
       </ConfirmDialog>
 

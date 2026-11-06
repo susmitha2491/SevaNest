@@ -163,8 +163,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('opens worker dossier modal and displays the dynamic trust & verification breakdown', async () => {
       renderApp('/workers');
 
-      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
-      fireEvent.click(approveButtons[0]);
+      const viewProfileButtons = await screen.findAllByRole('button', { name: /View profile/i });
+      fireEvent.click(viewProfileButtons[0]);
 
       // Navigate to Step 2: KYC Verification
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
@@ -183,8 +183,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('executes worker disciplinary suspension with mandatory operational remarks', async () => {
       renderApp('/workers');
 
-      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
-      fireEvent.click(approveButtons[0]);
+      const viewProfileButtons = await screen.findAllByRole('button', { name: /View profile/i });
+      fireEvent.click(viewProfileButtons[0]);
 
       const suspendBtn = await screen.findByRole('button', { name: /Suspend Worker/i });
       fireEvent.click(suspendBtn);

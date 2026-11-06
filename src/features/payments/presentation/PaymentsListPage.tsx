@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Search,
   RotateCcw,
@@ -11,6 +11,8 @@ import {
   Info,
   IndianRupee,
   Receipt,
+  Download,
+  CheckCircle2,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -22,8 +24,6 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { RefundProcessingModal } from './RefundProcessingModal';
-import { httpClient } from '../../../core/api/httpClient';
-import { env } from '../../../core/config/env';
 
 export const PaymentsListPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -46,9 +46,60 @@ export const PaymentsListPage: React.FC = () => {
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isRefundOpen, setIsRefundOpen] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
   const canView = hasPermission(user?.permissions, PERMISSIONS.PAYMENTS_VIEW);
   const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
+
+  const handleReconcile = async (txn: PaymentTransaction) => {
+    try {
+      setIsReconciling(true);
+      await paymentRepository.reconcilePayment(txn.id);
+      setActionFeedback(`Payment ${txn.id} successfully reconciled with gateway.`);
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      const refreshed = await paymentRepository.getTransactionById(txn.id);
+      if (refreshed) {
+        setSelectedTxn(refreshed);
+      }
+    } catch (err: unknown) {
+      setActionFeedback(`Failed to reconcile payment: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsReconciling(false);
+      setTimeout(() => setActionFeedback(null), 4000);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    try {
+      setExportingCsv(true);
+      const now = new Date();
+      const to = now.toISOString().slice(0, 10);
+      const fromDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+      const from = fromDate.toISOString().slice(0, 10);
+
+      const csv = await paymentRepository.exportPaymentsCsv(from, to);
+      if (typeof window !== 'undefined' && typeof window.URL?.createObjectURL === 'function') {
+        const blob = new window.Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `SevaNest_Payments_Export_${from}_to_${to}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }
+      setActionFeedback('Transactions CSV exported successfully.');
+    } catch (err: unknown) {
+      setActionFeedback(`Failed to export CSV: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setExportingCsv(false);
+      setTimeout(() => setActionFeedback(null), 4000);
+    }
+  };
 
   // Query transactions
   const { data: paymentsData, isLoading, isError, refetch } = useQuery({
@@ -64,32 +115,28 @@ export const PaymentsListPage: React.FC = () => {
     enabled: canView,
   });
 
-  // Query overall platform collections gross
-  const { data: collectionsReportINR } = useQuery({
-    queryKey: ['payments', 'collections-summary-report'],
-    queryFn: async () => {
-      try {
-        const res = await httpClient.get<Record<string, unknown>>('/admin/reports/payment-collections', {
-          params: { from: '2026-01-01', to: '2026-12-31', interval: 'month' },
-        });
-        const raw = (res.data?.data || res.data) as Record<string, unknown>;
-        const totals = Array.isArray(raw?.totalsByFeeType)
-          ? (raw.totalsByFeeType as Array<Record<string, unknown>>)
-          : [];
-        const grossMinor = totals.reduce((sum, item) => sum + Number(item.grossMinor || 0), 0);
-        return Math.round(grossMinor / 100);
-      } catch {
-        return null;
-      }
-    },
-    enabled: canView && import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
+  // Query authoritative financial overview metrics from backend APIs
+  const { data: financialOverview } = useQuery({
+    queryKey: ['payments', 'financial-overview'],
+    queryFn: () => paymentRepository.getFinancialOverview(),
+    enabled: canView,
     staleTime: 60000,
   });
 
   const grossSettledCollectionsINR =
-    collectionsReportINR !== null && collectionsReportINR !== undefined
-      ? collectionsReportINR
+    financialOverview?.grossSettledCollectionsINR !== undefined
+      ? financialOverview.grossSettledCollectionsINR
       : (paymentsData?.totalGrossCollectionsINR || 0);
+
+  const pendingRefundsCount =
+    financialOverview?.pendingRefundsCount !== undefined
+      ? financialOverview.pendingRefundsCount
+      : (paymentsData?.pendingRefundsCount || 0);
+
+  const totalLedgerRecords =
+    financialOverview?.totalLedgerRecords !== undefined
+      ? financialOverview.totalLedgerRecords
+      : (paymentsData?.totalCount || 0);
 
   if (!canView) {
     return <NoAccessView moduleName="Financial Transactions & Ledger" requiredPermission={PERMISSIONS.PAYMENTS_VIEW} />;
@@ -213,7 +260,7 @@ export const PaymentsListPage: React.FC = () => {
               Pending Refund Requests
             </div>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-warning-dark)' }}>
-              {paymentsData?.pendingRefundsCount || 0}
+              {pendingRefundsCount}
             </div>
           </div>
         </div>
@@ -238,7 +285,7 @@ export const PaymentsListPage: React.FC = () => {
               Total Ledger Records
             </div>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {paymentsData?.totalCount || 0}
+              {totalLedgerRecords}
             </div>
           </div>
         </div>
@@ -315,7 +362,7 @@ export const PaymentsListPage: React.FC = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
             <select
               value={selectedFeeType}
               onChange={(e) => {
@@ -337,9 +384,52 @@ export const PaymentsListPage: React.FC = () => {
               <option value="REPLACEMENT_PLAN">Replacement Guarantee Plan</option>
               <option value="SUBSCRIPTION">Subscription / Membership</option>
             </select>
+
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={exportingCsv}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                cursor: exportingCsv ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+              title="Export audited transactions CSV"
+            >
+              <Download size={14} className={exportingCsv ? 'animate-spin' : ''} />
+              {exportingCsv ? 'Exporting...' : 'Export CSV'}
+            </button>
           </div>
         </div>
       </div>
+
+      {actionFeedback && (
+        <div
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: actionFeedback.includes('Failed') ? 'var(--color-status-danger-bg)' : 'var(--color-status-success-bg)',
+            color: actionFeedback.includes('Failed') ? 'var(--color-status-danger-text)' : 'var(--color-status-success-text)',
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            border: `1px solid ${actionFeedback.includes('Failed') ? 'var(--color-status-danger-border)' : 'var(--color-status-success-border)'}`,
+          }}
+        >
+          {actionFeedback.includes('Failed') ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{actionFeedback}</span>
+        </div>
+      )}
 
       {/* Transactions Table */}
       <div
@@ -359,10 +449,10 @@ export const PaymentsListPage: React.FC = () => {
                   Transaction ID
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Customer
+                  Customer Name
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Booking Ref
+                  Booking Reference
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Fee Classification
@@ -374,7 +464,7 @@ export const PaymentsListPage: React.FC = () => {
                   Payment Method
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Status
+                  Transaction Status
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
@@ -424,15 +514,25 @@ export const PaymentsListPage: React.FC = () => {
                       </span>
                     </td>
 
-                    {/* Customer */}
+                    {/* Customer Name */}
                     <td style={{ padding: 'var(--space-4)' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{txn.customerName}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                        {txn.customerId}
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          color: txn.customerName === 'Customer Details Unavailable' ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
+                          fontStyle: txn.customerName === 'Customer Details Unavailable' ? 'italic' : 'normal',
+                        }}
+                      >
+                        {txn.customerName}
                       </div>
+                      {(txn.customerPhone || txn.customerPhoneMasked) && (
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                          {txn.customerPhone || txn.customerPhoneMasked}
+                        </div>
+                      )}
                     </td>
 
-                    {/* Booking Ref */}
+                    {/* Booking Reference */}
                     <td style={{ padding: 'var(--space-4)', fontFamily: 'monospace', color: 'var(--color-brand-700)', fontWeight: 600 }}>
                       {txn.bookingRef}
                     </td>
@@ -589,6 +689,8 @@ export const PaymentsListPage: React.FC = () => {
           setSelectedTxn(t);
           setIsRefundOpen(true);
         }}
+        onReconcile={handleReconcile}
+        isReconciling={isReconciling}
       />
 
       {/* Refund Processing Modal */}

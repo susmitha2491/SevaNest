@@ -14,6 +14,7 @@ import {
   CheckCircle2,
   Eye,
   FileText,
+  ArrowUpDown,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -94,6 +95,17 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     const p = searchParams.get('page');
     return p ? parseInt(p, 10) || 1 : 1;
   });
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>(() => {
+    const s = searchParams.get('sortOrder');
+    return s === 'asc' ? 'asc' : 'desc';
+  });
+
+  const toggleSortOrder = () => {
+    const nextOrder = sortOrder === 'desc' ? 'asc' : 'desc';
+    setSortOrder(nextOrder);
+    updateUrlParams({ sortOrder: nextOrder === 'desc' ? null : 'asc', page: 1 });
+    setCurrentPage(1);
+  };
 
   // Selected Dossier state
   const [selectedDossierId, setSelectedDossierId] = useState<string | null>(
@@ -158,11 +170,17 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     if (urlWorkerId !== null && urlWorkerId !== selectedDossierId) {
       setSelectedDossierId(urlWorkerId);
     }
-  }, [searchParams, searchTerm, selectedDossierId]);
+    const urlSortOrder = searchParams.get('sortOrder');
+    if (urlSortOrder === 'asc' && sortOrder !== 'asc') {
+      setSortOrder('asc');
+    } else if (!urlSortOrder && sortOrder !== 'desc') {
+      setSortOrder('desc');
+    }
+  }, [searchParams, searchTerm, selectedDossierId, sortOrder]);
 
   // Query verification queue
   const { data: queueData, isLoading, isError, error: queueError, refetch } = useQuery({
-    queryKey: ['verification', 'queue', effectiveViewMode, searchTerm, selectedStatus, selectedCategory, currentPage],
+    queryKey: ['verification', 'queue', effectiveViewMode, searchTerm, selectedStatus, selectedCategory, currentPage, sortOrder],
     queryFn: () =>
       verificationRepository.getVerificationQueue({
         assignedTo: effectiveViewMode === 'my-reviews' ? 'me' : undefined,
@@ -171,6 +189,8 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         category: selectedCategory,
         page: currentPage,
         pageSize: 10,
+        sortBy: 'submissionTime',
+        sortOrder,
       }),
     enabled: canReview,
   });
@@ -231,6 +251,22 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
         if (isConflict) {
           // Check is already in review on backend: proceed directly into the dossier
+          return { checkId, dossierId };
+        }
+
+        // If the check was already decided / approved on backend (404 Resource not found or already decided),
+        // refresh query cache and proceed to dossier
+        const isAlreadyDecided =
+          conflictErr?.status === 404 ||
+          conflictErr?.response?.status === 404 ||
+          conflictErr?.code === 'CHECK_ALREADY_DECIDED' ||
+          conflictErr?.response?.data?.code === 'CHECK_ALREADY_DECIDED' ||
+          (err as Error)?.message?.toLowerCase().includes('not found') ||
+          (err as Error)?.message?.toLowerCase().includes('already decided') ||
+          (err as Error)?.message?.toLowerCase().includes('invalid transition');
+
+        if (isAlreadyDecided) {
+          invalidateRelated();
           return { checkId, dossierId };
         }
         throw err;
@@ -631,9 +667,28 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                 ? `Correction Cases Queue (${queueData?.totalCount || 0})`
                 : `Worker Verification Queue (${queueData?.totalCount || 0})`}
             </h2>
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              Ordered Oldest-First
-            </span>
+            <button
+              type="button"
+              onClick={toggleSortOrder}
+              title={sortOrder === 'desc' ? 'Currently ordered latest applications first. Click to sort oldest first.' : 'Currently ordered oldest applications first. Click to sort latest first.'}
+              aria-label={sortOrder === 'desc' ? 'Ordered Latest-First' : 'Ordered Oldest-First'}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                background: 'none',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                padding: '2px 8px',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                cursor: 'pointer',
+                fontWeight: 600,
+              }}
+            >
+              <ArrowUpDown size={12} />
+              <span>{sortOrder === 'desc' ? 'Ordered Latest-First' : 'Ordered Oldest-First'}</span>
+            </button>
           </div>
 
           {claimMutation.isError && (
@@ -685,8 +740,22 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                       Category / Locality
                     </th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
-                      Submitted
+                    <th
+                      onClick={toggleSortOrder}
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 700,
+                        color: 'var(--color-text-secondary)',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                      }}
+                      title="Click to toggle submission date ordering (Latest / Oldest)"
+                    >
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <span>Submitted</span>
+                        <ArrowUpDown size={12} />
+                      </div>
                     </th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                       Queue Status
@@ -800,25 +869,6 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                                     <span>{isClaimingThisItem ? 'Starting...' : 'Start Review'}</span>
                                   </button>
                                 )}
-                                <button
-                                  aria-label={`Inspect Dossier for ${item.workerName}`}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSelectDossier(targetWorkerId);
-                                  }}
-                                  style={{
-                                    padding: '4px 10px',
-                                    borderRadius: 'var(--radius-md)',
-                                    border: '1px solid var(--color-border)',
-                                    backgroundColor: isSelected ? 'var(--color-brand-600)' : 'var(--color-surface)',
-                                    color: isSelected ? '#ffffff' : 'var(--color-text-primary)',
-                                    fontSize: 'var(--font-size-xs)',
-                                    fontWeight: 600,
-                                    cursor: 'pointer',
-                                  }}
-                                >
-                                  Inspect Dossier
-                                </button>
                               </>
                             )}
 

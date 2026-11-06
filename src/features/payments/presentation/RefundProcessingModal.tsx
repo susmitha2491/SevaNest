@@ -330,6 +330,21 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           </div>
         )}
 
+        {refundMutation.isError && (
+          <div
+            style={{
+              padding: 'var(--space-3) var(--space-6)',
+              backgroundColor: 'var(--color-status-danger-bg)',
+              borderTop: '1px solid var(--color-status-danger-border)',
+              color: 'var(--color-status-danger-text)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+            }}
+          >
+            Failed to authorize refund: {refundMutation.error instanceof Error ? refundMutation.error.message : 'Unknown backend processing error'}
+          </div>
+        )}
+
         {/* Footer */}
         <div
           style={{

@@ -306,23 +306,46 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
 
   describe('Booking Module Integration (RealBookingRepository)', () => {
     it('fetches bookings and performs booking actions according to state machine', async () => {
-      vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
-        data: {
-          success: true,
-          data: [
-            {
-              id: 'B-84920',
-              customerId: 'C-1092',
-              customerName: 'Anand Sharma',
-              status: 'REQUESTED',
-              serviceCategory: 'House Maid',
-              platformFeePaid: true,
-              platformFeeAmount: 499,
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url.includes('/admin/customers')) {
+          return {
+            data: {
+              data: [
+                { id: 'C-1092', userId: 'U-1092', name: 'Anand Sharma', mobile: '9876543210' },
+              ],
             },
-          ],
-          meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
-        },
-      } as any);
+          } as any;
+        }
+        if (url.includes('/admin/workers')) {
+          return {
+            data: {
+              data: [
+                { id: 'W-10482', userId: 'UW-10482', name: 'Sunita Devi', mobile: '9876543211', isFullyVerified: true },
+              ],
+            },
+          } as any;
+        }
+        if (url.includes('/admin/replacement-requests')) {
+          return { data: { data: [] } } as any;
+        }
+        return {
+          data: {
+            success: true,
+            data: [
+              {
+                id: 'B-84920',
+                customerId: 'C-1092',
+                customerName: 'Anand Sharma',
+                status: 'REQUESTED',
+                serviceCategory: 'House Maid',
+                platformFeePaid: true,
+                platformFeeAmount: 499,
+              },
+            ],
+            meta: { totalItems: 1, currentPage: 1, itemsPerPage: 10, totalPages: 1 },
+          },
+        } as any;
+      });
 
       const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValue({
         data: { success: true },

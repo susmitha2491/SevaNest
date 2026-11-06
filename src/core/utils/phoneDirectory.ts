@@ -27,12 +27,56 @@ export function formatPhoneNumber(phone: string): string {
 export function setCustomerPhone(idOrUserId: string, phone: string): void {
   if (!idOrUserId || !phone) return;
   const formatted = formatPhoneNumber(phone);
+  // Do not overwrite an unmasked phone with a masked one
+  if (formatted.includes('*') && customerPhoneMap.has(idOrUserId) && !customerPhoneMap.get(idOrUserId)?.includes('*')) {
+    return;
+  }
   customerPhoneMap.set(idOrUserId, formatted);
 }
 
 export function getCustomerPhone(idOrUserId?: string): string | undefined {
   if (!idOrUserId) return undefined;
   return customerPhoneMap.get(idOrUserId);
+}
+
+export async function fetchCustomerUnmaskedPhone(idOrUserId: string): Promise<string | undefined> {
+  if (!idOrUserId) return undefined;
+  const existing = customerPhoneMap.get(idOrUserId);
+  if (existing && !existing.includes('*')) {
+    return existing;
+  }
+  try {
+    const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/customers/${idOrUserId}`);
+    const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
+    const mobile = String(detail?.mobile || detail?.phone || '');
+    if (mobile && !mobile.includes('*')) {
+      const formatted = formatPhoneNumber(mobile);
+      customerPhoneMap.set(idOrUserId, formatted);
+      if (detail.id) customerPhoneMap.set(String(detail.id), formatted);
+      if (detail.userId) customerPhoneMap.set(String(detail.userId), formatted);
+      return formatted;
+    }
+  } catch {
+    // If direct customer lookup failed (e.g. 404 because idOrUserId is a user ID), resolve via customer list
+    try {
+      const res = await httpClient.get<unknown>('/admin/customers');
+      const rawData = res.data as Record<string, unknown> | Array<Record<string, unknown>>;
+      const list = Array.isArray(rawData)
+        ? rawData
+        : Array.isArray((rawData as { data?: unknown[] })?.data)
+        ? ((rawData as { data: Record<string, unknown>[] }).data)
+        : Array.isArray((rawData as { items?: unknown[] })?.items)
+        ? ((rawData as { items: Record<string, unknown>[] }).items)
+        : [];
+      const match = list.find((c) => String(c.id) === idOrUserId || String(c.userId) === idOrUserId);
+      if (match && match.id && String(match.id) !== idOrUserId) {
+        return await fetchCustomerUnmaskedPhone(String(match.id));
+      }
+    } catch {
+      // Ignore
+    }
+  }
+  return existing && !existing.includes('*') ? existing : undefined;
 }
 
 export function setCustomerEmail(idOrUserId: string, email: string): void {
@@ -79,7 +123,8 @@ export async function preloadCustomerPhones(): Promise<void> {
         try {
           const id = String(c.id || c.customerId || '');
           if (!id) return;
-          if (customerPhoneMap.has(id)) return;
+          const existing = customerPhoneMap.get(id);
+          if (existing && !existing.includes('*')) return;
           const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/customers/${id}`);
           const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
           const mobile = String(detail?.mobile || detail?.phone || '');

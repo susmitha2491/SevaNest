@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   LifeBuoy,
   RefreshCw,
   Clock,
-  AlertOctagon,
+  AlertTriangle,
   CheckCircle2,
   ArrowRight,
   UserCheck,
   ArrowUpRight,
+  Inbox,
+  ShieldAlert,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { dashboardRepository } from '../data/dashboardRepository';
@@ -16,20 +18,143 @@ import { KPICard } from '../../../shared/components/KPICard/KPICard';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 
+export type SupportDashboardTab =
+  | 'ALL'
+  | 'UNASSIGNED'
+  | 'MY_CASES'
+  | 'IN_PROGRESS'
+  | 'AT_RISK'
+  | 'ESCALATED'
+  | 'RESOLVED';
+
+const TABS: { key: SupportDashboardTab; label: string }[] = [
+  { key: 'ALL', label: 'All Tickets' },
+  { key: 'UNASSIGNED', label: 'Unassigned Intake Queue' },
+  { key: 'MY_CASES', label: 'My Active Cases' },
+  { key: 'IN_PROGRESS', label: 'In Investigation' },
+  { key: 'AT_RISK', label: 'SLA At Risk & Breached' },
+  { key: 'ESCALATED', label: 'Escalated to Operations' },
+  { key: 'RESOLVED', label: 'Resolved Tickets' },
+];
+
 export const SupportExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED'>('AT_RISK');
+  const [activeTab, setActiveTab] = useState<SupportDashboardTab>('AT_RISK');
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['dashboard', 'support-exec'],
     queryFn: () => dashboardRepository.getSupportExecutiveDashboard(),
   });
 
+  const handleKpiCardClick = (targetTab: SupportDashboardTab) => {
+    setActiveTab(targetTab);
+
+    // Smoothly scroll down to the support ticket workstation table ensuring header and tabs remain visible
+    const tableEl = document.getElementById('support-workstation-queues');
+    if (tableEl) {
+      const headerOffset = 80;
+      const elementPosition = tableEl.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+      window.scrollTo({
+        top: Math.max(0, offsetPosition),
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  const queues = data?.queues;
+  const kpis = data?.kpis;
+
+  const tabCounts = useMemo(() => {
+    if (!queues || !kpis) {
+      return {
+        ALL: 0,
+        UNASSIGNED: 0,
+        MY_CASES: 0,
+        IN_PROGRESS: 0,
+        AT_RISK: 0,
+        ESCALATED: 0,
+        RESOLVED: 0,
+      };
+    }
+    const all = queues.ALL || [
+      ...(queues.AT_RISK || []),
+      ...(queues.UNASSIGNED || []),
+      ...(queues.MY_CASES || []),
+      ...(queues.ESCALATED || []),
+      ...(queues.IN_PROGRESS || []),
+      ...(queues.RESOLVED || []),
+    ];
+    const unassigned = queues.UNASSIGNED || [];
+    const myCases = queues.MY_CASES || [];
+    const inProgress = queues.IN_PROGRESS || all.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED');
+    const atRisk = queues.AT_RISK || [];
+    const escalated = queues.ESCALATED || [];
+    const resolved = queues.RESOLVED || all.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
+
+    return {
+      ALL: kpis.totalTickets ?? all.length,
+      UNASSIGNED: unassigned.length,
+      MY_CASES: myCases.length,
+      IN_PROGRESS: inProgress.length,
+      AT_RISK: atRisk.length,
+      ESCALATED: escalated.length,
+      RESOLVED: resolved.length,
+    };
+  }, [queues, kpis]);
+
+  const currentQueue = useMemo(() => {
+    if (!queues) return [];
+    switch (activeTab) {
+      case 'ALL': {
+        if (queues.ALL && queues.ALL.length > 0) return queues.ALL;
+        const seen = new Set<string>();
+        const list = [
+          ...(queues.AT_RISK || []),
+          ...(queues.UNASSIGNED || []),
+          ...(queues.MY_CASES || []),
+          ...(queues.ESCALATED || []),
+          ...(queues.IN_PROGRESS || []),
+          ...(queues.RESOLVED || []),
+        ];
+        return list.filter((item) => {
+          const key = item.ticketId || item.id;
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
+      case 'UNASSIGNED':
+        return queues.UNASSIGNED || [];
+      case 'MY_CASES':
+        return queues.MY_CASES || [];
+      case 'IN_PROGRESS': {
+        if (queues.IN_PROGRESS && queues.IN_PROGRESS.length > 0) return queues.IN_PROGRESS;
+        return (queues.ALL || [
+          ...(queues.AT_RISK || []),
+          ...(queues.UNASSIGNED || []),
+          ...(queues.MY_CASES || []),
+          ...(queues.ESCALATED || []),
+        ]).filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED');
+      }
+      case 'AT_RISK':
+        return queues.AT_RISK || [];
+      case 'ESCALATED':
+        return queues.ESCALATED || [];
+      case 'RESOLVED': {
+        if (queues.RESOLVED && queues.RESOLVED.length > 0) return queues.RESOLVED;
+        return (queues.ALL || []).filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
+      }
+      default:
+        return queues.AT_RISK || [];
+    }
+  }, [queues, activeTab]);
+
   if (isLoading) {
     return <LoadingSpinner message="Loading Support Operations Console..." />;
   }
 
-  if (isError || !data) {
+  if (isError || !data || !kpis || !queues) {
     const errorMessage =
       error instanceof Error ? error.message : 'Failed to load Support Console metrics.';
 
@@ -55,8 +180,16 @@ export const SupportExecutiveDashboard: React.FC = () => {
     );
   }
 
-  const { kpis, queues } = data;
-  const currentQueue = queues[activeTab] || [];
+  const allQueuesEmpty =
+    (queues.AT_RISK?.length || 0) === 0 &&
+    (queues.UNASSIGNED?.length || 0) === 0 &&
+    (queues.MY_CASES?.length || 0) === 0 &&
+    (queues.ESCALATED?.length || 0) === 0 &&
+    (queues.ALL?.length || 0) === 0 &&
+    (queues.IN_PROGRESS?.length || 0) === 0 &&
+    (queues.RESOLVED?.length || 0) === 0;
+
+  const activeTabConfig = TABS.find((t) => t.key === activeTab) || TABS[0];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
@@ -92,52 +225,75 @@ export const SupportExecutiveDashboard: React.FC = () => {
         </button>
       </div>
 
-      {/* 5-Card Support Metric Grid */}
+      {/* 7-Card Support Executive Interactive KPI Grid */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
           gap: 'var(--space-4)',
         }}
       >
         <KPICard
-          title="Open Grievances"
-          value={kpis.openUnassignedGrievances}
-          subtitle="Unassigned customer/worker tickets"
+          title="Total Tickets"
+          value={kpis.totalTickets ?? ((kpis.openUnassignedGrievances ?? 0) + (kpis.myActiveCases ?? 0) + (kpis.resolvedTodayCount ?? 0))}
+          subtitle="All logged support tickets"
           icon={LifeBuoy}
-          onClick={() => setActiveTab('UNASSIGNED')}
+          isSelected={activeTab === 'ALL'}
+          onClick={() => handleKpiCardClick('ALL')}
         />
         <KPICard
-          title="Assigned to Me"
-          value={kpis.myActiveCases}
-          subtitle="Active claimed investigation cases"
+          title="Unassigned Tickets"
+          value={kpis.unassignedTickets ?? kpis.openUnassignedGrievances}
+          subtitle="Open Grievances awaiting intake"
+          icon={Inbox}
+          isSelected={activeTab === 'UNASSIGNED'}
+          onClick={() => handleKpiCardClick('UNASSIGNED')}
+        />
+        <KPICard
+          title="My Assigned Tickets"
+          value={kpis.myAssignedTickets ?? kpis.myActiveCases}
+          subtitle="Assigned to Me active claimed cases"
           icon={UserCheck}
-          onClick={() => setActiveTab('MY_CASES')}
+          isSelected={activeTab === 'MY_CASES'}
+          onClick={() => handleKpiCardClick('MY_CASES')}
         />
         <KPICard
-          title="SLA At Risk"
-          value={kpis.slaAtRiskCount}
-          subtitle="Requires agreed SLA threshold"
+          title="In Progress"
+          value={kpis.inProgressTickets ?? kpis.myActiveCases}
+          subtitle="Active investigations"
           icon={Clock}
-          onClick={() => setActiveTab('AT_RISK')}
+          isSelected={activeTab === 'IN_PROGRESS'}
+          onClick={() => handleKpiCardClick('IN_PROGRESS')}
         />
         <KPICard
-          title="SLA Breached"
-          value={kpis.slaBreachedCount}
-          subtitle="Escalated to management"
-          icon={AlertOctagon}
-          onClick={() => setActiveTab('AT_RISK')}
+          title="SLA Imminent Breach"
+          value={kpis.slaImminentBreach ?? kpis.slaAtRiskCount}
+          subtitle="SLA At Risk impending violation (<4h)"
+          icon={AlertTriangle}
+          isSelected={activeTab === 'AT_RISK'}
+          onClick={() => handleKpiCardClick('AT_RISK')}
         />
         <KPICard
-          title="Resolved Today"
-          value={kpis.resolvedTodayCount}
-          subtitle="Disputes mediated successfully"
+          title="Escalated Tickets"
+          value={kpis.escalatedTickets ?? kpis.slaBreachedCount}
+          subtitle="SLA Breached & escalated to Ops"
+          icon={ShieldAlert}
+          isSelected={activeTab === 'ESCALATED'}
+          onClick={() => handleKpiCardClick('ESCALATED')}
+        />
+        <KPICard
+          title="Resolved Tickets"
+          value={kpis.resolvedTickets ?? kpis.resolvedTodayCount}
+          subtitle="Resolved Today & closed records"
           icon={CheckCircle2}
+          isSelected={activeTab === 'RESOLVED'}
+          onClick={() => handleKpiCardClick('RESOLVED')}
         />
       </div>
 
       {/* Actionable Support Ticket Workstation Tabs */}
       <div
+        id="support-workstation-queues"
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border)',
@@ -155,77 +311,41 @@ export const SupportExecutiveDashboard: React.FC = () => {
             overflowX: 'auto',
           }}
         >
-          <button
-            onClick={() => setActiveTab('AT_RISK')}
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              border: 'none',
-              borderBottom: activeTab === 'AT_RISK' ? '2px solid var(--color-primary)' : '2px solid transparent',
-              backgroundColor: 'transparent',
-              color: activeTab === 'AT_RISK' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              fontWeight: 600,
-              fontSize: 'var(--font-size-xs)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            SLA At Risk & Breached ({queues.AT_RISK.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('UNASSIGNED')}
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              border: 'none',
-              borderBottom: activeTab === 'UNASSIGNED' ? '2px solid var(--color-primary)' : '2px solid transparent',
-              backgroundColor: 'transparent',
-              color: activeTab === 'UNASSIGNED' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              fontWeight: 600,
-              fontSize: 'var(--font-size-xs)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Unassigned Intake Queue ({queues.UNASSIGNED.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('MY_CASES')}
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              border: 'none',
-              borderBottom: activeTab === 'MY_CASES' ? '2px solid var(--color-primary)' : '2px solid transparent',
-              backgroundColor: 'transparent',
-              color: activeTab === 'MY_CASES' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              fontWeight: 600,
-              fontSize: 'var(--font-size-xs)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            My Active Cases ({queues.MY_CASES.length})
-          </button>
-          <button
-            onClick={() => setActiveTab('ESCALATED')}
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              border: 'none',
-              borderBottom: activeTab === 'ESCALATED' ? '2px solid var(--color-primary)' : '2px solid transparent',
-              backgroundColor: 'transparent',
-              color: activeTab === 'ESCALATED' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              fontWeight: 600,
-              fontSize: 'var(--font-size-xs)',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            Escalated to Operations ({queues.ESCALATED.length})
-          </button>
+          {TABS.map((tab) => {
+            const count = tabCounts[tab.key];
+            const isActive = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: 'var(--space-3) var(--space-4)',
+                  border: 'none',
+                  borderBottom: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
+                  backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
+                  color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                  fontWeight: isActive ? 700 : 500,
+                  fontSize: 'var(--font-size-xs)',
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all var(--transition-fast)',
+                }}
+              >
+                {tab.label} ({count})
+              </button>
+            );
+          })}
         </div>
 
         {/* Tab Content Table */}
         <div style={{ padding: 'var(--space-4)', overflowX: 'auto' }}>
           {currentQueue.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-secondary)' }}>
-              All support queues are clear. Zero unresolved grievance tickets.
+              {allQueuesEmpty ? (
+                'All support queues are clear. Zero unresolved grievance tickets.'
+              ) : (
+                `No tickets currently in ${activeTabConfig.label}. All records are clear.`
+              )}
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-sm)' }}>
@@ -253,7 +373,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                       if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                         return;
                       }
-                      navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
+                      navigate(`/support/tickets?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
@@ -262,7 +382,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                           return;
                         }
                         e.preventDefault();
-                        navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
+                        navigate(`/support/tickets?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`);
                       }
                     }}
                     style={{ borderBottom: '1px solid var(--color-border)' }}
@@ -310,7 +430,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>
                       <button
-                        onClick={() => navigate(`/support?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`)}
+                        onClick={() => navigate(`/support/tickets?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`)}
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',

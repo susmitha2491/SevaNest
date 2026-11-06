@@ -227,17 +227,20 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       renderApp('/dashboard');
 
       expect(await screen.findByText('Trust & Verification Console', {}, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.getByText('Pending Review')).toBeInTheDocument();
-      expect(screen.getByText('In-Progress Review')).toBeInTheDocument();
-      expect(screen.getByText('Completed Reviews')).toBeInTheDocument();
-      expect(screen.getAllByText('Re-Check Due').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Corrections Required').length).toBeGreaterThan(0);
+      expect(screen.getByText('Registered Workers')).toBeInTheDocument();
+      expect(screen.getByText('Verified & Active Workers')).toBeInTheDocument();
+      expect(screen.getByText('Pending Applications')).toBeInTheDocument();
+      expect(screen.getByText('Pending KYC / Submitted')).toBeInTheDocument();
+      expect((await screen.findAllByText('In Review')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Corrections Required')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText('Re-check Due')).length).toBeGreaterThan(0);
 
-      // Honest SLA unavailable representation
-      expect(screen.getByText('Overdue Reviews (SLA)')).toBeInTheDocument();
-      expect(screen.getByText('SLA targets not returned by backend')).toBeInTheDocument();
-      expect(screen.getByText('Avg Processing Time')).toBeInTheDocument();
-      expect(screen.getByText('Duration telemetry pending backend contract')).toBeInTheDocument();
+      // Section B: Application Status Distribution & Section D: SLA Overview
+      expect(screen.getByText('Application Status Distribution')).toBeInTheDocument();
+      expect(screen.getByText('Verification SLA Overview')).toBeInTheDocument();
+      expect(screen.getAllByText('Within SLA').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Approaching SLA').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('SLA Exceeded').length).toBeGreaterThan(0);
     });
 
     it('navigates to relevant workstation view when metric cards are clicked', async () => {
@@ -245,31 +248,29 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
 
       await screen.findByText('Trust & Verification Console', {}, { timeout: 4000 });
 
-      // Click Re-Check Due card
-      const recheckCard = screen.getAllByText('Re-Check Due')[0].closest('.kpi-card');
-      expect(recheckCard).toBeInTheDocument();
-      fireEvent.click(recheckCard!);
+      // Click Pending Applications card
+      const pendingCard = screen.getByText('Pending Applications').closest('.kpi-card');
+      expect(pendingCard).toBeInTheDocument();
+      fireEvent.click(pendingCard!);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/rechecks');
+        expect(router.state.location.pathname).toBe('/verification');
       });
     });
 
-    it('allows toggling between queue workstation tabs', async () => {
-      renderApp('/dashboard');
+    it('renders actionable applications and allows quick navigation to the verification queue', async () => {
+      const { router } = renderApp('/dashboard');
 
-      expect(await screen.findByText(/Pending Review \(Oldest First\) \(\d+\)/, {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByText('Recent Applications Requiring Attention', {}, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.getByText('Sunita Devi')).toBeInTheDocument();
 
-      // Click In-Review Workstation tab
-      const inReviewTab = screen.getByText(/In-Review Workstation \(\d+\)/);
-      fireEvent.click(inReviewTab);
-      expect(await screen.findByText('Ramesh Yadav', {}, { timeout: 4000 })).toBeInTheDocument();
+      // Click Open Verification Queue button (Section E)
+      const openQueueBtn = screen.getByRole('button', { name: /Open Verification Queue/i });
+      fireEvent.click(openQueueBtn);
 
-      // Click Corrections Required tab
-      const correctionsTab = screen.getByText(/Corrections Required \(\d+\)/);
-      fireEvent.click(correctionsTab);
-      expect(await screen.findByText('Anil Rao', {}, { timeout: 4000 })).toBeInTheDocument();
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification');
+      });
     });
   });
 

@@ -5,14 +5,10 @@ import {
   Users,
   RefreshCw,
   LifeBuoy,
-  CheckCircle2,
   DollarSign,
   AlertCircle,
   ArrowRight,
-  UserCheck,
-  User,
   Briefcase,
-  Clock,
   ShieldCheck,
   Info,
   TrendingUp,
@@ -116,27 +112,20 @@ export const OperationsAdminDashboard: React.FC = () => {
         </button>
       </div>
 
-      {/* 12-Card Complete Operations KPI Grid */}
+      {/* 4 Primary Operational KPI Cards */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
           gap: 'var(--space-4)',
         }}
       >
         <KPICard
-          title="Total Customers"
-          value={kpis.totalCustomers}
-          subtitle="Registered households"
-          icon={User}
-          onClick={() => navigate('/customers')}
-        />
-        <KPICard
-          title="Available Workforce"
-          value={kpis.totalWorkers}
-          subtitle="Total Workers registered"
-          icon={Briefcase}
-          onClick={() => navigate('/workers')}
+          title="Active Engagements"
+          value={kpis.activeLiveEngagements}
+          subtitle="Live recurring household service"
+          icon={Users}
+          onClick={() => setActiveTab('ACTIVE_SERVICES')}
         />
         <KPICard
           title="New Requests"
@@ -146,32 +135,11 @@ export const OperationsAdminDashboard: React.FC = () => {
           onClick={() => setActiveTab('NEW_REQUESTS')}
         />
         <KPICard
-          title="Awaiting Matching"
-          value={kpis.bookingsAwaitingMatching}
-          subtitle="In shortlisting workflow"
-          icon={UserCheck}
-          onClick={() => setActiveTab('MATCHING')}
-        />
-        <KPICard
-          title="Today's Trials"
-          value={kpis.scheduledTrialsToday}
-          subtitle="Scheduled interviews & trials"
-          icon={CheckCircle2}
-          onClick={() => setActiveTab('TRIALS')}
-        />
-        <KPICard
-          title="Awaiting Confirmation"
-          value={kpis.bookingsAwaitingConfirmation}
-          subtitle="Post-trial customer decisions"
-          icon={Clock}
-          onClick={() => setActiveTab('CONFIRMATIONS')}
-        />
-        <KPICard
-          title="Active Engagements"
-          value={kpis.activeLiveEngagements}
-          subtitle="Live recurring household service"
-          icon={Users}
-          onClick={() => setActiveTab('ACTIVE_SERVICES')}
+          title="Available Workforce"
+          value={kpis.totalWorkers}
+          subtitle="Total registered workforce"
+          icon={Briefcase}
+          onClick={() => navigate('/workers')}
         />
         <KPICard
           title="Replacement Queue"
@@ -180,37 +148,9 @@ export const OperationsAdminDashboard: React.FC = () => {
           icon={RefreshCw}
           onClick={() => setActiveTab('REPLACEMENTS')}
         />
-        <KPICard
-          title="Pending Verification"
-          value={kpis.pendingVerificationCases}
-          subtitle="Cases under trust review"
-          icon={ShieldCheck}
-          onClick={() => navigate('/verification')}
-        />
-        <KPICard
-          title="Open Disputes"
-          value={kpis.openDisputes}
-          subtitle="Escalated customer grievances"
-          icon={LifeBuoy}
-          onClick={() => setActiveTab('SUPPORT_HANDOFFS')}
-        />
-        <KPICard
-          title="Pending Refunds"
-          value={kpis.pendingRefunds}
-          subtitle="Awaiting Ops authorization"
-          icon={DollarSign}
-          onClick={() => setActiveTab('REFUNDS')}
-        />
-        <KPICard
-          title="Police Verif Alert"
-          value={kpis.expiringVerifications}
-          subtitle="Impending expiry action"
-          icon={AlertCircle}
-          onClick={() => setActiveTab('FOLLOW_UPS')}
-        />
       </div>
 
-      {/* Operational Visualizations: Booking Status & Lifecycle Overview */}
+      {/* Simplified Booking Status Overview & Lifecycle Summary */}
       <div
         style={{
           backgroundColor: 'var(--color-bg-surface)',
@@ -222,12 +162,12 @@ export const OperationsAdminDashboard: React.FC = () => {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
           <div>
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <TrendingUp size={20} color="var(--color-primary)" />
+            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
+              <TrendingUp size={18} color="var(--color-primary)" />
               <span>Booking Status Overview & Lifecycle Summary</span>
             </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              Real-time operational distribution across key booking states. Click any stage to inspect relevant records.
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', marginBottom: 0 }}>
+              Operational progression from initial customer intake to active service deployment. Click any stage to inspect relevant records.
             </p>
           </div>
           <button
@@ -251,64 +191,155 @@ export const OperationsAdminDashboard: React.FC = () => {
           </button>
         </div>
 
+        {/* 5-Stage Core Lifecycle Pipeline */}
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
             gap: 'var(--space-3)',
           }}
         >
           {[
-            { label: 'New Intake', count: newRequestsCount, statusKey: 'REQUESTED', route: '/bookings?status=REQUESTED', color: 'var(--color-brand-600)' },
-            { label: 'Shortlisting Pool', count: matchingCount, statusKey: 'MATCHING_IN_PROGRESS', route: '/bookings?status=MATCHING_IN_PROGRESS', color: '#6366f1' },
-            { label: 'Trials & Interviews', count: trialsCount, statusKey: 'INTERVIEW_SCHEDULED', route: '/bookings?status=INTERVIEW_SCHEDULED', color: '#0ea5e9' },
-            { label: 'Trial Confirmed', count: confirmedCount, statusKey: 'CONFIRMED', route: '/bookings?status=CONFIRMED', color: '#10b981' },
-            { label: 'Active Deployments', count: activeCount, statusKey: 'SERVICE_ACTIVE', route: '/bookings?status=SERVICE_ACTIVE', color: '#059669' },
-            { label: 'Completed Engagements', count: completedCount, statusKey: 'COMPLETED', route: '/bookings?status=COMPLETED', color: '#64748b' },
-            { label: 'Replacement Demands', count: replacementCount, statusKey: 'REPLACEMENT_REQUESTED', route: '/replacements', color: '#f59e0b' },
-            { label: 'Cancelled Bookings', count: cancelledCount, statusKey: 'CANCELLED', route: '/bookings?status=CANCELLED', color: '#ef4444' },
+            {
+              step: '1',
+              label: 'New Intake',
+              sublabel: 'Customer Demand',
+              count: newRequestsCount,
+              statusKey: 'REQUESTED',
+              route: '/bookings?status=REQUESTED',
+              color: 'var(--color-primary)',
+            },
+            {
+              step: '2',
+              label: 'Awaiting Matching',
+              sublabel: 'Shortlisting Pool',
+              count: matchingCount,
+              statusKey: 'MATCHING_IN_PROGRESS',
+              route: '/bookings?status=MATCHING_IN_PROGRESS',
+              color: '#6366f1',
+            },
+            {
+              step: '3',
+              label: "Today's Trials",
+              sublabel: 'Interviews & Trials',
+              count: trialsCount,
+              statusKey: 'INTERVIEW_SCHEDULED',
+              route: '/bookings?status=INTERVIEW_SCHEDULED',
+              color: '#0ea5e9',
+            },
+            {
+              step: '4',
+              label: 'Awaiting Confirmation',
+              sublabel: 'Trial Confirmed',
+              count: confirmedCount,
+              statusKey: 'CONFIRMED',
+              route: '/bookings?status=CONFIRMED',
+              color: '#10b981',
+            },
+            {
+              step: '5',
+              label: 'Active Deployments',
+              sublabel: 'Live Household Service',
+              count: activeCount,
+              statusKey: 'SERVICE_ACTIVE',
+              route: '/bookings?status=SERVICE_ACTIVE',
+              color: '#059669',
+            },
           ].map((stage) => (
             <div
               key={stage.label}
               onClick={() => navigate(stage.route)}
               style={{
-                padding: 'var(--space-3)',
+                padding: 'var(--space-3) var(--space-4)',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--color-border)',
                 backgroundColor: 'var(--color-bg-app)',
                 cursor: 'pointer',
-                transition: 'all 0.15s ease',
+                transition: 'all var(--transition-fast)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
+                borderLeft: `4px solid ${stage.color}`,
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                  {stage.label}
+                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  {stage.sublabel}
                 </span>
                 <span
                   style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    backgroundColor: stage.color,
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    color: stage.color,
+                    backgroundColor: 'var(--color-bg-surface)',
+                    padding: '1px 6px',
+                    borderRadius: 'var(--radius-full)',
+                    border: '1px solid var(--color-border)',
                   }}
-                />
+                >
+                  Step {stage.step}
+                </span>
               </div>
-              <div style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-text-primary)', marginTop: 'var(--space-2)' }}>
-                {stage.count}
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 'var(--space-2)' }}>
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  {stage.label}
+                </span>
+                <span style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                  {stage.count}
+                </span>
               </div>
             </div>
           ))}
         </div>
+
+        {/* Secondary Lifecycle & Exception Strip */}
+        <div
+          style={{
+            marginTop: 'var(--space-3)',
+            paddingTop: 'var(--space-3)',
+            borderTop: '1px dashed var(--color-border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: 'var(--space-4)',
+            flexWrap: 'wrap',
+            fontSize: 'var(--font-size-xs)',
+          }}
+        >
+          <div
+            onClick={() => navigate('/bookings?status=COMPLETED')}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
+          >
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#64748b' }} />
+            <span>Completed Engagements:</span>
+            <strong style={{ color: 'var(--color-text-primary)' }}>{completedCount}</strong>
+          </div>
+
+          <div
+            onClick={() => navigate('/replacements')}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
+          >
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
+            <span>Replacement Demands:</span>
+            <strong style={{ color: '#d97706' }}>{replacementCount}</strong>
+          </div>
+
+          <div
+            onClick={() => navigate('/bookings?status=CANCELLED')}
+            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
+          >
+            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
+            <span>Cancelled Bookings:</span>
+            <strong style={{ color: '#dc2626' }}>{cancelledCount}</strong>
+          </div>
+        </div>
       </div>
 
-      {/* Workforce Availability & Verification Progress Oversight */}
+      {/* Workforce Supply & Verification Command (2-Column Grid) */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
           gap: 'var(--space-4)',
         }}
       >
@@ -326,27 +357,59 @@ export const OperationsAdminDashboard: React.FC = () => {
           }}
         >
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
                 <Briefcase size={18} color="var(--color-primary)" />
                 <span>Worker Availability Overview</span>
               </h3>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-primary)', backgroundColor: 'var(--color-primary-subtle)', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                Workforce Supply
+              </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Total Registered Workers</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{sections?.workers?.registered ?? kpis.totalWorkers}</span>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Registered Workers</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Total Workers registered in pool</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  {sections?.workers?.registered ?? kpis.totalWorkers}
+                </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Verified & Active Workforce</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-status-success-text)' }}>{sections?.workers?.verifiedAndActive ?? kpis.totalWorkers}</span>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Verified & Active Workforce</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Eligible for household assignment</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-status-success-text)' }}>
+                  {sections?.workers?.verifiedAndActive ?? kpis.totalWorkers}
+                </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Expiring Police Clearances</span>
-                <span style={{ fontWeight: 600, color: kpis.expiringVerifications > 0 ? 'var(--color-status-warning-text)' : 'var(--color-text-primary)' }}>{kpis.expiringVerifications}</span>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Customers</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Registered households & employers</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)' }}>
+                  {kpis.totalCustomers}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: kpis.expiringVerifications > 0 ? '#fffbeb' : 'var(--color-bg-app)', borderRadius: 'var(--radius-md)', border: kpis.expiringVerifications > 0 ? '1px solid #fef3c7' : 'none' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: kpis.expiringVerifications > 0 ? '#b45309' : 'var(--color-text-secondary)', fontWeight: 600 }}>Police Verif Alert</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Clearances expiring within 30 days</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: kpis.expiringVerifications > 0 ? '#d97706' : 'var(--color-text-primary)' }}>
+                  {kpis.expiringVerifications}
+                </span>
               </div>
             </div>
           </div>
+
           <button
             onClick={() => navigate('/workers')}
             style={{
@@ -364,6 +427,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
+              transition: 'background-color var(--transition-fast)',
             }}
           >
             <span>View Workforce Roster</span>
@@ -385,31 +449,64 @@ export const OperationsAdminDashboard: React.FC = () => {
           }}
         >
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
+              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
                 <ShieldCheck size={18} color="#059669" />
                 <span>Verification Progress Oversight</span>
               </h3>
+              <span style={{ fontSize: '11px', fontWeight: 600, color: '#059669', backgroundColor: '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                Trust Operations
+              </span>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Pending KYC Review</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{sections?.pendingKyc?.submitted ?? kpis.pendingVerificationCases}</span>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Pending Verification</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Cases under trust review</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  {kpis.pendingVerificationCases}
+                </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>KYC Under Review</span>
-                <span style={{ fontWeight: 600, color: '#0284c7' }}>{sections?.pendingKyc?.inReview ?? 0}</span>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Pending KYC Review</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Awaiting review claim</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#0F766E' }}>
+                  {sections?.pendingKyc?.submitted ?? kpis.pendingVerificationCases}
+                </span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Total Verification Pipeline</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{kpis.pendingVerificationCases}</span>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>KYC Under Review</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>In active executive inspection</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#0284c7' }}>
+                  {sections?.pendingKyc?.inReview ?? 0}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
+                <div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Verification Pipeline</div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Combined pending & active cases</div>
+                </div>
+                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)' }}>
+                  {kpis.pendingVerificationCases}
+                </span>
               </div>
             </div>
-            <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-              <Info size={14} color="var(--color-text-secondary)" />
+
+            <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg-app)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
+              <Info size={14} color="var(--color-text-secondary)" style={{ flexShrink: 0 }} />
               <span>KYC decisions reserved for Verification Executives. Ops Admin provides coordination.</span>
             </div>
           </div>
+
           <button
             onClick={() => navigate('/verification')}
             style={{
@@ -427,6 +524,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '6px',
+              transition: 'background-color var(--transition-fast)',
             }}
           >
             <span>Inspect Verification Queue</span>
@@ -435,210 +533,290 @@ export const OperationsAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Replacement Status & Support Escalations */}
+      {/* Operational Alerts & Pending Activities */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: 'var(--space-4)',
+          backgroundColor: 'var(--color-bg-surface)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-lg)',
+          padding: 'var(--space-5)',
+          boxShadow: 'var(--shadow-sm)',
         }}
       >
-        {/* Replacement Status */}
-        <div
-          style={{
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-5)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
           <div>
-            <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
-              <RefreshCw size={18} color="#d97706" />
-              <span>Replacement Status</span>
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Pending Replacement Requests</span>
-                <span style={{ fontWeight: 600, color: kpis.replacementRequests > 0 ? '#d97706' : 'var(--color-text-primary)' }}>{kpis.replacementRequests}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Approved / Rematched Replacements</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-status-success-text)' }}>{sections?.replacements?.approved ?? 0}</span>
-              </div>
-            </div>
+            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
+              <AlertCircle size={18} color="#dc2626" />
+              <span>Operational Alerts & Pending Activities</span>
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', marginBottom: 0 }}>
+              High-priority operational queues requiring administrative attention, authorizations, and partner rematching.
+            </p>
           </div>
-          <button
-            onClick={() => navigate('/replacements')}
-            style={{
-              marginTop: 'var(--space-4)',
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-bg-app)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>Manage Replacements</span>
-            <ArrowRight size={13} />
-          </button>
         </div>
 
-        {/* Support Escalation Overview */}
         <div
           style={{
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-5)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: 'var(--space-4)',
           }}
         >
-          <div>
-            <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-3)' }}>
-              <LifeBuoy size={18} color="#dc2626" />
-              <span>Support Escalation Overview</span>
-            </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', fontSize: 'var(--font-size-sm)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>Open Grievances</span>
-                <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{sections?.complaints?.open ?? kpis.openDisputes}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0', borderBottom: '1px solid var(--color-border)' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>In-Progress Investigations</span>
-                <span style={{ fontWeight: 600, color: '#0284c7' }}>{sections?.complaints?.inProgress ?? 0}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
-                <span style={{ color: 'var(--color-text-secondary)' }}>High-Priority Escalated Cases</span>
-                <span style={{ fontWeight: 600, color: (sections?.complaints?.escalated ?? 0) > 0 ? '#dc2626' : 'var(--color-text-primary)' }}>{sections?.complaints?.escalated ?? 0}</span>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={() => navigate('/support')}
+          {/* Replacement Status Card */}
+          <div
             style={{
-              marginTop: 'var(--space-4)',
-              width: '100%',
-              padding: '8px 12px',
+              padding: 'var(--space-4)',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-bg-app)',
               border: '1px solid var(--color-border)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              cursor: 'pointer',
+              backgroundColor: 'var(--color-bg-app)',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
             }}
           >
-            <span>Open Support Console</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-      </div>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <RefreshCw size={15} color="#d97706" />
+                  <span>Replacement Status</span>
+                </h4>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.replacementRequests > 0 ? '#b45309' : '#059669', backgroundColor: kpis.replacementRequests > 0 ? '#fef3c7' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                  {kpis.replacementRequests} Active
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Pending Replacement Requests</span>
+                  <strong style={{ color: kpis.replacementRequests > 0 ? '#d97706' : 'var(--color-text-primary)' }}>{kpis.replacementRequests}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Approved / Rematched Replacements</span>
+                  <strong style={{ color: 'var(--color-status-success-text)' }}>{sections?.replacements?.approved ?? 0}</strong>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/replacements')}
+              style={{
+                marginTop: 'var(--space-3)',
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+              }}
+            >
+              <span>Manage Replacements</span>
+              <ArrowRight size={12} />
+            </button>
+          </div>
 
-      {/* Payment and Collection Summary (Only when supported by backend sections) */}
-      {collections && collections.length > 0 && (
+          {/* Support Escalation Overview Card */}
+          <div
+            style={{
+              padding: 'var(--space-4)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-bg-app)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <LifeBuoy size={15} color="#dc2626" />
+                  <span>Support Escalation Overview</span>
+                </h4>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.openDisputes > 0 ? '#b91c1c' : '#059669', backgroundColor: kpis.openDisputes > 0 ? '#fef2f2' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                  {kpis.openDisputes} Open
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Open Disputes</span>
+                  <strong style={{ color: kpis.openDisputes > 0 ? '#dc2626' : 'var(--color-text-primary)' }}>{sections?.complaints?.open ?? kpis.openDisputes}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>In-Progress Investigations</span>
+                  <strong>{sections?.complaints?.inProgress ?? 0}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>High-Priority Escalated Cases</span>
+                  <strong style={{ color: (sections?.complaints?.escalated ?? 0) > 0 ? '#dc2626' : 'var(--color-text-primary)' }}>{sections?.complaints?.escalated ?? 0}</strong>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/support')}
+              style={{
+                marginTop: 'var(--space-3)',
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+              }}
+            >
+              <span>Open Support Console</span>
+              <ArrowRight size={12} />
+            </button>
+          </div>
+
+          {/* Pending Authorizations & Compliance Watchlist Card */}
+          <div
+            style={{
+              padding: 'var(--space-4)',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-bg-app)',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
+                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
+                  <DollarSign size={15} color="#059669" />
+                  <span>Pending Refunds & Settlements</span>
+                </h4>
+                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.pendingRefunds > 0 ? '#b45309' : '#059669', backgroundColor: kpis.pendingRefunds > 0 ? '#fef3c7' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
+                  {kpis.pendingRefunds} Pending
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Pending Refunds</span>
+                  <strong style={{ color: kpis.pendingRefunds > 0 ? '#d97706' : 'var(--color-text-primary)' }}>{kpis.pendingRefunds}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Authorizations Status</span>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>Awaiting Ops authorization</span>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveTab('REFUNDS')}
+              style={{
+                marginTop: 'var(--space-3)',
+                width: '100%',
+                padding: '6px 10px',
+                borderRadius: 'var(--radius-sm)',
+                backgroundColor: 'var(--color-bg-surface)',
+                border: '1px solid var(--color-border)',
+                color: 'var(--color-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+              }}
+            >
+              <span>Authorize Pending Refunds</span>
+              <ArrowRight size={12} />
+            </button>
+          </div>
+        </div>
+
+        {/* Payment and Collection Realization Summary */}
         <div
           style={{
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-5)',
-            boxShadow: 'var(--shadow-sm)',
+            marginTop: 'var(--space-4)',
+            paddingTop: 'var(--space-4)',
+            borderTop: '1px solid var(--color-border)',
           }}
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <DollarSign size={18} color="#059669" />
+            <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
+              <DollarSign size={16} color="#059669" />
               <span>Payment & Collections Realization Summary</span>
-            </h3>
+            </h4>
             <button
               onClick={() => navigate('/payments')}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-sm)',
                 backgroundColor: 'var(--color-primary-subtle)',
                 color: 'var(--color-primary)',
-                fontSize: 'var(--font-size-xs)',
+                fontSize: '11px',
                 fontWeight: 600,
                 border: '1px solid var(--color-border)',
                 cursor: 'pointer',
               }}
             >
               <span>View Financial Transactions</span>
-              <ArrowRight size={12} />
+              <ArrowRight size={11} />
             </button>
           </div>
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
               gap: 'var(--space-3)',
             }}
           >
-            {collections.map((col, idx) => (
+            {collections && collections.length > 0 ? (
+              collections.map((col, idx) => (
+                <div
+                  key={col.currency || idx}
+                  style={{
+                    padding: 'var(--space-3)',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-bg-app)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+                    Realized Today ({col.currency})
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#059669', marginTop: '2px' }}>
+                    {col.todayFormatted}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                    Month-to-Date: <strong>{col.monthToDateFormatted}</strong>
+                  </div>
+                </div>
+              ))
+            ) : (
               <div
-                key={col.currency || idx}
                 style={{
                   padding: 'var(--space-3)',
                   borderRadius: 'var(--radius-md)',
                   backgroundColor: 'var(--color-bg-app)',
                   border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-secondary)',
+                  fontSize: 'var(--font-size-xs)',
                 }}
               >
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                  Realized Today ({col.currency})
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: '#059669', marginTop: 'var(--space-1)' }}>
-                  {col.todayFormatted}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: 'var(--space-2)' }}>
-                  Month-to-Date: <strong>{col.monthToDateFormatted}</strong>
-                </div>
+                No active collections recorded. Real-time gateway settlement active.
               </div>
-            ))}
-            <div
-              style={{
-                padding: 'var(--space-3)',
-                borderRadius: 'var(--radius-md)',
-                backgroundColor: 'var(--color-bg-app)',
-                border: '1px solid var(--color-border)',
-              }}
-            >
-              <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                Pending Refunds Awaiting Auth
-              </div>
-              <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: kpis.pendingRefunds > 0 ? '#d97706' : 'var(--color-text-primary)', marginTop: 'var(--space-1)' }}>
-                {kpis.pendingRefunds}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: 'var(--space-2)' }}>
-                Operational settlement triage queue
-              </div>
-            </div>
+            )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* Action-Oriented Operational Workstation Tabs */}
       <div

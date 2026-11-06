@@ -89,14 +89,16 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
       expect(screen.getByText('W-10482')).toBeInTheDocument();
     });
 
-    it('provides Approve or Reject action buttons in the workers roster', async () => {
+    it('provides View Profile action buttons in the workers roster and enforces read-only verification separation', async () => {
       renderApp('/workers');
 
-      // Verify the table renders action buttons (Approve and Reject)
-      const approveButtons = await screen.findAllByRole('button', { name: /Approve/i });
-      const rejectButtons = await screen.findAllByRole('button', { name: /Reject/i });
-      expect(approveButtons.length).toBeGreaterThan(0);
-      expect(rejectButtons.length).toBeGreaterThan(0);
+      // Verify the table renders View Profile action button
+      const viewProfileButtons = await screen.findAllByRole('button', { name: /View profile/i });
+      expect(viewProfileButtons.length).toBeGreaterThan(0);
+
+      // Independent KYC Approve and Reject actions are removed from Worker Management per PRD
+      expect(screen.queryByRole('button', { name: /^Approve$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Reject$/i })).not.toBeInTheDocument();
     });
 
     it('filters workers by verification status without conflating commercial active status', async () => {

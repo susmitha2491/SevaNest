@@ -64,8 +64,29 @@ export const WorkersDirectoryPage: React.FC = () => {
     staleTime: 30 * 1000,
   });
 
-  const workers = useMemo(() => pageResult?.items || [], [pageResult]);
-  const total = pageResult?.total ?? workers.length;
+  const workers = useMemo(() => {
+    const raw = pageResult?.items || [];
+    return raw.filter((w) => {
+      const isVerified = Boolean(
+        w.isFullyVerified === true ||
+        w.verificationLevel === 'VERIFIED' ||
+        w.verificationStatus === 'VERIFIED' ||
+        w.applicationStatus === 'VERIFIED' ||
+        w.applicationStatus === 'ACTIVE' ||
+        Boolean(w.signedOffAt)
+      );
+      const isNotRejected =
+        w.verificationStatus !== 'REJECTED' &&
+        w.applicationStatus !== 'REJECTED' &&
+        w.onboardingStatus !== 'REJECTED';
+      const isActive =
+        w.status === 'ACTIVE' || w.accountStatus === 'ACTIVE' || (w.status as string) === 'VERIFIED';
+      return isVerified && isNotRejected && isActive;
+    });
+  }, [pageResult]);
+  const total = pageResult?.total !== undefined && pageResult.total === (pageResult?.items?.length ?? 0)
+    ? workers.length
+    : (pageResult?.total ?? workers.length);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', maxWidth: '1400px', margin: '0 auto' }}>

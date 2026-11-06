@@ -126,9 +126,9 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(await screen.findByText('Worker Verification & Trust Operations')).toBeInTheDocument();
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      // Click Inspect Dossier button
-      const inspectButtons = screen.getAllByRole('button', { name: /Inspect Dossier/i });
-      fireEvent.click(inspectButtons[0]);
+      // Click dossier row to open verification dossier
+      const rowButtons = screen.getAllByRole('button', { name: /Open verification dossier for/i });
+      fireEvent.click(rowButtons[0]);
 
       // Dossier modal opens with verification checks
       expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
