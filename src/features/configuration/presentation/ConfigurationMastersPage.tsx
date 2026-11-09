@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -16,11 +16,16 @@ import {
   Users,
   UserPlus,
   AlertCircle,
+  Clock,
+  ShieldAlert,
+  RefreshCw,
+  LucideIcon,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import {
   ConfigurationTab,
   ServiceCategoryItem,
@@ -30,11 +35,63 @@ import {
 } from '../domain/types';
 import { configurationRepository } from '../data/configurationRepository';
 import { adminUserRepository } from '../../adminUsers/data/adminUserRepository';
+import { authRepository } from '../../auth/data/authRepository';
 import { AdminAccountItem } from '../../adminUsers/domain/types';
 import { AdminRole } from '../../../core/auth/authTypes';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { useSessionSecurityStore } from '../../../core/auth/sessionSecurityStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+
+const CONFIGURATION_SECTIONS: Array<{
+  id: ConfigurationTab;
+  label: string;
+  shortDescription: string;
+  icon: LucideIcon;
+}> = [
+  {
+    id: 'fees',
+    label: 'Pricing Plans',
+    shortDescription: 'Commercial booking fees, placement commissions, and subscription packages',
+    icon: Tag,
+  },
+  {
+    id: 'categories',
+    label: 'Service Categories & Skills',
+    shortDescription: 'Workforce service roles, skills taxonomy, and minimum qualification rules',
+    icon: Sliders,
+  },
+  {
+    id: 'areas',
+    label: 'Operational Areas & Clusters',
+    shortDescription: 'Launch city geographical boundaries, operational clusters, and serviced pincodes',
+    icon: MapPin,
+  },
+  {
+    id: 'templates',
+    label: 'Notification Templates',
+    shortDescription: 'Multi-channel customer & worker message copy for Push, SMS, and WhatsApp',
+    icon: MessageSquare,
+  },
+  {
+    id: 'roles',
+    label: 'Roles & Permissions',
+    shortDescription: 'Administrative access control matrix and granular server-evaluated permission keys',
+    icon: Shield,
+  },
+  {
+    id: 'adminUsers',
+    label: 'Admin Users',
+    shortDescription: 'Administrative staff provisioning, role delegation, and account status controls',
+    icon: Users,
+  },
+  {
+    id: 'security',
+    label: 'Session & Security',
+    shortDescription: 'Authentication lifecycle, inactivity timeout policy, and session token governance',
+    icon: Lock,
+  },
+];
 
 export const ConfigurationMastersPage: React.FC = () => {
 
@@ -46,7 +103,9 @@ export const ConfigurationMastersPage: React.FC = () => {
   const resolvedInitialTab: ConfigurationTab =
     initialTabParam === 'admins' || initialTabParam === 'adminUsers'
       ? 'adminUsers'
-      : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers'].includes(initialTabParam as string)
+      : initialTabParam === 'security' || initialTabParam === 'session' || initialTabParam === 'sessionSecurity'
+      ? 'security'
+      : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers', 'security'].includes(initialTabParam as string)
         ? (initialTabParam as ConfigurationTab)
         : 'fees');
 
@@ -56,8 +115,54 @@ export const ConfigurationMastersPage: React.FC = () => {
     setActiveTabState(tab);
     setSearchParams({ tab }, { replace: true });
   };
+
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab');
+    if (tabFromUrl) {
+      const normalized: ConfigurationTab =
+        tabFromUrl === 'admins' || tabFromUrl === 'adminUsers'
+          ? 'adminUsers'
+          : tabFromUrl === 'security' || tabFromUrl === 'session' || tabFromUrl === 'sessionSecurity'
+          ? 'security'
+          : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers', 'security'].includes(tabFromUrl)
+            ? (tabFromUrl as ConfigurationTab)
+            : 'fees');
+      if (normalized !== activeTab) {
+        setActiveTabState(normalized);
+      }
+    }
+  }, [searchParams, activeTab]);
+
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
+
+  // Session & Security State
+  const autoLogoutEnabled = useSessionSecurityStore((s) => s.autoLogoutEnabled);
+  const timeoutMinutes = useSessionSecurityStore((s) => s.timeoutMinutes);
+  const setPolicy = useSessionSecurityStore((s) => s.setPolicy);
+
+  const {
+    data: activeSessions = [],
+    isLoading: isSessionsLoading,
+    refetch: refetchSessions,
+  } = useQuery({
+    queryKey: ['activeSessions'],
+    queryFn: () => authRepository.listSessions(),
+    enabled: activeTab === 'security',
+  });
+
+  const revokeSessionMutation = useMutation({
+    mutationFn: (sessionId: string) => authRepository.revokeSession(sessionId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
+      setSuccessToast('Active session terminated successfully.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setErrorToast(err instanceof Error ? err.message : 'Failed to terminate session.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
+  });
 
   // Draft states for Fees
   const [editingFees, setEditingFees] = useState<FeePlanItem[] | null>(null);
@@ -354,38 +459,92 @@ export const ConfigurationMastersPage: React.FC = () => {
         </div>
       )}
 
-      {/* Configuration Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', borderBottom: '1px solid var(--color-border)', overflowX: 'auto' }}>
-        {[
-          { id: 'fees', label: 'Fees & Pricing Plans', icon: Tag },
-          { id: 'categories', label: 'Service Categories & Skills', icon: Sliders },
-          { id: 'areas', label: 'Operational Areas & Clusters', icon: MapPin },
-          { id: 'templates', label: 'Notification Templates', icon: MessageSquare },
-          { id: 'roles', label: 'Roles & Permission Matrix', icon: Shield },
-          { id: 'adminUsers', label: 'Admin Accounts & Personnel', icon: Users },
-        ].map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+      {/* Configuration Section Selector (Responsive Button Cards) */}
+      <div
+        data-testid="configuration-section-selector"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          gap: 'var(--space-3)',
+          marginBottom: 'var(--space-2)',
+        }}
+      >
+        {CONFIGURATION_SECTIONS.map((section) => {
+          const Icon = section.icon;
+          const isActive = activeTab === section.id;
           return (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as ConfigurationTab)}
+              key={section.id}
+              type="button"
+              data-testid={`config-section-${section.id}`}
+              onClick={() => setActiveTab(section.id)}
+              aria-selected={isActive}
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-2)',
-                padding: '12px 18px',
-                borderBottom: isActive ? '3px solid var(--color-brand-600)' : '3px solid transparent',
-                backgroundColor: 'transparent',
-                color: isActive ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
-                fontWeight: isActive ? 700 : 500,
-                fontSize: 'var(--font-size-sm)',
+                alignItems: 'flex-start',
+                gap: 'var(--space-3)',
+                padding: 'var(--space-3) var(--space-4)',
+                borderRadius: 'var(--radius-lg, 8px)',
+                border: isActive
+                  ? '2px solid var(--color-brand-600, #2563eb)'
+                  : '1px solid var(--color-border, #e2e8f0)',
+                backgroundColor: isActive
+                  ? 'var(--color-brand-50, #eff6ff)'
+                  : 'var(--color-surface, #ffffff)',
+                boxShadow: isActive
+                  ? '0 2px 4px rgba(37, 99, 235, 0.12)'
+                  : '0 1px 2px rgba(0, 0, 0, 0.04)',
+                textAlign: 'left',
                 cursor: 'pointer',
-                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease-in-out',
+                position: 'relative',
               }}
             >
-              <Icon size={16} />
-              <span>{tab.label}</span>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  backgroundColor: isActive
+                    ? 'var(--color-brand-600, #2563eb)'
+                    : 'var(--color-bg-subtle, #f1f5f9)',
+                  color: isActive ? '#ffffff' : 'var(--color-text-secondary, #64748b)',
+                  flexShrink: 0,
+                  marginTop: '2px',
+                }}
+              >
+                <Icon size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: 'var(--font-size-sm, 13px)',
+                    fontWeight: 700,
+                    color: isActive
+                      ? 'var(--color-brand-700, #1d4ed8)'
+                      : 'var(--color-text-primary, #0f172a)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <span>{section.label}</span>
+                </div>
+                <div
+                  style={{
+                    fontSize: 'var(--font-size-xs, 11px)',
+                    color: 'var(--color-text-secondary, #64748b)',
+                    marginTop: '3px',
+                    lineHeight: 1.35,
+                  }}
+                >
+                  {section.shortDescription}
+                </div>
+              </div>
             </button>
           );
         })}
@@ -1312,6 +1471,345 @@ export const ConfigurationMastersPage: React.FC = () => {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* TAB 7: SESSION & SECURITY (GAP-SEC-01) */}
+      {activeTab === 'security' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+          {/* Section Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+            <div>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                Session Governance & Security Settings
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                Manage administrative session persistence, automated inactivity logout, and authentication security policies.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-full, 9999px)',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  backgroundColor: 'var(--color-status-success-bg, #ecfdf5)',
+                  color: 'var(--color-status-success-text, #065f46)',
+                  border: '1px solid var(--color-status-success-border, #a7f3d0)',
+                }}
+              >
+                <CheckCircle2 size={12} />
+                15-Minute Standard Active
+              </span>
+            </div>
+          </div>
+
+          {/* Sub-card 1: Inactivity Logout Controls */}
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+              padding: 'var(--space-6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-5)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
+              <div>
+                <h3 style={{ fontSize: 'var(--font-size-md, 15px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+                  Automated Session Inactivity Logout
+                </h3>
+                <p style={{ fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)', margin: '4px 0 0 0', lineHeight: 1.5 }}>
+                  Automatically terminate idle administrator sessions to protect sensitive customer records, KYC documents, and financial operations from physical tampering.
+                </p>
+              </div>
+
+              {/* Enable / Disable Toggle */}
+              <label
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-2)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 'var(--font-size-sm, 13px)',
+                  color: 'var(--color-text-primary, #0f172a)',
+                }}
+              >
+                <input
+                  type="checkbox"
+                  data-testid="auto-logout-toggle"
+                  checked={autoLogoutEnabled}
+                  onChange={(e) => setPolicy({ autoLogoutEnabled: e.target.checked })}
+                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                />
+                <span>Enable Inactivity Logout</span>
+              </label>
+            </div>
+
+            <hr style={{ border: 'none', borderTop: '1px solid var(--color-border, #e2e8f0)', margin: 0 }} />
+
+            {/* Inactivity Threshold Options */}
+            <div>
+              <label style={{ display: 'block', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', marginBottom: 'var(--space-3)' }}>
+                INACTIVITY TIMEOUT THRESHOLD
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-3)' }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3) var(--space-4)',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: timeoutMinutes === 15 ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: timeoutMinutes === 15 ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="inactivityTimeout"
+                    data-testid="timeout-option-15"
+                    checked={timeoutMinutes === 15}
+                    onChange={() => setPolicy({ timeoutMinutes: 15 })}
+                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm, 13px)', color: 'var(--color-text-primary, #0f172a)' }}>
+                      15 Minutes (Recommended Default)
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-xs, 11px)', color: 'var(--color-text-secondary, #64748b)', marginTop: '2px' }}>
+                      Aligned with backend JWT access token lifetime (900 seconds) and standard administrative posture.
+                    </div>
+                  </div>
+                </label>
+
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3) var(--space-4)',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: timeoutMinutes === 10 ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: timeoutMinutes === 10 ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="inactivityTimeout"
+                    data-testid="timeout-option-10"
+                    checked={timeoutMinutes === 10}
+                    onChange={() => setPolicy({ timeoutMinutes: 10 })}
+                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm, 13px)', color: 'var(--color-text-primary, #0f172a)' }}>
+                      10 Minutes (Strict Policy)
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-xs, 11px)', color: 'var(--color-text-secondary, #64748b)', marginTop: '2px' }}>
+                      Accelerated client-side timeout window for high-compliance shared administrative environments.
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Warning Window Details */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-3)',
+                padding: 'var(--space-3) var(--space-4)',
+                borderRadius: 'var(--radius-md, 6px)',
+                backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                border: '1px solid var(--color-border, #e2e8f0)',
+                fontSize: 'var(--font-size-xs, 12px)',
+                color: 'var(--color-text-secondary, #475569)',
+              }}
+            >
+              <Clock size={16} color="var(--color-brand-600, #2563eb)" />
+              <span>
+                <strong>Pre-Logout Warning:</strong> A countdown dialog appears <strong>60 seconds (1 minute)</strong> before automatic termination. Administrators may select <strong>"Stay Logged In"</strong> to refresh credentials and continue their work without losing unsaved changes.
+              </span>
+            </div>
+          </div>
+
+          {/* Sub-card 2: Architecture & Gap Register Notice */}
+          <div
+            data-testid="session-gap-notice"
+            style={{
+              backgroundColor: 'var(--color-status-info-bg, #eff6ff)',
+              border: '1px solid var(--color-status-info-border, #bfdbfe)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              padding: 'var(--space-5)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-2)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+              <ShieldAlert size={18} color="var(--color-brand-600, #2563eb)" />
+              <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm, 13px)', fontWeight: 700, color: 'var(--color-brand-900, #1e3a8a)' }}>
+                Server Session Architecture & Contract Reference (GAP-SEC-01)
+              </h4>
+            </div>
+            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-brand-800, #1e40af)', lineHeight: 1.5 }}>
+              The SevaNest backend currently issues access tokens with a fixed 15-minute (900s) lifetime (`TokenResponse.expiresIn: 900`) and rotating single-use refresh tokens via `/api/v1/auth/admin/login` and `/api/v1/auth/token/refresh`. Dynamic per-tenant server persistence of custom timeout values (`GET/PUT /api/v1/admin/security/session-policy`) is documented in the <strong>Backend Integration Gap Register (GAP-SEC-01)</strong>. The portal enforces the 15-minute standard policy natively with cross-tab Web Locks, while dynamic backend persistence remains pending contract provisioning.
+            </p>
+          </div>
+
+          {/* Sub-card 3: Active Device Sessions List */}
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                padding: 'var(--space-4) var(--space-5)',
+                borderBottom: '1px solid var(--color-border, #e2e8f0)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm, 14px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)' }}>
+                  Active Administrator Token Sessions
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+                  Active administrative logins and connected devices tracked via `/api/v1/auth/sessions`.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => refetchSessions()}
+                title="Refresh sessions list"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-sm, 4px)',
+                  border: '1px solid var(--color-border, #cbd5e1)',
+                  backgroundColor: 'transparent',
+                  fontSize: 'var(--font-size-xs, 11px)',
+                  fontWeight: 600,
+                  color: 'var(--color-text-secondary, #475569)',
+                  cursor: 'pointer',
+                }}
+              >
+                <RefreshCw size={12} className={isSessionsLoading ? 'animate-spin' : ''} />
+                Refresh
+              </button>
+            </div>
+
+            {isSessionsLoading ? (
+              <div style={{ padding: 'var(--space-8)', display: 'flex', justifyContent: 'center' }}>
+                <LoadingSpinner />
+              </div>
+            ) : activeSessions.length === 0 ? (
+              <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-secondary, #64748b)', fontSize: 'var(--font-size-xs, 12px)' }}>
+                No active device sessions returned by administrative server.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead style={{ backgroundColor: 'var(--color-bg-subtle, #f8fafc)', borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                    <tr>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>DEVICE / CLIENT</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>SESSION REF</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>CREATED AT</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>LAST ACTIVE</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>STATUS</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', textAlign: 'right' }}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {activeSessions.map((session) => (
+                      <tr key={session.id} style={{ borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, color: 'var(--color-text-primary, #0f172a)' }}>
+                          {session.deviceName || 'Administrative Web Browser'}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontFamily: 'monospace', color: 'var(--color-text-secondary, #64748b)' }}>
+                          {session.id}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+                          {formatDateTimeIST(session.createdAt || '')}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+                          {formatDateTimeIST(session.lastActiveAt || session.createdAt || '')}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          {session.isCurrent ? (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm, 4px)',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                                backgroundColor: 'var(--color-brand-100, #dbeafe)',
+                                color: 'var(--color-brand-800, #1e40af)',
+                              }}
+                            >
+                              Current Session
+                            </span>
+                          ) : (
+                            <span
+                              style={{
+                                padding: '2px 8px',
+                                borderRadius: 'var(--radius-sm, 4px)',
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                backgroundColor: 'var(--color-bg-subtle, #f1f5f9)',
+                                color: 'var(--color-text-secondary, #64748b)',
+                              }}
+                            >
+                              Active Device
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }}>
+                          {!session.isCurrent && (
+                            <button
+                              type="button"
+                              onClick={() => revokeSessionMutation.mutate(session.id)}
+                              disabled={revokeSessionMutation.isPending}
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: 'var(--radius-sm, 4px)',
+                                border: '1px solid var(--color-status-danger-border, #fecaca)',
+                                backgroundColor: 'transparent',
+                                color: 'var(--color-status-danger-text, #991b1b)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Revoke
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

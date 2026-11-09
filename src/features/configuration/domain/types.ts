@@ -1,4 +1,11 @@
-export type ConfigurationTab = 'fees' | 'categories' | 'areas' | 'templates' | 'roles' | 'adminUsers';
+export type ConfigurationTab =
+  | 'fees'
+  | 'categories'
+  | 'areas'
+  | 'templates'
+  | 'roles'
+  | 'adminUsers'
+  | 'security';
 
 export interface ServiceCategoryItem {
   id: string;

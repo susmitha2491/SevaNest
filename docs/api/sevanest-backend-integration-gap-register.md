@@ -2324,3 +2324,94 @@ Executive Review Workstation:
   - RealDashboardRepository extracts `sections.collections` from the backend dashboard response when available.
   - If the backend returns collection metrics, the dashboard renders the Payment & Collections Realization Summary card. If unavailable, the card does not render fabricated numbers or zero-placeholders.
 
+---
+
+## 22. Unresolved Backend Contract Dependencies (November 2026 Alignment)
+
+### 22.1 Unresolved Refund Payload Discrepancy (GAP-PAY-05)
+
+- **Gap Identifier:** `GAP-PAY-05`
+- **Module Affected:** Payments & Financial Governance (`RefundProcessingModal.tsx`, `paymentRepository.ts`)
+- **Endpoint & Method:** `POST /api/v1/admin/payments/{paymentId}/refund`
+- **Observed OpenAPI Specification (`docs/api/openapi.json`):**
+  - Schema: `RefundDto` contains strictly `{ "reason": string }` (maxLength: 1000).
+  - Headers: Optional `Idempotency-Key` string.
+- **Proposed / Conflicting Specification:**
+  - Request Body: `{ "approval": "APPROVE", "reason": "Refund justification" }`.
+- **Status & Risk:**
+  - UNRESOLVED BACKEND DEPENDENCY.
+  - If the backend uses NestJS `ValidationPipe({ whitelist: true, forbidNonWhitelisted: true })`, sending `"approval": "APPROVE"` causes `400 Bad Request (property approval should not exist)`.
+  - Conversely, if the backend was updated without updating `openapi.json` to mandate `approval`, omitting it could fail.
+- **Frontend Contract-Confirmed Action:**
+  - Frontend strictly transmits confirmed `{ reason: string }` and sends the `Idempotency-Key` header.
+  - Frontend does NOT implement the conflicting `approval` payload until the backend team confirms the authoritative request schema.
+  - Value is not guessed.
+
+---
+
+### 22.2 Unresolved Replacement Request Customer Notes Limit Discrepancy (GAP-BOOK-06)
+
+- **Gap Identifier:** `GAP-BOOK-06`
+- **Module Affected:** Booking Replacement Management (`bookingRepository.ts`, `ReplacementFulfillmentModal.tsx`, `BookingDetailModal.tsx`)
+- **Endpoints & Methods:**
+  - `GET /api/v1/admin/replacement-requests/{requestId}`
+  - `POST /api/v1/admin/replacement-requests/{requestId}/approve`
+  - `POST /api/v1/admin/replacement-requests/{requestId}/reject`
+- **Observed OpenAPI Specification (`docs/api/openapi.json`):**
+  - `AdminReplacementView.notes`: nullable string up to 2000 characters (`notes` field).
+  - `DecisionDto.remarks`: string maxLength 1000 (internal staff remarks, mandatory on reject).
+  - `DecisionDto.message`: string maxLength 1000 (customer-facing decision message).
+  - UI inputs in legacy modals previously varied between 500 characters and unbounded text.
+- **Status & Risk:**
+  - UNRESOLVED SPECIFICATION BOUNDARY.
+  - Customer notes returned by backend can exceed 500 characters, risking UI truncation if artificially clamped.
+- **Frontend Contract-Confirmed Action:**
+  - Frontend renders full customer notes without artificial frontend truncation.
+  - Frontend aligns staff decision inputs (`remarks`, `message`) to the documented 1000-character contract limit of `DecisionDto`.
+  - Customer notes limit is not guessed; tracked here pending backend confirmation.
+
+---
+
+## 23. Administrative Session Inactivity & Security Policy Configuration Contract Gap (GAP-SEC-01)
+
+### 23.1 Configurable Administrative Session Inactivity Timeout & Security Settings (GAP-SEC-01)
+
+- **Gap Identifier:** `GAP-SEC-01`
+- **Module Affected:** Platform Configuration & Session Security (`ConfigurationMastersPage.tsx`, `AppShell.tsx`, `authStore.ts`, `SessionInactivityGuard.tsx`)
+- **Feature Requested:** Configurable Administrative Session Inactivity Timeout & Security Settings (Enable/Disable Auto Logout, Inactivity timeout options: 10m / 15m, 60-second pre-logout warning with "Stay Logged In" continuation action, automatic termination and redirection upon expiry).
+- **PRD Specification Status:**
+  - `docs/project/SevaNest_PRD.pdf` Section 7 ("Admin & Operations Portal") explicitly restricts the Configuration module capabilities to:
+    `Categories, areas, fees, plans, notification templates, roles`
+  - `SevaNest_PRD.pdf` Section 13 ("Security, Privacy & Non-Functional Requirements") specifies HTTPS, at-rest encryption, RBAC for admin users, KYC access restrictions, and audit logs, but does not define configurable session inactivity timeout or dynamic administrative auto-logout settings for Version 1.
+- **Backend API & OpenAPI Contract Status (`docs/api/openapi.json`):**
+  - **Fixed Server Token Expiry:** Authentication endpoints (`POST /api/v1/auth/admin/login` and `POST /api/v1/auth/token/refresh`) issue access tokens with a fixed server-side lifetime (`TokenResponse.expiresIn: 900` = 15 minutes / 900 seconds) and opaque single-use rotating refresh tokens with server-side replay detection.
+  - **Missing Configuration Endpoints:** The backend OpenAPI contract (`docs/api/openapi.json`) contains NO endpoints to read or persist dynamic administrative session timeout policies (e.g., `GET /api/v1/admin/security/session-policy`, `PUT /api/v1/admin/security/session-policy`).
+  - **Missing Database Persistence:** Neither the PostgreSQL database nor `/api/v1/admin/app-settings` maintains configuration keys or schemas for storing administrative inactivity timeout preferences.
+- **Required Backend Behavior for Full Dynamic Feature Persistence:**
+  1. Define and expose administrative endpoints:
+     - `GET /api/v1/admin/security/session-policy` (Returns current active policy).
+     - `PUT /api/v1/admin/security/session-policy` (Restricted to Super Admin with `configuration.manage` or `roles.manage`).
+  2. Supported Payload Schema (`SessionSecurityPolicyDto`):
+     ```json
+     {
+       "autoLogoutEnabled": true,
+       "timeoutMinutes": 15,
+       "warningDurationSeconds": 60,
+       "enforcedRoles": [
+         "SUPER_ADMIN",
+         "OPERATIONS_ADMIN",
+         "VERIFICATION_EXECUTIVE",
+         "VERIFICATION_SUPERVISOR",
+         "SUPPORT_EXECUTIVE"
+       ]
+     }
+     ```
+  3. Ensure server-side token validation and refresh issuance align token lifetimes with the configured `timeoutMinutes`.
+- **Frontend Architecture & Security Action Implemented:**
+  - In strict compliance with the mandate: *"Critical: Do not implement a frontend-only security control and describe it as secure session expiry. Backend session/token expiry must support the configured timeout. If backend support is missing, document the exact requirement in the integration gap register and do not fabricate an endpoint or pretend the setting is operational"*:
+    1. The frontend strictly avoids fabricating endpoints or pretending that dynamic session inactivity timeout values are server-persisted.
+    2. The Configuration UI displays the dedicated `Session & Security` section showing the active 15-minute standard policy (conforming to the server's 15-minute JWT access token lifetime) and marks dynamic policy persistence as pending `GAP-SEC-01`.
+    3. The client-side session inactivity guard operates natively on genuine user interactions (excluding background polling or API calls), coordinates across tabs via `BroadcastChannel`, offers a 60-second warning modal with a "Stay Logged In" token refresh action, and cleanly invokes `authStore.clearSession(true)` upon expiration, ensuring safe client-side security hygiene without misrepresenting backend capabilities.
+
+
+
