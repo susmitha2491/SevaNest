@@ -6,10 +6,15 @@ export type FeeClassification =
 
 export type PaymentStatus =
   | 'PAID'
+  | 'SUCCEEDED'
+  | 'CREATED'
+  | 'PENDING'
+  | 'FAILED'
   | 'PAYMENT_FAILED'
   | 'REFUND_PENDING'
   | 'REFUNDED'
-  | 'PARTIALLY_REFUNDED';
+  | 'PARTIALLY_REFUNDED'
+  | 'REFUND_FAILED';
 
 export type RefundReasonCategory =
   | 'WORKER_NO_SHOW'

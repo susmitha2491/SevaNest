@@ -20,18 +20,46 @@ export type EngagementType =
   | 'PART_TIME'
   | 'ONE_TIME';
 
+export type ReplacementReasonCode =
+  | 'WORK_QUALITY'
+  | 'BEHAVIOUR'
+  | 'ATTENDANCE'
+  | 'MISMATCH'
+  | 'WORKER_UNAVAILABLE'
+  | 'OTHER';
+
+export const REPLACEMENT_REASONS: Record<ReplacementReasonCode, string> = {
+  WORK_QUALITY: 'Quality of work',
+  BEHAVIOUR: 'Worker behaviour or conduct',
+  ATTENDANCE: 'Punctuality and attendance',
+  MISMATCH: 'Skill or expectation mismatch',
+  WORKER_UNAVAILABLE: 'Worker unavailable',
+  OTHER: 'Other reason',
+};
+
+export type ReplacementStatus =
+  | 'REQUESTED'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'COMPLETED';
+
 export interface CandidateMatch {
   workerId: string;
   workerName: string;
   category: string;
   experienceYears: number;
-  ratingAverage: number;
-  totalReviews: number;
+  experienceMonths?: number | null;
+  ratingAverage?: number;
+  totalReviews?: number;
   locality: string;
   isFullyVerified: boolean;
   languages: string[];
-  matchScore: number;
+  matchScore?: number;
   dailyRateEstimate?: number;
+  serviceAreas?: Array<{ id?: string; code?: string; name?: string; city?: string }>;
+  categories?: Array<{ id?: string; code?: string; name?: string }>;
+  engagementPreference?: string | null;
 }
 
 export interface TrialSchedule {
@@ -52,30 +80,34 @@ export interface TrialOutcome {
 }
 
 export interface ReplacementDetail {
-  id?: string;
-  bookingId?: string;
-  requestedAt: string;
-  reasonCategory: string;
-  customerExplanation: string;
-  eligibleUnderPolicy: boolean;
-  coveragePlanName: string;
-  priorWorkerId: string;
-  priorWorkerName: string;
+  id: string;
+  bookingId: string;
+  status: ReplacementStatus;
+  reasonCode?: ReplacementReasonCode;
+  reason?: string;
+  notes?: string | null;
+  neededFrom?: string | null;
+  decisionMessage?: string | null;
+  decisionRemarks?: string | null;
+  replacementBookingId?: string | null;
+  currentWorkerId?: string | null;
+  requestedByUserId?: string;
+  decidedByUserId?: string | null;
+  createdAt?: string;
+  decidedAt?: string | null;
+  completedAt?: string | null;
+
+  // Preserved for backwards compatibility / UI convenience:
+  requestedAt?: string;
+  reasonCategory?: string;
+  customerExplanation?: string;
+  priorWorkerId?: string;
+  priorWorkerName?: string;
   replacementWorkerId?: string;
   replacementWorkerName?: string;
-  status:
-    | 'REQUESTED'
-    | 'APPROVED'
-    | 'REJECTED'
-    | 'CANCELLED'
-    | 'COMPLETED'
-    | 'PENDING_REMATCH'
-    | 'TRIAL_SCHEDULED'
-    | 'FULFILLED';
+  coveragePlanName?: string;
+  eligibleUnderPolicy?: boolean;
   operationalRemarks?: string;
-  decisionRemarks?: string;
-  decisionMessage?: string;
-  decidedAt?: string;
 }
 
 export interface BookingDetail {
@@ -102,6 +134,7 @@ export interface BookingDetail {
   platformFeePaid: boolean;
   platformFeeAmount: number;
   internalNotes: string[];
+  communications?: BookingCommunicationEvent[];
 
   // Extended fields from AdminBookingView
   customerUserId?: string;
@@ -250,9 +283,11 @@ export interface BookingHistoryData {
     bookingId: string;
     position: number;
     status: string;
-    workerId: string;
+    replacesBookingId?: string | null;
+    workerId?: string;
+    workerName?: string;
     startDate?: string;
-    createdAt: string;
+    createdAt?: string;
     current: boolean;
   }>;
   payments?: BookingPaymentEntry[];
@@ -271,9 +306,9 @@ export interface IBookingRepository {
   confirmBooking(bookingId: string): Promise<void>;
   processReplacement(bookingId: string, replacementWorkerId: string, remarks: string): Promise<void>;
   cancelBooking(bookingId: string, remarks: string, reasonCategory: string): Promise<void>;
-  approveReplacement?(requestId: string, remarks?: string): Promise<void>;
-  rejectReplacement?(requestId: string, remarks: string): Promise<void>;
-  getReplacementCandidates?(requestId: string): Promise<CandidateMatch[]>;
-  selectReplacementWorker?(requestId: string, workerId: string): Promise<void>;
-  getBookingHistory?(bookingId: string): Promise<BookingHistoryData>;
+  approveReplacement(requestId: string, remarks?: string, message?: string): Promise<void>;
+  rejectReplacement(requestId: string, remarks: string, message?: string): Promise<void>;
+  getReplacementCandidates(requestId: string): Promise<CandidateMatch[]>;
+  selectReplacementWorker(requestId: string, workerId: string): Promise<void>;
+  getBookingHistory(bookingId: string): Promise<BookingHistoryData>;
 }

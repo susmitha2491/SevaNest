@@ -748,10 +748,10 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                     {/* Issue Category */}
                     <td style={{ padding: 'var(--space-4)' }}>
                       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}>
-                        {tkt.disputeCategory.replace(/_/g, ' ')}
+                        {(tkt.disputeCategory || (tkt as { category?: string }).category || 'DISPUTE').replace(/_/g, ' ')}
                       </div>
                       <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {tkt.serviceCategory} {tkt.bookingRef ? `• ${tkt.bookingRef}` : ''}
+                        {tkt.serviceCategory || 'Domestic Service'} {tkt.bookingRef ? `• ${tkt.bookingRef}` : ''}
                       </div>
                     </td>
 

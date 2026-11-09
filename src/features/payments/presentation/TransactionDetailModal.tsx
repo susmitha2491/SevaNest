@@ -13,6 +13,8 @@ import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { getCustomerPhone, fetchCustomerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
 import { paymentRepository } from '../data/paymentRepository';
 import { env } from '../../../core/config/env';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 
 interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
@@ -31,6 +33,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   onReconcile,
   isReconciling = false,
 }) => {
+  const { user } = useAuthStore();
+  const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
+
   const [resolvedContact, setResolvedContact] = useState<string | undefined>(() => {
     if (!transaction) return undefined;
     const phone = transaction.customerPhone;
@@ -210,7 +215,13 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             </div>
 
             <div style={{ textAlign: 'right', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              <div><strong>Gateway Ref:</strong> <span style={{ fontFamily: 'monospace' }}>{transaction.gatewayRef}</span></div>
+              <div><strong>Gateway Ref:</strong> <span style={{ fontFamily: 'monospace' }}>{transaction.gatewayRef || 'N/A'}</span></div>
+              {transaction.providerPaymentId && (
+                <div><strong>Provider Payment ID:</strong> <span style={{ fontFamily: 'monospace' }}>{transaction.providerPaymentId}</span></div>
+              )}
+              {transaction.providerOrderId && (
+                <div><strong>Provider Order ID:</strong> <span style={{ fontFamily: 'monospace' }}>{transaction.providerOrderId}</span></div>
+              )}
               <div><strong>Method:</strong> {transaction.paymentMethod}</div>
               <div><strong>Recorded:</strong> {transaction.timestamp}</div>
             </div>
@@ -277,9 +288,13 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Failure Diagnostic Alert (if failed) */}
-          {(transaction.status === 'PAYMENT_FAILED' || transaction.failureReason) && (
+          {/* Failure Diagnostic Alert (if payment or refund failed) */}
+          {(transaction.status === 'PAYMENT_FAILED' ||
+            transaction.status === 'REFUND_FAILED' ||
+            transaction.failureReason ||
+            transaction.failureCode) && (
             <div
+              data-testid="gateway-failure-diagnostics"
               style={{
                 padding: 'var(--space-3) var(--space-4)',
                 backgroundColor: 'var(--color-status-danger-bg)',
@@ -292,10 +307,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               }}
             >
               <div style={{ fontWeight: 700, color: 'var(--color-status-danger-text)' }}>
-                Gateway Failure Diagnostics
+                {transaction.status === 'REFUND_FAILED' ? 'Gateway Refund Failure Diagnostics' : 'Gateway Failure Diagnostics'}
               </div>
               <div style={{ color: 'var(--color-status-danger-text)' }}>
-                Failure Reason: <strong>{transaction.failureReason || 'Transaction declined or cancelled before settlement.'}</strong>
+                Failure Reason: <strong>{transaction.failureReason || (transaction.status === 'REFUND_FAILED' ? 'Gateway rejected the refund transaction.' : 'Transaction declined or cancelled before settlement.')}</strong>
                 {transaction.failureCode && ` (Code: ${transaction.failureCode})`}
               </div>
             </div>
@@ -399,9 +414,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               </button>
             )}
 
-            {onInitiateRefund && transaction.status === 'PAID' ? (
+            {onInitiateRefund && (transaction.status === 'PAID' || transaction.status === 'SUCCEEDED') && canRefund ? (
               <button
                 type="button"
+                data-testid="initiate-refund-button"
                 onClick={() => onInitiateRefund(transaction)}
                 style={{
                   padding: 'var(--space-2) var(--space-4)',

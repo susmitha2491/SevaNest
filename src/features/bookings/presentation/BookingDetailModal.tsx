@@ -24,13 +24,18 @@ import {
   AlertCircle,
   Layers,
 } from 'lucide-react';
-import { BookingDetail, BookingCommunicationEvent } from '../domain/types';
+import {
+  BookingDetail,
+  BookingCommunicationEvent,
+  REPLACEMENT_REASONS,
+} from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { customerRepository } from '../../customers/data/customerRepository';
 import { workerRepository } from '../../workers/data/workerRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatPhoneNumber } from '../../../core/utils/phoneDirectory';
+import { formatDateTimeIST, formatDateIST } from '../../../shared/formatters/dateTime';
 
 interface BookingDetailModalProps {
   booking: BookingDetail | null;
@@ -214,38 +219,17 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     (hasWorker ? '+91 99881 54321' : 'Phone not on file');
   const resolvedWorkerPhone = formatPhoneNumber(rawWorkerPhone);
 
-  // Date and Time formatting helpers
+  // Date and Time formatting helpers (IST - Asia/Kolkata)
   const formatReadableDate = (val?: string | null) => {
     if (!val) return '—';
-    try {
-      const d = new Date(val);
-      if (isNaN(d.getTime())) return val;
-      return d.toLocaleDateString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-    } catch {
-      return val;
-    }
+    const res = formatDateIST(val);
+    return res !== '—' ? res : val;
   };
 
   const formatReadableDateTime = (val?: string | null) => {
     if (!val) return '—';
-    try {
-      const d = new Date(val);
-      if (isNaN(d.getTime())) return val;
-      return d.toLocaleString('en-IN', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-      });
-    } catch {
-      return val;
-    }
+    const res = formatDateTimeIST(val);
+    return res !== '—' ? res : val;
   };
 
   // Format helper for elapsed time between timeline entries
@@ -264,70 +248,17 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     return `+${days}d`;
   };
 
-  // Compile full communication events list
-  const compiledCommunications: BookingCommunicationEvent[] = [
-    ...(historyData?.communications || []),
-  ];
-
-  if (compiledCommunications.length === 0) {
-    if (booking.createdAt) {
-      compiledCommunications.push({
-        id: `comm-req-${booking.id}`,
-        timestamp: booking.createdAt,
-        channel: 'CUSTOMER_PORTAL_SUBMISSION',
-        senderRole: 'CUSTOMER',
-        senderName: booking.customerName,
-        title: 'Initial Service Requirement & Specifications',
-        outcome: 'Requirements Logged',
-        remarks: 'Client service preferences and timing shift recorded during initial booking intake.',
-      });
-    }
-    if (booking.assignedWorkerName) {
-      compiledCommunications.push({
-        id: `comm-assign-${booking.id}`,
-        timestamp: booking.createdAt,
-        channel: 'WORKER_APP_RESPONSE',
-        senderRole: 'WORKER',
-        senderName: booking.assignedWorkerName,
-        title: 'Candidate Allocation & Acceptance',
-        outcome: 'Accepted',
-        remarks: 'Candidate confirmed availability for the specified schedule and locality.',
-      });
-    }
-    if (booking.trial) {
-      compiledCommunications.push({
-        id: `comm-trial-${booking.id}`,
-        timestamp: booking.trial.scheduledDate,
-        channel: 'TRIAL_COORDINATION',
-        senderRole: 'ADMIN',
-        title: 'Trial Assessment Dispatched',
-        outcome: 'Scheduled',
-        remarks: `Coordinated trial window: ${booking.trial.timeSlot} at client premises.`,
-      });
-    }
-    if (booking.trialOutcome) {
-      compiledCommunications.push({
-        id: `comm-trial-out-${booking.id}`,
-        timestamp: new Date().toISOString(),
-        channel: 'TRIAL_FEEDBACK',
-        senderRole: 'CUSTOMER',
-        title: `Trial Outcome: ${booking.trialOutcome.outcome}`,
-        outcome: booking.trialOutcome.outcome,
-        remarks: 'Client submitted feedback regarding candidate trial performance.',
-      });
-    }
-    if (booking.replacement) {
-      compiledCommunications.push({
-        id: `comm-repl-${booking.id}`,
-        timestamp: booking.replacement.requestedAt,
-        channel: 'REPLACEMENT_CLAIM',
-        senderRole: 'CUSTOMER',
-        title: `Replacement Claim: ${booking.replacement.reasonCategory}`,
-        outcome: booking.replacement.status,
-        remarks: 'Client filed replacement claim under placement guarantee policy.',
-      });
-    }
-  }
+  // Only genuine communication records returned by backend
+  const fromHistory = Array.isArray(historyData?.communications) ? historyData.communications : [];
+  const fromBooking = Array.isArray(booking.communications) ? booking.communications : [];
+  const combined = [...fromHistory, ...fromBooking];
+  const seen = new Set<string>();
+  const genuineCommunications: BookingCommunicationEvent[] = combined.filter((c) => {
+    if (!c || !c.id) return false;
+    if (seen.has(c.id)) return false;
+    seen.add(c.id);
+    return true;
+  });
 
   const interviewsCount =
     historyData?.interviews?.length || (booking.trial ? 1 : 0);
@@ -336,7 +267,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   const paymentsCount = historyData?.payments?.length || 1;
   const replacementCount =
     historyData?.replacementChain?.length || (booking.replacement ? 1 : 0);
-  const commsCount = compiledCommunications.length;
+  const commsCount = genuineCommunications.length;
 
   const navTabs: Array<{
     key: SectionKey;
@@ -377,15 +308,15 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
       <div
         style={{
           backgroundColor: '#f8fafc',
-          borderRadius: '12px',
+          borderRadius: '10px',
           width: '100%',
-          maxWidth: '1720px',
-          height: 'calc(100vh - 24px)',
+          maxWidth: '1120px',
+          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
           overflow: 'hidden',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #cbd5e1',
         }}
       >
         {/* ======================================================== */}
@@ -393,25 +324,25 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         {/* ======================================================== */}
         <div
           style={{
-            padding: '16px 28px',
+            padding: '10px 18px',
             backgroundColor: '#ffffff',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
             flexWrap: 'wrap',
-            gap: '16px',
+            gap: '10px',
             flexShrink: 0,
           }}
         >
           {/* Left: Booking Identity & Metadata */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <h2
                 id="booking-modal-title"
                 style={{
-                  fontSize: '18px',
-                  fontWeight: 800,
+                  fontSize: '15px',
+                  fontWeight: 700,
                   color: '#0f172a',
                   letterSpacing: '-0.01em',
                   margin: 0,
@@ -423,10 +354,10 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <span
                 data-testid="booking-category-badge"
                 style={{
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  padding: '3px 10px',
-                  borderRadius: '16px',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
                   backgroundColor: '#eff6ff',
                   color: '#1d4ed8',
                   border: '1px solid #bfdbfe',
@@ -436,10 +367,10 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               </span>
               <span
                 style={{
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  padding: '3px 10px',
-                  borderRadius: '16px',
+                  fontSize: '11px',
+                  fontWeight: 500,
+                  padding: '2px 8px',
+                  borderRadius: '12px',
                   backgroundColor: '#f1f5f9',
                   color: '#475569',
                 }}
@@ -448,7 +379,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', fontSize: '13px', color: '#64748b', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b', flexWrap: 'wrap' }}>
               <span>Locality: <strong style={{ color: '#1e293b' }}>{booking.customerLocality}</strong></span>
               <span>•</span>
               <span>Created: <strong style={{ color: '#1e293b' }}>{formatReadableDateTime(booking.createdAt)}</strong></span>
@@ -462,7 +393,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           </div>
 
           {/* Right: Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {onOpenMatchWizard &&
               (booking.status === 'REQUESTED' ||
                 booking.status === 'NEW_REQUEST' ||
@@ -471,21 +402,21 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   onClick={() => onOpenMatchWizard(booking)}
                   data-testid="quick-action-match"
                   style={{
-                    padding: '8px 14px',
+                    padding: '4px 10px',
+                    height: '28px',
                     backgroundColor: '#0284c7',
                     color: '#ffffff',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     border: 'none',
                     fontWeight: 600,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                    gap: '5px',
                   }}
                 >
-                  <Sparkles size={15} /> Match Candidates
+                  <Sparkles size={13} /> Match Candidates
                 </button>
               )}
 
@@ -495,21 +426,21 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   onClick={() => onOpenTrialOutcome(booking)}
                   data-testid="quick-action-trial"
                   style={{
-                    padding: '8px 14px',
+                    padding: '4px 10px',
+                    height: '28px',
                     backgroundColor: '#16a34a',
                     color: '#ffffff',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     border: 'none',
                     fontWeight: 600,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                    gap: '5px',
                   }}
                 >
-                  <CheckCircle size={15} /> Record Trial Outcome
+                  <CheckCircle size={13} /> Record Trial Outcome
                 </button>
               )}
 
@@ -519,21 +450,21 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   onClick={() => onOpenReplacement(booking)}
                   data-testid="quick-action-replacement"
                   style={{
-                    padding: '8px 14px',
+                    padding: '4px 10px',
+                    height: '28px',
                     backgroundColor: '#d97706',
                     color: '#ffffff',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     border: 'none',
                     fontWeight: 600,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                    gap: '5px',
                   }}
                 >
-                  <RefreshCw size={15} /> Process Replacement
+                  <RefreshCw size={13} /> Process Replacement
                 </button>
               )}
 
@@ -544,13 +475,14 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   onClick={() => onOpenCancel(booking)}
                   data-testid="quick-action-cancel"
                   style={{
-                    padding: '8px 14px',
+                    padding: '4px 10px',
+                    height: '28px',
                     backgroundColor: '#fef2f2',
                     color: '#dc2626',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     border: '1px solid #fecaca',
                     fontWeight: 600,
-                    fontSize: '13px',
+                    fontSize: '12px',
                     cursor: 'pointer',
                   }}
                 >
@@ -564,54 +496,93 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '8px 14px',
+                gap: '5px',
+                padding: '4px 10px',
+                height: '28px',
                 backgroundColor: '#ffffff',
                 border: '1px solid #cbd5e1',
-                borderRadius: '8px',
+                borderRadius: '6px',
                 color: '#475569',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}
               aria-label="Close booking modal"
             >
-              <X size={16} /> Close
+              <X size={14} /> Close
             </button>
           </div>
         </div>
+
+        {/* Predecessor / Successor Booking Relationship Banner */}
+        {(booking.replacesBookingId || booking.replacement?.replacementBookingId || booking.status === 'REPLACED') && (
+          <div
+            data-testid="booking-relationship-banner"
+            style={{
+              padding: '8px 18px',
+              backgroundColor: '#eff6ff',
+              borderBottom: '1px solid #bfdbfe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '12px',
+              color: '#1e40af',
+              flexWrap: 'wrap',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <RefreshCw size={14} color="#2563eb" />
+              {booking.replacesBookingId && (
+                <span>
+                  <strong>Replacement Successor Booking:</strong> This booking was initiated to replace predecessor booking <code style={{ fontWeight: 700, color: '#1e3a8a', backgroundColor: '#dbeafe', padding: '1px 6px', borderRadius: '4px' }}>{booking.replacesBookingId}</code>. Original worker and interview history are preserved in the replacement chain.
+                </span>
+              )}
+              {!booking.replacesBookingId && (booking.replacement?.replacementBookingId || booking.status === 'REPLACED') && (
+                <span>
+                  <strong>Replaced Booking:</strong> Service for this booking has been superseded by replacement booking <code style={{ fontWeight: 700, color: '#1e3a8a', backgroundColor: '#dbeafe', padding: '1px 6px', borderRadius: '4px' }}>{booking.replacement?.replacementBookingId || 'in chain'}</code>.
+                </span>
+              )}
+            </div>
+            {historyData?.replacementChain && historyData.replacementChain.length > 0 && (
+              <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: 600 }}>
+                Chain Depth: {historyData.replacementChain.length} Link{historyData.replacementChain.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* ======================================================== */}
         {/* 2. EXECUTIVE SNAPSHOT STRIP (UNIFIED 4-METRIC ROW)       */}
         {/* ======================================================== */}
         <div
           style={{
-            padding: '10px 28px',
+            padding: '8px 18px',
             backgroundColor: '#ffffff',
             borderBottom: '1px solid #e2e8f0',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '12px',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+            gap: '8px',
             flexShrink: 0,
           }}
         >
           {/* Client Demographics Snapshot */}
           <div
             style={{
-              padding: '10px 14px',
+              padding: '6px 10px',
               backgroundColor: '#f8fafc',
-              borderRadius: '8px',
+              borderRadius: '6px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '8px',
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
                 backgroundColor: '#eff6ff',
                 color: '#0284c7',
                 display: 'flex',
@@ -620,16 +591,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <User size={18} />
+              <User size={14} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Client Demographics
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.customerLocality} Cluster
               </div>
-              <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: 600, marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 Client: {resolvedCustomerName}
               </div>
             </div>
@@ -638,20 +609,20 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* Staff Allocation Snapshot */}
           <div
             style={{
-              padding: '10px 14px',
+              padding: '6px 10px',
               backgroundColor: '#f8fafc',
-              borderRadius: '8px',
+              borderRadius: '6px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '8px',
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
                 backgroundColor: hasWorker ? '#ecfdf5' : '#fffbeb',
                 color: hasWorker ? '#047857' : '#d97706',
                 display: 'flex',
@@ -660,19 +631,19 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <Briefcase size={18} />
+              <Briefcase size={14} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Staff Allocation
               </div>
-              <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#d97706', fontSize: '14px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#d97706', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {hasWorker ? `Assigned: ${resolvedWorkerName}` : 'No Worker Assigned'}
               </div>
-              <div style={{ fontSize: '11px', color: hasWorker ? '#16a34a' : '#64748b', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', marginTop: '1px' }}>
+              <div style={{ fontSize: '11px', color: hasWorker ? '#16a34a' : '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '3px' }}>
                 {hasWorker ? (
                   <>
-                    <ShieldCheck size={12} /> Verified Placement
+                    <ShieldCheck size={11} /> Verified Placement
                   </>
                 ) : (
                   'Pending Candidate Match'
@@ -684,20 +655,20 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* Shift & Budget Snapshot */}
           <div
             style={{
-              padding: '10px 14px',
+              padding: '6px 10px',
               backgroundColor: '#f8fafc',
-              borderRadius: '8px',
+              borderRadius: '6px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '8px',
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
                 backgroundColor: '#eef2ff',
                 color: '#4f46e5',
                 display: 'flex',
@@ -706,16 +677,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <Clock size={18} />
+              <Clock size={14} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Shift & Budget
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.timingShift === '24x7 Assistance' ? '24x7 Assistance' : (booking.timingShift || 'Standard Schedule')}
               </div>
-              <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.salaryBudgetMax && booking.salaryBudgetMax > 0
                   ? `Budget Cap: ${formatCurrencyINR(booking.salaryBudgetMax)} / mo`
                   : 'Budget: Standard Rate Band'}
@@ -726,20 +697,20 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* Platform Fee Snapshot */}
           <div
             style={{
-              padding: '10px 14px',
+              padding: '6px 10px',
               backgroundColor: '#f8fafc',
-              borderRadius: '8px',
+              borderRadius: '6px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '8px',
             }}
           >
             <div
               style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '8px',
+                width: '28px',
+                height: '28px',
+                borderRadius: '6px',
                 backgroundColor: booking.platformFeePaid ? '#ecfdf5' : '#fffbeb',
                 color: booking.platformFeePaid ? '#059669' : '#d97706',
                 display: 'flex',
@@ -748,16 +719,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <IndianRupee size={18} />
+              <IndianRupee size={14} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Platform Fee
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', marginTop: '2px' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px' }}>
                 {formatCurrencyINR(booking.platformFeeAmount || 499)}
               </div>
-              <div style={{ fontSize: '11px', fontWeight: 600, color: booking.platformFeePaid ? '#16a34a' : '#d97706', marginTop: '1px' }}>
+              <div style={{ fontSize: '11px', fontWeight: 600, color: booking.platformFeePaid ? '#16a34a' : '#d97706' }}>
                 ● {booking.platformFeePaid ? 'Settled / Collected' : 'Pending Payment'}
               </div>
             </div>
@@ -769,15 +740,15 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         {/* ======================================================== */}
         <div
           style={{
-            padding: '6px 24px',
+            padding: '4px 18px',
             backgroundColor: '#ffffff',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
+            gap: '2px',
             overflowX: 'auto',
             flexShrink: 0,
-            scrollbarWidth: 'thin',
+            scrollbarWidth: 'none',
           }}
           role="tablist"
           aria-label="Booking Workspace Section Tabs"
@@ -792,18 +763,18 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 onClick={() => scrollToSection(tab.key)}
                 data-testid={tab.testId}
                 style={{
-                  padding: '8px 12px',
+                  padding: '5px 9px',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: '5px',
                   backgroundColor: isActive ? '#eff6ff' : 'transparent',
                   fontWeight: isActive ? 700 : 500,
                   color: isActive ? '#0284c7' : '#64748b',
-                  fontSize: '13px',
+                  fontSize: '11px',
                   cursor: 'pointer',
                   whiteSpace: 'nowrap',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   transition: 'all 0.15s ease',
                   outline: 'none',
                 }}
@@ -813,10 +784,10 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 {tab.count !== undefined && (
                   <span
                     style={{
-                      fontSize: '10px',
+                      fontSize: '9px',
                       fontWeight: 700,
-                      padding: '1px 6px',
-                      borderRadius: '10px',
+                      padding: '0 4px',
+                      borderRadius: '8px',
                       backgroundColor: isActive ? '#0284c7' : '#f1f5f9',
                       color: isActive ? '#ffffff' : '#64748b',
                       border: isActive ? 'none' : '1px solid #e2e8f0',
@@ -835,12 +806,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         {/* ======================================================== */}
         <div
           style={{
-            padding: '24px 28px',
+            padding: '14px 18px',
             overflowY: 'auto',
             flex: 1,
             display: 'flex',
             flexDirection: 'column',
-            gap: '24px',
+            gap: '12px',
             backgroundColor: '#f8fafc',
           }}
         >
@@ -848,13 +819,13 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* SECTION 1: BOOKING OVERVIEW                            */}
           {/* ====================================================== */}
           {(filterSection === 'ALL' || filterSection === 'OVERVIEW') && (
-            <div ref={overviewRef} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div ref={overviewRef} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                  <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
                     Booking Overview & Service Engagement
                   </h3>
-                  <p style={{ fontSize: '13px', color: '#64748b', margin: '2px 0 0 0' }}>
+                  <p style={{ fontSize: '11px', color: '#64748b', margin: '1px 0 0 0' }}>
                     Core domestic service specifications, engagement timeline, and household preferences
                   </p>
                 </div>
@@ -864,55 +835,55 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-                  gap: '14px',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                  gap: '8px',
                 }}
               >
                 {/* Service Requirement Card */}
                 <div
                   style={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '10px',
+                    borderRadius: '8px',
                     border: '1px solid #e2e8f0',
-                    padding: '14px 18px',
-                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.02)',
+                    padding: '10px 12px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                    <Briefcase size={16} color="#0284c7" />
-                    <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
+                    <Briefcase size={14} color="#0284c7" />
+                    <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
                       Service Specifications
                     </h4>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '13px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>CATEGORY</div>
-                      <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{booking.serviceCategory} Placement</div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>CATEGORY</div>
+                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '1px' }}>{booking.serviceCategory} Placement</div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>ENGAGEMENT</div>
-                      <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>{booking.engagementType.replace(/_/g, ' ')}</div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>ENGAGEMENT</div>
+                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '1px' }}>{booking.engagementType.replace(/_/g, ' ')}</div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>SHIFT TIMING</div>
-                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>SHIFT TIMING</div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', marginTop: '1px' }}>
                         {booking.timingShift === '24x7 Assistance' ? 'Continuous Residential Coverage' : (booking.timingShift || 'Standard Schedule')}
                       </div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>LOCALITY</div>
-                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>{booking.customerLocality}</div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>LOCALITY</div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', marginTop: '1px' }}>{booking.customerLocality}</div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>REQUESTED START</div>
-                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>REQUESTED START</div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', marginTop: '1px' }}>
                         {formatReadableDate(booking.serviceStartDate || booking.requestedStartDate) || 'Immediate Placement'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>CONTRACT PERIOD</div>
-                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>{booking.contractPeriod || '12-Month Agreement'}</div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>CONTRACT PERIOD</div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', marginTop: '1px' }}>{booking.contractPeriod || '12-Month Agreement'}</div>
                     </div>
                   </div>
                 </div>
@@ -921,45 +892,45 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 <div
                   style={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '10px',
+                    borderRadius: '8px',
                     border: '1px solid #e2e8f0',
-                    padding: '14px 18px',
-                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.02)',
+                    padding: '10px 12px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                    <IndianRupee size={16} color="#059669" />
-                    <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
+                    <IndianRupee size={14} color="#059669" />
+                    <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
                       Financial & Budget Cap
                     </h4>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', fontSize: '13px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>MAX SALARY BUDGET</div>
-                      <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '14px', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>MAX SALARY BUDGET</div>
+                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '1px' }}>
                         {booking.salaryBudgetMax && booking.salaryBudgetMax > 0
                           ? `${formatCurrencyINR(booking.salaryBudgetMax)} / mo`
                           : 'Standard Rate Band'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>BUDGET RANGE</div>
-                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>BUDGET RANGE</div>
+                      <div style={{ fontWeight: 500, color: '#0f172a', marginTop: '1px' }}>
                         {booking.budgetMinMinor && booking.budgetMaxMinor
                           ? `${formatCurrencyINR(booking.budgetMinMinor / 100)} - ${formatCurrencyINR(booking.budgetMaxMinor / 100)}`
                           : 'Standard Rate Band'}
                       </div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>PLATFORM SERVICE FEE</div>
-                      <div style={{ fontWeight: 700, color: '#0284c7', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>PLATFORM SERVICE FEE</div>
+                      <div style={{ fontWeight: 600, color: '#0284c7', marginTop: '1px' }}>
                         {formatCurrencyINR(booking.platformFeeAmount || 499)}
                       </div>
                     </div>
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>PAYMENT STATUS</div>
-                      <div style={{ fontWeight: 700, color: booking.platformFeePaid ? '#16a34a' : '#d97706', marginTop: '2px' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>PAYMENT STATUS</div>
+                      <div style={{ fontWeight: 600, color: booking.platformFeePaid ? '#16a34a' : '#d97706', marginTop: '1px' }}>
                         ● {booking.platformFeePaid ? 'Settled / Collected' : 'Pending Payment'}
                       </div>
                     </div>
@@ -970,20 +941,20 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 <div
                   style={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '10px',
+                    borderRadius: '8px',
                     border: '1px solid #e2e8f0',
-                    padding: '14px 18px',
-                    boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.02)',
+                    padding: '10px 12px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', borderBottom: '1px solid #f1f5f9', paddingBottom: '8px' }}>
-                    <Info size={16} color="#6366f1" />
-                    <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
+                    <Info size={14} color="#6366f1" />
+                    <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
                       Intake & Lifecycle Telemetry
                     </h4>
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '13px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '12px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                       <span style={{ color: '#64748b' }}>Created Timestamp:</span>
                       <strong style={{ color: '#0f172a' }}>{formatReadableDateTime(booking.createdAt)}</strong>
@@ -1010,36 +981,36 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <div
                 style={{
                   backgroundColor: '#ffffff',
-                  borderRadius: '10px',
+                  borderRadius: '8px',
                   border: '1px solid #e2e8f0',
-                  padding: '18px 20px',
-                  boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.02)',
+                  padding: '10px 12px',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
-                  <FileText size={16} color="#64748b" />
-                  <h4 style={{ fontSize: '13px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                  <FileText size={14} color="#64748b" />
+                  <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
                     Special Requirements & Household Specifications
                   </h4>
                 </div>
-                <p style={{ fontSize: '14px', color: '#1e293b', lineHeight: 1.6, margin: 0 }}>
+                <p style={{ fontSize: '12px', color: '#1e293b', lineHeight: 1.5, margin: 0 }}>
                   {booking.specialRequirements ||
                     booking.requirementNote ||
                     'Standard domestic services required according to the category guidelines. No additional custom specifications noted.'}
                 </p>
 
                 {booking.internalNotes && booking.internalNotes.length > 0 && (
-                  <div style={{ marginTop: '16px', borderTop: '1px dashed #e2e8f0', paddingTop: '12px' }}>
-                    <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', marginBottom: '6px' }}>
+                  <div style={{ marginTop: '8px', borderTop: '1px dashed #e2e8f0', paddingTop: '6px' }}>
+                    <div style={{ fontSize: '10px', fontWeight: 700, color: '#64748b', marginBottom: '3px' }}>
                       OPERATIONAL NOTES & DISPATCH LOG
                     </div>
                     {booking.internalNotes.map((note, idx) => (
                       <div
                         key={idx}
                         style={{
-                          fontSize: '13px',
+                          fontSize: '11px',
                           color: '#475569',
-                          padding: '3px 0',
+                          padding: '2px 0',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '6px',
@@ -1875,7 +1846,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                           </div>
 
                           <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
-                            Recorded: <strong>{entryTime}</strong>
+                            Recorded: <strong>{formatReadableDateTime(entryTime)}</strong>
                             {entryUserId && (
                               <span> • Actor ID: <code style={{ color: '#0284c7' }}>{entryUserId}</code></span>
                             )}
@@ -2006,7 +1977,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                           <td style={{ padding: '12px', fontFamily: 'monospace', fontWeight: 600, color: '#0f172a' }}>
                             {p.receiptNumber}
                           </td>
-                          <td style={{ padding: '12px', color: '#64748b' }}>{p.paidAt}</td>
+                          <td style={{ padding: '12px', color: '#64748b' }}>{formatReadableDateTime(p.paidAt)}</td>
                           <td style={{ padding: '12px', color: '#334155', fontWeight: 500 }}>{p.paymentMethod}</td>
                           <td style={{ padding: '12px', fontFamily: 'monospace', color: '#64748b', fontSize: '12px' }}>
                             {p.gatewayReference}
@@ -2068,7 +2039,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <RefreshCw size={18} color="#d97706" />
                       <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '15px' }}>
-                        Active Replacement Case: {booking.replacement.id}
+                        Replacement Case: <span style={{ fontFamily: 'monospace' }}>{booking.replacement.id}</span>
                       </div>
                     </div>
                     <StatusBadge status={booking.replacement.status} />
@@ -2078,40 +2049,69 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                     <div>
                       <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>REASON CATEGORY</div>
                       <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '2px' }}>
-                        {booking.replacement.reasonCategory}
+                        {(booking.replacement.reasonCode && REPLACEMENT_REASONS[booking.replacement.reasonCode]) || booking.replacement.reasonCode || booking.replacement.reasonCategory || 'Replacement Request'}
                       </div>
                     </div>
 
                     <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>GUARANTEE PLAN</div>
-                      <div style={{ fontWeight: 700, color: '#0284c7', marginTop: '2px' }}>
-                        {booking.replacement.coveragePlanName || '30-Day Placement Guarantee'}
+                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>REQUEST DATE</div>
+                      <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
+                        {formatDateTimeIST(booking.replacement.createdAt || booking.replacement.requestedAt || '')}
                       </div>
                     </div>
 
                     <div>
                       <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>PREVIOUS WORKER</div>
                       <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
-                        {booking.replacement.priorWorkerName} ({booking.replacement.priorWorkerId})
+                        {booking.replacement.priorWorkerName || booking.replacement.currentWorkerId || 'Unassigned'}
+                        {booking.replacement.priorWorkerId && ` (${booking.replacement.priorWorkerId})`}
                       </div>
                     </div>
 
-                    <div>
-                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>POLICY ELIGIBILITY</div>
-                      <div style={{ fontWeight: 700, color: '#16a34a', marginTop: '2px' }}>
-                        ● Eligible under Replacement Guarantee
+                    {booking.replacement.replacementBookingId && (
+                      <div>
+                        <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>SUCCESSOR BOOKING</div>
+                        <div style={{ fontWeight: 700, color: '#0284c7', marginTop: '2px', fontFamily: 'monospace' }}>
+                          {booking.replacement.replacementBookingId}
+                        </div>
                       </div>
+                    )}
+
+                    {booking.replacement.neededFrom && (
+                      <div>
+                        <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>NEEDED FROM</div>
+                        <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '2px' }}>
+                          {booking.replacement.neededFrom}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {booking.replacement.reason && (
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600, marginBottom: '2px' }}>CUSTOMER STATED REASON</div>
+                      <div style={{ color: '#1e293b' }}>{booking.replacement.reason}</div>
                     </div>
-                  </div>
+                  )}
 
-                  <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
-                    <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600, marginBottom: '2px' }}>CUSTOMER EXPLANATION</div>
-                    <div style={{ color: '#1e293b' }}>{booking.replacement.customerExplanation}</div>
-                  </div>
+                  {booking.replacement.notes && (
+                    <div style={{ backgroundColor: '#ffffff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px' }}>
+                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600, marginBottom: '2px' }}>CUSTOMER SUPPORTING NOTES</div>
+                      <div style={{ color: '#1e293b' }}>{booking.replacement.notes}</div>
+                    </div>
+                  )}
 
-                  {booking.replacement.operationalRemarks && (
-                    <div style={{ fontSize: '12px', color: '#64748b' }}>
-                      <strong>Operational Remarks:</strong> {booking.replacement.operationalRemarks}
+                  {booking.replacement.decisionMessage && (
+                    <div style={{ backgroundColor: '#eff6ff', padding: '12px 16px', borderRadius: '8px', border: '1px solid #bfdbfe', fontSize: '13px' }}>
+                      <div style={{ color: '#1d4ed8', fontSize: '11px', fontWeight: 600, marginBottom: '2px' }}>CUSTOMER-FACING DECISION MESSAGE</div>
+                      <div style={{ color: '#1e40af' }}>{booking.replacement.decisionMessage}</div>
+                    </div>
+                  )}
+
+                  {(booking.replacement.decisionRemarks || booking.replacement.operationalRemarks) && (
+                    <div style={{ backgroundColor: '#f8fafc', padding: '12px 16px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '13px' }}>
+                      <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600, marginBottom: '2px' }}>INTERNAL STAFF REMARKS</div>
+                      <div style={{ color: '#334155' }}>{booking.replacement.decisionRemarks || booking.replacement.operationalRemarks}</div>
                     </div>
                   )}
                 </div>
@@ -2136,28 +2136,48 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
 
                 {historyData?.replacementChain && historyData.replacementChain.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                    {historyData.replacementChain.map((link, idx) => (
-                      <div
-                        key={link.id || idx}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '12px 16px',
-                          backgroundColor: '#f8fafc',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0',
-                          fontSize: '13px',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                          <span style={{ fontWeight: 700, color: '#0284c7' }}>Link #{link.position || idx + 1}</span>
-                          <span style={{ color: '#64748b' }}>Booking ID: <code style={{ color: '#0f172a' }}>{link.bookingId}</code></span>
-                          <span style={{ color: '#64748b' }}>Worker ID: <code style={{ color: '#0f172a' }}>{link.workerId}</code></span>
+                    {historyData.replacementChain.map((link, idx) => {
+                      const isCurrent = link.current || link.bookingId === booking.id;
+                      return (
+                        <div
+                          key={link.id || link.bookingId || idx}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '12px 16px',
+                            backgroundColor: isCurrent ? '#f0f9ff' : '#f8fafc',
+                            borderRadius: '8px',
+                            border: isCurrent ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
+                            fontSize: '13px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 700, color: '#0284c7' }}>Link #{link.position || idx + 1}</span>
+                            <span style={{ color: '#64748b' }}>
+                              Booking: <code style={{ color: '#0f172a', fontWeight: 700 }}>{link.bookingId}</code>
+                            </span>
+                            {link.replacesBookingId && (
+                              <span style={{ fontSize: '11px', color: '#64748b' }}>
+                                (Replaces: <code style={{ color: '#0284c7' }}>{link.replacesBookingId}</code>)
+                              </span>
+                            )}
+                            <span style={{ color: '#64748b' }}>
+                              Worker: <strong style={{ color: '#0f172a' }}>{link.workerName || link.workerId || 'Pending Matching'}</strong>
+                              {link.workerId && <code style={{ marginLeft: '4px', fontSize: '11px', color: '#64748b' }}>({link.workerId})</code>}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {isCurrent && (
+                              <span style={{ fontSize: '11px', fontWeight: 700, color: '#0284c7', backgroundColor: '#e0f2fe', padding: '2px 8px', borderRadius: '12px' }}>
+                                Current
+                              </span>
+                            )}
+                            <StatusBadge status={link.status || 'CHAIN_LINK'} />
+                          </div>
                         </div>
-                        <StatusBadge status={link.status || 'CHAIN_LINK'} />
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div style={{ padding: '16px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
@@ -2172,83 +2192,83 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* SECTION 8: COMMUNICATION HISTORY                       */}
           {/* ====================================================== */}
           {(filterSection === 'ALL' || filterSection === 'COMMUNICATIONS') && (
-            <div ref={commsRef} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div ref={commsRef} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                <h3 style={{ fontSize: '13px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
                   Customer and Worker Communication History
                 </h3>
-                <p style={{ fontSize: '13px', color: '#64748b', margin: '2px 0 0 0' }}>
-                  Authentic portal submissions, coordination dispatch notes, and telephony contract documentation
+                <p style={{ fontSize: '11px', color: '#64748b', margin: '1px 0 0 0' }}>
+                  Communication logs and interaction updates recorded for this booking
                 </p>
               </div>
 
-              {/* Authentic Communication Records */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {compiledCommunications.map((comm) => (
-                  <div
-                    key={comm.id}
-                    style={{
-                      backgroundColor: '#ffffff',
-                      borderRadius: '10px',
-                      border: '1px solid #e2e8f0',
-                      padding: '16px 20px',
-                      boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.02)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: 700,
-                            padding: '2px 8px',
-                            borderRadius: '10px',
-                            backgroundColor: comm.senderRole === 'CUSTOMER' ? '#eff6ff' : comm.senderRole === 'WORKER' ? '#ecfdf5' : '#f1f5f9',
-                            color: comm.senderRole === 'CUSTOMER' ? '#1d4ed8' : comm.senderRole === 'WORKER' ? '#047857' : '#475569',
-                          }}
-                        >
-                          {comm.senderRole}
-                        </span>
-                        <strong style={{ fontSize: '14px', color: '#0f172a' }}>{comm.title}</strong>
+              {/* Genuine Communication Records or Empty State */}
+              {genuineCommunications.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {genuineCommunications.map((comm) => (
+                    <div
+                      key={comm.id}
+                      style={{
+                        backgroundColor: '#ffffff',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        padding: '8px 12px',
+                        boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '4px',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '1px 6px',
+                              borderRadius: '8px',
+                              backgroundColor: comm.senderRole === 'CUSTOMER' ? '#eff6ff' : comm.senderRole === 'WORKER' ? '#ecfdf5' : '#f1f5f9',
+                              color: comm.senderRole === 'CUSTOMER' ? '#1d4ed8' : comm.senderRole === 'WORKER' ? '#047857' : '#475569',
+                            }}
+                          >
+                            {comm.senderRole}
+                          </span>
+                          <strong style={{ fontSize: '12px', color: '#0f172a' }}>{comm.title}</strong>
+                        </div>
+                        <span style={{ fontSize: '11px', color: '#64748b' }}>{formatReadableDateTime(comm.timestamp)}</span>
                       </div>
-                      <span style={{ fontSize: '12px', color: '#64748b' }}>{comm.timestamp}</span>
-                    </div>
 
-                    <div style={{ fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
-                      {comm.remarks}
-                    </div>
+                      <div style={{ fontSize: '11px', color: '#475569', lineHeight: 1.4 }}>
+                        {comm.remarks}
+                      </div>
 
-                    <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', gap: '12px', marginTop: '2px' }}>
-                      <span>Channel: <strong>{comm.channel}</strong></span>
-                      {comm.outcome && (
-                        <span>Outcome: <strong style={{ color: '#0284c7' }}>{comm.outcome}</strong></span>
-                      )}
+                      <div style={{ fontSize: '10px', color: '#64748b', display: 'flex', gap: '10px', marginTop: '1px' }}>
+                        <span>Channel: <strong>{comm.channel}</strong></span>
+                        {comm.outcome && (
+                          <span>Outcome: <strong style={{ color: '#0284c7' }}>{comm.outcome}</strong></span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Discreet Architecture & Telephony Contract Notice */}
-              <div
-                style={{
-                  marginTop: '4px',
-                  padding: '10px 14px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '8px',
-                  border: '1px solid #e2e8f0',
-                  display: 'flex',
-                  gap: '10px',
-                  alignItems: 'center',
-                }}
-              >
-                <Info size={15} color="#64748b" style={{ flexShrink: 0 }} />
-                <div style={{ fontSize: '12px', color: '#64748b', lineHeight: 1.4 }}>
-                  <strong style={{ color: '#475569' }}>Authoritative Backend Data & Telephony Contract Notice:</strong> In accordance with SevaNest architecture integrity, raw audio recordings and direct customer-worker chat messages are handled by telephony bridges and are not persisted in backend API v1. Target specification for telephonic event ingestion: <code style={{ backgroundColor: '#f1f5f9', padding: '1px 5px', borderRadius: '4px', color: '#0f172a' }}>GET /api/v1/admin/bookings/{'{bookingId}'}/communications</code>.
+                  ))}
                 </div>
-              </div>
+              ) : (
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    padding: '24px 16px',
+                    textAlign: 'center',
+                    color: '#64748b',
+                    fontSize: '12px',
+                  }}
+                >
+                  <MessageSquare size={20} color="#94a3b8" style={{ margin: '0 auto 6px', display: 'block' }} />
+                  <div style={{ fontWeight: 600, color: '#475569' }}>
+                    No communication history available for this booking.
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2258,7 +2278,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         {/* ======================================================== */}
         <div
           style={{
-            padding: '12px 28px',
+            padding: '8px 18px',
             backgroundColor: '#ffffff',
             borderTop: '1px solid #e2e8f0',
             display: 'flex',
@@ -2267,16 +2287,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             flexShrink: 0,
           }}
         >
-          <div style={{ fontSize: '12px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: '11px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
             <span>Viewing Reference:</span>
             <span
               style={{
                 fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                fontSize: '12px',
+                fontSize: '11px',
                 fontWeight: 600,
                 backgroundColor: '#f1f5f9',
                 color: '#334155',
-                padding: '2px 8px',
+                padding: '2px 6px',
                 borderRadius: '4px',
                 border: '1px solid #e2e8f0',
               }}
@@ -2287,17 +2307,18 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             <span>Locality: <strong style={{ color: '#0f172a' }}>{booking.customerLocality}</strong></span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <button
               onClick={onClose}
               data-testid="bottom-close-button"
               style={{
-                padding: '7px 18px',
+                padding: '4px 14px',
+                height: '28px',
                 backgroundColor: '#ffffff',
                 border: '1px solid #cbd5e1',
-                borderRadius: '8px',
+                borderRadius: '6px',
                 color: '#334155',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 600,
                 cursor: 'pointer',
               }}

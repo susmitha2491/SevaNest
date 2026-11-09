@@ -12,13 +12,16 @@ export interface StatusDescriptor {
  */
 export const STATUS_MAPPINGS: Record<string, StatusDescriptor> = {
   // Verification Domain & Application Statuses
+  PENDING: { label: 'Pending', variant: 'neutral' },
   PENDING_REVIEW: { label: 'Pending review', variant: 'warning' },
   SUBMITTED: { label: 'Submitted', variant: 'warning' },
   IN_REVIEW: { label: 'In review', variant: 'info' },
   UNDER_REVIEW: { label: 'In review', variant: 'info' },
   ACTION_REQUIRED: { label: 'Action required', variant: 'warning' },
   CORRECTIONS_REQUIRED: { label: 'Action required', variant: 'warning' },
+  REQUIRES_CORRECTION: { label: 'Requires correction', variant: 'warning' },
   VERIFIED: { label: 'Verified', variant: 'success' },
+  PASSED: { label: 'Passed', variant: 'success' },
   DRAFT: { label: 'Draft', variant: 'neutral' },
   NOT_SUBMITTED: { label: 'Not submitted', variant: 'neutral' },
   APPROVED: { label: 'Approved', variant: 'success' },
@@ -63,6 +66,9 @@ export const STATUS_MAPPINGS: Record<string, StatusDescriptor> = {
 };
 
 export function getStatusDescriptor(statusKey: string): StatusDescriptor {
+  if (!statusKey) {
+    return { label: 'Unknown', variant: 'neutral' };
+  }
   const normalized = statusKey.toUpperCase().replace(/[\s/-]+/g, '_');
   return (
     STATUS_MAPPINGS[normalized] || {

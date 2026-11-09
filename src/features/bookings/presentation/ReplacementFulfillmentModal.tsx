@@ -12,7 +12,12 @@ import {
   XCircle,
   Calendar,
 } from 'lucide-react';
-import { BookingDetail, CandidateMatch } from '../domain/types';
+import {
+  BookingDetail,
+  CandidateMatch,
+  REPLACEMENT_REASONS,
+  ReplacementReasonCode,
+} from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 
 interface ReplacementFulfillmentModalProps {
@@ -40,17 +45,19 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
   const [trialDuration, setTrialDuration] = useState(2);
   const [trialNotes, setTrialNotes] = useState('');
 
+  const [decisionMessage, setDecisionMessage] = useState('');
+
   const effectiveReplacement = booking?.replacement || (booking?.status === 'REPLACEMENT_REQUESTED' ? {
-    id: booking?.id,
-    bookingId: booking?.id,
-    requestedAt: booking?.createdAt || 'Recent Request',
-    reasonCategory: 'Service Expectation Mismatch',
-    customerExplanation: 'Customer requested domestic worker replacement under placement guarantee.',
-    eligibleUnderPolicy: true,
-    coveragePlanName: '30-Day Placement Guarantee',
+    id: booking?.id || '',
+    bookingId: booking?.id || '',
+    status: 'REQUESTED' as const,
+    reasonCode: 'OTHER' as ReplacementReasonCode,
+    reason: 'Customer requested replacement',
+    notes: null,
+    requestedAt: booking?.createdAt || '',
     priorWorkerId: booking?.assignedWorkerId || '',
     priorWorkerName: booking?.assignedWorkerName || 'Prior Worker',
-    status: 'REQUESTED' as const,
+    currentWorkerId: booking?.assignedWorkerId || '',
   } : undefined);
 
   const [currentStatus, setCurrentStatus] = useState<string>(() => effectiveReplacement?.status || 'REQUESTED');
@@ -63,7 +70,7 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
 
   const replacementId = effectiveReplacement?.id || booking?.id || '';
 
-  // Query candidate matches when request is approved or pending rematch
+  // Query candidate matches when request is approved or review active
   const { data: candidates, isLoading: isCandidatesLoading } = useQuery({
     queryKey: ['bookings', 'replacement-candidates', replacementId],
     queryFn: async () => {
@@ -73,7 +80,7 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
       }
       return bookingRepository.getCandidateSuggestions(booking?.id || '');
     },
-    enabled: !!booking && isOpen && (currentStatus === 'APPROVED' || currentStatus === 'PENDING_REMATCH' || currentStatus === 'REQUESTED'),
+    enabled: !!booking && isOpen && (currentStatus === 'APPROVED' || currentStatus === 'REQUESTED'),
   });
 
   // Approve eligibility mutation (REQUESTED -> APPROVED)
@@ -81,10 +88,19 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
     mutationFn: async () => {
       if (!booking) return;
       if (bookingRepository.approveReplacement) {
-        await bookingRepository.approveReplacement(
-          replacementId,
-          remarks || 'Replacement eligibility verified and approved by Operations Admin'
-        );
+        const approvalRemarks = remarks.trim() || 'Replacement eligibility verified and approved by Operations Admin';
+        if (decisionMessage.trim()) {
+          await bookingRepository.approveReplacement(
+            replacementId,
+            approvalRemarks,
+            decisionMessage.trim()
+          );
+        } else {
+          await bookingRepository.approveReplacement(
+            replacementId,
+            approvalRemarks
+          );
+        }
       }
     },
     onSuccess: () => {
@@ -101,7 +117,18 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
     mutationFn: async () => {
       if (!booking || !rejectRemarks.trim()) return;
       if (bookingRepository.rejectReplacement) {
-        await bookingRepository.rejectReplacement(replacementId, rejectRemarks.trim());
+        if (decisionMessage.trim()) {
+          await bookingRepository.rejectReplacement(
+            replacementId,
+            rejectRemarks.trim(),
+            decisionMessage.trim()
+          );
+        } else {
+          await bookingRepository.rejectReplacement(
+            replacementId,
+            rejectRemarks.trim()
+          );
+        }
       }
     },
     onSuccess: () => {
@@ -129,9 +156,6 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
         trialFeeAmount: 0,
         notes: trialNotes || 'Replacement candidate trial coordinated with customer',
       });
-      if (booking.replacement) {
-        booking.replacement.status = 'TRIAL_SCHEDULED';
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
@@ -159,9 +183,9 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      setCurrentStatus('FULFILLED');
+      setCurrentStatus('COMPLETED');
       if (booking && booking.replacement) {
-        booking.replacement.status = 'FULFILLED';
+        booking.replacement.status = 'COMPLETED';
         booking.replacement.replacementWorkerId = selectedCandidate?.workerId;
         booking.replacement.replacementWorkerName = selectedCandidate?.workerName;
       }
@@ -172,8 +196,8 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
 
   if (!isOpen || !booking || !effectiveReplacement) return null;
 
-  const isApprovedStage = currentStatus === 'APPROVED' || currentStatus === 'PENDING_REMATCH';
-  const isFulfilled = currentStatus === 'FULFILLED' || currentStatus === 'COMPLETED';
+  const isApprovedStage = currentStatus === 'APPROVED';
+  const isFulfilled = currentStatus === 'COMPLETED';
   const isRejected = currentStatus === 'REJECTED';
 
   return (
@@ -312,27 +336,45 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
               <strong style={{ color: 'var(--color-warning-dark)', fontSize: 'var(--font-size-sm)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                 <RefreshCw size={14} /> Replacement Dispute & Coverage Breakdown
               </strong>
-              <span style={{ color: 'var(--color-status-success-text)', fontWeight: 700 }}>
-                ✓ {effectiveReplacement.coveragePlanName}
-              </span>
+              {effectiveReplacement.coveragePlanName ? (
+                <span style={{ color: 'var(--color-status-success-text)', fontWeight: 700 }}>
+                  ✓ {effectiveReplacement.coveragePlanName}
+                </span>
+              ) : effectiveReplacement.id ? (
+                <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace', fontWeight: 600 }}>
+                  Case Ref: {effectiveReplacement.id}
+                </span>
+              ) : null}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-2)', marginTop: '4px' }}>
               <div>
-                <strong>Prior Domestic Worker:</strong> {effectiveReplacement.priorWorkerName} ({effectiveReplacement.priorWorkerId})
+                <strong>Prior Domestic Worker:</strong> {effectiveReplacement.priorWorkerName || effectiveReplacement.priorWorkerId || 'Unassigned'} {effectiveReplacement.priorWorkerId ? `(${effectiveReplacement.priorWorkerId})` : ''}
               </div>
               <div>
-                <strong>Request Date:</strong> {effectiveReplacement.requestedAt}
+                <strong>Request Date:</strong> {effectiveReplacement.requestedAt || 'Recent'}
               </div>
               <div>
-                <strong>Reason Category:</strong> {effectiveReplacement.reasonCategory}
+                <strong>Reason Category:</strong> {(effectiveReplacement.reasonCode && REPLACEMENT_REASONS[effectiveReplacement.reasonCode]) || effectiveReplacement.reasonCode || effectiveReplacement.reasonCategory || 'Dispute'}
               </div>
               <div>
                 <strong>Customer Contact:</strong> {booking.customerPhoneMasked}
               </div>
+              {effectiveReplacement.neededFrom && (
+                <div>
+                  <strong>Needed From:</strong> {effectiveReplacement.neededFrom}
+                </div>
+              )}
             </div>
-            <div style={{ marginTop: '2px' }}>
-              <strong>Customer Explanation:</strong> {effectiveReplacement.customerExplanation}
-            </div>
+            {(effectiveReplacement.reason || effectiveReplacement.customerExplanation) && (
+              <div style={{ marginTop: '2px' }}>
+                <strong>Customer Stated Reason:</strong> {effectiveReplacement.reason || effectiveReplacement.customerExplanation}
+              </div>
+            )}
+            {effectiveReplacement.notes && (
+              <div style={{ marginTop: '2px', padding: '6px 10px', backgroundColor: '#ffffff', borderRadius: 'var(--radius-md)', border: '1px solid #fde68a' }}>
+                <strong>Customer Notes:</strong> {effectiveReplacement.notes}
+              </div>
+            )}
           </div>
 
           {/* STAGE 1: Pending Review (Accept / Reject) */}
@@ -355,20 +397,41 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                 </h3>
               </div>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0 }}>
-                Operations Admin must review eligibility under the 30-Day Placement Guarantee. Accepting the request moves it to the worker selection stage. Rejecting returns the booking to Active status with the current worker.
+                Operations Admin must review eligibility according to placement terms. Approving the request enables verified worker selection. Rejecting closes the replacement request.
               </p>
 
               {!isRejecting ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                      Approval Remarks (Optional):
+                      Internal Staff Remarks (Optional, max 1000 chars):
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Verified policy eligibility within 30-day placement window"
+                      maxLength={1000}
+                      placeholder="e.g. Verified policy eligibility and customer engagement timeline"
                       value={remarks}
                       onChange={(e) => setRemarks(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Customer-Facing Decision Message (Optional, max 1000 chars):
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={1000}
+                      placeholder="Message visible to the customer explaining the approval outcome"
+                      value={decisionMessage}
+                      onChange={(e) => setDecisionMessage(e.target.value)}
                       style={{
                         width: '100%',
                         padding: '6px 10px',
@@ -434,10 +497,11 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                   }}
                 >
                   <strong style={{ color: 'var(--color-error-dark)', fontSize: 'var(--font-size-xs)' }}>
-                    Reject Replacement Request (Mandatory Reason Required by Backend):
+                    Reject Replacement Request (Mandatory Remarks Required by Backend, max 1000 chars):
                   </strong>
                   <textarea
                     rows={2}
+                    maxLength={1000}
                     placeholder="Provide specific justification for rejection under replacement policy..."
                     value={rejectRemarks}
                     onChange={(e) => setRejectRemarks(e.target.value)}
@@ -450,6 +514,25 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                       fontFamily: 'inherit',
                     }}
                   />
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Customer-Facing Rejection Explanation (Optional, max 1000 chars):
+                    </label>
+                    <input
+                      type="text"
+                      maxLength={1000}
+                      placeholder="Explanation visible to the customer regarding the rejection"
+                      value={decisionMessage}
+                      onChange={(e) => setDecisionMessage(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    />
+                  </div>
                   <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
                     <button
                       onClick={() => setIsRejecting(false)}
@@ -539,12 +622,28 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
 
                         <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Star size={12} fill="#eab308" color="#eab308" />
-                            <strong>{cand.ratingAverage}</strong> ({cand.experienceYears} Yrs Exp)
+                            {cand.ratingAverage !== undefined && cand.ratingAverage !== null && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', color: '#b45309' }}>
+                                <Star size={12} fill="#eab308" color="#eab308" />
+                                <strong>{cand.ratingAverage.toFixed(1)}</strong> •
+                              </span>
+                            )}
+                            <span>
+                              {cand.experienceMonths !== undefined && cand.experienceMonths !== null
+                                ? `${Math.floor(cand.experienceMonths / 12)} Yrs${cand.experienceMonths % 12 ? ' ' + (cand.experienceMonths % 12) + ' Mos' : ''} Exp`
+                                : `${cand.experienceYears} Yrs Exp`}
+                            </span>
                           </div>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <MapPin size={12} /> {cand.locality}
-                          </div>
+                          {cand.locality && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <MapPin size={12} /> {cand.locality}
+                            </div>
+                          )}
+                          {cand.engagementPreference && (
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                              Preference: {cand.engagementPreference.replace(/_/g, ' ')}
+                            </div>
+                          )}
                           {cand.languages && cand.languages.length > 0 && (
                             <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
                               Languages: {cand.languages.join(', ')}

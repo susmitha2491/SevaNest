@@ -250,24 +250,32 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                               {cand.workerId}
                             </div>
                           </div>
-                          <span
-                            style={{
-                              padding: '2px 6px',
-                              backgroundColor: 'var(--color-status-success-bg)',
-                              color: 'var(--color-status-success-text)',
-                              borderRadius: 'var(--radius-full)',
-                              fontSize: '10px',
-                              fontWeight: 700,
-                            }}
-                          >
-                            {cand.matchScore}% Match
-                          </span>
+                          {cand.matchScore !== undefined && cand.matchScore !== null && (
+                            <span
+                              style={{
+                                padding: '2px 6px',
+                                backgroundColor: 'var(--color-status-success-bg)',
+                                color: 'var(--color-status-success-text)',
+                                borderRadius: 'var(--radius-full)',
+                                fontSize: '10px',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {cand.matchScore}% Match
+                            </span>
+                          )}
                         </div>
 
                         <div style={{ marginTop: 'var(--space-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Star size={12} fill="#eab308" color="#eab308" />
-                            <strong>{cand.ratingAverage}</strong> ({cand.totalReviews} reviews) • {cand.experienceYears} Yrs Exp
+                            {cand.ratingAverage !== undefined && cand.ratingAverage !== null && (
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                                <Star size={12} fill="#eab308" color="#eab308" />
+                                <strong>{cand.ratingAverage}</strong>
+                                {cand.totalReviews !== undefined && ` (${cand.totalReviews} reviews)`} •
+                              </span>
+                            )}
+                            <span>{cand.experienceYears} Yrs Exp</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <MapPin size={12} /> {cand.locality}

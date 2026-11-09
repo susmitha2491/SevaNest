@@ -13,7 +13,8 @@ import {
 import { SupportTicketDetail, TicketCaseNote } from '../domain/types';
 import { supportRepository } from '../data/supportRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
-
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 
 interface TicketDetailModalProps {
@@ -34,6 +35,8 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onOpenReplacement,
 }) => {
   const queryClient = useQueryClient();
+  const user = useAuthStore((s) => s.user);
+  const canManage = hasPermission(user?.permissions, PERMISSIONS.SUPPORT_MANAGE);
 
   const [newNoteText, setNewNoteText] = useState('');
   const [newNoteType, setNewNoteType] = useState<TicketCaseNote['noteType']>('TELEPHONIC_LOG');
@@ -170,7 +173,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   <select
                     id="ticket-priority-select"
                     value={ticket.priority === 'CRITICAL' ? 'HIGH' : ticket.priority}
-                    disabled={priorityMutation.isPending}
+                    disabled={!canManage || priorityMutation.isPending}
                     onChange={(e) => {
                       const val = e.target.value as 'LOW' | 'MEDIUM' | 'HIGH';
                       priorityMutation.mutate(val);
@@ -189,7 +192,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                           ? 'var(--color-error-dark)'
                           : 'var(--color-brand-700)',
                       border: '1px solid var(--color-border)',
-                      cursor: 'pointer',
+                      cursor: canManage ? 'pointer' : 'default',
                     }}
                   >
                     <option value="LOW">LOW</option>
@@ -377,7 +380,9 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
               <div style={{ fontWeight: 700, color: 'var(--color-brand-700)', fontFamily: 'monospace', marginTop: '2px' }}>
                 {ticket.bookingRef || 'General Account Inquiry'}
               </div>
-              <div style={{ color: 'var(--color-text-secondary)' }}>Dispute: {ticket.disputeCategory.replace(/_/g, ' ')}</div>
+              <div style={{ color: 'var(--color-text-secondary)' }}>
+                Dispute: {(ticket.disputeCategory || (ticket as { category?: string }).category || 'DISPUTE').replace(/_/g, ' ')}
+              </div>
             </div>
           </div>
 
@@ -434,7 +439,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           </div>
 
           {/* Add New Case Note Form */}
-          {ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && (
+          {ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && canManage && (
             <div
               style={{
                 padding: 'var(--space-4)',
@@ -519,7 +524,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
         >
           {/* Action CTAs */}
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            {(!ticket.assignedToStaffName || ticket.status === 'CREATED') && (
+            {canManage && (!ticket.assignedToStaffName || ticket.status === 'CREATED') && (
               <button
                 onClick={() => claimMutation.mutate()}
                 style={{
@@ -537,7 +542,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
               </button>
             )}
 
-            {ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && (
+            {canManage && ticket.status !== 'RESOLVED' && ticket.status !== 'CLOSED' && (
               <>
                 {onOpenResolve && (
                   <button

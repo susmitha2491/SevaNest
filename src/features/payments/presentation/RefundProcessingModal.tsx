@@ -25,11 +25,10 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   const { user } = useAuthStore();
   const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
 
-  const [refundScope, setRefundScope] = useState<'FULL' | 'PARTIAL'>('FULL');
-  const [partialAmount, setPartialAmount] = useState<number>(transaction?.amountINR || 0);
   const [reasonCategory, setReasonCategory] = useState<RefundReasonCategory>('UNSATISFACTORY_TRIAL');
   const [remarks, setRemarks] = useState('');
   const [confirmedPolicy, setConfirmedPolicy] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const idempotencyKey = React.useMemo(
     () => (transaction ? `idem_${transaction.id}_${Date.now()}` : ''),
@@ -39,12 +38,13 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   const refundMutation = useMutation({
     mutationFn: async () => {
       if (!transaction || !canRefund) return;
-      const finalAmount = refundScope === 'FULL' ? transaction.amountINR : partialAmount;
+      setErrorMessage(null);
+      // Strictly full-refund per backend contract specification: POST /api/v1/admin/payments/{id}/refund
       await paymentRepository.processRefund(
         transaction.id,
-        finalAmount,
+        transaction.amountINR,
         reasonCategory,
-        remarks || 'Refund processed under commercial policy guidelines.',
+        remarks.trim() || 'Full refund authorized by administrator.',
         idempotencyKey
       );
     },
@@ -53,11 +53,15 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
       if (onRefundCompleted) onRefundCompleted();
       onClose();
     },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Gateway refund processing failed.';
+      setErrorMessage(msg);
+    },
   });
 
   if (!isOpen || !transaction) return null;
 
-  const currentRefundAmount = refundScope === 'FULL' ? transaction.amountINR : partialAmount;
+  const currentRefundAmount = transaction.amountINR;
   const isSubmitDisabled = !canRefund || !confirmedPolicy || !remarks.trim() || currentRefundAmount <= 0 || refundMutation.isPending;
 
   return (
@@ -155,85 +159,43 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             </div>
           </div>
 
-          {/* Refund Scope */}
-          <div>
-            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)', textTransform: 'uppercase' }}>
-              Refund Scope:
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-2)',
-                  padding: 'var(--space-3)',
-                  borderRadius: 'var(--radius-md)',
-                  border: refundScope === 'FULL' ? '2px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                  backgroundColor: refundScope === 'FULL' ? 'var(--color-brand-50)' : 'var(--color-surface)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--font-size-xs)',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="refundScope"
-                  checked={refundScope === 'FULL'}
-                  onChange={() => setRefundScope('FULL')}
-                />
-                <div>
-                  <div style={{ fontWeight: 700 }}>Full Reimbursement</div>
-                  <div style={{ color: 'var(--color-text-secondary)' }}>{formatCurrencyINR(transaction.amountINR)}</div>
-                </div>
-              </label>
-
-              <label
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 'var(--space-2)',
-                  padding: 'var(--space-3)',
-                  borderRadius: 'var(--radius-md)',
-                  border: refundScope === 'PARTIAL' ? '2px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                  backgroundColor: refundScope === 'PARTIAL' ? 'var(--color-brand-50)' : 'var(--color-surface)',
-                  cursor: 'pointer',
-                  fontSize: 'var(--font-size-xs)',
-                }}
-              >
-                <input
-                  type="radio"
-                  name="refundScope"
-                  checked={refundScope === 'PARTIAL'}
-                  onChange={() => setRefundScope('PARTIAL')}
-                />
-                <div>
-                  <div style={{ fontWeight: 700 }}>Partial Reimbursement</div>
-                  <div style={{ color: 'var(--color-text-secondary)' }}>Custom Amount (INR)</div>
-                </div>
-              </label>
-            </div>
-          </div>
-
-          {refundScope === 'PARTIAL' && (
-            <div>
-              <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                Enter Partial Refund Amount (INR):
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={transaction.amountINR}
-                value={partialAmount}
-                onChange={(e) => setPartialAmount(Math.min(Number(e.target.value), transaction.amountINR))}
-                style={{
-                  width: '100%',
-                  padding: 'var(--space-2)',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-xs)',
-                }}
-              />
+          {errorMessage && (
+            <div
+              data-testid="refund-error-alert"
+              style={{
+                padding: 'var(--space-3)',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                border: '1px solid var(--color-status-danger-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--color-status-danger-text)',
+                fontSize: 'var(--font-size-xs)',
+              }}
+            >
+              <strong>Gateway Refund Failed:</strong> {errorMessage}
             </div>
           )}
+
+          {/* Full Refund Specification Card */}
+          <div
+            style={{
+              padding: 'var(--space-3) var(--space-4)',
+              backgroundColor: '#eff6ff',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid #bfdbfe',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: 'var(--font-size-xs)',
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700, color: '#1e40af' }}>Full Payment Reimbursement (100%)</div>
+              <div style={{ color: '#3b82f6' }}>Backend executes complete payment reversal via connected gateway</div>
+            </div>
+            <strong style={{ fontSize: 'var(--font-size-md)', color: '#1d4ed8' }}>
+              {formatCurrencyINR(transaction.amountINR)}
+            </strong>
+          </div>
 
           {/* Reason Category Dropdown */}
           <div>
@@ -267,7 +229,8 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             </label>
             <textarea
               rows={3}
-              placeholder="Enter comprehensive operational justification for platform audit logs and finance records..."
+              maxLength={1000}
+              placeholder="Enter comprehensive operational justification (max 1000 characters per backend contract)..."
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               style={{

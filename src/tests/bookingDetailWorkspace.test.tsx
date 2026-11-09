@@ -68,6 +68,7 @@ const mockFullBooking: BookingDetail = {
     bookingId: 'B-90210',
     requestedAt: '2026-10-25T14:20:00.000Z',
     reasonCategory: 'Schedule & Relocation',
+    reason: 'Family relocated to another floor; schedule adjustment required.',
     customerExplanation: 'Family relocated to another floor; schedule adjustment required.',
     eligibleUnderPolicy: true,
     coveragePlanName: '30-Day Placement Guarantee',
@@ -211,15 +212,42 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   });
 
   describe('Section 5: Customer and Worker Communication History', () => {
-    it('renders communication history with interaction events and authoritative contract notice', () => {
+    it('displays fallback message when no communication history exists and never shows technical notices', () => {
       renderWithProviders(
         <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
       );
 
       expect(screen.getByRole('heading', { name: /Customer and Worker Communication History/i })).toBeInTheDocument();
-      expect(screen.getByText(/Authoritative Backend Data & Telephony Contract Notice/i)).toBeInTheDocument();
-      expect(screen.getByText(/GET \/api\/v1\/admin\/bookings\/\{bookingId\}\/communications/)).toBeInTheDocument();
-      expect(screen.getByText(/Initial Service Requirement & Specifications/i)).toBeInTheDocument();
+      expect(screen.getByText(/No communication history available for this booking\./i)).toBeInTheDocument();
+      expect(screen.queryByText(/Authoritative Backend Data & Telephony Contract Notice/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/GET \/api\/v1\/admin\/bookings\/\{bookingId\}\/communications/)).not.toBeInTheDocument();
+    });
+
+    it('displays genuine communication records with IST timestamps when returned by backend', () => {
+      const bookingWithComms: BookingDetail = {
+        ...mockFullBooking,
+        communications: [
+          {
+            id: 'comm-genuine-1',
+            timestamp: '2026-11-07T11:00:00.000Z',
+            channel: 'CUSTOMER_PORTAL',
+            senderRole: 'CUSTOMER',
+            title: 'Schedule Change Request',
+            outcome: 'Logged',
+            remarks: 'Customer requested 30-minute shift delay.',
+          },
+        ],
+      };
+
+      renderWithProviders(
+        <BookingDetailModal booking={bookingWithComms} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(screen.getByText('Schedule Change Request')).toBeInTheDocument();
+      expect(screen.getByText('Customer requested 30-minute shift delay.')).toBeInTheDocument();
+      expect(screen.getByText(/07 Nov 2026, 04:30 PM IST/i)).toBeInTheDocument();
+      expect(screen.queryByText(/No communication history available for this booking\./i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/GET \/api\/v1\/admin/)).not.toBeInTheDocument();
     });
   });
 
@@ -257,8 +285,8 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
       );
 
       expect(screen.getByRole('heading', { name: /Placement Replacement History/i })).toBeInTheDocument();
-      expect(screen.getByText(/Active Replacement Case: REP-90210/i)).toBeInTheDocument();
-      expect(screen.getByText(/30-Day Placement Guarantee/i)).toBeInTheDocument();
+      expect(screen.getByText(/REP-90210/i)).toBeInTheDocument();
+      expect(screen.getByText(/Schedule & Relocation/i)).toBeInTheDocument();
       expect(screen.getByText(/Family relocated to another floor; schedule adjustment required./i)).toBeInTheDocument();
     });
   });

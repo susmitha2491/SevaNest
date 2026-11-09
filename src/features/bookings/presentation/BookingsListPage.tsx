@@ -17,7 +17,8 @@ import {
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
-import { BookingDetail } from '../domain/types';
+import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
+import { BookingDetail, REPLACEMENT_REASONS } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -77,6 +78,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
         pageSize: 6,
       }),
     enabled: canView,
+    staleTime: 30000,
   });
 
   // Confirm booking mutation (activates service)
@@ -393,6 +395,16 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                         <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
                           {booking.id}
                         </span>
+                        {booking.replacesBookingId && (
+                          <div style={{ fontSize: '10px', color: '#1e40af', backgroundColor: '#eff6ff', padding: '1px 5px', borderRadius: '4px', marginTop: '3px', display: 'inline-flex', alignItems: 'center', gap: '3px', border: '1px solid #bfdbfe' }}>
+                            <RefreshCw size={9} /> Replaces: {booking.replacesBookingId}
+                          </div>
+                        )}
+                        {booking.replacement?.replacementBookingId && (
+                          <div style={{ fontSize: '10px', color: '#0f766e', backgroundColor: '#f0fdfa', padding: '1px 5px', borderRadius: '4px', marginTop: '3px', display: 'inline-flex', alignItems: 'center', gap: '3px', border: '1px solid #99f6e4' }}>
+                            <RefreshCw size={9} /> Replaced: {booking.replacement.replacementBookingId}
+                          </div>
+                        )}
                         {isReplacementTab && booking.replacement?.id && (
                           <div style={{ fontSize: '10px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
                             Req: {booking.replacement.id}
@@ -437,12 +449,16 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                         {isReplacementTab ? (
                           <div>
                             <div style={{ fontWeight: 600, color: 'var(--color-warning-dark)' }}>
-                              {booking.replacement?.reasonCategory || 'Service Expectation Mismatch'}
+                              {(booking.replacement?.reasonCode && REPLACEMENT_REASONS[booking.replacement.reasonCode]) ||
+                                booking.replacement?.reasonCode ||
+                                booking.replacement?.reasonCategory ||
+                                booking.replacement?.reason ||
+                                'Replacement Request'}
                             </div>
                             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                              Requested: {booking.replacement?.requestedAt || booking.createdAt}
+                              Requested: {formatDateTimeIST(booking.replacement?.createdAt || booking.replacement?.requestedAt || booking.createdAt)}
                             </div>
-                            {booking.replacement?.customerExplanation && (
+                            {(booking.replacement?.notes || booking.replacement?.reason) && (
                               <div
                                 style={{
                                   fontSize: '11px',
@@ -452,9 +468,9 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
                                 }}
-                                title={booking.replacement.customerExplanation}
+                                title={booking.replacement.notes ? `${booking.replacement.reason} — ${booking.replacement.notes}` : booking.replacement.reason}
                               >
-                                &ldquo;{booking.replacement.customerExplanation}&rdquo;
+                                &ldquo;{booking.replacement.notes ? `${booking.replacement.reason} — ${booking.replacement.notes}` : booking.replacement.reason}&rdquo;
                               </div>
                             )}
                           </div>
