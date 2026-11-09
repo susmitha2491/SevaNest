@@ -17,6 +17,9 @@ import { dashboardRepository } from '../data/dashboardRepository';
 import { KPICard } from '../../../shared/components/KPICard/KPICard';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 
 export type SupportDashboardTab =
   | 'ALL'
@@ -39,11 +42,14 @@ const TABS: { key: SupportDashboardTab; label: string }[] = [
 
 export const SupportExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const canViewDashboard = hasPermission(user?.permissions, PERMISSIONS.DASHBOARD_VIEW);
   const [activeTab, setActiveTab] = useState<SupportDashboardTab>('AT_RISK');
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['dashboard', 'support-exec'],
     queryFn: () => dashboardRepository.getSupportExecutiveDashboard(),
+    enabled: canViewDashboard,
   });
 
   const handleKpiCardClick = (targetTab: SupportDashboardTab) => {
@@ -149,6 +155,10 @@ export const SupportExecutiveDashboard: React.FC = () => {
         return queues.AT_RISK || [];
     }
   }, [queues, activeTab]);
+
+  if (!canViewDashboard) {
+    return <NoAccessView moduleName="Support Executive Dashboard" requiredPermission={PERMISSIONS.DASHBOARD_VIEW} />;
+  }
 
   if (isLoading) {
     return <LoadingSpinner message="Loading Support Operations Console..." />;

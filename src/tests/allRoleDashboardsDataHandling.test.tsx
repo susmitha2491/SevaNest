@@ -12,6 +12,8 @@ import {
 } from '../features/dashboard/data/dashboardRepository';
 import { httpClient } from '../core/api/httpClient';
 import { ServerFailureError } from '../core/errors/DomainError';
+import { useAuthStore } from '../core/auth/authStore';
+import { PERMISSIONS } from '../core/rbac/permissions';
 
 function renderWithClient(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -222,6 +224,20 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
   });
 
   describe('Support Executive Dashboard Data Handling', () => {
+    beforeEach(() => {
+      useAuthStore.setState({
+        user: {
+          id: 'supp-01',
+          name: 'Support Executive',
+          email: 'support@sevanest.in',
+          role: 'SUPPORT_EXECUTIVE',
+          permissions: [PERMISSIONS.DASHBOARD_VIEW, PERMISSIONS.SUPPORT_VIEW],
+        },
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+    });
+
     const validSupportResponse = {
       data: {
         success: true,

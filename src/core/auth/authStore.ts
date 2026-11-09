@@ -86,6 +86,13 @@ export const useAuthStore = create<AuthState>((set) => ({
             // Storage access exception
           }
         });
+        if (window.history?.replaceState && window.history.state) {
+          try {
+            window.history.replaceState(null, document.title);
+          } catch {
+            // Storage access exception
+          }
+        }
       }
     } catch {
       // Storage access exception

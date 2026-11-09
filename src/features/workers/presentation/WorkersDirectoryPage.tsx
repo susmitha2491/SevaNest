@@ -20,6 +20,9 @@ import { WorkerDirectoryModal } from './WorkerDirectoryModal';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 
 const CATEGORY_OPTIONS = [
   { value: 'ALL', label: 'All Skill Categories' },
@@ -33,6 +36,8 @@ const CATEGORY_OPTIONS = [
 
 export const WorkersDirectoryPage: React.FC = () => {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
@@ -61,6 +66,7 @@ export const WorkersDirectoryPage: React.FC = () => {
         pageSize
       );
     },
+    enabled: canView,
     staleTime: 30 * 1000,
   });
 
@@ -87,6 +93,10 @@ export const WorkersDirectoryPage: React.FC = () => {
   const total = pageResult?.total !== undefined && pageResult.total === (pageResult?.items?.length ?? 0)
     ? workers.length
     : (pageResult?.total ?? workers.length);
+
+  if (!canView) {
+    return <NoAccessView moduleName="Workers Directory" requiredPermission={PERMISSIONS.WORKER_VIEW} />;
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', maxWidth: '1400px', margin: '0 auto' }}>

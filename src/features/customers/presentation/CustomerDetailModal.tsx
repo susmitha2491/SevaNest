@@ -27,12 +27,14 @@ interface CustomerDetailModalProps {
   customerId: string;
   onClose: () => void;
   onStatusChanged?: () => void;
+  readOnly?: boolean;
 }
 
 export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   customerId,
   onClose,
   onStatusChanged,
+  readOnly = false,
 }) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -714,67 +716,69 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                 )}
               </div>
 
-              {/* Add Note Form */}
-              <div
-                style={{
-                  padding: 'var(--space-4)',
-                  backgroundColor: 'var(--color-bg-subtle)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border-subtle)',
-                }}
-              >
-                <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 'var(--space-2)' }}>
-                  Record New Operational Note
-                </h4>
-                <form onSubmit={handleAddNote} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                  <textarea
-                    rows={3}
-                    placeholder="Enter operational note, customer feedback, or case update..."
-                    value={newNoteText}
-                    onChange={(e) => setNewNoteText(e.target.value)}
-                    aria-label="New operational note text"
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-border-subtle)',
-                      backgroundColor: 'var(--color-surface)',
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--color-text-primary)',
-                      resize: 'vertical',
-                    }}
-                  />
-                  {noteError && (
-                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-status-danger-text)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <AlertCircle size={12} />
-                      <span>{noteError}</span>
-                    </div>
-                  )}
-                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                    <button
-                      type="submit"
-                      disabled={isSavingNote || !newNoteText.trim()}
+              {/* Add Note Form (hidden in read-only mode) */}
+              {!readOnly && (
+                <div
+                  style={{
+                    padding: 'var(--space-4)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    borderRadius: 'var(--radius-lg)',
+                    border: '1px solid var(--color-border-subtle)',
+                  }}
+                >
+                  <h4 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', marginBottom: 'var(--space-2)' }}>
+                    Record New Operational Note
+                  </h4>
+                  <form onSubmit={handleAddNote} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+                    <textarea
+                      rows={3}
+                      placeholder="Enter operational note, customer feedback, or case update..."
+                      value={newNoteText}
+                      onChange={(e) => setNewNoteText(e.target.value)}
+                      aria-label="New operational note text"
                       style={{
-                        padding: '6px 14px',
+                        width: '100%',
+                        padding: '8px 12px',
                         borderRadius: 'var(--radius-md)',
-                        backgroundColor: 'var(--color-brand-600, var(--color-primary))',
-                        color: '#ffffff',
-                        border: 'none',
+                        border: '1px solid var(--color-border-subtle)',
+                        backgroundColor: 'var(--color-surface)',
                         fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
-                        cursor: isSavingNote || !newNoteText.trim() ? 'not-allowed' : 'pointer',
-                        opacity: isSavingNote || !newNoteText.trim() ? 0.6 : 1,
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px',
+                        color: 'var(--color-text-primary)',
+                        resize: 'vertical',
                       }}
-                    >
-                      <Send size={12} />
-                      <span>{isSavingNote ? 'Saving...' : 'Save Note'}</span>
-                    </button>
-                  </div>
-                </form>
-              </div>
+                    />
+                    {noteError && (
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-status-danger-text)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <AlertCircle size={12} />
+                        <span>{noteError}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="submit"
+                        disabled={isSavingNote || !newNoteText.trim()}
+                        style={{
+                          padding: '6px 14px',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-brand-600, var(--color-primary))',
+                          color: '#ffffff',
+                          border: 'none',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: isSavingNote || !newNoteText.trim() ? 'not-allowed' : 'pointer',
+                          opacity: isSavingNote || !newNoteText.trim() ? 0.6 : 1,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <Send size={12} />
+                        <span>{isSavingNote ? 'Saving...' : 'Save Note'}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -790,54 +794,58 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
             alignItems: 'center',
           }}
         >
-          <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
-            {customer.status === 'ACTIVE' ? (
-              <button
-                onClick={() => setIsSuspendOpen(true)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-status-danger-bg)',
-                  color: 'var(--color-status-danger-text)',
-                  border: '1px solid var(--color-status-danger-text)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <ShieldAlert size={14} />
-                <span>Suspend Customer Account</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setActionError(null);
-                  setIsActivateOpen(true);
-                }}
-                disabled={isActionLoading}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-status-success-bg)',
-                  color: 'var(--color-status-success-text)',
-                  border: '1px solid var(--color-status-success-text)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 600,
-                  cursor: isActionLoading ? 'not-allowed' : 'pointer',
-                  opacity: isActionLoading ? 0.6 : 1,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <CheckCircle size={14} />
-                <span>Unsuspend Account</span>
-              </button>
-            )}
-          </PermissionGate>
+          {!readOnly ? (
+            <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
+              {customer.status === 'ACTIVE' ? (
+                <button
+                  onClick={() => setIsSuspendOpen(true)}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-status-danger-bg)',
+                    color: 'var(--color-status-danger-text)',
+                    border: '1px solid var(--color-status-danger-text)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <ShieldAlert size={14} />
+                  <span>Suspend Customer Account</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    setActionError(null);
+                    setIsActivateOpen(true);
+                  }}
+                  disabled={isActionLoading}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-status-success-bg)',
+                    color: 'var(--color-status-success-text)',
+                    border: '1px solid var(--color-status-success-text)',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 600,
+                    cursor: isActionLoading ? 'not-allowed' : 'pointer',
+                    opacity: isActionLoading ? 0.6 : 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <CheckCircle size={14} />
+                  <span>Unsuspend Account</span>
+                </button>
+              )}
+            </PermissionGate>
+          ) : (
+            <div />
+          )}
 
           <button
             onClick={onClose}

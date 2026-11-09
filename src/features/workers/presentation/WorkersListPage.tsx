@@ -20,11 +20,16 @@ import { Worker, WorkerFilterCriteria } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { WorkerDetailModal } from './WorkerDetailModal';
 
 export const WorkersListPage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || 'ALL');
   const [verificationFilter, setVerificationFilter] = useState<
@@ -153,6 +158,7 @@ export const WorkersListPage: React.FC = () => {
     initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     placeholderData: keepPreviousData,
+    enabled: canView,
     retry: false,
   });
 
@@ -174,7 +180,8 @@ export const WorkersListPage: React.FC = () => {
 
   // Sort and filter accumulated infinite-scroll records preserving complete server-side search results
   const filteredAndSortedWorkers = useMemo(() => {
-    let result = [...allWorkers];
+    // Incomplete draft registrations must never be displayed as onboarded workers
+    let result = allWorkers.filter((w) => w.applicationStatus !== 'DRAFT' && w.onboardingStatus !== 'DRAFT');
 
     if (categoryFilter !== 'ALL') {
       result = result.filter((w) => w.category === categoryFilter || (w.categories && w.categories.includes(categoryFilter)));
@@ -182,7 +189,15 @@ export const WorkersListPage: React.FC = () => {
 
     if (verificationFilter !== 'ALL') {
       if (verificationFilter === 'VERIFIED') {
-        result = result.filter((w) => w.isFullyVerified === true && w.status === 'ACTIVE');
+        result = result.filter(
+          (w) =>
+            w.isFullyVerified === true &&
+            (w.status === 'ACTIVE' || w.status === 'VERIFIED') &&
+            w.matchingEligible === true &&
+            w.applicationStatus !== 'DRAFT' &&
+            w.applicationStatus !== 'UNDER_REVIEW' &&
+            w.applicationStatus !== 'SUBMITTED'
+        );
       } else if (verificationFilter === 'PENDING') {
         result = result.filter((w) => !w.isFullyVerified);
       } else if (verificationFilter === 'IN_REVIEW') {
@@ -260,6 +275,10 @@ export const WorkersListPage: React.FC = () => {
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  if (!canView) {
+    return <NoAccessView moduleName="Domestic Worker Management" requiredPermission={PERMISSIONS.WORKER_VIEW} />;
+  }
+
   if (isLoading && !data && !isError) {
     return <LoadingSpinner message="Loading domestic worker roster..." />;
   }
@@ -288,14 +307,14 @@ export const WorkersListPage: React.FC = () => {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.25 }}>
             Domestic Worker Roster & Profiles
           </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
+          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
             Workforce catalog with 6-point verification badge, skill ratings, cluster distribution, and disciplinary controls.
           </p>
         </div>
@@ -305,7 +324,7 @@ export const WorkersListPage: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            padding: '6px 12px',
+            padding: '5px 10px',
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
@@ -316,13 +335,13 @@ export const WorkersListPage: React.FC = () => {
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={13} color="var(--color-primary)" />
+          <RefreshCw size={12} color="var(--color-primary)" />
           <span>Refresh Roster</span>
         </button>
       </div>
 
       {/* Operational Scope Tabs */}
-      <div style={{ display: 'flex', gap: 'var(--space-2)', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)', flexWrap: 'wrap' }}>
         {[
           { key: 'ALL', label: 'All Registered Workers' },
           { key: 'VERIFIED', label: 'Active & Verified Roster (Matching Eligible)' },
@@ -341,7 +360,7 @@ export const WorkersListPage: React.FC = () => {
                 );
               }}
               style={{
-                padding: '8px 16px',
+                padding: '5px 12px',
                 borderRadius: 'var(--radius-md)',
                 border: 'none',
                 backgroundColor: isActive ? 'var(--color-brand-600, var(--color-primary))' : 'var(--color-bg-subtle)',
@@ -351,7 +370,8 @@ export const WorkersListPage: React.FC = () => {
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '5px',
+                whiteSpace: 'nowrap',
                 transition: 'all 0.15s ease',
               }}
             >
@@ -914,7 +934,7 @@ export const WorkersListPage: React.FC = () => {
                   <td style={{ padding: '14px 16px' }}>
                     {worker.status === 'SUSPENDED' || worker.status === 'BLACKLISTED' ? (
                       <StatusBadge status={worker.status} />
-                    ) : worker.verificationStatus === 'REJECTED' || (worker.onboardingStatus as string) === 'REJECTED' ? (
+                    ) : worker.verificationStatus === 'REJECTED' || (worker.onboardingStatus as string) === 'REJECTED' || worker.status === 'REJECTED' ? (
                       <StatusBadge status="REJECTED" />
                     ) : (
                       <StatusBadge status={worker.status} />

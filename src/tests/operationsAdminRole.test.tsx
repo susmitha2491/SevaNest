@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -49,8 +49,9 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
           PERMISSIONS.WORKERS_VIEW,
           PERMISSIONS.WORKERS_MANAGE,
           PERMISSIONS.WORKERS_MANAGE_STATUS,
-          PERMISSIONS.VERIFICATION_REVIEW,
-          PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED,
+          PERMISSIONS.WORKER_ACTIVATE,
+          'verification.reassign',
+          PERMISSIONS.VERIFICATION_SIGNOFF,
           PERMISSIONS.BOOKINGS_VIEW,
           PERMISSIONS.BOOKINGS_MANAGE,
           PERMISSIONS.PAYMENTS_VIEW,
@@ -119,35 +120,29 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
   });
 
   describe('2. Verification Visibility & Trust Oversight Boundaries', () => {
-    it('allows Operations Admin to inspect worker dossiers and request re-verification, but hides approval and rejection controls', async () => {
+    it('restricts Verification Queue access and renders standard NoAccessView when Operations Admin lacks verification.review', async () => {
       renderWithProviders(<VerificationQueuePage />);
 
-      // Queue renders
-      expect(await screen.findByText('Worker Verification & Trust Operations')).toBeInTheDocument();
-      expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
+      // Queue does NOT render for unauthorized user
+      expect(screen.queryByText('Worker Verification & Trust Operations')).not.toBeInTheDocument();
 
-      // Click dossier row to open verification dossier
-      const rowButtons = screen.getAllByRole('button', { name: /Open verification dossier for/i });
-      fireEvent.click(rowButtons[0]);
+      // Standard access-denied state is rendered
+      expect(await screen.findByRole('heading', { name: /Access Restricted/i })).toBeInTheDocument();
+      expect(screen.getByText(/Required permission: verification\.review/i)).toBeInTheDocument();
+    });
 
-      // Dossier modal opens with verification checks
-      expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
-      const dialog = await screen.findByRole('dialog');
+    it('protects route-level direct navigation to /verification and renders standard NoAccessView without redirecting to unrelated module', async () => {
+      renderWithProviders(
+        <ProtectedRoute permission={PERMISSIONS.VERIFICATION_REVIEW}>
+          <VerificationQueuePage />
+        </ProtectedRoute>,
+        '/verification'
+      );
 
-      // Navigate to Step 3: KYC Verification
-      fireEvent.click(within(dialog).getByRole('button', { name: /^Next/i }));
-      fireEvent.click(within(dialog).getByRole('button', { name: /^Next/i }));
-
-      expect(screen.getAllByText(/Identity Proof/i).length).toBeGreaterThan(0);
-
-      // Strictly verify: Operations Admin has oversight only, NO "Approve Check" or "Reject Check" decision buttons
-      expect(screen.queryByRole('button', { name: /^Approve Check$/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /^Reject Check$/i })).not.toBeInTheDocument();
-
-      // Operations Admin can request re-verification or inspect worker profile
-      expect(screen.getAllByRole('button', { name: /Request Re-Verification/i }).length).toBeGreaterThan(0);
-      expect(screen.getByRole('button', { name: /Inspect Worker Profile/i })).toBeInTheDocument();
-      expect(screen.getByText(/Verification decisions reserved for Verification Executives/i)).toBeInTheDocument();
+      // Standard access-denied state is rendered
+      expect(await screen.findByRole('heading', { name: /Access Restricted/i })).toBeInTheDocument();
+      expect(screen.getByText(/Required permission: verification\.review/i)).toBeInTheDocument();
+      expect(screen.queryByText('Worker Verification & Trust Operations')).not.toBeInTheDocument();
     });
   });
 
@@ -283,18 +278,21 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText(/audit\.view/i)).toBeInTheDocument();
     });
 
-    it('renders exactly the 8 PRD-approved primary modules and hides governance items for Operations Admin', async () => {
+    it('renders exactly the 7 PRD-approved primary modules and hides Verification Management when unauthorized', async () => {
       renderWithProviders(<AppShell />);
 
-      // Operations Admin must see only the 8 PRD-approved primary navigation modules
+      // Operations Admin must see only the 7 authorized primary navigation modules
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customer Management')).toBeInTheDocument();
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
-      expect(screen.getByText('Verification Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
       expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
+
+      // Verification Management must NOT be visible for Operations Admin without verification.review
+      expect(screen.queryByText('Verification Management')).not.toBeInTheDocument();
+      expect(screen.queryByText('Verification')).not.toBeInTheDocument();
 
       // Replacement Management must NOT be a separate primary sidebar module
       expect(screen.queryByRole('link', { name: /Replacement Management/i })).not.toBeInTheDocument();
@@ -306,7 +304,7 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.queryByText('Administrator Accounts')).not.toBeInTheDocument();
     });
 
-    it('displays all 8 modules when authorized with backend-issued server permissions', async () => {
+    it('displays all 7 authorized modules when authorized with backend-issued server permissions (Verification hidden)', async () => {
       // Simulate exact backend-issued permission array returned by POST /api/v1/auth/admin/login
       useAuthStore.getState().setSession(
         {
@@ -347,15 +345,18 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
 
       renderWithProviders(<AppShell />);
 
-      // All 8 primary modules must resolve to true based on backend-issued permissions
+      // All 7 primary authorized modules must resolve to true based on backend-issued permissions
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customer Management')).toBeInTheDocument();
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
-      expect(screen.getByText('Verification Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
       expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
+
+      // Verification Management is strictly hidden because Operations Admin lacks verification.review
+      expect(screen.queryByText('Verification Management')).not.toBeInTheDocument();
+      expect(screen.queryByText('Verification')).not.toBeInTheDocument();
 
       // No separate replacement module
       expect(screen.queryByRole('link', { name: /Replacement Management/i })).not.toBeInTheDocument();

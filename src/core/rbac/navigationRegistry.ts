@@ -83,6 +83,8 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
   // 3. Worker Management & Directory
   if (hasPermission(permissions, PERMISSIONS.WORKER_VIEW)) {
     const hasWorkerManage = isSuperAdmin || isOpsAdmin || hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
+    const hasVerificationReview = hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW);
+    const isVerifExecutive = hasVerificationReview && !hasWorkerManage;
 
     if (hasWorkerManage) {
       modules.push({
@@ -94,19 +96,19 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
         end: true,
       });
 
-      // Super Admin sees both Workers Directory and Worker Management directly in primary navigation (Section 7 PRD)
+      // Super Admin sees Directory (unified Workers & Customers) and Worker Management directly in primary navigation
       if (isSuperAdmin) {
         modules.push({
-          id: 'workers-dir',
-          name: 'Workers Directory',
-          path: '/workers/directory',
+          id: 'directory',
+          name: 'Directory',
+          path: '/directory',
           icon: Users,
           requiredPermission: PERMISSIONS.WORKER_VIEW,
           end: true,
         });
       }
-    } else {
-      // Read-only directory access (e.g., Verification Executive, Support Executive)
+    } else if (!isVerifExecutive) {
+      // Read-only directory access for Support Executive (Verification Executive gets Workers Management near Verification)
       modules.push({
         id: 'workers-dir',
         name: 'Workers Directory',
@@ -128,6 +130,20 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
       requiredPermission: PERMISSIONS.VERIFICATION_REVIEW,
       end: false,
     });
+
+    // For Verification Executive, place Workers Management right near the Verification menu
+    const hasWorkerManage = isSuperAdmin || isOpsAdmin || hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
+    const isVerifExecutive = !hasWorkerManage;
+    if (isVerifExecutive && hasPermission(permissions, PERMISSIONS.WORKER_VIEW)) {
+      modules.push({
+        id: 'workers',
+        name: 'Workers Management',
+        path: '/workers',
+        icon: Briefcase,
+        requiredPermission: PERMISSIONS.WORKER_VIEW,
+        end: true,
+      });
+    }
   }
 
   // 5. Booking Management
@@ -215,6 +231,7 @@ export function getRequiredPermissionForRoute(pathname: string): string {
   if (normalized === '/customers') return PERMISSIONS.CUSTOMER_VIEW;
   if (normalized === '/workers') return PERMISSIONS.WORKER_VIEW;
   if (normalized === '/workers/directory') return PERMISSIONS.WORKER_VIEW;
+  if (normalized === '/directory') return PERMISSIONS.WORKER_VIEW;
   if (normalized.startsWith('/verification')) return PERMISSIONS.VERIFICATION_REVIEW;
   if (normalized === '/bookings') return PERMISSIONS.BOOKINGS_VIEW;
   if (normalized === '/replacements') return PERMISSIONS.BOOKINGS_VIEW;
@@ -251,6 +268,11 @@ export function isRouteAccessibleForUser(
   // Public / non-module routes
   if (normalized === '/' || normalized.startsWith('/auth') || normalized === '/account') {
     return true;
+  }
+
+  // Directory route is strictly exclusive to Super Admin (granted access above)
+  if (normalized === '/directory') {
+    return false;
   }
 
   // 1. Dashboard

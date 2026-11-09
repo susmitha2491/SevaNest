@@ -57,7 +57,7 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       useAuthStore.getState().setSession(VERIFICATION_EXECUTIVE_USER, 'token-ve-77');
     });
 
-    it('renders exactly 3 primary entries in sidebar: Dashboard, Verification, and Workers Directory', async () => {
+    it('renders exactly 3 primary entries in sidebar: Dashboard, Verification, and Workers Management', async () => {
       const { router } = renderApp('/dashboard');
 
       // Dashboard link must be present
@@ -65,7 +65,8 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
 
       // Exactly 3 primary entries in Verification Executive sidebar
       expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
 
       // Prohibited primary modules must NOT be present
       expect(screen.queryByRole('link', { name: /^Customer Management$/i })).not.toBeInTheDocument();
@@ -87,10 +88,10 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
         expect(router.state.location.pathname).toBe('/verification');
       });
 
-      // Clicking Workers Directory navigates to /workers/directory
-      fireEvent.click(screen.getByRole('link', { name: /^Workers Directory$/i }));
+      // Clicking Workers Management navigates to /workers
+      fireEvent.click(screen.getByRole('link', { name: /^Workers Management$/i }));
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/workers/directory');
+        expect(router.state.location.pathname).toBe('/workers');
       });
     });
 

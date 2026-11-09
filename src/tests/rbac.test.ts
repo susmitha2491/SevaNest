@@ -53,9 +53,10 @@ describe('RBAC Permission Utilities', () => {
     // Reports via singular report.view
     expect(hasPermission(['report.view'], PERMISSIONS.REPORTS_VIEW)).toBe(true);
 
-    // Verification via verification.signoff or verification.reassign
-    expect(hasPermission(['verification.signoff'], PERMISSIONS.VERIFICATION_REVIEW)).toBe(true);
-    expect(hasPermission(['verification.reassign'], PERMISSIONS.VERIFICATION_REVIEW)).toBe(true);
+    // Verification: verification.signoff or verification.reassign alone must NOT grant verification.review
+    expect(hasPermission(['verification.signoff'], PERMISSIONS.VERIFICATION_REVIEW)).toBe(false);
+    expect(hasPermission(['verification.reassign'], PERMISSIONS.VERIFICATION_REVIEW)).toBe(false);
+    expect(hasPermission(['verification.review'], PERMISSIONS.VERIFICATION_REVIEW)).toBe(true);
 
     // Roles via singular role.manage
     expect(hasPermission(['role.manage'], PERMISSIONS.ROLES_MANAGE)).toBe(true);

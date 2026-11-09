@@ -269,7 +269,7 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
   });
 
   describe('3. Workers Directory in App Navigation', () => {
-    it('renders Workers Directory navigation item for both Super Admin and Verification Executive', async () => {
+    it('renders Workers Management for Verification Executive and Directory for Super Admin', async () => {
       // Test Verification Executive sidebar
       useAuthStore.setState({
         user: {
@@ -296,7 +296,8 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
         </QueryClientProvider>
       );
 
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
       unmount();
 
       // Test Super Admin sidebar
@@ -324,7 +325,7 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
         </QueryClientProvider>
       );
 
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Worker Management$/i })).toBeInTheDocument();
     });
 

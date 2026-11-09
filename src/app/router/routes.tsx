@@ -7,6 +7,7 @@ import { LazyRoute } from './LazyRoute';
 import { IndexRedirect } from './IndexRedirect';
 import { PERMISSIONS } from '../../core/rbac/permissions';
 import { NotFoundView } from '../../shared/components/NotFoundView/NotFoundView';
+import { WorkersDirectoryRouteWrapper } from './WorkersDirectoryRouteWrapper';
 
 // Route-based code-splitting via React.lazy for optimized bundle performance
 const SignInPage = React.lazy(() =>
@@ -21,8 +22,8 @@ const CustomersListPage = React.lazy(() =>
 const WorkersListPage = React.lazy(() =>
   import('../../features/workers/presentation/WorkersListPage').then((m) => ({ default: m.WorkersListPage }))
 );
-const WorkersDirectoryPage = React.lazy(() =>
-  import('../../features/workers/presentation/WorkersDirectoryPage').then((m) => ({ default: m.WorkersDirectoryPage }))
+const DirectoryPage = React.lazy(() =>
+  import('../../features/directory/presentation/DirectoryPage').then((m) => ({ default: m.DirectoryPage }))
 );
 const VerificationQueuePage = React.lazy(() =>
   import('../../features/verification/presentation/VerificationQueuePage').then((m) => ({ default: m.VerificationQueuePage }))
@@ -221,11 +222,21 @@ export const routes: RouteObject[] = [
         ),
       },
       {
+        path: 'directory',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.WORKER_VIEW}>
+            <LazyRoute label="Loading directory...">
+              <DirectoryPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
         path: 'workers/directory',
         element: (
           <ProtectedRoute permission={PERMISSIONS.WORKER_VIEW}>
             <LazyRoute label="Loading workers directory...">
-              <WorkersDirectoryPage />
+              <WorkersDirectoryRouteWrapper />
             </LazyRoute>
           </ProtectedRoute>
         ),

@@ -136,10 +136,10 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   ) {
     return true;
   }
-  // Support canonical verification access via verification.review, verification.signoff, or verification.reassign
+  // Support canonical verification access strictly via verification.review
   if (
     (required === PERMISSIONS.VERIFICATION_REVIEW || required === 'verification.review') &&
-    (userPermissions.includes('verification.review') || userPermissions.includes('verification.signoff') || userPermissions.includes('verification.reassign'))
+    userPermissions.includes('verification.review')
   ) {
     return true;
   }

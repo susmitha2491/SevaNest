@@ -36,6 +36,8 @@ export interface ActiveSessionItem {
   deviceName?: string;
   ipAddress?: string;
   lastActiveAt?: string;
+  createdAt?: string;
+  expiresAt?: string;
   isCurrent?: boolean;
 }
 
@@ -57,8 +59,8 @@ export interface IAuthRepository {
   refreshToken(token?: string): Promise<{ accessToken: string; refreshToken?: string; user?: AdminUser }>;
   getCurrentSession(accessToken?: string): Promise<AdminUser | null>;
   getAdminProfile?(): Promise<AdminUser>;
-  listSessions?(): Promise<ActiveSessionItem[]>;
-  revokeSession?(sessionId: string): Promise<void>;
+  listSessions(): Promise<ActiveSessionItem[]>;
+  revokeSession(sessionId: string): Promise<void>;
   updateProfile(dto: UpdateProfileDto): Promise<AdminUser>;
   changePassword(dto: ChangePasswordDto): Promise<void>;
   uploadProfilePhoto?(file: File): Promise<{ photoUrl: string }>;

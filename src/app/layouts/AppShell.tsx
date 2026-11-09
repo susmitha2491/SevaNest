@@ -15,6 +15,7 @@ import { useAuthStore } from '../../core/auth/authStore';
 import { authRepository } from '../../features/auth/data/authRepository';
 import { getRoleLabel } from '../../core/rbac/permissions';
 import { getAccessibleNavigation } from '../../core/rbac/navigationRegistry';
+import { SessionInactivityGuard } from '../../core/auth/SessionInactivityGuard';
 
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -70,8 +71,8 @@ export const AppShell: React.FC = () => {
       // Even if remote/backend logout rejects, client session must be cleared deterministically.
       console.warn('Logout notification error encountered, clearing client session regardless:', err);
     } finally {
-      navigate('/auth/login', { replace: true, state: null });
       clearSession();
+      navigate('/auth/login', { replace: true, state: null });
     }
   };
 
@@ -80,7 +81,7 @@ export const AppShell: React.FC = () => {
       {/* Sidebar Navigation */}
       <aside
         style={{
-          width: sidebarOpen ? 'var(--sidebar-width)' : '72px',
+          width: sidebarOpen ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed-width)',
           backgroundColor: 'var(--color-bg-surface)',
           borderRight: '1px solid var(--color-border-subtle)',
           display: 'flex',
@@ -99,11 +100,12 @@ export const AppShell: React.FC = () => {
             height: 'var(--header-height)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: sidebarOpen ? 'space-between' : 'center',
-            padding: sidebarOpen ? '0 var(--space-4)' : '0 var(--space-2)',
+            justifyContent: sidebarOpen ? 'space-between' : 'space-between',
+            padding: sidebarOpen ? '0 var(--space-3)' : '0 6px',
             borderBottom: '1px solid var(--color-border-subtle)',
-            gap: sidebarOpen ? 'var(--space-2)' : 'var(--space-1)',
+            gap: sidebarOpen ? 'var(--space-2)' : '4px',
             flexShrink: 0,
+            boxSizing: 'border-box',
           }}
         >
           {sidebarOpen ? (
@@ -112,8 +114,8 @@ export const AppShell: React.FC = () => {
                 src="/SevaNest_logo-removebg-preview.png"
                 alt="SevaNest logo"
                 style={{
-                  height: '44px',
-                  maxWidth: '160px',
+                  height: '28px',
+                  maxWidth: '125px',
                   width: 'auto',
                   objectFit: 'contain',
                   display: 'block',
@@ -121,24 +123,36 @@ export const AppShell: React.FC = () => {
               />
             </div>
           ) : (
-            <img
-              src="/SevaNest_logo-removebg-preview.png"
-              alt="SevaNest logo"
+            <div
               style={{
-                height: '34px',
-                maxWidth: '36px',
-                width: 'auto',
-                objectFit: 'contain',
-                display: 'block',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '28px',
+                width: '28px',
+                flexShrink: 0,
+                overflow: 'hidden',
               }}
-            />
+            >
+              <img
+                src="/SevaNest_logo-removebg-preview.png"
+                alt="SevaNest logo"
+                style={{
+                  height: '28px',
+                  maxWidth: '28px',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
           )}
 
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
             style={{
               color: 'var(--color-text-muted)',
-              padding: 'var(--space-1)',
+              padding: '4px',
               background: 'none',
               border: 'none',
               cursor: 'pointer',
@@ -146,16 +160,26 @@ export const AppShell: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
+              borderRadius: 'var(--radius-sm)',
             }}
             aria-label="Toggle sidebar"
           >
-            {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
+            {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
           </button>
         </div>
 
         {/* Nav Sections */}
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 'var(--space-3) 0' }}>
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '0 var(--space-2)' }}>
+        <div
+          className="sidebar-nav-scroll"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            padding: 'var(--space-2) 0',
+            scrollbarWidth: 'none',
+          }}
+        >
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: sidebarOpen ? '0 var(--space-2)' : '0 4px' }}>
             {accessibleModules.map((mod) => {
               const Icon = mod.icon;
 
@@ -170,8 +194,9 @@ export const AppShell: React.FC = () => {
                         (mod.path === '/verification' && location.pathname.startsWith('/verification')) ||
                         (mod.path === '/bookings' && (location.pathname.startsWith('/bookings') || location.pathname.startsWith('/replacements'))) ||
                         (mod.path === '/support' && (location.pathname.startsWith('/support') || location.pathname === '/support')) ||
-                        (mod.path === '/workers' && location.pathname === '/workers') ||
+                        (mod.path === '/workers' && (location.pathname === '/workers' || (location.pathname.startsWith('/workers') && !location.pathname.startsWith('/workers/directory')))) ||
                         (mod.path === '/workers/directory' && location.pathname.startsWith('/workers/directory')) ||
+                        (mod.path === '/directory' && location.pathname.startsWith('/directory')) ||
                         (mod.path === '/customers' && location.pathname.startsWith('/customers')) ||
                         (mod.path === '/payments' && location.pathname.startsWith('/payments')) ||
                         (mod.path === '/reports' && location.pathname.startsWith('/reports')) ||
@@ -182,9 +207,9 @@ export const AppShell: React.FC = () => {
                       return {
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '10px',
-                        height: '38px',
-                        padding: '0 12px',
+                        gap: '8px',
+                        height: '32px',
+                        padding: sidebarOpen ? '0 10px' : '0',
                         width: '100%',
                         borderRadius: 'var(--radius-md)',
                         fontSize: 'var(--font-size-sm)',
@@ -201,7 +226,7 @@ export const AppShell: React.FC = () => {
                     }}
                     title={!sidebarOpen ? mod.name : undefined}
                   >
-                    {Icon && <Icon size={18} style={{ flexShrink: 0 }} />}
+                    {Icon && <Icon size={16} style={{ flexShrink: 0 }} />}
                     {sidebarOpen && (
                       <span
                         style={{
@@ -231,13 +256,13 @@ export const AppShell: React.FC = () => {
         <div
           style={{
             flexShrink: 0,
-            padding: 'var(--space-3)',
+            padding: 'var(--space-2)',
             borderTop: '1px solid var(--color-border-subtle)',
             backgroundColor: 'var(--color-bg-app)',
           }}
         >
           {sidebarOpen && user && (
-            <div style={{ marginBottom: 'var(--space-2)', padding: '0 var(--space-2)' }}>
+            <div style={{ marginBottom: 'var(--space-1)', padding: '0 var(--space-1)' }}>
               <div
                 data-testid="sidebar-user-name"
                 style={{
@@ -272,7 +297,7 @@ export const AppShell: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--space-2)',
-              height: '34px',
+              height: '30px',
               padding: '0 var(--space-2)',
               borderRadius: 'var(--radius-sm)',
               fontSize: 'var(--font-size-xs)',
@@ -280,14 +305,14 @@ export const AppShell: React.FC = () => {
               color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
               backgroundColor: isActive ? 'var(--color-primary-subtle)' : 'transparent',
               textDecoration: 'none',
-              marginBottom: '4px',
+              marginBottom: '3px',
               justifyContent: sidebarOpen ? 'flex-start' : 'center',
               whiteSpace: 'nowrap',
               boxSizing: 'border-box',
             })}
             title={!sidebarOpen ? 'My Account' : undefined}
           >
-            <User size={16} style={{ flexShrink: 0 }} />
+            <User size={14} style={{ flexShrink: 0 }} />
             {sidebarOpen && <span>My Account</span>}
           </NavLink>
           <button
@@ -297,7 +322,7 @@ export const AppShell: React.FC = () => {
               display: 'flex',
               alignItems: 'center',
               gap: 'var(--space-2)',
-              height: '34px',
+              height: '30px',
               padding: '0 var(--space-2)',
               borderRadius: 'var(--radius-sm)',
               color: 'var(--color-status-danger-text)',
@@ -311,7 +336,7 @@ export const AppShell: React.FC = () => {
             }}
             title={!sidebarOpen ? 'Sign Out' : undefined}
           >
-            <LogOut size={16} style={{ flexShrink: 0 }} />
+            <LogOut size={14} style={{ flexShrink: 0 }} />
             {sidebarOpen && <span>Sign Out</span>}
           </button>
         </div>
@@ -328,14 +353,14 @@ export const AppShell: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
-            padding: '0 var(--space-5)',
+            padding: '0 var(--space-4)',
             position: 'sticky',
             top: 0,
             zIndex: 30,
           }}
         >
           {/* Header Utilities */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
             {user && (
               <div ref={profileMenuRef} className="header-profile-menu-container" style={{ position: 'relative' }}>
                 <button
@@ -349,8 +374,8 @@ export const AppShell: React.FC = () => {
                 >
                   <div
                     style={{
-                      width: '32px',
-                      height: '32px',
+                      width: '28px',
+                      height: '28px',
                       borderRadius: 'var(--radius-full)',
                       backgroundColor: 'var(--color-primary-subtle)',
                       border: '1px solid var(--color-primary)',
@@ -371,7 +396,7 @@ export const AppShell: React.FC = () => {
                     ) : user.name ? (
                       user.name.charAt(0).toUpperCase()
                     ) : (
-                      <User size={16} />
+                      <User size={14} />
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
@@ -389,7 +414,7 @@ export const AppShell: React.FC = () => {
                     </span>
                   </div>
                   <ChevronDown
-                    size={14}
+                    size={12}
                     style={{
                       color: 'var(--color-text-muted)',
                       transform: profileMenuOpen ? 'rotate(180deg)' : 'none',
@@ -520,9 +545,10 @@ export const AppShell: React.FC = () => {
         )}
 
         {/* Main Viewport Content */}
-        <main style={{ flex: 1, padding: 'var(--space-4) var(--space-5)', minWidth: 0, backgroundColor: 'var(--color-bg-app)', overflowX: 'hidden' }}>
+        <main style={{ flex: 1, padding: 'var(--space-3) var(--space-4)', minWidth: 0, backgroundColor: 'var(--color-bg-app)', overflowX: 'auto' }}>
           <Outlet />
         </main>
+        <SessionInactivityGuard />
       </div>
     </div>
   );

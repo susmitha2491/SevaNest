@@ -5,12 +5,25 @@ import { MemoryRouter } from 'react-router-dom';
 import { CustomersListPage } from '../features/customers/presentation/CustomersListPage';
 import { customerRepository } from '../features/customers/data/customerRepository';
 import { CustomerPageResult } from '../features/customers/domain/types';
+import { useAuthStore } from '../core/auth/authStore';
+import { PERMISSIONS } from '../core/rbac/permissions';
 
 describe('Customer Management — Continuous Scrollable Table & Infinite Loading', () => {
   let queryClient: QueryClient;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuthStore.setState({
+      user: {
+        id: 'admin-1',
+        name: 'Admin User',
+        email: 'admin@sevanest.in',
+        role: 'OPERATIONS_ADMIN',
+        permissions: [PERMISSIONS.CUSTOMER_VIEW],
+      },
+      isAuthenticated: true,
+      isInitialized: true,
+    });
     queryClient = new QueryClient({
       defaultOptions: {
         queries: {

@@ -46,9 +46,8 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
       PERMISSIONS.WORKERS_MANAGE,
       PERMISSIONS.WORKERS_MANAGE_STATUS,
       PERMISSIONS.WORKER_ACTIVATE,
-      PERMISSIONS.VERIFICATION_REVIEW,
+      'verification.reassign',
       PERMISSIONS.VERIFICATION_SIGNOFF,
-      PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       PERMISSIONS.BOOKINGS_VIEW,
       PERMISSIONS.BOOKINGS_MANAGE,
       PERMISSIONS.PAYMENTS_VIEW,
@@ -66,11 +65,10 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     name: 'Verification Executive',
     role: 'VERIFICATION_EXECUTIVE',
     permissions: [
-      PERMISSIONS.CUSTOMER_VIEW,
+      'alert.view',
       PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.VERIFICATION_REVIEW,
       PERMISSIONS.VERIFICATION_DECIDE,
-      PERMISSIONS.VERIFICATION_SIGNOFF,
       PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
     ],
     aliases: ['verification.executive@sevanest.example.com', 'verification.exec@sevanest.internal'],
@@ -81,6 +79,7 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     name: 'Verification Executive',
     role: 'VERIFICATION_EXECUTIVE',
     permissions: [
+      'alert.view',
       PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.VERIFICATION_REVIEW,
       PERMISSIONS.VERIFICATION_DECIDE,
@@ -94,12 +93,12 @@ export const DEMO_ADMIN_ACCOUNTS: Record<
     name: 'Support Executive',
     role: 'SUPPORT_EXECUTIVE',
     permissions: [
-      PERMISSIONS.DASHBOARD_VIEW,
-      PERMISSIONS.CUSTOMER_VIEW,
-      PERMISSIONS.WORKER_VIEW,
       PERMISSIONS.BOOKINGS_VIEW,
+      PERMISSIONS.CUSTOMER_VIEW,
+      'rating.view',
       PERMISSIONS.SUPPORT_VIEW,
       PERMISSIONS.SUPPORT_MANAGE,
+      PERMISSIONS.WORKER_VIEW,
     ],
     aliases: ['support.executive@sevanest.example.com', 'support.exec@sevanest.internal', 'support@sevanest.internal'],
     password: 'Support@2026',
@@ -139,9 +138,8 @@ export function getDefaultPermissionsForRole(role: AdminRole): string[] {
         PERMISSIONS.WORKERS_MANAGE,
         PERMISSIONS.WORKERS_MANAGE_STATUS,
         PERMISSIONS.WORKER_ACTIVATE,
-        PERMISSIONS.VERIFICATION_REVIEW,
+        'verification.reassign',
         PERMISSIONS.VERIFICATION_SIGNOFF,
-        PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
         PERMISSIONS.BOOKINGS_VIEW,
         PERMISSIONS.BOOKINGS_MANAGE,
         PERMISSIONS.PAYMENTS_VIEW,
@@ -153,30 +151,30 @@ export function getDefaultPermissionsForRole(role: AdminRole): string[] {
       ];
     case 'VERIFICATION_EXECUTIVE':
       return [
-        PERMISSIONS.CUSTOMER_VIEW,
+        'alert.view',
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.VERIFICATION_REVIEW,
         PERMISSIONS.VERIFICATION_DECIDE,
-        PERMISSIONS.VERIFICATION_SIGNOFF,
         PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       ];
     case 'VERIFICATION_SUPERVISOR':
       return [
-        PERMISSIONS.CUSTOMER_VIEW,
+        'alert.view',
         PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.VERIFICATION_REVIEW,
         PERMISSIONS.VERIFICATION_DECIDE,
+        'verification.reassign',
         PERMISSIONS.VERIFICATION_SIGNOFF,
         PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
       ];
     case 'SUPPORT_EXECUTIVE':
       return [
-        PERMISSIONS.DASHBOARD_VIEW,
-        PERMISSIONS.CUSTOMER_VIEW,
-        PERMISSIONS.WORKER_VIEW,
         PERMISSIONS.BOOKINGS_VIEW,
+        PERMISSIONS.CUSTOMER_VIEW,
+        'rating.view',
         PERMISSIONS.SUPPORT_VIEW,
         PERMISSIONS.SUPPORT_MANAGE,
+        PERMISSIONS.WORKER_VIEW,
       ];
   }
 }

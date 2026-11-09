@@ -235,7 +235,8 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     expect(sessionUser?.role).toBe('OPERATIONS_ADMIN');
     expect(sessionUser?.permissions).toContain(PERMISSIONS.BOOKINGS_VIEW);
     expect(sessionUser?.permissions).toContain(PERMISSIONS.PAYMENTS_VIEW);
-    expect(sessionUser?.permissions).toContain(PERMISSIONS.VERIFICATION_REVIEW);
+    expect(sessionUser?.permissions).not.toContain(PERMISSIONS.VERIFICATION_REVIEW);
+    expect(sessionUser?.permissions).toContain(PERMISSIONS.VERIFICATION_SIGNOFF);
     expect(sessionUser?.permissions).not.toContain(PERMISSIONS.CONFIGURATION_MANAGE);
   });
 

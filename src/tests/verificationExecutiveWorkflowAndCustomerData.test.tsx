@@ -133,7 +133,7 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
       renderApp('/verification');
 
       expect(await screen.findByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
       expect(await screen.findByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
       expect(screen.queryByText('Customer Records')).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
@@ -145,7 +145,7 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
       renderApp('/verification');
 
       expect(await screen.findByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
       expect(await screen.findByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
       expect(screen.queryByText('Worker Records')).not.toBeInTheDocument();
       expect(screen.queryByText('Customer Records')).not.toBeInTheDocument();

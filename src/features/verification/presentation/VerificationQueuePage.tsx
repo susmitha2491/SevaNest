@@ -44,7 +44,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
-  const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN';
+  const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
 
   const [activeSection, setActiveSection] = useState<'queue' | 'document-review' | 'check-status' | 'expiry-recheck'>(() => {

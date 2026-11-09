@@ -10,13 +10,17 @@ import { VerificationBadge } from '../../../shared/components/VerificationBadge/
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
-import { PERMISSIONS } from '../../../core/rbac/permissions';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { CustomerDetailModal } from './CustomerDetailModal';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 
 export const CustomersListPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const canView = hasPermission(user?.permissions, PERMISSIONS.CUSTOMER_VIEW);
 
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => searchParams.get('search') || '');
@@ -135,6 +139,7 @@ export const CustomersListPage: React.FC = () => {
     initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     placeholderData: keepPreviousData,
+    enabled: canView,
   });
 
   // Deduplicate customer records across loaded batches
@@ -305,6 +310,10 @@ export const CustomersListPage: React.FC = () => {
     const set = new Set(allCustomers.map((c) => c.locality));
     return ['ALL', ...Array.from(set)];
   }, [allCustomers]);
+
+  if (!canView) {
+    return <NoAccessView moduleName="Customer Accounts & Households" requiredPermission={PERMISSIONS.CUSTOMER_VIEW} />;
+  }
 
   if (isLoading && !data) {
     return <LoadingSpinner message="Loading customer directory..." />;

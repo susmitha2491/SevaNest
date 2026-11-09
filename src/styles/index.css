@@ -84,33 +84,33 @@
   --color-status-neutral-text: #64748B;
 
   /* Layout Dimensions */
-  --sidebar-width: 268px;
-  --sidebar-collapsed-width: 68px;
-  --header-height: 54px;
+  --sidebar-width: 216px;
+  --sidebar-collapsed-width: 58px;
+  --header-height: 46px;
 
   /* 2. Official Typography Scale (Font: Inter) */
   --font-family-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-size-xs: 0.75rem;     /* 12px - Caption and metadata: minimum 12px */
-  --font-size-sm: 0.8125rem;   /* 13px - Body text, Input labels */
-  --font-size-base: 0.875rem;  /* 14px - Body text, Button labels, Card titles */
-  --font-size-md: 0.875rem;    /* 14px */
-  --font-size-lg: 1rem;        /* 16px - Card titles */
-  --font-size-xl: 1.125rem;    /* 18px - Subsection / H3: 18px, weight 600 */
-  --font-size-2xl: 1.25rem;    /* 20px - Section title / H2: 20px, weight 700 */
-  --font-size-3xl: 1.4375rem;  /* 23px - Web page title / H1: 23px, weight 700 */
-  --font-size-kpi: 1.625rem;   /* 26px - Dashboard KPI values: 24-28px, weight 700 */
+  --font-size-xs: 0.785rem;    /* 11px - Caption and metadata */
+  --font-size-sm: 0.857rem;    /* 12px - Body text, Input labels */
+  --font-size-base: 0.928rem;  /* 13px - Body text, Button labels, Card titles */
+  --font-size-md: 0.928rem;    /* 13px */
+  --font-size-lg: 1rem;        /* 14px - Card titles */
+  --font-size-xl: 1.14rem;     /* 16px - Subsection / H3: 16px, weight 600 */
+  --font-size-2xl: 1.28rem;    /* 18px - Section title / H2: 18px, weight 700 */
+  --font-size-3xl: 1.42rem;    /* 20px - Web page title / H1: 20px, weight 700 */
+  --font-size-kpi: 1.57rem;    /* 22px - Dashboard KPI values: 22px, weight 700 */
 
-  /* 3. Official Spacing Grid: 4, 8, 10, 14, 18, 20, 24, 32px */
-  --space-1: 0.25rem;   /* 4px */
-  --space-2: 0.5rem;    /* 8px */
-  --space-3: 0.625rem;  /* 10px */
-  --space-4: 0.875rem;  /* 14px */
-  --space-5: 1.125rem;  /* 18px */
-  --space-6: 1.25rem;   /* 20px */
-  --space-8: 1.5rem;    /* 24px */
-  --space-10: 2rem;     /* 32px */
-  --space-12: 2.5rem;   /* 40px */
-  --space-16: 3rem;     /* 48px */
+  /* 3. Official Spacing Grid: 3, 6, 8, 12, 14, 16, 20, 24, 30, 36px */
+  --space-1: 0.214rem;  /* 3px */
+  --space-2: 0.428rem;  /* 6px */
+  --space-3: 0.571rem;  /* 8px */
+  --space-4: 0.857rem;  /* 12px */
+  --space-5: 1rem;      /* 14px */
+  --space-6: 1.14rem;   /* 16px */
+  --space-8: 1.428rem;  /* 20px */
+  --space-10: 1.714rem; /* 24px */
+  --space-12: 2.14rem;  /* 30px */
+  --space-16: 2.57rem;  /* 36px */
 
   /* 4. Official Corner Radii: ~8px inputs/buttons, ~12px cards, ~16px dialogs */
   --radius-sm: 4px;      /* Small indicators & tags */
@@ -142,7 +142,7 @@ html, body {
   background-color: var(--color-bg-app);
   color: var(--color-text-primary);
   font-family: var(--font-family-base);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1.45;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -319,6 +319,17 @@ tbody tr:hover {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-disabled);
+}
+
+/* Sidebar scrollbar concealment */
+.sidebar-nav-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sidebar-nav-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Interactive Table Rows (Worker Verification Queue) */
