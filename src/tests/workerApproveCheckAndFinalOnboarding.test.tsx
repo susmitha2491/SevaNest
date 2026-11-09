@@ -198,7 +198,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Confirm modal popup is still fully rendered and active in DOM
       expect(screen.getByText(/Meena Sharma/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/Manually Submitted Documents/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Digitally Submitted Documents/i).length).toBeGreaterThan(0);
     });
 
     it('keeps popup open and displays error feedback when approval fails', async () => {
@@ -240,7 +240,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Verify modal still open and retry is possible
       expect(screen.getByRole('heading', { name: /Meena Sharma/i })).toBeInTheDocument();
-      expect(screen.getAllByText(/Manually Submitted Documents/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Digitally Submitted Documents/i).length).toBeGreaterThan(0);
     });
 
     it('transmits exact ApproveCheckDto payload ({ remarks, recheckAt? }) and strictly strips non-whitelisted fields', async () => {
@@ -346,7 +346,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       // Verify modal is still active in the DOM
       expect(screen.getByRole('heading', { name: /Meena Sharma/i })).toBeInTheDocument();
-      expect(screen.getAllByText(/Manually Submitted Documents/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Digitally Submitted Documents/i).length).toBeGreaterThan(0);
     });
 
     it('updates check status from authoritative backend AdminWorkerVerificationResponse and keeps popup open', async () => {
@@ -470,9 +470,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       // Navigate to Step 4: Final Worker Approval
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       // Sign-off button should NOT be available to Verification Executive
@@ -515,9 +513,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       // Navigate to Step 4: Final Worker Approval
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       // The sign-off button must be disabled
@@ -573,9 +569,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       // Navigate to Step 4: Final Worker Approval
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       const signOffBtn = screen.getByRole('button', { name: /Sign Off Verification/i });
@@ -641,9 +635,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       const signOffBtn = screen.getByRole('button', { name: /Sign Off Verification/i });
@@ -726,9 +718,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
 
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       // Activation button should be enabled because worker is signed off and user has worker.activate
@@ -803,9 +793,7 @@ describe('Worker Approve Check Behavior and Final Worker Onboarding', () => {
       // Navigate to Step 4: Final Worker Approval
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
       expect(screen.getByText(/ACTIVE & ONBOARDED/i)).toBeInTheDocument();
       expect(screen.getByText(/Eligible for Customer Matching & Allocation/i)).toBeInTheDocument();

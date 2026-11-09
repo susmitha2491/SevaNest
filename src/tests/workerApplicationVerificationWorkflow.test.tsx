@@ -119,9 +119,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(nextBtn).toBeInTheDocument();
       await user.click(nextBtn);
 
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       expect(await screen.findByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
@@ -499,18 +497,14 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(await screen.findByRole('heading', { name: /^Worker KYC Documents$/i })).toBeInTheDocument();
       expect(screen.getAllByText(/Submitted Documents/i).length).toBeGreaterThan(0);
 
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       expect(screen.getByRole('heading', { name: /^Approve Worker \(Verification Sign-Off\)$/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Commercial Platform Activation' })).toBeInTheDocument();
 
       // Return to Step 1: Worker Information
-      const prevManualBtn = screen.getAllByRole('button', { name: /Previous: Manually Submitted Documents/i })[0];
-      await user.click(prevManualBtn);
-      const prevDigitalBtn = (await screen.findAllByRole('button', { name: /Previous: Digitally Submitted Documents/i }))[0];
+      const prevDigitalBtn = (await screen.findAllByRole('button', { name: /Previous: Digital Documents|Previous: Digitally Submitted Documents/i }))[0];
       await user.click(prevDigitalBtn);
       const backBtn = screen.getAllByRole('button', { name: /Back to Worker Information/i })[0];
       await user.click(backBtn);
@@ -533,12 +527,10 @@ describe('Worker Application & Verification Complete Workflow', () => {
         />
       );
 
-      // Navigate to Step 4 via Next buttons
+      // Navigate to Final Approval via Next buttons
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       expect(await screen.findByText(/Approve Worker \(Verification Sign-Off\)/i)).toBeInTheDocument();
@@ -584,9 +576,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
 
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn);
-      const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn);
-      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn);
 
       expect(

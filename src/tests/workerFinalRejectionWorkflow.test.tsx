@@ -63,7 +63,7 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
   });
 
   describe('1. Zero-Document Worker Scenario', () => {
-    it('navigates through all 4 stages, verifies empty documents, keeps Approve disabled and Reject enabled', async () => {
+    it('navigates through all 3 stages, verifies empty documents, keeps Approve disabled and Reject enabled', async () => {
       const user = userEvent.setup();
       renderWithProviders(<WorkerDetailModal workerId="W-10499" onClose={vi.fn()} />);
 
@@ -81,18 +81,11 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
       expect(await screen.findByText(/No documents submitted by this worker yet/i)).toBeInTheDocument();
       expect(screen.getByTestId('no-documents-submitted')).toBeInTheDocument();
 
-      // Navigate to Stage 3: Manually Submitted Documents
-      const nextBtn2 = await screen.findByRole('button', { name: /Next: Manual Documents/i });
+      // Navigate to Stage 3: Final Worker Approval
+      const nextBtn2 = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextBtn2);
 
-      // Stage 3: Manually Submitted Documents - Confirm Empty State
-      expect(await screen.findByText(/No manually submitted physical documents recorded/i)).toBeInTheDocument();
-
-      // Navigate to Stage 4: Final Worker Approval
-      const nextBtn3 = await screen.findByRole('button', { name: /Next: Final Approval/i });
-      await user.click(nextBtn3);
-
-      // Stage 4: Final Worker Approval
+      // Stage 3: Final Worker Approval
       expect(await screen.findByRole('heading', { level: 3, name: /Final Worker Approval/i })).toBeInTheDocument();
 
       // Verify Stage 4 action buttons:
@@ -131,7 +124,7 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
       await waitFor(() => {
         expect(screen.getAllByText('Pooja Sharma').length).toBeGreaterThan(0);
       });
-      const stage4Tab = screen.getByRole('tab', { name: /4\. Final Worker Approval/i });
+      const stage4Tab = screen.getByRole('tab', { name: /Final Worker Approval/i });
       await user.click(stage4Tab);
 
       // Click Reject Worker
@@ -197,7 +190,7 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
       await waitFor(() => {
         expect(screen.getAllByText('Pooja Sharma').length).toBeGreaterThan(0);
       });
-      const stage4Tab = screen.getByRole('tab', { name: /4\. Final Worker Approval/i });
+      const stage4Tab = screen.getByRole('tab', { name: /Final Worker Approval/i });
       await user.click(stage4Tab);
 
       const rejectBtn = screen.getByTestId('stage4-bottom-reject-btn');
@@ -247,7 +240,7 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
         expect(screen.getAllByText('Sunita Devi').length).toBeGreaterThan(0);
       });
 
-      const stage4Tab = screen.getByRole('tab', { name: /4\. Final Worker Approval/i });
+      const stage4Tab = screen.getByRole('tab', { name: /Final Worker Approval/i });
       await user.click(stage4Tab);
 
       const rejectBtn = screen.getByTestId('stage4-bottom-reject-btn');
@@ -302,7 +295,7 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
         expect(screen.getAllByText('Pooja Sharma').length).toBeGreaterThan(0);
       });
 
-      const stage4Tab = screen.getByRole('tab', { name: /4\. Final Worker Approval/i });
+      const stage4Tab = screen.getByRole('tab', { name: /Final Worker Approval/i });
       await user.click(stage4Tab);
 
       const rejectBtn = screen.getByTestId('stage4-bottom-reject-btn');

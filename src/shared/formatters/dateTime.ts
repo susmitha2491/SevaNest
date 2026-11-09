@@ -7,7 +7,24 @@ export function formatDateTimeIST(dateInput: string | number | Date | undefined 
   if (!dateInput) return '—';
 
   try {
-    const date = new Date(dateInput);
+    let date: Date;
+    if (dateInput instanceof Date) {
+      date = dateInput;
+    } else if (typeof dateInput === 'number') {
+      date = new Date(dateInput < 10000000000 ? dateInput * 1000 : dateInput);
+    } else if (typeof dateInput === 'string') {
+      const trimmed = dateInput.trim();
+      if (!trimmed) return '—';
+      if (/^\d+$/.test(trimmed)) {
+        const num = Number(trimmed);
+        date = new Date(num < 10000000000 ? num * 1000 : num);
+      } else {
+        date = new Date(trimmed);
+      }
+    } else {
+      date = new Date(dateInput);
+    }
+
     if (isNaN(date.getTime())) return '—';
 
     return new Intl.DateTimeFormat('en-IN', {
@@ -19,7 +36,9 @@ export function formatDateTimeIST(dateInput: string | number | Date | undefined 
       minute: '2-digit',
       hour12: true,
       timeZoneName: 'short',
-    }).format(date);
+    })
+      .format(date)
+      .replace(/\b(am|pm)\b/gi, (m) => m.toUpperCase());
   } catch {
     return '—';
   }

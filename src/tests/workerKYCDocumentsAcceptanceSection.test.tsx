@@ -230,7 +230,8 @@ describe('WorkerDetailModal KYC Documents Section & Accept Button Workflow', () 
     expect(await screen.findByText(/Authorized Document Vault Preview/i)).toBeInTheDocument();
     expect(linkSpy).toHaveBeenCalledWith('W-KYC-DOCS', 'ADDRESS', 'doc-address-102');
     expect(screen.getAllByText(/Electricity Utility Bill/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Validity: 2026-10-29T18:00:00Z/i)).toBeInTheDocument();
+    // Converted to Indian Standard Time (Asia/Kolkata)
+    expect(screen.getByText(/Validity: 29 Oct 2026, 11:30 PM IST/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Open Secure Document Link/i })).toBeInTheDocument();
   });
 
@@ -325,10 +326,8 @@ describe('WorkerDetailModal KYC Documents Section & Accept Button Workflow', () 
     expect(screen.getByText('Aadhaar Card (National ID)')).toBeInTheDocument();
     expect(screen.getByText('Electricity Utility Bill')).toBeInTheDocument();
 
-    // Navigate to Stage 3 and Stage 4
-    const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-    await user.click(nextManualBtn);
-    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+    // Navigate to Stage 3 (Final Worker Approval)
+    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
     await user.click(nextFinalBtn);
 
     // Final Approve Worker card is present while activation is gated until sign-off

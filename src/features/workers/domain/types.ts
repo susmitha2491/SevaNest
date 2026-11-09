@@ -58,7 +58,7 @@ export interface Worker {
   totalReviews: number;
   locality: string;
   isFullyVerified: boolean;
-  status: 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
+  status: 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED' | 'UNDER_REVIEW' | 'SUBMITTED' | 'DRAFT' | 'VERIFIED' | 'REJECTED';
   photoUrl?: string;
   photo?: { url: string; expiresAt?: string } | string;
   phoneMasked?: string;

@@ -89,20 +89,13 @@ describe('WorkerDetailModal Simplified 2-Step Workflow (Worker Info & KYC Verifi
     expect(screen.getByRole('heading', { name: /^Worker KYC Documents$/i })).toBeInTheDocument();
     expect(screen.getAllByText(/Submitted Documents/i).length).toBeGreaterThan(0);
 
-    // Navigate to Stage 3 (Manual Documents)
-    const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-    await user.click(nextManualBtn);
-    expect((await screen.findAllByText(/Manually Submitted Documents/i)).length).toBeGreaterThan(0);
-
-    // Navigate to Stage 4 (Final Approval) to find Approve Worker button
-    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+    // Navigate to Stage 3 (Final Approval) to find Approve Worker button
+    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
     await user.click(nextFinalBtn);
     expect(screen.getByRole('button', { name: /Approve Worker/i })).toBeInTheDocument();
 
-    // Navigate back to Step 1 via Previous buttons
-    const prevManualBtn = screen.getAllByRole('button', { name: /Previous: Manually Submitted Documents/i })[0];
-    await user.click(prevManualBtn);
-    const prevDigitalBtn = (await screen.findAllByRole('button', { name: /Previous: Digitally Submitted Documents/i }))[0];
+    // Navigate back to Step 2 via Previous button
+    const prevDigitalBtn = (await screen.findAllByRole('button', { name: /Previous: Digital Documents|Previous: Digitally Submitted Documents/i }))[0];
     await user.click(prevDigitalBtn);
     const backToWorkerBtn = screen.getAllByRole('button', { name: /Back to Worker Information/i })[0];
     await user.click(backToWorkerBtn);

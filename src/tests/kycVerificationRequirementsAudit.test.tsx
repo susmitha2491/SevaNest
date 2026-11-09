@@ -308,10 +308,8 @@ describe('KYC Verification Requirements Audit & Correction', () => {
     const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
     await user.click(nextBtn);
 
-    // Navigate to Stage 3 then Stage 4 where Sign-Off lives
-    const nextManualBtn = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-    await user.click(nextManualBtn);
-    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+    // Navigate to Stage 3 (Final Approval) where Sign-Off lives
+    const nextFinalBtn = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
     await user.click(nextFinalBtn);
 
     // Final Supervisor Sign-off button is unlocked & enabled

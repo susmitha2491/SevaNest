@@ -69,38 +69,20 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
-  // RBAC permissions
-  const canReview =
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW) ||
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-    (!user?.permissions?.length && (
-      user?.role === 'VERIFICATION_EXECUTIVE' ||
-      user?.role === 'OPERATIONS_ADMIN' ||
-      user?.role === 'SUPER_ADMIN'
-    ));
+  // RBAC permissions strictly derived from server-issued permissions
+  const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
 
-  const canDecide =
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-    (!user?.permissions?.length && (user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN'));
+  const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
 
-  const canApproveWorker =
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF) ||
-    (!user?.permissions?.length && (user?.role === 'SUPER_ADMIN' || user?.role === 'OPERATIONS_ADMIN' || user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'VERIFICATION_SUPERVISOR'));
+  const canApproveWorker = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
 
   const canRejectApplication =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF) ||
-    (!user?.permissions?.length && (
-      user?.role === 'SUPER_ADMIN' ||
-      user?.role === 'OPERATIONS_ADMIN' ||
-      user?.role === 'VERIFICATION_EXECUTIVE' ||
-      user?.role === 'VERIFICATION_SUPERVISOR'
-    ));
+    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
 
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
-    hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED) ||
-    (!user?.permissions?.length && (user?.role === 'VERIFICATION_EXECUTIVE' || user?.role === 'SUPER_ADMIN'));
+    hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED);
 
   // Wizard navigation state
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
@@ -393,14 +375,14 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       status: VerificationCheckStatus | 'PASSED' | 'PENDING';
       check?: VerificationCheck;
     }[] = [
-        {
-          type: 'PHONE_OTP',
-          title: 'Phone OTP Pre-Check',
-          isPreCheck: true,
-          required: true,
-          status: preCheckOtpPassed ? 'PASSED' : 'PENDING',
-        },
-      ];
+      {
+        type: 'PHONE_OTP',
+        title: 'Phone OTP Pre-Check',
+        isPreCheck: true,
+        required: true,
+        status: preCheckOtpPassed ? 'PASSED' : 'PENDING',
+      },
+    ];
 
     const standardTypes: { type: VerificationCheckType; title: string }[] = [
       { type: 'IDENTITY', title: 'Identity Proof' },
@@ -410,31 +392,88 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       { type: 'POLICE_CLEARANCE', title: 'Police Clearance' },
     ];
 
-    const allKnownTypes = new Set<string>(standardTypes.map((t) => t.type));
-    if (dossier?.checks) {
-      Object.keys(dossier.checks).forEach((k) => allKnownTypes.add(k));
-    }
+    const normalizeType = (key: string): VerificationCheckType => {
+      if (key === 'PREVIOUS_EMPLOYMENT') return 'REFERENCE';
+      if (key === 'POLICE_VERIFICATION') return 'POLICE_CLEARANCE';
+      return key as VerificationCheckType;
+    };
 
-    allKnownTypes.forEach((key) => {
-      const normKey = (
-        key === 'PREVIOUS_EMPLOYMENT' ? 'REFERENCE' :
-          key === 'POLICE_VERIFICATION' ? 'POLICE_CLEARANCE' : key
-      ) as VerificationCheckType;
-      const chk = checks?.[normKey] || checks?.[key as VerificationCheckType];
+    const seenCheckIds = new Set<string>();
+    const seenCheckObjects = new Set<VerificationCheck>();
+    const seenNormalizedTypes = new Set<string>();
+
+    // 1. Process standard canonical check types in order
+    standardTypes.forEach((st) => {
+      const chk =
+        checks?.[st.type] ||
+        (st.type === 'REFERENCE' ? checks?.['PREVIOUS_EMPLOYMENT'] : undefined) ||
+        (st.type === 'POLICE_CLEARANCE' ? checks?.['POLICE_VERIFICATION'] : undefined);
+
+      const checkId = chk?.id || chk?.checkId;
+      if (checkId) {
+        if (seenCheckIds.has(checkId)) return;
+        seenCheckIds.add(checkId);
+      }
+      if (chk) {
+        if (seenCheckObjects.has(chk)) return;
+        seenCheckObjects.add(chk);
+      }
+      seenNormalizedTypes.add(st.type);
+
       const title =
         chk?.title ||
-        standardTypes.find((s) => s.type === normKey)?.title ||
-        key.replace(/_/g, ' ');
-      const isReq = chk?.required ?? dynamicRequiredCheckKeys.includes(key);
+        st.title ||
+        st.type.replace(/_/g, ' ');
+
+      const isReq = chk?.required ?? (
+        dynamicRequiredCheckKeys.includes(st.type) ||
+        (st.type === 'REFERENCE' && dynamicRequiredCheckKeys.includes('PREVIOUS_EMPLOYMENT')) ||
+        (st.type === 'POLICE_CLEARANCE' && dynamicRequiredCheckKeys.includes('POLICE_VERIFICATION'))
+      );
 
       list.push({
-        type: normKey,
+        type: st.type,
         title,
-        required: isReq,
+        required: Boolean(isReq),
         status: chk?.status || 'PENDING',
         check: chk,
       });
     });
+
+    // 2. Process any additional or custom checks from dossier.checks (preserving distinct checks with separate IDs)
+    if (dossier?.checks) {
+      Object.entries(dossier.checks).forEach(([key, chk]) => {
+        if (!chk) return;
+        const normKey = normalizeType(chk.type || key);
+        const checkId = chk.id || chk.checkId;
+
+        // Skip if exact check object or check ID was already added
+        if (seenCheckObjects.has(chk)) return;
+        if (checkId && seenCheckIds.has(checkId)) return;
+
+        // If it's an alias for an already-added standard check without a separate backend ID, skip
+        if (seenNormalizedTypes.has(normKey) && !checkId) return;
+
+        if (checkId) seenCheckIds.add(checkId);
+        seenCheckObjects.add(chk);
+        seenNormalizedTypes.add(normKey);
+
+        const title =
+          chk.title ||
+          standardTypes.find((s) => s.type === normKey)?.title ||
+          key.replace(/_/g, ' ');
+
+        const isReq = chk.required ?? dynamicRequiredCheckKeys.includes(key);
+
+        list.push({
+          type: normKey,
+          title,
+          required: Boolean(isReq),
+          status: chk.status || 'PENDING',
+          check: chk,
+        });
+      });
+    }
 
     return list;
   }, [preCheckOtpPassed, checks, dossier?.checks, dynamicRequiredCheckKeys]);
@@ -2256,7 +2295,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             margin: 0,
                           }}
                         >
-                          Verification Status & Document Attachment Overview
+                          Verification Status & Document Overview
                         </h4>
                       </div>
                       <span
@@ -2274,74 +2313,156 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                       </span>
                     </div>
                     <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: '0 0 var(--space-3) 0' }}>
-                      Authoritative pre-inspection of submitted credentials and secure document vault readiness.
+                      Pre-inspection summary of verification requirements, current statuses, and supporting document readiness. Verification decisions and detailed reviews are performed in subsequent steps.
                     </p>
 
                     <div
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-                        gap: 'var(--space-3)',
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius-sm)',
+                        overflow: 'hidden',
+                        backgroundColor: 'var(--color-surface)',
                       }}
                     >
-                      {mandatoryChecks.map((chkItem) => {
-                        const hasDoc = Boolean(
-                          chkItem.check?.documentMetadata?.documentId ||
-                          (chkItem.check?.documentMetadata as { id?: string } | undefined)?.id
-                        );
-                        const isApprovedOrPassed = chkItem.status === 'APPROVED' || chkItem.status === 'PASSED';
-                        return (
-                          <div
-                            key={chkItem.type}
+                      <table
+                        style={{
+                          width: '100%',
+                          borderCollapse: 'collapse',
+                          fontSize: 'var(--font-size-xs)',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <thead>
+                          <tr
                             style={{
-                              padding: 'var(--space-3)',
-                              backgroundColor: 'var(--color-surface)',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border)',
-                              fontSize: 'var(--font-size-xs)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              justifyContent: 'space-between',
-                              boxShadow: 'var(--shadow-sm)',
+                              backgroundColor: 'var(--color-bg-subtle)',
+                              borderBottom: '1px solid var(--color-border)',
                             }}
                           >
-                            <div>
-                              <strong style={{ display: 'block', color: 'var(--color-navy)', fontSize: '12.5px', fontWeight: 700, marginBottom: '4px' }}>
-                                {chkItem.title}
-                              </strong>
-                              <div style={{ color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                                Check Status: <strong style={{ color: isApprovedOrPassed ? 'var(--color-success)' : 'var(--color-text-primary)' }}>{chkItem.status}</strong>
-                              </div>
-                              <div style={{ color: 'var(--color-text-secondary)' }}>
-                                Document Attachment: {hasDoc ? (
-                                  <span style={{ color: 'var(--color-success)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                                    <CheckCircle2 size={12} /> Available
-                                  </span>
-                                ) : (
-                                  <span data-testid={!chkItem.isPreCheck && !hasDoc ? 'verification-doc-missing-id' : undefined} style={{ color: 'var(--color-text-secondary)' }}>
-                                    Document Vault Attachment Unavailable
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            {!hasDoc && !chkItem.isPreCheck && (
-                              <div
+                            <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '45%' }}>
+                              Verification Requirement
+                            </th>
+                            <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '25%' }}>
+                              Status
+                            </th>
+                            <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '30%' }}>
+                              Document
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {mandatoryChecks.map((chkItem, idx) => {
+                            const docMeta = chkItem.check?.documentMetadata;
+                            const hasDirectDoc = Boolean(
+                              (docMeta?.documentId && docMeta.documentId.trim() !== '') ||
+                              (docMeta?.id && docMeta.id.trim() !== '')
+                            );
+                            const hasCheckDocs = Array.isArray(chkItem.check?.documents) &&
+                              chkItem.check.documents.some((d) => Boolean((d.documentId && d.documentId.trim() !== '') || (d.id && d.id.trim() !== '')));
+                            const hasMatchingSubmittedDoc = submittedDocs.some((d) => {
+                              const normDocType = (d.checkType === 'PREVIOUS_EMPLOYMENT' ? 'REFERENCE' : d.checkType === 'POLICE_VERIFICATION' ? 'POLICE_CLEARANCE' : d.checkType);
+                              return normDocType === chkItem.type && Boolean((d.documentId && d.documentId.trim() !== '') || (d.id && d.id.trim() !== ''));
+                            });
+                            const hasDoc = hasDirectDoc || hasCheckDocs || hasMatchingSubmittedDoc;
+
+                            const isManualCheck =
+                              chkItem.type === 'EMERGENCY_CONTACT' ||
+                              chkItem.check?.evaluationMethod === 'TELEPHONIC_VETTING' ||
+                              (chkItem.type === 'REFERENCE' && chkItem.check?.evaluationMethod !== 'DOCUMENT_INSPECTION');
+
+                            const isBorderBottom = idx < mandatoryChecks.length - 1;
+
+                            return (
+                              <tr
+                                key={chkItem.type + '-' + idx}
                                 style={{
-                                  fontSize: '10px',
-                                  color: 'var(--color-text-secondary)',
-                                  marginTop: '6px',
-                                  backgroundColor: 'var(--color-bg-app)',
-                                  padding: '4px 6px',
-                                  borderRadius: 'var(--radius-sm)',
-                                  border: '1px dashed var(--color-border)',
+                                  borderBottom: isBorderBottom ? '1px solid var(--color-border-subtle, #e5e7eb)' : 'none',
                                 }}
                               >
-                                No backend document reference ID is associated with this verification check
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
+                                <td style={{ padding: '9px 12px', verticalAlign: 'middle' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                                    <strong style={{ color: 'var(--color-navy)', fontSize: '12px', fontWeight: 600 }}>
+                                      {chkItem.title}
+                                    </strong>
+                                    {chkItem.isPreCheck ? (
+                                      <span
+                                        style={{
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          color: 'var(--color-text-secondary)',
+                                          backgroundColor: 'var(--color-bg-app)',
+                                          padding: '1px 5px',
+                                          borderRadius: 'var(--radius-sm)',
+                                          border: '1px solid var(--color-border)',
+                                        }}
+                                      >
+                                        Automated Pre-Check
+                                      </span>
+                                    ) : isManualCheck ? (
+                                      <span
+                                        style={{
+                                          fontSize: '10px',
+                                          fontWeight: 600,
+                                          color: 'var(--color-text-secondary)',
+                                          backgroundColor: 'var(--color-bg-app)',
+                                          padding: '1px 5px',
+                                          borderRadius: 'var(--radius-sm)',
+                                          border: '1px solid var(--color-border)',
+                                        }}
+                                      >
+                                        Manual Vetting
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td style={{ padding: '9px 12px', verticalAlign: 'middle' }}>
+                                  <span className="sr-only">Check Status: </span>
+                                  <StatusBadge status={chkItem.status} />
+                                </td>
+                                <td style={{ padding: '9px 12px', verticalAlign: 'middle' }}>
+                                  <span className="sr-only">Document Attachment: </span>
+                                  {chkItem.isPreCheck ? (
+                                    <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11.5px' }}>
+                                      Not applicable
+                                    </span>
+                                  ) : isManualCheck && !hasDoc ? (
+                                    <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11.5px' }}>
+                                      Not applicable
+                                    </span>
+                                  ) : hasDoc ? (
+                                    <span
+                                      style={{
+                                        color: 'var(--color-status-success-text)',
+                                        fontWeight: 600,
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                        fontSize: '11.5px',
+                                      }}
+                                    >
+                                      <CheckCircle2 size={13} color="var(--color-status-success-text)" />
+                                      Available
+                                    </span>
+                                  ) : (
+                                    <span
+                                      data-testid="verification-doc-missing-id"
+                                      style={{
+                                        color: 'var(--color-text-secondary)',
+                                        fontSize: '11.5px',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
+                                    >
+                                      No document submitted
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
                 </div>
@@ -4697,10 +4818,10 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     >
                       <AlertTriangle size={32} color="var(--color-warning)" style={{ margin: '0 auto var(--space-2)' }} />
                       <strong style={{ display: 'block', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', marginBottom: '4px' }}>
-                        Document Vault Attachment Unavailable
+                        Document Not Available
                       </strong>
                       <p style={{ margin: 0 }}>
-                        No backend document reference ID is associated with this verification check.
+                        No document file is attached to this verification check.
                       </p>
                     </div>
                   )}

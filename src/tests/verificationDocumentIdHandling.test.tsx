@@ -184,10 +184,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       // Verify clear unavailable state rendered
       const missingDocBadges = await screen.findAllByTestId('verification-doc-missing-id');
       expect(missingDocBadges.length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Document Vault Attachment Unavailable/i).length).toBeGreaterThan(0);
-      expect(
-        screen.getAllByText(/No backend document reference ID is associated with this verification check/i).length
-      ).toBeGreaterThan(0);
+      expect(screen.getAllByText(/No document submitted/i).length).toBeGreaterThan(0);
 
       // Zero signed URL API calls made
       expect(getSignedUrlSpy).not.toHaveBeenCalled();
@@ -285,9 +282,24 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       expect(
         await screen.findByText(/Authorized Document Vault Preview/i)
       ).toBeInTheDocument();
-      expect(screen.getByText(/Validity: 2026-10-22T10:00:00Z/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Rotate 90°/i })).toBeInTheDocument();
+      // Converted accurately to Indian Standard Time (Asia/Kolkata)
+      expect(screen.getByText(/Validity: 22 Oct 2026, 03:30 PM IST/i)).toBeInTheDocument();
+      const rotateBtn = screen.getByRole('button', { name: /Rotate/i });
+      expect(rotateBtn).toBeInTheDocument();
+      expect(rotateBtn).toHaveAttribute('title', 'Rotate 90°');
       expect(screen.getByRole('button', { name: /Zoom In/i })).toBeInTheDocument();
+
+      // Verify repeated rotations work correctly (0deg -> 90deg -> 180deg -> 270deg -> 0deg)
+      const docViewer = screen.getByTestId('kyc-document-pdf');
+      expect(docViewer.parentElement).toHaveStyle({ transform: 'rotate(0deg) scale(1)' });
+      await user.click(rotateBtn);
+      expect(docViewer.parentElement).toHaveStyle({ transform: 'rotate(90deg) scale(1)' });
+      await user.click(rotateBtn);
+      expect(docViewer.parentElement).toHaveStyle({ transform: 'rotate(180deg) scale(1)' });
+      await user.click(rotateBtn);
+      expect(docViewer.parentElement).toHaveStyle({ transform: 'rotate(270deg) scale(1)' });
+      await user.click(rotateBtn);
+      expect(docViewer.parentElement).toHaveStyle({ transform: 'rotate(0deg) scale(1)' });
     });
   });
 
@@ -563,7 +575,7 @@ describe('Phase 4: Verification Document ID Handling & Safe Link Resolution', ()
       // Verify clear unavailable state rendered in overview
       const missingDocBadges = await screen.findAllByTestId('verification-doc-missing-id');
       expect(missingDocBadges.length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Document Vault Attachment Unavailable/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/No document submitted/i).length).toBeGreaterThan(0);
     });
 
     it('displays error state and retry button when vault returns failure', async () => {

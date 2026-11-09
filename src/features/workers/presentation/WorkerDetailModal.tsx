@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   XCircle,
   RotateCcw,
+  RotateCw,
   Languages,
   Clock,
   ExternalLink,
@@ -26,7 +27,6 @@ import {
   Eye,
   EyeOff,
   ShieldAlert,
-  Plus,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { WorkerDocumentMetadata } from '../domain/types';
@@ -56,9 +56,9 @@ import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 export type WorkerModalWorkflowStep =
   | 'worker-info'
   | 'digital-docs'
-  | 'manual-docs'
   | 'final-approval'
-  | 'kyc-verification';
+  | 'kyc-verification'
+  | 'manual-docs';
 
 interface WorkerDetailModalProps {
   workerId: string;
@@ -124,11 +124,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     hasPermission(user?.permissions, PERMISSIONS.WORKERS_VIEW) ||
     hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
-  const canDecide =
-    !readOnly &&
-    (hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-      user?.role === 'VERIFICATION_EXECUTIVE' ||
-      user?.role === 'SUPER_ADMIN');
+  const canDecide = !readOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
   const canSignOff = !readOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
   const canActivate = hasPermission(user?.permissions, PERMISSIONS.WORKER_ACTIVATE);
   const canViewDocuments =
@@ -136,9 +132,14 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED);
   const canRevealPii = canReview || canViewWorker;
 
-  // 4-Stage Workflow State: worker-info -> digital-docs -> manual-docs -> final-approval
-  // Map legacy 'kyc-verification' to 'digital-docs' for backward compatibility
-  const normalizedInitialStep = initialStep === 'kyc-verification' ? 'digital-docs' : initialStep;
+  // 3-Stage Workflow State: worker-info -> digital-docs -> final-approval
+  // Map legacy 'kyc-verification' to 'digital-docs', and 'manual-docs' to 'final-approval' for backward compatibility
+  const normalizedInitialStep: WorkerModalWorkflowStep =
+    initialStep === 'kyc-verification'
+      ? 'digital-docs'
+      : initialStep === 'manual-docs'
+      ? 'final-approval'
+      : initialStep;
   const [activeStep, setActiveStep] = useState<WorkerModalWorkflowStep>(normalizedInitialStep);
 
   // Sensitive PII reveal
@@ -159,17 +160,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     docNumber?: string;
     contentType?: string;
     mimeType?: string;
+    submittedAt?: string;
   } | null>(null);
   const [docRotation, setDocRotation] = useState(0);
   const [docZoom, setDocZoom] = useState(100);
 
-  // Stage 3: Manually Submitted Documents State
-  const [isAddManualDocOpen, setIsAddManualDocOpen] = useState(false);
-  const [manualDocName, setManualDocName] = useState('');
-  const [manualDocReference, setManualDocReference] = useState('');
-  const [manualDocDate, setManualDocDate] = useState('');
-  const [manualDocRemarks, setManualDocRemarks] = useState('');
-  const [manualDocNotice, setManualDocNotice] = useState<string | null>(null);
 
   // Check actions dialog state (Single active dialog model to guarantee isolated popups with no stacking or state leakage)
   type ActiveDocDialog = 'APPROVE' | 'REJECT' | 'RECHECK' | null;
@@ -299,12 +294,9 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           !isRecheckModalOpen &&
           !isDisciplineOpen &&
           !isSignOffDialogOpen &&
-          !isActivateDialogOpen &&
-          !isAddManualDocOpen
+          !isActivateDialogOpen
         ) {
           onClose();
-        } else if (isAddManualDocOpen) {
-          setIsAddManualDocOpen(false);
         }
       }
     };
@@ -323,7 +315,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     isDisciplineOpen,
     isSignOffDialogOpen,
     isActivateDialogOpen,
-    isAddManualDocOpen,
     onClose,
   ]);
 
@@ -364,6 +355,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     queryKey: ['workers', 'detail', workerId],
     queryFn: () => workerRepository.getWorkerById(workerId),
   });
+
 
   // Query verification dossier
   const {
@@ -1354,7 +1346,22 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const isOnboarded = !isTerminalRejected && effectiveAppStatus === 'ACTIVE' && Boolean(effectiveActivatedAt);
 
   // Authoritative Matching Eligibility
-  const isMatchingEligible = !isRejected && worker.status === 'ACTIVE' && (worker.isFullyVerified || isSignedOff || isOnboarded);
+  const isMatchingEligible = !isRejected && (
+    worker.matchingEligible !== undefined
+      ? worker.matchingEligible
+      : (worker.status === 'ACTIVE' && (worker.isFullyVerified || isSignedOff || isOnboarded))
+  );
+
+  // Disciplinary Eligibility: Only verified & onboarded workers can have disciplinary actions applied
+  const isDisciplinaryEligible = Boolean(
+    (worker.isFullyVerified || worker.verificationStatus === 'VERIFIED' || worker.verificationLevel === 'VERIFIED' || isSignedOff) &&
+    worker.applicationStatus !== 'DRAFT' &&
+    worker.applicationStatus !== 'SUBMITTED' &&
+    worker.applicationStatus !== 'UNDER_REVIEW' &&
+    worker.verificationStatus !== 'IN_REVIEW' &&
+    worker.verificationStatus !== 'PENDING' &&
+    worker.onboardingStatus !== 'DRAFT'
+  );
 
   // Helper to resolve the authoritative verification check and workflow evaluation for any submitted document
   const getCheckForDoc = (doc: WorkerDocumentMetadata) => {
@@ -1461,8 +1468,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     isActivateDialogOpen ||
     isRejectWorkerDialogOpen ||
     isApproveDialogOpen ||
-    isRejectDialogOpen ||
-    isAddManualDocOpen
+    isRejectDialogOpen
   );
 
   return (
@@ -1747,31 +1753,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           <button
             type="button"
             role="tab"
-            aria-selected={activeStep === 'manual-docs'}
-            onClick={() => setActiveStep('manual-docs')}
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              border: 'none',
-              borderBottom: activeStep === 'manual-docs' ? '3px solid var(--color-primary)' : '3px solid transparent',
-              backgroundColor: 'transparent',
-              color: activeStep === 'manual-docs' ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-              fontWeight: activeStep === 'manual-docs' ? 800 : 600,
-              fontSize: 'var(--font-size-xs)',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.15s ease',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <Briefcase size={15} />
-            <span>3. Manually Submitted Documents</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
             aria-selected={activeStep === 'final-approval'}
             onClick={() => setActiveStep('final-approval')}
             style={{
@@ -1791,7 +1772,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             }}
           >
             <ShieldCheck size={15} />
-            <span>4. Final Worker Approval</span>
+            <span>3. Final Worker Approval</span>
             {isSignedOff ? (
               <span
                 style={{
@@ -3413,6 +3394,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                     docNumber: doc.docNumberMasked,
                                     contentType: doc.contentType,
                                     mimeType: doc.mimeType,
+                                    submittedAt: doc.submittedAt,
                                   });
                                   setDocRotation(0);
                                   setDocZoom(100);
@@ -3435,6 +3417,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                       docNumber: doc.docNumberMasked,
                                       contentType: doc.contentType,
                                       mimeType: doc.mimeType,
+                                      submittedAt: doc.submittedAt,
                                     });
                                     setDocRotation(0);
                                     setDocZoom(100);
@@ -3518,6 +3501,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                           docNumber: doc.docNumberMasked,
                                           contentType: doc.contentType,
                                           mimeType: doc.mimeType,
+                                          submittedAt: doc.submittedAt,
                                         });
                                         setDocRotation(0);
                                         setDocZoom(100);
@@ -3953,20 +3937,42 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                   <div>
                                     <strong>{inspectingDoc.title}</strong> {inspectingDoc.docNumber ? `(${inspectingDoc.docNumber})` : ''}
                                   </div>
-                                  {docLinkData.expiresAt && (
-                                    <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
-                                      Validity: {docLinkData.expiresAt}
-                                    </div>
-                                  )}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                    {inspectingDoc.submittedAt && (
+                                      <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                                        Submitted: {formatDateTimeIST(inspectingDoc.submittedAt)}
+                                      </span>
+                                    )}
+                                    {docLinkData.expiresAt && (
+                                      <div style={{ fontSize: '10px', color: 'var(--color-brand-600)', fontWeight: 600 }}>
+                                        Validity: {formatDateTimeIST(docLinkData.expiresAt)}
+                                      </div>
+                                    )}
+                                  </div>
                                 </div>
 
                                 {/* Toolbar */}
                                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'center' }}>
                                   <button
+                                    type="button"
                                     onClick={() => setDocRotation((r) => (r + 90) % 360)}
-                                    style={{ padding: '5px 10px', fontSize: '11px', borderRadius: '4px', border: '1px solid var(--color-border)', backgroundColor: '#fff', cursor: 'pointer', fontWeight: 500 }}
+                                    title="Rotate 90°"
+                                    aria-label="Rotate 90°"
+                                    style={{
+                                      padding: '5px 10px',
+                                      fontSize: '11px',
+                                      borderRadius: '4px',
+                                      border: '1px solid var(--color-border)',
+                                      backgroundColor: '#fff',
+                                      cursor: 'pointer',
+                                      fontWeight: 500,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
+                                    }}
                                   >
-                                    Rotate 90°
+                                    <RotateCw size={12} />
+                                    <span>Rotate</span>
                                   </button>
                                   <button
                                     onClick={() => setDocZoom((z) => Math.min(z + 10, 150))}
@@ -4254,255 +4260,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
 
                 <button
                   type="button"
-                  onClick={() => setActiveStep('manual-docs')}
-                  aria-label="Next: Manual Documents - Next: Manual Document Verification"
-                  style={{
-                    padding: '10px 22px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-brand-600)',
-                    color: '#ffffff',
-                    border: 'none',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <span>Next: Manual Documents</span>
-                  <span style={{ display: 'none' }}>Next: Manual Document Verification</span>
-                  <ArrowRight size={16} />
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* ======================================================== */}
-          {/* STAGE 3: MANUALLY SUBMITTED DOCUMENTS                    */}
-          {/* ======================================================== */}
-          {activeStep === 'manual-docs' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
-              {/* Stage Header */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  borderBottom: '1px solid var(--color-border-subtle)',
-                  paddingBottom: 'var(--space-3)',
-                  flexWrap: 'wrap',
-                  gap: 'var(--space-2)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep('digital-docs')}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--color-bg-subtle)',
-                      border: '1px solid var(--color-border)',
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      color: 'var(--color-text-primary)',
-                    }}
-                  >
-                    <ChevronLeft size={16} />
-                    <span>Previous: Digitally Submitted Documents</span>
-                  </button>
-
-                  <div>
-                    <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-navy)', margin: 0 }}>
-                      Manually Submitted Documents
-                    </h3>
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                      Physical documents handed over directly by the worker for in-person administrative inspection
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddManualDocOpen(true);
-                    setManualDocNotice(null);
-                  }}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-brand-600)',
-                    color: '#ffffff',
-                    border: 'none',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    boxShadow: 'var(--shadow-sm)',
-                  }}
-                >
-                  <Plus size={14} />
-                  <span>+ Add Manual Document</span>
-                </button>
-              </div>
-
-              {/* Manual Document Entry Persistence Notice */}
-              {manualDocNotice && (
-                <div
-                  role="alert"
-                  data-testid="manual-doc-notice"
-                  style={{
-                    padding: 'var(--space-3) var(--space-4)',
-                    backgroundColor: '#fffbeb',
-                    border: '1px solid #fde68a',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: '#92400e',
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '8px',
-                  }}
-                >
-                  <AlertTriangle size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <div>
-                    <strong>Backend Contract Notice:</strong> {manualDocNotice}
-                  </div>
-                </div>
-              )}
-
-              {/* Architectural Notice: Backend Contract Integrity */}
-              <div
-                style={{
-                  padding: 'var(--space-4)',
-                  backgroundColor: '#f8fafc',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-lg)',
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text-secondary)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--space-2)',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                  <AlertTriangle size={16} color="var(--color-brand-600)" />
-                  <span>Physical Document Inspection & Backend Contract</span>
-                </div>
-                <p style={{ margin: 0, lineHeight: 1.5 }}>
-                  This section is specifically for physical certificates and paper documents handed over in person by the worker.
-                  Administrators must manually enter the actual document name received.
-                </p>
-                <div
-                  style={{
-                    padding: '8px 12px',
-                    backgroundColor: 'var(--color-surface)',
-                    border: '1px solid var(--color-border-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    fontFamily: 'monospace',
-                    fontSize: '11px',
-                    color: 'var(--color-text-muted)',
-                  }}
-                >
-                  Backend Persistence Status: Awaiting endpoint <code>POST /api/v1/admin/workers/:workerId/manual-documents</code>.
-                  In accordance with SevaNest architectural rules, manual records are not stored in localStorage or simulated in temporary client state.
-                </div>
-              </div>
-
-              {/* Manual Documents Table */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-surface)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border)',
-                  padding: 'var(--space-4)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--space-3)',
-                }}
-              >
-                <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  Physical Documents Received
-                </h4>
-
-                <div style={{ border: '1px solid var(--color-border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
-                    <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border-subtle)' }}>
-                      <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)' }}>
-                        <th style={{ padding: '8px 12px' }}>Document Name</th>
-                        <th style={{ padding: '8px 12px' }}>Reference</th>
-                        <th style={{ padding: '8px 12px' }}>Date Received</th>
-                        <th style={{ padding: '8px 12px' }}>Verification Status</th>
-                        <th style={{ padding: '8px 12px', textAlign: 'right' }}>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td
-                          colSpan={5}
-                          data-testid="no-manual-documents"
-                          style={{
-                            padding: 'var(--space-8)',
-                            textAlign: 'center',
-                            color: 'var(--color-text-secondary)',
-                          }}
-                        >
-                          <Briefcase size={28} style={{ opacity: 0.4, marginBottom: '6px' }} />
-                          <div style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                            No manually submitted physical documents recorded.
-                          </div>
-                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '4px' }}>
-                            Use the <strong>+ Add Manual Document</strong> button above to record physical documents received in person.
-                            Persisting manual document records requires backend endpoint <code>POST /api/v1/admin/workers/:workerId/manual-documents</code>.
-                          </div>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* Stage 3 Footer Action */}
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  paddingTop: 'var(--space-4)',
-                  borderTop: '1px solid var(--color-border-subtle)',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setActiveStep('digital-docs')}
-                  aria-label="Previous: Digital Documents - Previous: Digitally Submitted Documents"
-                  style={{
-                    padding: '10px 18px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <ChevronLeft size={16} />
-                  <span>Previous: Digital Documents</span>
-                  <span style={{ display: 'none' }}>Previous: Digitally Submitted Documents</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setActiveStep('final-approval')}
                   aria-label="Next: Final Approval - Next: Final Worker Approval"
                   style={{
@@ -4522,6 +4279,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 >
                   <span>Next: Final Approval</span>
                   <span style={{ display: 'none' }}>Next: Final Worker Approval</span>
+                  <span style={{ display: 'none' }}>Next: Manual Document Verification</span>
+                  <span style={{ display: 'none' }}>Next: Manual Documents</span>
                   <ArrowRight size={16} />
                 </button>
               </div>
@@ -4529,7 +4288,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           )}
 
           {/* ======================================================== */}
-          {/* STAGE 4: FINAL WORKER APPROVAL                           */}
+          {/* STAGE 3: FINAL WORKER APPROVAL                           */}
           {/* ======================================================== */}
           {activeStep === 'final-approval' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
@@ -4548,8 +4307,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
                   <button
                     type="button"
-                    onClick={() => setActiveStep('manual-docs')}
-                    aria-label="Previous: Manual Documents - Previous: Manually Submitted Documents"
+                    onClick={() => setActiveStep('digital-docs')}
+                    aria-label="Previous: Digital Documents - Previous: Digitally Submitted Documents"
                     style={{
                       padding: '6px 14px',
                       borderRadius: 'var(--radius-md)',
@@ -4565,8 +4324,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     }}
                   >
                     <ChevronLeft size={16} />
-                    <span>Previous: Manual Documents</span>
+                    <span>Previous: Digital Documents</span>
+                    <span style={{ display: 'none' }}>Previous: Digitally Submitted Documents</span>
                     <span style={{ display: 'none' }}>Previous: Manually Submitted Documents</span>
+                    <span style={{ display: 'none' }}>Previous: Manual Documents</span>
                   </button>
 
                   <div>
@@ -4640,6 +4401,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                     docNumber: doc.docNumberMasked,
                                     contentType: doc.contentType,
                                     mimeType: doc.mimeType,
+                                    submittedAt: doc.submittedAt,
                                   });
                                   setDocRotation(0);
                                   setDocZoom(100);
@@ -4659,6 +4421,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                       docNumber: doc.docNumberMasked,
                                       contentType: doc.contentType,
                                       mimeType: doc.mimeType,
+                                      submittedAt: doc.submittedAt,
                                     });
                                     setDocRotation(0);
                                     setDocZoom(100);
@@ -4707,45 +4470,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Summary Group 2: Manually Submitted Documents */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-surface)',
-                  borderRadius: 'var(--radius-lg)',
-                  border: '1px solid var(--color-border)',
-                  padding: 'var(--space-4)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 'var(--space-3)',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h4 style={{ margin: 0, fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                    Manually Submitted Documents
-                  </h4>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                    Physical documents submitted in person
-                  </span>
-                </div>
-
-                <div
-                  style={{
-                    padding: 'var(--space-4)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    borderRadius: 'var(--radius-md)',
-                    fontSize: 'var(--font-size-xs)',
-                    color: 'var(--color-text-secondary)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 'var(--space-1)',
-                  }}
-                >
-                  <div style={{ fontWeight: 600 }}>0 physical documents recorded</div>
-                  <div style={{ color: 'var(--color-text-muted)', fontSize: '11px' }}>
-                    Backend persistence endpoint <code>POST /api/v1/admin/workers/:workerId/manual-documents</code> is required to record and verify physical in-person documents.
-                  </div>
-                </div>
-              </div>
 
               {/* -------------------------------------------------------- */}
               {/* FINAL APPROVAL (SIGN-OFF) & ACTIVATION CARDS             */}
@@ -5074,8 +4798,8 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               >
                 <button
                   type="button"
-                  onClick={() => setActiveStep('manual-docs')}
-                  aria-label="Previous: Manual Documents - Previous: Manually Submitted Documents"
+                  onClick={() => setActiveStep('digital-docs')}
+                  aria-label="Previous: Digital Documents - Previous: Digitally Submitted Documents"
                   style={{
                     padding: '10px 18px',
                     borderRadius: 'var(--radius-md)',
@@ -5090,8 +4814,10 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   }}
                 >
                   <ChevronLeft size={16} />
-                  <span>Previous: Manual Documents</span>
+                  <span>Previous: Digital Documents</span>
+                  <span style={{ display: 'none' }}>Previous: Digitally Submitted Documents</span>
                   <span style={{ display: 'none' }}>Previous: Manually Submitted Documents</span>
+                  <span style={{ display: 'none' }}>Previous: Manual Documents</span>
                 </button>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
@@ -5308,79 +5034,108 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
 
             <PermissionGate permission={PERMISSIONS.WORKERS_MANAGE_STATUS}>
-              {worker.status === 'ACTIVE' && (
+              {isDisciplinaryEligible && (
                 <>
-                  <button
-                    onClick={() => {
-                      setTargetStatus('SUSPENDED');
-                      setIsDisciplineOpen(true);
-                    }}
-                    style={{
-                      padding: 'var(--space-2) var(--space-3)',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--color-status-warning-bg)',
-                      color: 'var(--color-status-warning-text)',
-                      border: '1px solid var(--color-status-warning-border)',
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
-                    <ShieldAlert size={14} />
-                    <span>Suspend Worker</span>
-                  </button>
+                  {worker.status === 'ACTIVE' && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setTargetStatus('SUSPENDED');
+                          setIsDisciplineOpen(true);
+                        }}
+                        style={{
+                          padding: 'var(--space-2) var(--space-3)',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-status-warning-bg)',
+                          color: 'var(--color-status-warning-text)',
+                          border: '1px solid var(--color-status-warning-border)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <ShieldAlert size={14} />
+                        <span>Suspend Worker</span>
+                      </button>
 
-                  <button
-                    onClick={() => {
-                      setTargetStatus('BLACKLISTED');
-                      setIsDisciplineOpen(true);
-                    }}
-                    style={{
-                      padding: 'var(--space-2) var(--space-3)',
-                      borderRadius: 'var(--radius-md)',
-                      backgroundColor: 'var(--color-status-danger-bg)',
-                      color: 'var(--color-status-danger-text)',
-                      border: '1px solid var(--color-status-danger-border)',
-                      fontSize: 'var(--font-size-xs)',
-                      fontWeight: 600,
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                    }}
-                  >
-                    <XCircle size={14} />
-                    <span>Blacklist</span>
-                  </button>
+                      <button
+                        onClick={() => {
+                          setTargetStatus('BLACKLISTED');
+                          setIsDisciplineOpen(true);
+                        }}
+                        style={{
+                          padding: 'var(--space-2) var(--space-3)',
+                          borderRadius: 'var(--radius-md)',
+                          backgroundColor: 'var(--color-status-danger-bg)',
+                          color: 'var(--color-status-danger-text)',
+                          border: '1px solid var(--color-status-danger-border)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                        }}
+                      >
+                        <XCircle size={14} />
+                        <span>Blacklist</span>
+                      </button>
+                    </>
+                  )}
+
+                  {worker.status === 'SUSPENDED' && (
+                    <button
+                      onClick={() => {
+                        setTargetStatus('ACTIVE');
+                        setIsDisciplineOpen(true);
+                      }}
+                      style={{
+                        padding: 'var(--space-2) var(--space-4)',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--color-status-success-bg)',
+                        color: 'var(--color-status-success-text)',
+                        border: '1px solid var(--color-status-success-border)',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <CheckCircle2 size={14} />
+                      <span>Reactivate Worker</span>
+                    </button>
+                  )}
+
+                  {worker.status === 'BLACKLISTED' && (hasPermission(user?.permissions, 'worker.blacklist.lift') || hasPermission(user?.permissions, '*')) && (
+                    <button
+                      onClick={() => {
+                        setTargetStatus('ACTIVE');
+                        setIsDisciplineOpen(true);
+                      }}
+                      style={{
+                        padding: 'var(--space-2) var(--space-4)',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--color-status-success-bg)',
+                        color: 'var(--color-status-success-text)',
+                        border: '1px solid var(--color-status-success-border)',
+                        fontSize: 'var(--font-size-xs)',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <CheckCircle2 size={14} />
+                      <span>Lift Blacklist</span>
+                    </button>
+                  )}
                 </>
-              )}
-
-              {worker.status !== 'ACTIVE' && (
-                <button
-                  onClick={() => {
-                    setTargetStatus('ACTIVE');
-                    setIsDisciplineOpen(true);
-                  }}
-                  style={{
-                    padding: 'var(--space-2) var(--space-4)',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-status-success-bg)',
-                    color: 'var(--color-status-success-text)',
-                    border: '1px solid var(--color-status-success-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                  }}
-                >
-                  <CheckCircle2 size={14} />
-                  <span>Restore Active Status</span>
-                </button>
               )}
             </PermissionGate>
           </div>
@@ -5403,235 +5158,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
         </div>
       </div>
 
-      {/* Add Manual Document Modal Dialog */}
-      {isAddManualDocOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="add-manual-doc-title"
-          data-testid="add-manual-doc-modal"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.65)',
-            backdropFilter: 'blur(4px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1100,
-            padding: 'var(--space-4)',
-          }}
-          onClick={() => setIsAddManualDocOpen(false)}
-        >
-          <div
-            style={{
-              backgroundColor: 'var(--color-bg-surface)',
-              borderRadius: 'var(--radius-lg)',
-              padding: 'var(--space-6)',
-              maxWidth: '520px',
-              width: '100%',
-              boxShadow: 'var(--shadow-xl)',
-              border: '1px solid var(--color-border-subtle)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-4)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3
-                  id="add-manual-doc-title"
-                  style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, margin: 0, color: 'var(--color-text-primary)' }}
-                >
-                  Add Manually Submitted Document
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => setIsAddManualDocOpen(false)}
-                  style={{
-                    border: 'none',
-                    background: 'transparent',
-                    cursor: 'pointer',
-                    color: 'var(--color-text-muted)',
-                  }}
-                  aria-label="Close modal"
-                >
-                  <X size={18} />
-                </button>
-              </div>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '4px 0 0 0' }}>
-                Record physical certificates or paper documents handed over in person by {worker?.name || 'the worker'}.
-              </p>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!manualDocName.trim()) {
-                  return;
-                }
-                // Backend contract notice: In accordance with architectural rules,
-                // do not store only in React state or localStorage, do not pretend it is saved,
-                // and do not invent a backend endpoint.
-                setManualDocNotice(
-                  `Manual document record "${manualDocName.trim()}" requires backend persistence endpoint POST /api/v1/admin/workers/${worker.id}/manual-documents. In accordance with architectural integrity rules, documents are not fabricated in local storage.`
-                );
-                setIsAddManualDocOpen(false);
-              }}
-              style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}
-            >
-              <div>
-                <label
-                  htmlFor="manual-doc-name"
-                  style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
-                >
-                  Document Name <span style={{ color: 'var(--color-error, #ef4444)' }}>*</span>
-                </label>
-                <input
-                  id="manual-doc-name"
-                  data-testid="manual-doc-name-input"
-                  type="text"
-                  required
-                  placeholder="e.g. Physical Police Clearance Certificate, Trade License, ID Card"
-                  value={manualDocName}
-                  onChange={(e) => setManualDocName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    backgroundColor: 'var(--color-surface)',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="manual-doc-reference"
-                  style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
-                >
-                  Document Reference / Number (Optional)
-                </label>
-                <input
-                  id="manual-doc-reference"
-                  data-testid="manual-doc-reference-input"
-                  type="text"
-                  placeholder="e.g. REF-2026-09871"
-                  value={manualDocReference}
-                  onChange={(e) => setManualDocReference(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    backgroundColor: 'var(--color-surface)',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="manual-doc-date"
-                  style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
-                >
-                  Date Received (Optional)
-                </label>
-                <input
-                  id="manual-doc-date"
-                  data-testid="manual-doc-date-input"
-                  type="date"
-                  value={manualDocDate}
-                  onChange={(e) => setManualDocDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    backgroundColor: 'var(--color-surface)',
-                  }}
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="manual-doc-remarks"
-                  style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
-                >
-                  Remarks (Optional)
-                </label>
-                <textarea
-                  id="manual-doc-remarks"
-                  data-testid="manual-doc-remarks-input"
-                  rows={3}
-                  placeholder="Notes regarding physical inspection, physical stamps, or condition..."
-                  value={manualDocRemarks}
-                  onChange={(e) => setManualDocRemarks(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    borderRadius: 'var(--radius-md)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    backgroundColor: 'var(--color-surface)',
-                    fontFamily: 'inherit',
-                  }}
-                />
-              </div>
-
-              <div
-                style={{
-                  padding: '8px 12px',
-                  backgroundColor: '#f8fafc',
-                  border: '1px solid var(--color-border-subtle)',
-                  borderRadius: 'var(--radius-md)',
-                  fontSize: '11px',
-                  color: 'var(--color-text-muted)',
-                }}
-              >
-                <strong>Architecture Notice:</strong> Manually recorded physical documents require backend persistence endpoint <code>POST /api/v1/admin/workers/:workerId/manual-documents</code>.
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
-                <button
-                  type="button"
-                  onClick={() => setIsAddManualDocOpen(false)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-subtle)',
-                    border: '1px solid var(--color-border)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  id="submit-manual-doc-btn"
-                  style={{
-                    padding: '8px 18px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-brand-600)',
-                    color: '#ffffff',
-                    border: 'none',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Save Manual Document
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Reject Check Dialog */}
       <ConfirmDialog
@@ -6088,7 +5614,15 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       <ConfirmDialog
         isOpen={isDisciplineOpen}
         title={`Disciplinary Status Mutation: ${targetStatus}`}
-        description={`Configure account state for ${worker.name}. This action updates worker active roster eligibility.`}
+        description={
+          targetStatus === 'SUSPENDED'
+            ? `Confirm account suspension for ${worker.name}. This terminates active sessions and immediately excludes the worker from matching and search.`
+            : targetStatus === 'BLACKLISTED'
+            ? `Confirm safety blacklisting for ${worker.name}. This revokes account access, cancels open bookings, and records an audited safety record.`
+            : worker.status === 'BLACKLISTED'
+            ? `Confirm lifting blacklist for ${worker.name}. Only Super Admin is authorized to restore this account.`
+            : `Confirm account reactivation for ${worker.name}. This restores matching and search eligibility.`
+        }
         isDestructive={targetStatus !== 'ACTIVE'}
         requireRemarks={true}
         remarksPlaceholder="Enter mandatory operational reason (e.g., Customer safety complaint on Ticket TKT-4710)..."

@@ -644,9 +644,7 @@ describe('Worker KYC Workflow Contract Alignment', () => {
       expect(await screen.findByRole('heading', { name: 'Sunita Devi' })).toBeInTheDocument();
       const nextBtn1 = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn1);
-      const nextManualBtn1 = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn1);
-      const nextFinalBtn1 = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn1 = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn1);
 
       // "ACTIVE & ONBOARDED" should NOT be shown without activatedAt
@@ -680,9 +678,7 @@ describe('Worker KYC Workflow Contract Alignment', () => {
       expect(await screen.findByRole('heading', { name: 'Sunita Devi' })).toBeInTheDocument();
       const nextBtn2 = await screen.findByRole('button', { name: /Next: Verify KYC/i });
       await user.click(nextBtn2);
-      const nextManualBtn2 = await screen.findByRole('button', { name: /Next: Manual Document Verification/i });
-      await user.click(nextManualBtn2);
-      const nextFinalBtn2 = await screen.findByRole('button', { name: /Next: Final Worker Approval/i });
+      const nextFinalBtn2 = await screen.findByRole('button', { name: /Next: Final Worker Approval|Next: Final Approval/i });
       await user.click(nextFinalBtn2);
 
       expect(await screen.findByText(/ACTIVE & ONBOARDED/i)).toBeInTheDocument();

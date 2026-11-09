@@ -29,6 +29,18 @@ describe('Shared Formatters', () => {
       expect(result).toContain('IST');
     });
 
+    it('accurately converts known UTC timestamps to Indian Standard Time (IST)', () => {
+      // 10:00:00 UTC + 05:30 = 15:30:00 IST (03:30 PM)
+      expect(formatDateTimeIST('2026-10-22T10:00:00Z')).toBe('22 Oct 2026, 03:30 PM IST');
+      // Handles milliseconds seamlessly
+      expect(formatDateTimeIST('2026-10-22T10:00:00.500Z')).toBe('22 Oct 2026, 03:30 PM IST');
+      // Handles numeric epoch in seconds and milliseconds
+      expect(formatDateTimeIST(1792663200000)).toBe('22 Oct 2026, 03:30 PM IST');
+      expect(formatDateTimeIST(1792663200)).toBe('22 Oct 2026, 03:30 PM IST');
+      expect(formatDateTimeIST('1792663200000')).toBe('22 Oct 2026, 03:30 PM IST');
+      expect(formatDateTimeIST('1792663200')).toBe('22 Oct 2026, 03:30 PM IST');
+    });
+
     it('returns placeholder for invalid or missing timestamps', () => {
       expect(formatDateTimeIST(undefined)).toBe('—');
       expect(formatDateTimeIST(null)).toBe('—');

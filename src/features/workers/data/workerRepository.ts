@@ -173,7 +173,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
     bio: 'Experienced professional driver for automatic and manual transmission luxury sedans and SUVs.',
     skills: ['Automatic Transmission', 'Manual Transmission', 'Highway Driving', 'City Navigation'],
     isFullyVerified: false,
-    status: 'ACTIVE',
+    status: 'UNDER_REVIEW',
     phoneMasked: '+91 98450 *****',
     phone: '+91 98450 12345',
     email: 'ramesh.yadav@sevanest.worker',
@@ -312,7 +312,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
     bio: 'Specialized in North Indian vegetarian dishes, breakfast preparations, and healthy meal plans.',
     skills: ['North Indian Cuisine', 'Vegetarian Cooking', 'Breakfast Prep', 'Kitchen Cleanliness'],
     isFullyVerified: false,
-    status: 'ACTIVE',
+    status: 'SUBMITTED',
     phoneMasked: '+91 99881 *****',
     onboardingStatus: 'APPLIED',
     verificationStatus: 'PENDING',
@@ -709,6 +709,46 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
       ? { url: rawPhotoUrl }
       : undefined;
 
+    const isBlacklisted = Boolean(item.blacklist || item.blacklistInfo || item.status === 'BLACKLISTED');
+  const isSuspended = (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED') && !isBlacklisted;
+  const isTerminalRejected =
+    isRejected ||
+    rawVerificationStatus === 'REJECTED' ||
+    rawOnboardingStatus === 'REJECTED' ||
+    String(item.applicationStatus || '').toUpperCase() === 'REJECTED';
+  const isDraftApp = rawOnboardingStatus === 'DRAFT' || String(item.applicationStatus || '').toUpperCase() === 'DRAFT';
+  const isSubmittedApp = String(item.applicationStatus || '').toUpperCase() === 'SUBMITTED';
+  const isUnderReviewApp =
+    String(item.applicationStatus || '').toUpperCase() === 'UNDER_REVIEW' ||
+    levelUpper === 'IN_PROGRESS' ||
+    rawVerificationStatus === 'IN_REVIEW' ||
+    rawVerificationStatus === 'PENDING_REVIEW';
+  const isSignedOff = Boolean(item.signedOffAt);
+  const isActivated = Boolean(item.activatedAt) || String(item.applicationStatus || '').toUpperCase() === 'ACTIVE';
+
+  let calculatedStatus: Worker['status'];
+  if (isBlacklisted) {
+    calculatedStatus = 'BLACKLISTED';
+  } else if (isSuspended) {
+    calculatedStatus = 'SUSPENDED';
+  } else if (isTerminalRejected) {
+    calculatedStatus = 'REJECTED';
+  } else if (isDraftApp) {
+    calculatedStatus = 'DRAFT';
+  } else if (isSubmittedApp) {
+    calculatedStatus = 'SUBMITTED';
+  } else if (isUnderReviewApp) {
+    calculatedStatus = 'UNDER_REVIEW';
+  } else if (!isVerified && rawVerificationStatus === 'PENDING') {
+    calculatedStatus = 'UNDER_REVIEW';
+  } else if (isVerified && (!isSignedOff || !isActivated)) {
+    calculatedStatus = 'VERIFIED';
+  } else if (isVerified && isActivated && (item.accountStatus === 'ACTIVE' || !item.accountStatus)) {
+    calculatedStatus = 'ACTIVE';
+  } else {
+    calculatedStatus = (item.applicationStatus as Worker['status']) || 'UNDER_REVIEW';
+  }
+
   return {
     id: rawId,
     userId: item.userId ? String(item.userId) : undefined,
@@ -723,7 +763,7 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
       ? String((item.serviceAreas[0] as { name?: string }).name || 'Hyderabad')
       : String(item.locality || 'Hyderabad'),
     isFullyVerified: item.isFullyVerified !== undefined ? Boolean(item.isFullyVerified) : isVerified,
-    status: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : item.status === 'BLACKLISTED' ? 'BLACKLISTED' : 'ACTIVE') as Worker['status'],
+    status: calculatedStatus,
     accountStatus: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE') as Worker['accountStatus'],
     photoUrl: rawPhotoUrl,
     photo: photoObj,
@@ -740,7 +780,7 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     activatedAt: item.activatedAt ? String(item.activatedAt) : undefined,
     matchingEligible: item.matchingEligible !== undefined
       ? Boolean(item.matchingEligible)
-      : Boolean(isVerified && (item.accountStatus === 'ACTIVE' || item.status === 'ACTIVE') && (!item.signedOffAt || Boolean(item.signedOffAt && item.activatedAt))),
+      : Boolean(isVerified && calculatedStatus === 'ACTIVE' && isSignedOff && isActivated),
     createdAt: item.createdAt ? String(item.createdAt) : undefined,
     registeredAt: item.registeredAt ? String(item.registeredAt) : item.createdAt ? String(item.createdAt) : undefined,
   };
@@ -1373,7 +1413,7 @@ export class RealWorkerRepository implements IWorkerRepository {
         );
       }
 
-      return list.map((item) => {
+      const mapped = list.map((item) => {
         const id = String(item.id || item.workerId || '');
         const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
         return mapBackendWorkerToWorker({
@@ -1382,6 +1422,29 @@ export class RealWorkerRepository implements IWorkerRepository {
           verified: isVerifiedByBackend ? true : item.verified,
         });
       });
+
+      return verifiedParam === true
+        ? mapped.filter((w) => {
+            const isVerified = Boolean(
+              w.isFullyVerified ||
+              w.verificationLevel === 'VERIFIED' ||
+              w.verificationStatus === 'VERIFIED' ||
+              w.applicationStatus === 'VERIFIED' ||
+              w.applicationStatus === 'ACTIVE' ||
+              Boolean(w.signedOffAt)
+            );
+            const isNotRejected =
+              w.verificationStatus !== 'REJECTED' &&
+              w.applicationStatus !== 'REJECTED';
+            const isNotDraft =
+              w.onboardingStatus !== 'DRAFT' &&
+              w.applicationStatus !== 'DRAFT';
+            const isNotUnderReview =
+              w.applicationStatus !== 'UNDER_REVIEW' &&
+              w.applicationStatus !== 'SUBMITTED';
+            return isVerified && isNotRejected && isNotDraft && isNotUnderReview;
+          })
+        : mapped.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1587,9 +1650,15 @@ export class RealWorkerRepository implements IWorkerRepository {
             const isNotRejected =
               w.verificationStatus !== 'REJECTED' &&
               w.applicationStatus !== 'REJECTED';
-            return isVerified && isNotRejected;
+            const isNotDraft =
+              w.onboardingStatus !== 'DRAFT' &&
+              w.applicationStatus !== 'DRAFT';
+            const isNotUnderReview =
+              w.applicationStatus !== 'UNDER_REVIEW' &&
+              w.applicationStatus !== 'SUBMITTED';
+            return isVerified && isNotRejected && isNotDraft && isNotUnderReview;
           })
-        : mappedItems;
+        : mappedItems.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
 
       return {
         items: finalItems,
@@ -1657,19 +1726,20 @@ export class RealWorkerRepository implements IWorkerRepository {
         return;
       }
 
-      // Worker account status (ACTIVE / SUSPENDED) is updated via /admin/users/{userId}/status (DEC-06)
-      let targetUserId = workerId;
-      try {
-        const worker = await this.getWorkerById(workerId);
-        if (worker?.userId) {
-          targetUserId = worker.userId;
-        }
-      } catch {
-        // Fall back to workerId if fetching detail is not available
+      // Check if lifting blacklist
+      const worker = await this.getWorkerById(workerId).catch(() => null);
+      if (status === 'ACTIVE' && (worker?.status === 'BLACKLISTED' || worker?.blacklistInfo)) {
+        await httpClient.post(`/admin/workers/${encodeURIComponent(workerId)}/blacklist/lift`, {
+          reason: remarks || 'Blacklist lifted by administrator',
+        });
+        return;
       }
 
+      // Worker account status (ACTIVE / SUSPENDED) is updated via /admin/users/{userId}/status (DEC-06)
+      let targetUserId = worker?.userId || workerId;
+
       await httpClient.patch(`/admin/users/${encodeURIComponent(targetUserId)}/status`, {
-        status,
+        status: status === 'ACTIVE' ? 'ACTIVE' : 'SUSPENDED',
         reason: remarks || `Status transitioned to ${status}`,
       });
     } catch (err) {
