@@ -100,7 +100,7 @@ export const SessionInactivityGuard: React.FC = () => {
     try {
       clearSession(true);
     } finally {
-      navigate('/auth/login', { replace: true });
+      navigate('/auth/login', { replace: true, state: null });
     }
   }, [clearSession, navigate]);
 

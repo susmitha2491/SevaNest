@@ -197,14 +197,15 @@ describe('Authentication Module Audit & Security Validation', () => {
       expect(window.sessionStorage.getItem('accessToken')).toBeNull();
       expect(window.sessionStorage.getItem('password')).toBeNull();
 
-      // Only the dedicated refresh token key is persisted in storage
-      expect(window.localStorage.getItem('sevanest_refresh_token')).toBe('refresh-token-67890');
+      // Only the dedicated refresh token key is persisted in tab-scoped sessionStorage
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBe('refresh-token-67890');
+      expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
     });
   });
 
   describe('4. Session Restoration & Deep Link Retention Across Page Reloads', () => {
     it('restores administrative session and preserves active deep link without kicking user to login', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,

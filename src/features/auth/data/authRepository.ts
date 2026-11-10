@@ -491,12 +491,10 @@ export class RealAuthRepository implements IAuthRepository {
   async getCurrentSession(accessToken?: string): Promise<AdminUser | null> {
     const token = accessToken || useAuthStore.getState().accessToken;
     if (!token) {
-      try {
-        const response = await httpClient.get('/users/me');
-        return mapBackendUserToAdminUser(response.data);
-      } catch {
-        return null;
-      }
+      // Per OpenAPI specification, /api/v1/users/me strictly requires Bearer token authentication.
+      // Calling /users/me without an access token is guaranteed to yield 401 Unauthorized.
+      // Return null immediately to prevent unauthenticated network traffic on public routes.
+      return null;
     }
 
     try {

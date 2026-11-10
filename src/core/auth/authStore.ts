@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { AdminUser, AuthSession } from './authTypes';
 import { getStoredRefreshToken, setStoredRefreshToken, clearStoredRefreshToken } from './tokenStorage';
+import { clearPersistedActivityTime } from './sessionSecurityStore';
 import { queryClient } from '../api/queryClient';
 import { broadcastLogout } from './tokenRefreshCoordinator';
 
 export interface AuthState extends AuthSession {
   isInitialized: boolean;
   isRestoring: boolean;
+  restorationError: string | null;
   setSession: (user: AdminUser, accessToken: string, refreshToken?: string | null) => void;
   setUser: (user: AdminUser) => void;
   setAccessToken: (accessToken: string) => void;
@@ -15,6 +17,7 @@ export interface AuthState extends AuthSession {
   setLoading: (isLoading: boolean) => void;
   setInitialized: (isInitialized: boolean) => void;
   setRestoring: (isRestoring: boolean) => void;
+  setRestorationError: (error: string | null) => void;
 }
 
 /**
@@ -31,6 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   isLoading: false,
   isInitialized: false,
   isRestoring: !!getStoredRefreshToken(),
+  restorationError: null,
 
   setSession: (user: AdminUser, accessToken: string, refreshToken?: string | null) => {
     if (refreshToken !== undefined) {
@@ -44,6 +48,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isLoading: false,
       isInitialized: true,
       isRestoring: false,
+      restorationError: null,
     });
   },
 
@@ -67,6 +72,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   clearSession: (broadcast = true) => {
     clearStoredRefreshToken();
+    clearPersistedActivityTime();
     try {
       if (typeof window !== 'undefined') {
         const navigationKeys = [
@@ -77,6 +83,9 @@ export const useAuthStore = create<AuthState>((set) => ({
           'previous_route',
           'last_visited_route',
           'sevanest_navigation_state',
+          'support_dashboard_tab',
+          'dashboard_tab',
+          'sevanest_last_activity',
         ];
         navigationKeys.forEach((key) => {
           try {
@@ -113,6 +122,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       isLoading: false,
       isInitialized: true,
       isRestoring: false,
+      restorationError: null,
     });
   },
 
@@ -126,6 +136,10 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setRestoring: (isRestoring: boolean) => {
     set({ isRestoring });
+  },
+
+  setRestorationError: (restorationError: string | null) => {
+    set({ restorationError });
   },
 }));
 

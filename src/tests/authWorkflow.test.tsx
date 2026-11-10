@@ -404,7 +404,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('4. Support Executive signs in and lands on Support Queue (/support)', async () => {
+    it('4. Support Executive signs in and lands on Support Dashboard (/dashboard)', async () => {
       const user = userEvent.setup();
       const { router } = renderAuthFlow('/auth/login');
 
@@ -418,10 +418,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('5. A stale previous route such as /workers does not override the default dashboard after fresh sign-in', async () => {
@@ -461,11 +461,11 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        // Must open Support Executive landing page (/support), NOT /configuration
-        expect(router.state.location.pathname).toBe('/support');
+        // Must open Support Executive landing page (/dashboard), NOT /configuration
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 
@@ -835,6 +835,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
       expect(useAuthStore.getState().user).toBeNull();
       expect(useAuthStore.getState().accessToken).toBeNull();
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
       expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
 
       // Assert login form inputs are clean and empty
@@ -878,8 +879,8 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
 
   describe('Session Restoration & Refresh Persistence', () => {
     it('restores authenticated session across simulated browser refresh when valid refresh token is stored', async () => {
-      // Simulate stored refresh token in localStorage from previous session
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+      // Simulate stored refresh token in tab-scoped sessionStorage from active session
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: false,
@@ -900,7 +901,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     });
 
     it('clears stored session and redirects to login when refresh token is invalid or expired', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'invalid-token-xyz');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'invalid-token-xyz');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: false,
@@ -916,6 +917,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       });
 
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
       expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
     });
   });

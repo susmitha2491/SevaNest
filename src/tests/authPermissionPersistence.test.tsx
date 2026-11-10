@@ -75,7 +75,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
 
   describe('2. Refreshing /verification While Authenticated', () => {
     it('restores administrative session authoritatively and preserves access to /verification', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-verification-1720000000');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-verification-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -146,7 +146,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
         throw new Error(`Unexpected GET to ${url}`);
       });
 
-      window.localStorage.setItem('sevanest_refresh_token', 'jwt-stored-refresh-token');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'jwt-stored-refresh-token');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -217,7 +217,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
         throw new Error(`Unexpected GET to ${url}`);
       });
 
-      window.localStorage.setItem('sevanest_refresh_token', 'jwt-stored-refresh-token');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'jwt-stored-refresh-token');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -273,7 +273,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
         permissions: [PERMISSIONS.WORKER_VIEW, PERMISSIONS.VERIFICATION_REVIEW],
       });
 
-      window.localStorage.setItem('sevanest_refresh_token', 'token-pending-123');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'token-pending-123');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -304,7 +304,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
     it('clears stored session and redirects to /auth/login with destination state when token refresh fails', async () => {
       vi.spyOn(authRepository, 'refreshToken').mockRejectedValue(new Error('Refresh token has expired or is invalid'));
 
-      window.localStorage.setItem('sevanest_refresh_token', 'expired-bad-token');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'expired-bad-token');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -322,6 +322,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
 
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
       expect(useAuthStore.getState().user).toBeNull();
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
       expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
 
       // Preserves original destination for post-login seamless recovery
@@ -333,7 +334,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
 
   describe('7. Preserving Super Admin and Operations Admin Access Across Refreshes', () => {
     it('restores Super Admin wildcard permissions and preserves access to /dashboard and /configuration', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-super-1720000000');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-super-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -357,7 +358,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
     });
 
     it('restores Operations Admin operational permissions and preserves access to /workers', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: true,
@@ -459,7 +460,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
         return realRepo.getCurrentSession(token);
       });
 
-      window.localStorage.setItem('sevanest_refresh_token', 'rt-concurrent-single-use');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'rt-concurrent-single-use');
 
       let refreshPostCallCount = 0;
       vi.spyOn(httpClient, 'post').mockImplementation(async (url: string) => {
@@ -507,7 +508,7 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
     });
 
     it('deduplicates concurrent calls to RealAuthRepository.refreshToken directly', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'rt-repo-concurrent');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'rt-repo-concurrent');
       const repo = new RealAuthRepository();
 
       let postCount = 0;
