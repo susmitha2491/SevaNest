@@ -108,11 +108,11 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
         });
       }
     } else if (!isVerifExecutive) {
-      // Read-only directory access for Support Executive (Verification Executive gets Workers Management near Verification)
+      // Unified Directory (Workers & Customers) for Support Executive
       modules.push({
-        id: 'workers-dir',
-        name: 'Workers Directory',
-        path: '/workers/directory',
+        id: 'directory',
+        name: 'Directory',
+        path: '/directory',
         icon: Users,
         requiredPermission: PERMISSIONS.WORKER_VIEW,
         end: true,
@@ -270,9 +270,14 @@ export function isRouteAccessibleForUser(
     return true;
   }
 
-  // Directory route is strictly exclusive to Super Admin (granted access above)
+  // Directory route is accessible to Super Admin and Support Executive (users with worker.view or customer.view without worker.manage or verification.review)
   if (normalized === '/directory') {
-    return false;
+    const hasWorkerManage = hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
+    const hasVerificationReview = hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW);
+    if (hasWorkerManage || hasVerificationReview) {
+      return false;
+    }
+    return hasPermission(permissions, PERMISSIONS.WORKER_VIEW) || hasPermission(permissions, PERMISSIONS.CUSTOMER_VIEW);
   }
 
   // 1. Dashboard

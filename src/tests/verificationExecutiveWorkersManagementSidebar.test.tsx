@@ -303,12 +303,13 @@ describe('Workers Management in Verification Executive Sidebar', () => {
       });
     });
 
-    it('renders Workers Directory in sidebar and omits Workers Management', () => {
+    it('renders Directory in sidebar and omits Workers Management', () => {
       renderPortal('/dashboard');
 
-      expect(screen.getByRole('link', { name: /Workers Directory/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Workers Directory/i })).toHaveAttribute('href', '/workers/directory');
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toHaveAttribute('href', '/directory');
 
+      expect(screen.queryByRole('link', { name: /Workers Directory/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Workers Management$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Verification$/i })).not.toBeInTheDocument();
     });

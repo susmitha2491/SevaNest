@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Users,
@@ -25,6 +26,7 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 
 const WORKER_CATEGORY_OPTIONS = [
@@ -46,7 +48,34 @@ const CUSTOMER_STATUS_OPTIONS = [
 export const DirectoryPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const isSuperAdmin = user?.role === 'SUPER_ADMIN' || user?.permissions?.includes('*');
-  const [activeTab, setActiveTab] = useState<'workers' | 'customers'>('workers');
+  const canViewWorkers = isSuperAdmin || hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
+  const canViewCustomers = isSuperAdmin || hasPermission(user?.permissions, PERMISSIONS.CUSTOMER_VIEW);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+
+  const initialTab = useMemo<'workers' | 'customers'>(() => {
+    if (tabParam === 'customers' && canViewCustomers) return 'customers';
+    if (tabParam === 'workers' && canViewWorkers) return 'workers';
+    if (canViewWorkers) return 'workers';
+    if (canViewCustomers) return 'customers';
+    return 'workers';
+  }, [tabParam, canViewWorkers, canViewCustomers]);
+
+  const [activeTab, setActiveTab] = useState<'workers' | 'customers'>(initialTab);
+
+  useEffect(() => {
+    if (tabParam === 'customers' && canViewCustomers && activeTab !== 'customers') {
+      setActiveTab('customers');
+    } else if (tabParam === 'workers' && canViewWorkers && activeTab !== 'workers') {
+      setActiveTab('workers');
+    }
+  }, [tabParam, canViewWorkers, canViewCustomers, activeTab]);
+
+  const handleTabChange = (tab: 'workers' | 'customers') => {
+    setActiveTab(tab);
+    setSearchParams({ tab }, { replace: true });
+  };
 
   // --- Workers Tab State ---
   const [workerSearch, setWorkerSearch] = useState('');
@@ -85,7 +114,7 @@ export const DirectoryPage: React.FC = () => {
         workerPageSize
       );
     },
-    enabled: isSuperAdmin,
+    enabled: canViewWorkers && activeTab === 'workers',
     staleTime: 30 * 1000,
   });
 
@@ -135,7 +164,7 @@ export const DirectoryPage: React.FC = () => {
         customerPageSize
       );
     },
-    enabled: isSuperAdmin,
+    enabled: canViewCustomers && activeTab === 'customers',
     staleTime: 30 * 1000,
   });
 
@@ -147,15 +176,15 @@ export const DirectoryPage: React.FC = () => {
 
   const isCurrentFetching = activeTab === 'workers' ? isWorkerFetching : isCustomerFetching;
   const handleRefresh = () => {
-    if (activeTab === 'workers') {
+    if (activeTab === 'workers' && canViewWorkers) {
       refetchWorkers();
-    } else {
+    } else if (activeTab === 'customers' && canViewCustomers) {
       refetchCustomers();
     }
   };
 
-  if (!isSuperAdmin) {
-    return <NoAccessView moduleName="Master Directory" requiredPermission="*" />;
+  if (!canViewWorkers && !canViewCustomers) {
+    return <NoAccessView moduleName="Directory" requiredPermission="worker.view or customer.view" />;
   }
 
   return (
@@ -232,87 +261,96 @@ export const DirectoryPage: React.FC = () => {
           paddingBottom: '8px',
         }}
       >
-        <button
-          type="button"
-          role="tab"
-          id="tab-workers"
-          aria-selected={activeTab === 'workers'}
-          aria-controls="panel-workers"
-          onClick={() => setActiveTab('workers')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 18px',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
-            border: activeTab === 'workers' ? '1px solid var(--color-primary)' : '1px solid var(--color-border)',
-            backgroundColor: activeTab === 'workers' ? 'var(--color-primary)' : 'var(--color-surface)',
-            color: activeTab === 'workers' ? '#ffffff' : 'var(--color-text-secondary)',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)',
-          }}
-        >
-          <Briefcase size={16} />
-          <span>Workers</span>
-          <span
+        {canViewWorkers && (
+          <button
+            type="button"
+            role="tab"
+            id="tab-workers"
+            aria-selected={activeTab === 'workers'}
+            aria-controls="panel-workers"
+            onClick={() => handleTabChange('workers')}
             style={{
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-full)',
-              fontSize: '11px',
-              backgroundColor: activeTab === 'workers' ? 'rgba(255,255,255,0.2)' : 'var(--color-bg-subtle)',
-              color: activeTab === 'workers' ? '#ffffff' : 'var(--color-text-muted)',
-              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 18px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: activeTab === 'workers' ? '1px solid var(--color-primary)' : '1px solid var(--color-border)',
+              backgroundColor: activeTab === 'workers' ? 'var(--color-primary)' : 'var(--color-surface)',
+              color: activeTab === 'workers' ? '#ffffff' : 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
             }}
           >
-            {workerTotal}
-          </span>
-        </button>
+            <Briefcase size={16} />
+            <span>Workers</span>
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '11px',
+                backgroundColor: activeTab === 'workers' ? 'rgba(255,255,255,0.2)' : 'var(--color-bg-subtle)',
+                color: activeTab === 'workers' ? '#ffffff' : 'var(--color-text-muted)',
+                fontWeight: 700,
+              }}
+            >
+              {workerTotal}
+            </span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          role="tab"
-          id="tab-customers"
-          aria-selected={activeTab === 'customers'}
-          aria-controls="panel-customers"
-          onClick={() => setActiveTab('customers')}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: '8px',
-            padding: '8px 18px',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
-            border: activeTab === 'customers' ? '1px solid var(--color-primary)' : '1px solid var(--color-border)',
-            backgroundColor: activeTab === 'customers' ? 'var(--color-primary)' : 'var(--color-surface)',
-            color: activeTab === 'customers' ? '#ffffff' : 'var(--color-text-secondary)',
-            cursor: 'pointer',
-            transition: 'all var(--transition-fast)',
-          }}
-        >
-          <UserCheck size={16} />
-          <span>Customers</span>
-          <span
+        {canViewCustomers && (
+          <button
+            type="button"
+            role="tab"
+            id="tab-customers"
+            aria-selected={activeTab === 'customers'}
+            aria-controls="panel-customers"
+            onClick={() => handleTabChange('customers')}
             style={{
-              padding: '2px 8px',
-              borderRadius: 'var(--radius-full)',
-              fontSize: '11px',
-              backgroundColor: activeTab === 'customers' ? 'rgba(255,255,255,0.2)' : 'var(--color-bg-subtle)',
-              color: activeTab === 'customers' ? '#ffffff' : 'var(--color-text-muted)',
-              fontWeight: 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '8px 18px',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: activeTab === 'customers' ? '1px solid var(--color-primary)' : '1px solid var(--color-border)',
+              backgroundColor: activeTab === 'customers' ? 'var(--color-primary)' : 'var(--color-surface)',
+              color: activeTab === 'customers' ? '#ffffff' : 'var(--color-text-secondary)',
+              cursor: 'pointer',
+              transition: 'all var(--transition-fast)',
             }}
           >
-            {customerTotal}
-          </span>
-        </button>
+            <UserCheck size={16} />
+            <span>Customers</span>
+            <span
+              style={{
+                padding: '2px 8px',
+                borderRadius: 'var(--radius-full)',
+                fontSize: '11px',
+                backgroundColor: activeTab === 'customers' ? 'rgba(255,255,255,0.2)' : 'var(--color-bg-subtle)',
+                color: activeTab === 'customers' ? '#ffffff' : 'var(--color-text-muted)',
+                fontWeight: 700,
+              }}
+            >
+              {customerTotal}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* ============================================================ */}
       {/* WORKERS TAB PANEL                                            */}
       {/* ============================================================ */}
       {activeTab === 'workers' && (
+        !canViewWorkers ? (
+          <div id="panel-workers" role="tabpanel" aria-labelledby="tab-workers">
+            <NoAccessView moduleName="Workers Directory" requiredPermission={PERMISSIONS.WORKER_VIEW} />
+          </div>
+        ) : (
         <div id="panel-workers" role="tabpanel" aria-labelledby="tab-workers" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Filter and Search Bar */}
           <div
@@ -650,12 +688,18 @@ export const DirectoryPage: React.FC = () => {
             )}
           </div>
         </div>
+        )
       )}
 
       {/* ============================================================ */}
       {/* CUSTOMERS TAB PANEL                                          */}
       {/* ============================================================ */}
       {activeTab === 'customers' && (
+        !canViewCustomers ? (
+          <div id="panel-customers" role="tabpanel" aria-labelledby="tab-customers">
+            <NoAccessView moduleName="Customers Directory" requiredPermission={PERMISSIONS.CUSTOMER_VIEW} />
+          </div>
+        ) : (
         <div id="panel-customers" role="tabpanel" aria-labelledby="tab-customers" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           {/* Customer Filter and Search Bar */}
           <div
@@ -948,6 +992,7 @@ export const DirectoryPage: React.FC = () => {
             )}
           </div>
         </div>
+        )
       )}
 
       {/* Read-Only Worker Detail Modal */}

@@ -224,7 +224,7 @@ export const routes: RouteObject[] = [
       {
         path: 'directory',
         element: (
-          <ProtectedRoute permission={PERMISSIONS.WORKER_VIEW}>
+          <ProtectedRoute>
             <LazyRoute label="Loading directory...">
               <DirectoryPage />
             </LazyRoute>

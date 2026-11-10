@@ -91,7 +91,7 @@ describe('Unified Directory Module Specification for Super Admin', () => {
       expect(screen.getByRole('link', { name: /^Customer Management$/i })).toBeInTheDocument();
     });
 
-    it('provides "Workers Management" for Verification Executive and "Workers Directory" for Support Executive', () => {
+    it('provides "Workers Management" for Verification Executive and "Directory" for Support Executive', () => {
       // Verification Executive
       useAuthStore.setState({
         user: {
@@ -132,24 +132,32 @@ describe('Unified Directory Module Specification for Super Admin', () => {
 
       render(
         <QueryClientProvider client={queryClient}>
-          <MemoryRouter initialEntries={['/workers/directory']}>
+          <MemoryRouter initialEntries={['/directory']}>
             <AppShell />
           </MemoryRouter>
         </QueryClientProvider>
       );
 
-      expect(screen.getByRole('link', { name: /^Workers Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Workers Management$/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Directory$/i })).not.toBeInTheDocument();
     });
 
-    it('enforces RBAC route boundaries so /directory is only accessible to SUPER_ADMIN', () => {
+    it('enforces RBAC route boundaries so /directory is accessible to authorized roles and blocked for others', () => {
       const superAdminUser = {
         id: 'admin-1',
         name: 'Super',
         email: 'admin@sevanest.in',
         role: 'SUPER_ADMIN' as const,
         permissions: ['*'],
+      };
+
+      const supportExecUser = {
+        id: 'supp-1',
+        name: 'Support',
+        email: 'support@sevanest.in',
+        role: 'SUPPORT_EXECUTIVE' as const,
+        permissions: [PERMISSIONS.WORKER_VIEW, PERMISSIONS.CUSTOMER_VIEW],
       };
 
       const opsAdminUser = {
@@ -165,10 +173,11 @@ describe('Unified Directory Module Specification for Super Admin', () => {
         name: 'Verif',
         email: 'verif@sevanest.in',
         role: 'VERIFICATION_EXECUTIVE' as const,
-        permissions: [PERMISSIONS.WORKER_VIEW],
+        permissions: [PERMISSIONS.WORKER_VIEW, PERMISSIONS.VERIFICATION_REVIEW],
       };
 
       expect(isRouteAccessibleForUser('/directory', superAdminUser)).toBe(true);
+      expect(isRouteAccessibleForUser('/directory', supportExecUser)).toBe(true);
       expect(isRouteAccessibleForUser('/directory', opsAdminUser)).toBe(false);
       expect(isRouteAccessibleForUser('/directory', verifExecUser)).toBe(false);
     });
