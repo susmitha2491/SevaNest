@@ -116,7 +116,7 @@ describe('Initial Login Page Routing & Session Verification', () => {
   });
 
   it('5. Refreshing a protected page restores a valid session without premature redirect', async () => {
-    window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+    window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
     useAuthStore.setState({
       isInitialized: false,
       isRestoring: false,
@@ -158,7 +158,7 @@ describe('Initial Login Page Routing & Session Verification', () => {
     expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
   });
 
-  it('3c. Opening / with a valid Support Executive session redirects to /support', async () => {
+  it('3c. Opening / with a valid Support Executive session redirects to /dashboard', async () => {
     useAuthStore.getState().setSession(
       {
         id: 'adm-004',
@@ -173,10 +173,10 @@ describe('Initial Login Page Routing & Session Verification', () => {
     const { router } = renderApp('/');
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/support');
+      expect(router.state.location.pathname).toBe('/dashboard');
     });
 
-    expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
   });
 
   it('4b. Direct unauthenticated visit to /verification redirects to login and preserves destination', async () => {
@@ -210,13 +210,13 @@ describe('Initial Login Page Routing & Session Verification', () => {
     expect(await screen.findByRole('heading', { name: /Access Restricted/i }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.getByText(/Required permission: configuration\.manage/i)).toBeInTheDocument();
 
-    const returnLink = screen.getByRole('link', { name: /Return to Primary Workstation/i });
+    const returnLink = screen.getByRole('link', { name: /Return to Dashboard/i });
     expect(returnLink).toBeInTheDocument();
-    expect(returnLink).toHaveAttribute('href', '/support');
+    expect(returnLink).toHaveAttribute('href', '/dashboard');
   });
 
   it('7. Expired sessions return to login without redirect loops and clear storage', async () => {
-    window.localStorage.setItem('sevanest_refresh_token', 'expired-token-xyz');
+    window.sessionStorage.setItem('sevanest_refresh_token', 'expired-token-xyz');
     useAuthStore.setState({
       isInitialized: false,
       isRestoring: false,
@@ -232,6 +232,7 @@ describe('Initial Login Page Routing & Session Verification', () => {
     });
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
+    expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
     expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
 
     // Opening / again must simply keep/display the login page without redirect loops
@@ -246,7 +247,7 @@ describe('Initial Login Page Routing & Session Verification', () => {
   });
 
   it('8. Logout clears session, removes refresh tokens from storage, and redirects to login', async () => {
-    window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+    window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
     useAuthStore.getState().setSession(
       {
         id: 'adm-002',
@@ -277,6 +278,7 @@ describe('Initial Login Page Routing & Session Verification', () => {
 
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
+    expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
     expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
 
     // Subsequent navigation to / must stay on login
@@ -309,9 +311,9 @@ describe('Initial Login Page Routing & Session Verification', () => {
       );
     });
 
-    // Must safely fallback to Support Executive landing route (/support), not external or malicious url
+    // Must safely fallback to Support Executive landing route (/dashboard), not external or malicious url
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/support');
+      expect(router.state.location.pathname).toBe('/dashboard');
     });
   });
 });

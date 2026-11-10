@@ -155,7 +155,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     });
   });
 
-  it('6. Selecting Support Executive populates credentials and routes to /support', async () => {
+  it('6. Selecting Support Executive populates credentials and routes to /dashboard', async () => {
     const user = userEvent.setup();
     const { router } = renderAuthFlow('/auth/login');
 
@@ -174,7 +174,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     await waitFor(() => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
       expect(useAuthStore.getState().user?.role).toBe('SUPPORT_EXECUTIVE');
-      expect(router.state.location.pathname).toBe('/support');
+      expect(router.state.location.pathname).toBe('/dashboard');
     });
   });
 

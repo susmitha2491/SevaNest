@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../../core/auth/authStore';
 import { restoreSession } from '../../core/auth/sessionRestoration';
 import { hasPermission, PermissionKey, getDefaultLandingRoute } from '../../core/rbac/permissions';
@@ -15,6 +16,7 @@ interface ProtectedRouteProps {
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permission }) => {
   const isInitialized = useAuthStore((state) => state.isInitialized);
   const isRestoring = useAuthStore((state) => state.isRestoring);
+  const restorationError = useAuthStore((state) => state.restorationError);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const user = useAuthStore((state) => state.user);
   const location = useLocation();
@@ -54,6 +56,72 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
         <span style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
           Verifying administrative session...
         </span>
+      </div>
+    );
+  }
+
+  // Graceful error state when session verification fails due to server or network downtime
+  // (distinguishes server/network failure from expected unauthenticated state)
+  if (restorationError && !isAuthenticated) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          backgroundColor: 'var(--color-bg-app)',
+          padding: 'var(--space-4)',
+          textAlign: 'center',
+          gap: 'var(--space-3)',
+        }}
+        role="alert"
+        aria-label="Authentication Service Error"
+      >
+        <div style={{ color: 'var(--color-status-danger-text)' }}>
+          <AlertCircle size={48} />
+        </div>
+        <h2 style={{ fontSize: 'var(--font-size-xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+          Authentication Service Unavailable
+        </h2>
+        <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', maxWidth: '440px' }}>
+          {restorationError}
+        </p>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+          <button
+            type="button"
+            onClick={() => restoreSession()}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'var(--color-brand-primary)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Retry Connection
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              useAuthStore.getState().clearSession();
+            }}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border)',
+              color: 'var(--color-text-primary)',
+              borderRadius: 'var(--radius-md)',
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            Sign In with Credentials
+          </button>
+        </div>
       </div>
     );
   }

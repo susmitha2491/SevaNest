@@ -192,7 +192,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('SUPPORT_EXECUTIVE: logs in to /support, navigates to /dashboard, logs out, logs in again to /support', async () => {
+    it('SUPPORT_EXECUTIVE: logs in to /dashboard, navigates to /support, logs out, logs in again to /dashboard', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/auth/login');
 
@@ -204,20 +204,20 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
-      // Verify default module opens: /support (Support Grievance & SLA Queue)
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
-      });
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
-
-      // 2. Navigate to another module: /dashboard
-      await act(async () => {
-        await router.navigate('/dashboard');
-      });
+      // Verify default module opens: /dashboard (Support Operations Console)
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
       expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+
+      // 2. Navigate to another module: /support
+      await act(async () => {
+        await router.navigate('/support');
+      });
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/support');
+      });
+      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
 
       // 3. Log out via sidebar Sign Out button
       const signOutBtn = await screen.findByRole('button', { name: /Sign Out/i }, { timeout: 4000 });
@@ -236,11 +236,11 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
-      // 5. Verify default module opens (/support) instead of previously visited /dashboard
+      // 5. Verify default module opens (/dashboard) instead of previously visited /support
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
   });
 
@@ -282,8 +282,8 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
 
   describe('3. Browser Refresh While Authenticated', () => {
     it('browser refresh preserves deep route for an already authenticated user without redirecting to default module', async () => {
-      // Simulate stored refresh token in localStorage for session restoration
-      window.localStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
+      // Simulate stored refresh token in tab-scoped sessionStorage for session restoration
+      window.sessionStorage.setItem('sevanest_refresh_token', 'refresh-oper-1720000000');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: false,
@@ -308,7 +308,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
 
   describe('4. Expired Session Handling', () => {
     it('expired session cleans storage, navigates to login, and subsequent navigation to / stays on login', async () => {
-      window.localStorage.setItem('sevanest_refresh_token', 'expired-token-xyz');
+      window.sessionStorage.setItem('sevanest_refresh_token', 'expired-token-xyz');
       useAuthStore.setState({
         isInitialized: false,
         isRestoring: false,
@@ -324,6 +324,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       });
 
       expect(useAuthStore.getState().isAuthenticated).toBe(false);
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBeNull();
       expect(window.localStorage.getItem('sevanest_refresh_token')).toBeNull();
 
       // Subsequent navigation to / must remain on /auth/login without redirect loop

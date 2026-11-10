@@ -175,19 +175,24 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
   }
   const permissions = user.permissions;
 
-  // 1. Role-specific primary operational workstations
+  // 1. Support Executive landing: lands on Support Operations Console (/dashboard)
   if (
     user.role === 'SUPPORT_EXECUTIVE' &&
-    (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) || hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE))
+    hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)
   ) {
-    return '/support';
-  }
-
-  // 2. Command center / dashboard when explicitly authorized with dashboard.view
-  if (permissions.includes(PERMISSIONS.DASHBOARD_VIEW) || permissions.includes('dashboard.view') || permissions.includes('*')) {
     return '/dashboard';
   }
 
+  // 2. Command center / dashboard when explicitly authorized with dashboard.view or wildcard
+  if (
+    permissions.includes(PERMISSIONS.DASHBOARD_VIEW) ||
+    permissions.includes('dashboard.view') ||
+    permissions.includes('*')
+  ) {
+    return '/dashboard';
+  }
+
+  // 3. Verification staff default operational workstation: /verification
   if (
     (user.role === 'VERIFICATION_EXECUTIVE' || user.role === 'VERIFICATION_SUPERVISOR') &&
     hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
@@ -195,12 +200,12 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
     return '/verification';
   }
 
-  // 3. Fallback: Role-specific command center / dashboard via alias permissions
+  // 4. Command center / dashboard via alias permissions (e.g. Operations Admin via alert.view)
   if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
     return '/dashboard';
   }
 
-  // 3. Granular fallbacks to authorized operational workstations
+  // 5. Granular fallbacks to authorized operational workstations
   if (hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)) {
     return '/verification';
   }
@@ -241,7 +246,7 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
     return '/audit';
   }
 
-  return '/auth/login';
+  return '/account';
 }
 
 export { getRoleLabel, ROLE_LABELS } from './roleLabels';

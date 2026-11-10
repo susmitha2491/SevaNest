@@ -39,7 +39,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
   });
 
   describe('1. Support Executive Role Landing and Navigation', () => {
-    it('Support Executive logs in and lands directly on /support', async () => {
+    it('Support Executive logs in and lands directly on /dashboard', async () => {
       const user = userEvent.setup();
       const { router } = renderApp(['/auth/login']);
 
@@ -51,10 +51,10 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 
@@ -71,19 +71,10 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
-      });
-
-      // 2. Navigate to Support Dashboard (/dashboard)
-      await act(async () => {
-        await router.navigate('/dashboard');
-      });
-      await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // 3. Navigate to All Support Tickets (/support/tickets)
+      // 2. Navigate to Support Tickets (/support/tickets)
       await act(async () => {
         await router.navigate('/support/tickets');
       });
@@ -92,7 +83,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       });
       expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // 4. Navigate to My Assigned Tickets (/support/my-tickets)
+      // 3. Navigate to My Assigned Tickets (/support/my-tickets)
       await act(async () => {
         await router.navigate('/support/my-tickets');
       });
@@ -113,7 +104,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
   });
 
   describe('2. Browser History Traversal into Unauthorized Routes (Popstate Protection)', () => {
-    it('Redirects Support Executive to /support and prevents Access Restricted when history traversal hits /payments', async () => {
+    it('Redirects Support Executive to /dashboard and prevents Access Restricted when history traversal hits /payments', async () => {
       // Simulate history where /payments was in the stack before Support Executive logged in
       const user = userEvent.setup();
       const { router } = renderApp(['/payments', '/auth/login'], 1);
@@ -127,18 +118,18 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
-      });
-
-      // User navigates to /dashboard
-      await act(async () => {
-        await router.navigate('/dashboard');
-      });
-      await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      // Now user traverses back past /support into /payments (which requires payments.view)
+      // User navigates to /support
+      await act(async () => {
+        await router.navigate('/support');
+      });
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/support');
+      });
+
+      // Now user traverses back past /dashboard into /payments (which requires payments.view)
       // When browser Back button is clicked in a browser, window popstate event fires
       triggerPopStateForTesting();
       window.dispatchEvent(new window.PopStateEvent('popstate'));
@@ -147,14 +138,14 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         await router.navigate('/payments');
       });
 
-      // Must immediately redirect to /support landing route
+      // Must immediately redirect to /dashboard landing route
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
       // Must NEVER display "Access Restricted"
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
-      expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('Redirects Verification Executive to /verification when history traversal hits unauthorized /payments', async () => {
