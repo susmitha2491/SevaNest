@@ -484,13 +484,13 @@ export class MockDashboardRepository implements IDashboardRepository {
       },
       queues: {
         ALL: [
-          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
+          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute', ticketOwner: 'Pooja (Support Exec)' },
           { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
           { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
           { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
-          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
+          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs', ticketOwner: 'Pooja (Support Exec)' },
           { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
-          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record' },
+          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record', ticketOwner: 'Pooja (Support Exec)' },
         ],
         AT_RISK: [
           { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
@@ -1916,6 +1916,7 @@ export class RealDashboardRepository implements IDashboardRepository {
           slaIndicator: (q.slaIndicator as 'NORMAL' | 'AT_RISK' | 'BREACHED') || 'NORMAL',
           status: String(q.status),
           actionLabel: String(q.actionLabel),
+          ticketOwner: q.ticketOwner ? String(q.ticketOwner) : (q.assignedToStaffName ? String(q.assignedToStaffName) : undefined),
         };
       });
     };
@@ -1932,6 +1933,14 @@ export class RealDashboardRepository implements IDashboardRepository {
       const isAtRisk = raw.slaStatus === 'AT_RISK' || (!isBreached && Boolean(raw.dueAt) && raw.status !== 'CLOSED' && raw.status !== 'RESOLVED' && (new Date(String(raw.dueAt)).getTime() - Date.now() <= 24 * 3600 * 1000));
       const slaIndicator = isBreached ? 'BREACHED' : isAtRisk ? 'AT_RISK' : 'NORMAL';
 
+      const assignee = raw.assignee as Record<string, unknown> | undefined;
+      const ticketOwner = String(
+        raw.assignedToStaffName ||
+        assignee?.name ||
+        raw.assigneeName ||
+        ''
+      );
+
       return {
         id: String(raw.id || raw.ticketId || ''),
         ticketId: String(raw.ticketId || raw.id || ''),
@@ -1944,6 +1953,7 @@ export class RealDashboardRepository implements IDashboardRepository {
         slaIndicator,
         status: String(raw.status || 'OPEN'),
         actionLabel: defaultAction,
+        ticketOwner: ticketOwner || undefined,
       };
     };
 

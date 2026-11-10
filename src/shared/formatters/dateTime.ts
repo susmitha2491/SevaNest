@@ -25,7 +25,9 @@ export function formatDateTimeIST(dateInput: string | number | Date | undefined 
       date = new Date(dateInput);
     }
 
-    if (isNaN(date.getTime())) return '—';
+    if (isNaN(date.getTime())) {
+      return '—';
+    }
 
     return new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata',
@@ -70,7 +72,9 @@ export function formatDateIST(dateInput: string | number | Date | undefined | nu
 
   try {
     const date = new Date(dateInput);
-    if (isNaN(date.getTime())) return '—';
+    if (isNaN(date.getTime())) {
+      return '—';
+    }
 
     return new Intl.DateTimeFormat('en-IN', {
       timeZone: 'Asia/Kolkata',

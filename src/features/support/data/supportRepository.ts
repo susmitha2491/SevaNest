@@ -217,10 +217,14 @@ export class MockSupportRepository implements ISupportRepository {
     const totalPages = Math.ceil(totalCount / pageSize) || 1;
     const paginated = result.slice((page - 1) * pageSize, page * pageSize);
 
-    const slaAtRiskCount = this.tickets.filter((t) => t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED').length;
-    const unassignedCount = this.tickets.filter((t) => !t.assignedToStaffName || t.status === 'CREATED').length;
+    const slaAtRiskCount = this.tickets.filter(
+      (t) => (t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED') && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
+    ).length;
+    const unassignedCount = this.tickets.filter(
+      (t) => (!t.assignedToStaffName || t.status === 'CREATED') && t.status !== 'RESOLVED' && t.status !== 'CLOSED'
+    ).length;
     const escalatedCount = this.tickets.filter((t) => t.status === 'ESCALATED').length;
-    const resolvedTodayCount = this.tickets.filter((t) => t.status === 'RESOLVED').length;
+    const resolvedTodayCount = this.tickets.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED').length;
 
     return {
       items: paginated,
@@ -453,8 +457,17 @@ export class RealSupportRepository implements ISupportRepository {
         page: filter?.page || 1,
         limit: filter?.pageSize || 10,
       };
+
       if (filter?.status && filter.status !== 'ALL') {
-        params.status = filter.status;
+        if (filter.status === 'CREATED' || filter.status === 'UNASSIGNED') {
+          params.unassigned = true;
+        } else if (filter.status === 'INVESTIGATION_PENDING') {
+          params.status = 'IN_PROGRESS';
+        } else if (filter.status === 'RESOLVED') {
+          params.status = 'CLOSED';
+        } else {
+          params.status = filter.status;
+        }
       }
       if (filter?.priority && filter.priority !== 'ALL') {
         params.priority = filter.priority;
@@ -462,27 +475,98 @@ export class RealSupportRepository implements ISupportRepository {
       if (filter?.assignedToUserId) {
         params.assignedToUserId = filter.assignedToUserId;
       }
+      if (filter?.complainantType && filter.complainantType !== 'ALL') {
+        params.creatorKind = filter.complainantType;
+      }
 
       const res = await httpClient.get<{
         success: boolean;
         data: Record<string, unknown>[];
-        meta?: { totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number };
+        meta?: { totalItems?: number; currentPage?: number; itemsPerPage?: number; totalPages?: number; total?: number; page?: number; limit?: number };
       }>('/admin/support/tickets', { params });
 
       const payload = res.data;
       const items = Array.isArray(payload.data) ? payload.data : [];
-      const mapped = items.map((item) => mapBackendSupportTicketToDomain(item));
+      let mapped = items.map((item) => mapBackendSupportTicketToDomain(item));
+
+      if (filter?.searchTerm) {
+        const q = filter.searchTerm.toLowerCase();
+        mapped = mapped.filter(
+          (t) =>
+            t.id.toLowerCase().includes(q) ||
+            t.complainantName.toLowerCase().includes(q) ||
+            (t.subjectWorkerName && t.subjectWorkerName.toLowerCase().includes(q)) ||
+            (t.bookingRef && t.bookingRef.toLowerCase().includes(q)) ||
+            t.description.toLowerCase().includes(q) ||
+            t.serviceCategory.toLowerCase().includes(q)
+        );
+      }
+
+      // Authoritative population-level KPIs: to align Support Queue with Dashboard,
+      // calculate queue summary metrics across the full ticket population rather than an incomplete page slice.
+      let allRawTickets: Record<string, unknown>[] = items;
+      const isFilteredOrPaged =
+        Boolean(filter?.status && filter.status !== 'ALL') ||
+        Boolean(filter?.priority && filter.priority !== 'ALL') ||
+        Boolean(filter?.complainantType && filter.complainantType !== 'ALL') ||
+        Boolean(filter?.assignedToUserId) ||
+        Boolean(filter?.searchTerm) ||
+        (filter?.pageSize && filter.pageSize < 100);
+
+      if (isFilteredOrPaged) {
+        try {
+          const summaryRes = await httpClient.get<{
+            success: boolean;
+            data: Record<string, unknown>[];
+            meta?: { total?: number; totalItems?: number };
+          }>('/admin/support/tickets', { params: { limit: 100 } });
+          if (Array.isArray(summaryRes.data?.data)) {
+            allRawTickets = summaryRes.data.data;
+          }
+        } catch {
+          allRawTickets = items;
+        }
+      }
+
+      const now = Date.now();
+      const slaAtRiskCount = allRawTickets.filter((t) => {
+        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+        if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return true;
+        if (t.slaStatus === 'AT_RISK') return true;
+        if (t.dueAt) {
+          const dueMs = new Date(String(t.dueAt)).getTime();
+          return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
+        }
+        return false;
+      }).length;
+
+      const unassignedCount = allRawTickets.filter(
+        (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+      ).length;
+
+      const escalatedCount = allRawTickets.filter(
+        (t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt)
+      ).length;
+
+      const resolvedTodayCount = allRawTickets.filter(
+        (t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt)
+      ).length;
+
+      const totalCount = payload.meta?.total ?? payload.meta?.totalItems ?? items.length;
+      const page = payload.meta?.page ?? payload.meta?.currentPage ?? filter?.page ?? 1;
+      const pageSize = payload.meta?.limit ?? payload.meta?.itemsPerPage ?? filter?.pageSize ?? 10;
+      const totalPages = payload.meta?.totalPages ?? (Math.ceil(totalCount / pageSize) || 1);
 
       return {
         items: mapped,
-        totalCount: payload.meta?.totalItems ?? items.length,
-        page: payload.meta?.currentPage ?? filter?.page ?? 1,
-        pageSize: payload.meta?.itemsPerPage ?? filter?.pageSize ?? 10,
-        totalPages: payload.meta?.totalPages ?? (Math.ceil((payload.meta?.totalItems || items.length) / (filter?.pageSize || 10)) || 1),
-        slaAtRiskCount: mapped.filter((t) => t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED').length,
-        unassignedCount: mapped.filter((t) => !t.assignedToStaffId).length,
-        escalatedCount: mapped.filter((t) => t.status === 'ESCALATED').length,
-        resolvedTodayCount: mapped.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED').length,
+        totalCount,
+        page,
+        pageSize,
+        totalPages,
+        slaAtRiskCount,
+        unassignedCount,
+        escalatedCount,
+        resolvedTodayCount,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

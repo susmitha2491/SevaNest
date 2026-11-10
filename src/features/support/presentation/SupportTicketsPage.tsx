@@ -28,6 +28,7 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TicketDetailModal } from './TicketDetailModal';
+import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 
 export interface SupportTicketsPageProps {
   viewMode?: 'all' | 'my-assigned' | 'escalated' | 'resolved';
@@ -121,7 +122,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
         complainantType: selectedComplainantRole,
         assignedToUserId: effectiveViewMode === 'my-assigned' ? user?.id : undefined,
         page: currentPage,
-        pageSize: 6,
+        pageSize: 10,
       }),
     enabled: canView,
   });
@@ -218,6 +219,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsResolveOpen(false);
       setSelectedTicket(null);
       setStaleError(null);
@@ -236,6 +238,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsEscalateOpen(false);
       setSelectedTicket(null);
       setStaleError(null);
@@ -244,6 +247,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
         setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry escalation.');
         queryClient.invalidateQueries({ queryKey: ['support'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       }
     },
   });
@@ -254,6 +258,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setIsReplacementOpen(false);
       setSelectedTicket(null);
       setStaleError(null);
@@ -535,7 +540,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
         })}
       </div>
 
-      {/* Filter and Search Bar */}
+      {/* Filter and Search Bar (Tier 3 & 4) */}
       <div
         style={{
           backgroundColor: 'var(--color-surface)',
@@ -547,33 +552,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
           gap: 'var(--space-3)',
         }}
       >
-        {/* Status Quick-Filter Tabs */}
-        <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)' }}>
-          {viewConfig.tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setSelectedStatus(tab.key);
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-full)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary)',
-                fontSize: 'var(--font-size-xs)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Search and Secondary Dropdowns */}
+        {/* Tier 3: Search and Supported Filters */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ position: 'relative', minWidth: '260px', flex: 1, maxWidth: '450px' }}>
             <Search
@@ -646,9 +625,35 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
             </select>
           </div>
         </div>
+
+        {/* Tier 4: Ticket Status Tabs */}
+        <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)', borderTop: '1px solid var(--color-border-subtle, #f1f5f9)', paddingTop: 'var(--space-2)' }}>
+          {viewConfig.tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => {
+                setSelectedStatus(tab.key);
+                setCurrentPage(1);
+              }}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 'var(--radius-full)',
+                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border)',
+                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface)',
+                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Tickets Table */}
+      {/* Tickets Table (Tier 5) */}
       <div
         style={{
           backgroundColor: 'var(--color-surface)',
@@ -681,7 +686,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                   Ticket Status
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Assigned Staff
+                  Ticket Owner
                 </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
@@ -735,6 +740,11 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                       <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
                         {tkt.id}
                       </span>
+                      {tkt.createdAt && (
+                        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                          {formatDateTimeIST(tkt.createdAt)}
+                        </div>
+                      )}
                     </td>
 
                     {/* Complainant */}
@@ -809,9 +819,17 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                       <StatusBadge status={tkt.status} />
                     </td>
 
-                    {/* Assigned Executive */}
-                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
-                      {tkt.assignedToStaffName || <span style={{ fontStyle: 'italic', color: 'var(--color-warning-dark)' }}>Unassigned Queue</span>}
+                    {/* Ticket Owner */}
+                    <td style={{ padding: 'var(--space-4)', fontSize: 'var(--font-size-xs)' }}>
+                      {tkt.assignedToStaffName ? (
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                          {tkt.assignedToStaffName}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
+                          Unassigned
+                        </span>
+                      )}
                     </td>
 
                     {/* Actions */}

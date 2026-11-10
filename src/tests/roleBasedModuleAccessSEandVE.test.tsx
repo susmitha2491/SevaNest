@@ -24,9 +24,18 @@ import { supportRepository } from '../features/support/data/supportRepository';
 import { customerRepository } from '../features/customers/data/customerRepository';
 import { bookingRepository } from '../features/bookings/data/bookingRepository';
 import { paymentRepository } from '../features/payments/data/paymentRepository';
+import { workerRepository } from '../features/workers/data/workerRepository';
 import { TicketDetailModal } from '../features/support/presentation/TicketDetailModal';
 
 // Mock all backend repositories to track API execution
+vi.mock('../features/workers/data/workerRepository', () => ({
+  workerRepository: {
+    getWorkersPage: vi.fn(),
+    getWorkers: vi.fn(),
+    getWorkerById: vi.fn(),
+  },
+}));
+
 vi.mock('../features/verification/data/verificationRepository', () => ({
   verificationRepository: {
     getVerificationQueue: vi.fn(),
@@ -264,6 +273,28 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
 
     vi.mocked(verificationRepository.getVerificationQueue).mockResolvedValue(mockQueueResult as unknown as PaginatedVerificationQueue);
 
+    vi.mocked(workerRepository.getWorkersPage).mockResolvedValue({
+      items: [
+        {
+          id: 'W-9901',
+          name: 'Lalitha Devi',
+          category: 'HOUSEKEEPER',
+          status: 'ACTIVE',
+          verificationStatus: 'VERIFIED',
+          isFullyVerified: true,
+          phone: '+91 98765 43210',
+          experienceYears: 4,
+          ratingAverage: 4.8,
+          totalReviews: 10,
+          locality: 'Madhapur',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 25,
+      hasMore: false,
+    });
+
     vi.mocked(customerRepository.getCustomersPage).mockResolvedValue({
       items: [
         {
@@ -342,17 +373,17 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       // Authorized modules visible
       expect(screen.getByRole('link', { name: /Support Dashboard/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /Customer Management/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Workers Directory/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /Booking Management/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Support$/i })).toBeInTheDocument();
 
       // Prohibited modules strictly omitted
+      expect(screen.queryByRole('link', { name: /Workers Directory/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Verification/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Payments/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Reports/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Configuration/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Audit/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Directory$/i })).not.toBeInTheDocument();
     });
 
     it('allows direct navigation to /support and loads support tickets', async () => {
@@ -393,10 +424,12 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       expect(screen.getByText(/audit\.view/i)).toBeInTheDocument();
     });
 
-    it('blocks direct navigation to /directory (Super Admin exclusive) and displays NoAccessView', async () => {
+    it('allows Support Executive direct navigation to /directory', async () => {
       renderFullPortal('/directory');
 
-      expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Workers/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Customers/i })).toBeInTheDocument();
     });
 
     it('enforces action-level permissions in TicketDetailModal: support.manage permits case note logging and triage', () => {
@@ -560,6 +593,12 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
       expect(screen.getByText(/payments\.view/i)).toBeInTheDocument();
       expect(paymentRepository.getTransactions).not.toHaveBeenCalled();
+    });
+
+    it('blocks direct navigation to /directory for Verification Executive and displays NoAccessView', async () => {
+      renderFullPortal('/directory');
+
+      expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
     });
   });
 

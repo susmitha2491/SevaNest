@@ -44,7 +44,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const canViewDashboard = hasPermission(user?.permissions, PERMISSIONS.DASHBOARD_VIEW);
-  const [activeTab, setActiveTab] = useState<SupportDashboardTab>('AT_RISK');
+  const [activeTab, setActiveTab] = useState<SupportDashboardTab>('ALL');
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['dashboard', 'support-exec'],
@@ -151,8 +151,24 @@ export const SupportExecutiveDashboard: React.FC = () => {
         if (queues.RESOLVED && queues.RESOLVED.length > 0) return queues.RESOLVED;
         return (queues.ALL || []).filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED');
       }
-      default:
-        return queues.AT_RISK || [];
+      default: {
+        if (queues.ALL && queues.ALL.length > 0) return queues.ALL;
+        const seen = new Set<string>();
+        const list = [
+          ...(queues.AT_RISK || []),
+          ...(queues.UNASSIGNED || []),
+          ...(queues.MY_CASES || []),
+          ...(queues.ESCALATED || []),
+          ...(queues.IN_PROGRESS || []),
+          ...(queues.RESOLVED || []),
+        ];
+        return list.filter((item) => {
+          const key = item.ticketId || item.id;
+          if (!key || seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      }
     }
   }, [queues, activeTab]);
 
@@ -246,7 +262,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="Total Tickets"
           value={kpis.totalTickets ?? ((kpis.openUnassignedGrievances ?? 0) + (kpis.myActiveCases ?? 0) + (kpis.resolvedTodayCount ?? 0))}
-          subtitle="All logged support tickets"
+          subtitle="All active & archived tickets"
           icon={LifeBuoy}
           isSelected={activeTab === 'ALL'}
           onClick={() => handleKpiCardClick('ALL')}
@@ -254,7 +270,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="Unassigned Tickets"
           value={kpis.unassignedTickets ?? kpis.openUnassignedGrievances}
-          subtitle="Open Grievances awaiting intake"
+          subtitle="Awaiting staff intake"
           icon={Inbox}
           isSelected={activeTab === 'UNASSIGNED'}
           onClick={() => handleKpiCardClick('UNASSIGNED')}
@@ -262,7 +278,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="My Assigned Tickets"
           value={kpis.myAssignedTickets ?? kpis.myActiveCases}
-          subtitle="Assigned to Me active claimed cases"
+          subtitle="Assigned to current executive"
           icon={UserCheck}
           isSelected={activeTab === 'MY_CASES'}
           onClick={() => handleKpiCardClick('MY_CASES')}
@@ -270,7 +286,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="In Progress"
           value={kpis.inProgressTickets ?? kpis.myActiveCases}
-          subtitle="Active investigations"
+          subtitle="Active case investigations"
           icon={Clock}
           isSelected={activeTab === 'IN_PROGRESS'}
           onClick={() => handleKpiCardClick('IN_PROGRESS')}
@@ -278,7 +294,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="SLA Imminent Breach"
           value={kpis.slaImminentBreach ?? kpis.slaAtRiskCount}
-          subtitle="SLA At Risk impending violation (<4h)"
+          subtitle="Impending SLA deadline"
           icon={AlertTriangle}
           isSelected={activeTab === 'AT_RISK'}
           onClick={() => handleKpiCardClick('AT_RISK')}
@@ -286,7 +302,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="Escalated Tickets"
           value={kpis.escalatedTickets ?? kpis.slaBreachedCount}
-          subtitle="SLA Breached & escalated to Ops"
+          subtitle="Handoff to Operations"
           icon={ShieldAlert}
           isSelected={activeTab === 'ESCALATED'}
           onClick={() => handleKpiCardClick('ESCALATED')}
@@ -294,7 +310,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <KPICard
           title="Resolved Tickets"
           value={kpis.resolvedTickets ?? kpis.resolvedTodayCount}
-          subtitle="Resolved Today & closed records"
+          subtitle="Completed settlements"
           icon={CheckCircle2}
           isSelected={activeTab === 'RESOLVED'}
           onClick={() => handleKpiCardClick('RESOLVED')}
@@ -316,9 +332,11 @@ export const SupportExecutiveDashboard: React.FC = () => {
         <div
           style={{
             display: 'flex',
+            flexWrap: 'wrap',
+            gap: 'var(--space-1)',
+            padding: 'var(--space-2) var(--space-4)',
             borderBottom: '1px solid var(--color-border)',
             backgroundColor: 'var(--color-bg-app)',
-            overflowX: 'auto',
           }}
         >
           {TABS.map((tab) => {
@@ -329,9 +347,9 @@ export const SupportExecutiveDashboard: React.FC = () => {
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 style={{
-                  padding: 'var(--space-3) var(--space-4)',
-                  border: 'none',
-                  borderBottom: isActive ? '2px solid var(--color-primary)' : '2px solid transparent',
+                  padding: '6px 14px',
+                  border: isActive ? '1px solid var(--color-primary)' : '1px solid transparent',
+                  borderRadius: 'var(--radius-md)',
                   backgroundColor: isActive ? 'var(--color-bg-surface)' : 'transparent',
                   color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
                   fontWeight: isActive ? 700 : 500,
@@ -367,6 +385,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                   <th style={{ padding: '8px 12px' }}>Dispute Category</th>
                   <th style={{ padding: '8px 12px' }}>SLA Indicator</th>
                   <th style={{ padding: '8px 12px' }}>Status</th>
+                  <th style={{ padding: '8px 12px' }}>Ticket Owner</th>
                   <th style={{ padding: '8px 12px', textAlign: 'right' }}>Mediation Action</th>
                 </tr>
               </thead>
@@ -437,6 +456,13 @@ export const SupportExecutiveDashboard: React.FC = () => {
                     </td>
                     <td style={{ padding: '12px' }}>
                       <StatusBadge status={item.status} />
+                    </td>
+                    <td style={{ padding: '12px', fontSize: 'var(--font-size-xs)' }}>
+                      {item.ticketOwner ? (
+                        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.ticketOwner}</span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>Unassigned</span>
+                      )}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>
                       <button

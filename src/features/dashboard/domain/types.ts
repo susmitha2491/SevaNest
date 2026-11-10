@@ -114,6 +114,7 @@ export interface SupportDashboardQueueItem {
   slaIndicator: 'BREACHED' | 'AT_RISK' | 'NORMAL';
   status: string;
   actionLabel: string;
+  ticketOwner?: string;
 }
 
 export interface BookingStatusCount {
