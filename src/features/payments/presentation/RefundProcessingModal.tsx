@@ -7,6 +7,7 @@ import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
@@ -87,6 +88,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           borderRadius: 'var(--radius-xl)',
           maxWidth: '580px',
           width: '100%',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
@@ -102,6 +104,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             justifyContent: 'space-between',
             alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -133,7 +136,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
         </div>
 
         {/* Modal Form */}
-        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto' }}>
           {/* Transaction Summary Card */}
           <div
             style={{
@@ -202,24 +205,13 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '2px', textTransform: 'uppercase' }}>
               Refund Reason Category (Mandatory):
             </label>
-            <select
+            <CustomSelect
               value={reasonCategory}
-              onChange={(e) => setReasonCategory(e.target.value as RefundReasonCategory)}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-            >
-              {REFUND_REASONS.map((r) => (
-                <option key={r.key} value={r.key}>
-                  {r.label}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setReasonCategory(val as RefundReasonCategory)}
+              options={REFUND_REASONS.map((r) => ({ value: r.key, label: r.label }))}
+              ariaLabel="Refund Reason Category"
+              width="100%"
+            />
           </div>
 
           {/* Operational Remarks */}

@@ -42,6 +42,7 @@ import {
 import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 export interface WorkerVerificationReviewModalProps {
   dossierId: string;
@@ -5176,28 +5177,15 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px' }}>
               Rejection Category: *
             </label>
-            <select
+            <CustomSelect
               value={rejectionCategory}
-              onChange={(e) => {
-                setRejectionCategory(e.target.value as RejectionReasonCategory);
+              onChange={(val) => {
+                setRejectionCategory(val as RejectionReasonCategory);
                 setRejectionError(null);
               }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2)',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                fontFamily: 'inherit',
-                backgroundColor: 'var(--color-surface)',
-              }}
-            >
-              {REJECTION_CATEGORIES.map((cat) => (
-                <option key={cat.key} value={cat.key}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
+              options={REJECTION_CATEGORIES.map((cat) => ({ value: cat.key, label: cat.label }))}
+              width="100%"
+            />
 
             {isTerminalRejectionCode(rejectionCategory) && (
               <div
@@ -5355,30 +5343,20 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
             >
               Rejection Reason Code / Category: <span style={{ color: 'var(--color-error)' }}>*</span>
             </label>
-            <select
+            <CustomSelect
               id="reject-app-reason-category-select"
-              data-testid="reject-app-reason-category-select"
+              testId="reject-app-reason-category-select"
               value={rejectApplicationCategory}
-              onChange={(e) => {
-                setRejectApplicationCategory(e.target.value as RejectionReasonCategory);
+              onChange={(val) => {
+                setRejectApplicationCategory(val as RejectionReasonCategory);
                 if (rejectApplicationError) setRejectApplicationError(null);
               }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2)',
-                borderRadius: 'var(--radius-sm)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                fontFamily: 'inherit',
-                backgroundColor: 'var(--color-surface)',
-              }}
-            >
-              {REJECTION_CATEGORIES.map((cat) => (
-                <option key={cat.key} value={cat.key}>
-                  {cat.label} ({cat.key})
-                </option>
-              ))}
-            </select>
+              options={REJECTION_CATEGORIES.map((cat) => ({
+                value: cat.key,
+                label: `${cat.label} (${cat.key})`,
+              }))}
+              width="100%"
+            />
           </div>
         </ConfirmDialog>
 

@@ -52,6 +52,7 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 export type WorkerModalWorkflowStep =
   | 'worker-info'
@@ -2097,7 +2098,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                         Full Name & Photo
                       </div>
                       <div style={{ fontSize: 'var(--font-size-base)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                        {worker.name}
+                        {`Full Name: ${worker.name}`}
                       </div>
                     </div>
                   </div>
@@ -5200,27 +5201,18 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
           >
             Rejection Category: *
           </label>
-          <select
+          <CustomSelect
             value={rejectCategory}
-            onChange={(e) => {
-              setRejectCategory(e.target.value as RejectionReasonCategory);
+            onChange={(val) => {
+              setRejectCategory(val as RejectionReasonCategory);
               setRejectCheckError(null);
             }}
-            style={{
-              width: '100%',
-              padding: 'var(--space-2)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              backgroundColor: 'var(--color-surface)',
-            }}
-          >
-            {REJECTION_CATEGORIES.map((cat) => (
-              <option key={cat.key} value={cat.key}>
-                {cat.label}
-              </option>
-            ))}
-          </select>
+            options={REJECTION_CATEGORIES.map((cat) => ({
+              value: cat.key,
+              label: cat.label,
+            }))}
+            width="100%"
+          />
 
           {isTerminalRejectionCode(rejectCategory) && (
             <div
@@ -5331,26 +5323,17 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
             >
               Rejection Reason Category: *
             </label>
-            <select
+            <CustomSelect
               id="worker-rejection-category-select"
-              data-testid="worker-rejection-category-select"
+              testId="worker-rejection-category-select"
               value={rejectWorkerCategory}
-              onChange={(e) => setRejectWorkerCategory(e.target.value as RejectionReasonCategory)}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-            >
-              {REJECTION_CATEGORIES.map((cat) => (
-                <option key={cat.key} value={cat.key}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
+              onChange={(val) => setRejectWorkerCategory(val as RejectionReasonCategory)}
+              options={REJECTION_CATEGORIES.map((cat) => ({
+                value: cat.key,
+                label: cat.label,
+              }))}
+              width="100%"
+            />
           </div>
         </div>
       </ConfirmDialog>

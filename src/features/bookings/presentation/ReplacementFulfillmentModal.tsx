@@ -19,6 +19,7 @@ import {
   ReplacementReasonCode,
 } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 interface ReplacementFulfillmentModalProps {
   booking: BookingDetail | null;
@@ -691,15 +692,17 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                       <label style={{ display: 'block', fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
                         Time Slot:
                       </label>
-                      <select
+                      <CustomSelect
                         value={trialSlot}
-                        onChange={(e) => setTrialSlot(e.target.value)}
-                        style={{ width: '100%', padding: '6px 8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)', backgroundColor: '#fff' }}
-                      >
-                        <option value="Morning (09:00 AM - 11:00 AM)">Morning (09:00 AM - 11:00 AM)</option>
-                        <option value="Afternoon (01:00 PM - 03:00 PM)">Afternoon (01:00 PM - 03:00 PM)</option>
-                        <option value="Evening (05:00 PM - 07:00 PM)">Evening (05:00 PM - 07:00 PM)</option>
-                      </select>
+                        onChange={(val) => setTrialSlot(val)}
+                        options={[
+                          { value: 'Morning (09:00 AM - 11:00 AM)', label: 'Morning (09:00 AM - 11:00 AM)' },
+                          { value: 'Afternoon (01:00 PM - 03:00 PM)', label: 'Afternoon (01:00 PM - 03:00 PM)' },
+                          { value: 'Evening (05:00 PM - 07:00 PM)', label: 'Evening (05:00 PM - 07:00 PM)' },
+                        ]}
+                        ariaLabel="Trial time slot"
+                        width="100%"
+                      />
                     </div>
 
                     <div>

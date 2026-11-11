@@ -64,6 +64,7 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
           borderRadius: 'var(--radius-xl)',
           maxWidth: '550px',
           width: '100%',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
@@ -79,6 +80,7 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
             justifyContent: 'space-between',
             alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
+            flexShrink: 0,
           }}
         >
           <div>
@@ -107,7 +109,7 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto' }}>
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)', textTransform: 'uppercase' }}>
               Trial Result:
