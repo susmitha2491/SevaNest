@@ -1,10 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Users,
-  Search,
-  Filter,
   CheckCircle2,
   Star,
   MapPin,
@@ -23,6 +21,9 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 const CATEGORY_OPTIONS = [
   { value: 'ALL', label: 'All Skill Categories' },
@@ -39,10 +40,15 @@ export const WorkersDirectoryPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 25;
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedSearchTerm]);
 
   const {
     data: pageResult,
@@ -52,7 +58,7 @@ export const WorkersDirectoryPage: React.FC = () => {
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['workers-directory', { searchTerm, selectedCategory, page }],
+    queryKey: ['workers-directory', { searchTerm: debouncedSearchTerm, selectedCategory, page }],
     queryFn: async () => {
       return await workerRepository.getWorkersPage(
         {
@@ -60,7 +66,7 @@ export const WorkersDirectoryPage: React.FC = () => {
           status: 'ACTIVE',
           accountStatus: 'ACTIVE',
           category: selectedCategory !== 'ALL' ? selectedCategory : undefined,
-          searchTerm: searchTerm.trim() || undefined,
+          searchTerm: debouncedSearchTerm.trim() || undefined,
         },
         page,
         pageSize
@@ -68,6 +74,7 @@ export const WorkersDirectoryPage: React.FC = () => {
     },
     enabled: canView,
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const workers = useMemo(() => {
@@ -161,65 +168,35 @@ export const WorkersDirectoryPage: React.FC = () => {
       <div
         style={{
           display: 'flex',
-          gap: 'var(--space-3)',
+          gap: '12px',
           alignItems: 'center',
           flexWrap: 'wrap',
-          padding: 'var(--space-3)',
-          backgroundColor: 'var(--color-surface)',
-          borderRadius: 'var(--radius-md)',
-          border: '1px solid var(--color-border)',
+          padding: '16px',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
         }}
       >
-        <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-          <Search
-            size={16}
-            style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
-          />
-          <input
-            type="text"
-            placeholder="Search verified worker by name or mobile..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              width: '100%',
-              padding: '8px 12px 8px 36px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-sm)',
-              backgroundColor: 'var(--color-bg-app)',
-              color: 'var(--color-text-primary)',
-            }}
-          />
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search verified worker by name or mobile..."
+          ariaLabel="Search verified workers"
+          isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+          containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+        />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Filter size={16} style={{ color: 'var(--color-text-muted)' }} />
-          <select
-            value={selectedCategory}
-            onChange={(e) => {
-              setSelectedCategory(e.target.value);
-              setPage(1);
-            }}
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-sm)',
-              backgroundColor: 'var(--color-bg-app)',
-              color: 'var(--color-text-primary)',
-              cursor: 'pointer',
-            }}
-          >
-            {CATEGORY_OPTIONS.map((cat) => (
-              <option key={cat.value} value={cat.value}>
-                {cat.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          value={selectedCategory}
+          onChange={(val) => {
+            setSelectedCategory(val);
+            setPage(1);
+          }}
+          options={CATEGORY_OPTIONS}
+          ariaLabel="Filter by skill category"
+          minWidth="180px"
+        />
       </div>
 
       {/* Directory Table */}

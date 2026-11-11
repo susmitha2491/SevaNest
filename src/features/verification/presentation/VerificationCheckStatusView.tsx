@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -7,7 +7,6 @@ import {
   Home,
   UserCheck,
   Briefcase,
-  Search,
   RefreshCw,
   Eye,
   Lock,
@@ -15,6 +14,8 @@ import {
 import { verificationRepository } from '../data/verificationRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface VerificationCheckStatusViewProps {
   onSelectDossier: (dossierId: string) => void;
@@ -24,15 +25,17 @@ export const VerificationCheckStatusView: React.FC<VerificationCheckStatusViewPr
   onSelectDossier,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
 
   const { data: queueData, isLoading, isError, error, refetch, isFetching } = useQuery({
-    queryKey: ['verification', 'check-status-overview', searchTerm],
+    queryKey: ['verification', 'check-status-overview', debouncedSearchTerm],
     queryFn: () =>
       verificationRepository.getVerificationQueue({
-        searchTerm: searchTerm.trim() || undefined,
+        searchTerm: debouncedSearchTerm.trim() || undefined,
         page: 1,
         pageSize: 25,
       }),
+    placeholderData: keepPreviousData,
   });
 
   const items = queueData?.items || [];
@@ -254,24 +257,15 @@ export const VerificationCheckStatusView: React.FC<VerificationCheckStatusViewPr
               Discrete Check Status Matrix
             </h3>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: '240px', flex: 1, justifyContent: 'flex-end' }}>
-            <Search size={16} color="var(--color-text-tertiary)" />
-            <input
-              type="text"
-              placeholder="Search check status by worker name or ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                width: '100%',
-                maxWidth: '320px',
-                padding: '4px 8px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-              }}
-              aria-label="Search check status"
-            />
-          </div>
+          <SearchInput
+            value={searchTerm}
+            onChange={(val) => setSearchTerm(val)}
+            placeholder="Search check status by worker name or ID..."
+            ariaLabel="Search check status"
+            isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+            containerStyle={{ flex: '1 1 240px', minWidth: 'min(100%, 200px)' }}
+            maxWidth="320px"
+          />
           <button
             type="button"
             onClick={() => refetch()}

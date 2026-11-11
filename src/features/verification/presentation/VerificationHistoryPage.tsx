@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   History,
-  Search,
   RefreshCw,
   CheckCircle2,
   XCircle,
@@ -17,6 +16,8 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { verificationRepository } from '../data/verificationRepository';
 import { VerificationDossier } from '../domain/types';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface VerificationHistoryPageProps {
   onSelectDossier?: (workerIdOrDossierId: string) => void;
@@ -29,19 +30,25 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
 }) => {
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const [outcomeFilter, setOutcomeFilter] = useState<'ALL' | 'APPROVED' | 'REJECTED'>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 8;
 
+  // Reset page when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
   // Query completed or decided reviews
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['verification', 'history', searchTerm, outcomeFilter, currentPage],
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['verification', 'history', debouncedSearchTerm, outcomeFilter, currentPage],
     queryFn: async () => {
       // If outcomeFilter is specific, query that status. If ALL, query APPROVED first then REJECTED if needed
       if (outcomeFilter === 'APPROVED' || outcomeFilter === 'REJECTED') {
         return verificationRepository.getVerificationQueue({
           status: outcomeFilter,
-          searchTerm: searchTerm || undefined,
+          searchTerm: debouncedSearchTerm || undefined,
           page: currentPage,
           pageSize,
         });
@@ -51,13 +58,13 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
       const [approvedRes, rejectedRes] = await Promise.all([
         verificationRepository.getVerificationQueue({
           status: 'APPROVED',
-          searchTerm: searchTerm || undefined,
+          searchTerm: debouncedSearchTerm || undefined,
           page: 1,
           pageSize: 20,
         }),
         verificationRepository.getVerificationQueue({
           status: 'REJECTED',
-          searchTerm: searchTerm || undefined,
+          searchTerm: debouncedSearchTerm || undefined,
           page: 1,
           pageSize: 20,
         }),
@@ -76,6 +83,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
         totalPages,
       };
     },
+    placeholderData: keepPreviousData,
   });
 
   const items = data?.items || [];
@@ -140,38 +148,25 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
       <div
         style={{
           backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-4)',
-          borderRadius: 'var(--radius-lg)',
+          padding: '16px',
+          borderRadius: '12px',
           border: '1px solid var(--color-border)',
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-3)',
+          gap: '12px',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flex: 1, minWidth: '240px', maxWidth: '400px' }}>
-          <div style={{ position: 'relative', width: '100%', display: 'flex', alignItems: 'center' }}>
-            <Search size={16} color="var(--color-text-tertiary)" style={{ position: 'absolute', left: 'var(--space-3)' }} />
-            <input
-              type="text"
-              placeholder="Search history by worker name, ID, locality..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-              aria-label="Search review history"
-            />
-          </div>
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search history by worker name, ID, locality..."
+          ariaLabel="Search review history"
+          isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+          containerStyle={{ flex: '1 1 320px', minWidth: 'min(100%, 240px)' }}
+          maxWidth="450px"
+        />
 
         <div style={{ display: 'inline-flex', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
           {[
@@ -212,7 +207,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
           overflow: 'hidden',
         }}
       >
-        {isLoading ? (
+        {isLoading && !data ? (
           <div style={{ padding: 'var(--space-12)' }}>
             <LoadingSpinner message="Retrieving authorized verification decision history..." />
           </div>

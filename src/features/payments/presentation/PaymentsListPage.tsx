@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
-  Search,
   RotateCcw,
   Eye,
   AlertTriangle,
@@ -24,16 +23,53 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TransactionDetailModal } from './TransactionDetailModal';
 import { RefundProcessingModal } from './RefundProcessingModal';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export const PaymentsListPage: React.FC = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
   // Filter & Search state
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
+
   const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
   const [selectedFeeType, setSelectedFeeType] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
+  // Sync debounced search to URL without reloading or thrashing
+  useEffect(() => {
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        if (trimmed) {
+          if (next.get('search') !== trimmed) next.set('search', trimmed);
+        } else {
+          if (next.has('search')) next.delete('search');
+        }
+        return next;
+      }, { replace: true });
+    }
+  }, [debouncedSearchTerm, setSearchParams]);
+
+  // Sync URL search param to state only when external change (e.g. back/forward navigation) occurs
+  useEffect(() => {
+    const searchParam = searchParams.get('search') || '';
+    if (searchParam !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = searchParam;
+      setSearchTerm(searchParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const statusParam = searchParams.get('status');
@@ -101,18 +137,19 @@ export const PaymentsListPage: React.FC = () => {
     }
   };
 
-  // Query transactions
-  const { data: paymentsData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['payments', 'transactions', searchTerm, selectedStatus, selectedFeeType, currentPage],
+  // Query transactions with debounced search and keepPreviousData
+  const { data: paymentsData, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['payments', 'transactions', debouncedSearchTerm, selectedStatus, selectedFeeType, currentPage],
     queryFn: () =>
       paymentRepository.getTransactions({
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         status: selectedStatus,
         feeType: selectedFeeType,
         page: currentPage,
         pageSize: 10,
       }),
     enabled: canView,
+    placeholderData: keepPreviousData,
   });
 
   // Query authoritative financial overview metrics from backend APIs
@@ -140,46 +177,6 @@ export const PaymentsListPage: React.FC = () => {
 
   if (!canView) {
     return <NoAccessView moduleName="Financial Transactions & Ledger" requiredPermission={PERMISSIONS.PAYMENTS_VIEW} />;
-  }
-
-  if (isLoading) {
-    return <LoadingSpinner message="Loading marketplace transaction ledgers..." />;
-  }
-
-  if (isError) {
-    return (
-      <div
-        style={{
-          padding: 'var(--space-8)',
-          backgroundColor: 'var(--color-error-bg)',
-          border: '1px solid var(--color-error-border)',
-          borderRadius: 'var(--radius-lg)',
-          textAlign: 'center',
-        }}
-      >
-        <AlertTriangle size={40} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
-        <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-error-dark)' }}>
-          Failed to load transactions
-        </h3>
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--space-4)' }}>
-          An error occurred while fetching payment ledgers. Please retry.
-        </p>
-        <button
-          onClick={() => refetch()}
-          style={{
-            padding: 'var(--space-2) var(--space-4)',
-            backgroundColor: 'var(--color-brand-600)',
-            color: '#fff',
-            borderRadius: 'var(--radius-md)',
-            border: 'none',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -294,17 +291,18 @@ export const PaymentsListPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-3)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--space-3)',
+          gap: '16px',
         }}
       >
         {/* Status Quick-Filter Tabs */}
-        <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)' }}>
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '16px', borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)', scrollbarWidth: 'thin' }}>
           {[
             { key: 'ALL', label: 'All Transactions' },
             { key: 'PAID', label: 'Paid' },
@@ -320,14 +318,15 @@ export const PaymentsListPage: React.FC = () => {
               }}
               style={{
                 padding: '6px 14px',
-                borderRadius: 'var(--radius-full)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary)',
-                fontSize: 'var(--font-size-xs)',
+                borderRadius: 'var(--radius-full, 9999px)',
+                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
+                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
+                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                fontSize: 'var(--font-size-xs, 12px)',
                 fontWeight: 600,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
+                transition: 'all 150ms ease',
               }}
             >
               {tab.label}
@@ -336,71 +335,53 @@ export const PaymentsListPage: React.FC = () => {
         </div>
 
         {/* Search & Fee Type Dropdown */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ position: 'relative', minWidth: '260px', flex: 1, maxWidth: '450px' }}>
-            <Search
-              size={16}
-              color="var(--color-text-tertiary)"
-              style={{ position: 'absolute', left: 'var(--space-3)', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search by customer, booking ref, transaction ID..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-              aria-label="Search transactions"
-            />
-          </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
+          <SearchInput
+            value={searchTerm}
+            onChange={(val) => setSearchTerm(val)}
+            placeholder="Search by customer, booking ref, transaction ID..."
+            ariaLabel="Search transactions"
+            isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+            containerStyle={{ flex: '1 1 300px', minWidth: 'min(100%, 240px)' }}
+          />
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-            <select
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <CustomSelect
               value={selectedFeeType}
-              onChange={(e) => {
-                setSelectedFeeType(e.target.value);
+              onChange={(val) => {
+                setSelectedFeeType(val);
                 setCurrentPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-              aria-label="Filter by fee classification"
-            >
-              <option value="ALL">All Fee Classifications</option>
-              <option value="BOOKING_FEE">Booking / Matching Fee</option>
-              <option value="PLACEMENT_FEE">Placement Commission</option>
-              <option value="REPLACEMENT_PLAN">Replacement Guarantee Plan</option>
-              <option value="SUBSCRIPTION">Subscription / Membership</option>
-            </select>
+              options={[
+                { value: 'ALL', label: 'All Fee Classifications' },
+                { value: 'BOOKING_FEE', label: 'Booking / Matching Fee' },
+                { value: 'PLACEMENT_FEE', label: 'Placement Commission' },
+                { value: 'REPLACEMENT_PLAN', label: 'Replacement Guarantee Plan' },
+                { value: 'SUBSCRIPTION', label: 'Subscription / Membership' },
+              ]}
+              ariaLabel="Filter by fee classification"
+              minWidth="180px"
+            />
 
             <button
               type="button"
               onClick={handleExportCsv}
               disabled={exportingCsv}
               style={{
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-surface)',
-                color: 'var(--color-text-primary)',
-                fontSize: 'var(--font-size-xs)',
+                height: '38px',
+                padding: '0 14px',
+                borderRadius: 'var(--radius-md, 8px)',
+                border: '1px solid var(--color-border, #cbd5e1)',
+                backgroundColor: 'var(--color-surface, #ffffff)',
+                color: 'var(--color-text-primary, #0f172a)',
+                fontSize: 'var(--font-size-xs, 12px)',
                 fontWeight: 600,
                 cursor: exportingCsv ? 'not-allowed' : 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '4px',
+                gap: '6px',
+                boxSizing: 'border-box',
+                transition: 'all 150ms ease',
               }}
               title="Export audited transactions CSV"
             >
@@ -442,7 +423,7 @@ export const PaymentsListPage: React.FC = () => {
         }}
       >
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
               <tr>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
@@ -472,7 +453,41 @@ export const PaymentsListPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {paymentsData?.items.length === 0 ? (
+              {isLoading && !paymentsData ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <LoadingSpinner message="Loading marketplace transaction ledgers..." />
+                  </td>
+                </tr>
+              ) : isError && !paymentsData ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--color-error-dark)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={36} color="var(--color-error-dark)" />
+                      <div style={{ fontWeight: 600 }}>Failed to load transactions</div>
+                      <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: 'var(--font-size-xs)' }}>
+                        An error occurred while fetching payment ledgers.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => refetch()}
+                        style={{
+                          marginTop: 'var(--space-2)',
+                          padding: '6px 16px',
+                          backgroundColor: 'var(--color-brand-600)',
+                          color: '#fff',
+                          borderRadius: 'var(--radius-md)',
+                          border: 'none',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : paymentsData?.items.length === 0 ? (
                 <tr>
                   <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                     No payment transactions found matching the selected criteria.

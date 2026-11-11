@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
-  Search,
   ShieldCheck,
   AlertTriangle,
   RefreshCw,
@@ -29,6 +28,9 @@ import { VerificationHistoryPage } from './VerificationHistoryPage';
 import { WorkerVerificationReviewModal } from './WorkerVerificationReviewModal';
 import { VerificationCheckStatusView } from './VerificationCheckStatusView';
 import { VerificationDocumentReviewView } from './VerificationDocumentReviewView';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface VerificationQueuePageProps {
   viewMode?: 'all' | 'my-reviews' | 'rechecks' | 'corrections' | 'history';
@@ -89,6 +91,8 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
   // Filter & Queue State initialized from URL params / viewMode defaults
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
   const [selectedStatus, setSelectedStatus] = useState<string>(initialStatus);
   const [selectedCategory, setSelectedCategory] = useState<string>(() => searchParams.get('category') || 'ALL');
   const [currentPage, setCurrentPage] = useState<number>(() => {
@@ -99,6 +103,35 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     const s = searchParams.get('sortOrder');
     return s === 'asc' ? 'asc' : 'desc';
   });
+
+  // Helper to synchronize URL query parameters with active filters
+  const updateUrlParams = useCallback((updates: Record<string, string | number | null | undefined>) => {
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      Object.entries(updates).forEach(([k, v]) => {
+        if (v === null || v === undefined || v === '' || v === 'ALL') {
+          next.delete(k);
+        } else {
+          next.set(k, String(v));
+        }
+      });
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Reset page when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
+  // Sync debounced search to URL without thrashing
+  useEffect(() => {
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
+      updateUrlParams({ search: trimmed || null, page: 1 });
+    }
+  }, [debouncedSearchTerm, updateUrlParams]);
 
   const toggleSortOrder = () => {
     const nextOrder = sortOrder === 'desc' ? 'asc' : 'desc';
@@ -114,21 +147,6 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
   // References for modal accessibility & focus restore
   const triggerElementRef = useRef<{ focus: () => void } | null>(null);
-
-  // Helper to synchronize URL query parameters with active filters
-  const updateUrlParams = (updates: Record<string, string | number | null | undefined>) => {
-    setSearchParams((prev) => {
-      const next = new window.URLSearchParams(prev);
-      Object.entries(updates).forEach(([k, v]) => {
-        if (v === null || v === undefined || v === '' || v === 'ALL') {
-          next.delete(k);
-        } else {
-          next.set(k, String(v));
-        }
-      });
-      return next;
-    }, { replace: true });
-  };
 
   const handleSelectDossier = (workerIdOrDossierId: string | null) => {
     if (workerIdOrDossierId) {
@@ -162,8 +180,9 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
 
   // Synchronize state when URL params change externally
   useEffect(() => {
-    const urlSearch = searchParams.get('search');
-    if (urlSearch !== null && urlSearch !== searchTerm) {
+    const urlSearch = searchParams.get('search') || '';
+    if (urlSearch !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = urlSearch;
       setSearchTerm(urlSearch);
     }
     const urlWorkerId = searchParams.get('workerId') || searchParams.get('dossierId');
@@ -176,15 +195,15 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     } else if (!urlSortOrder && sortOrder !== 'desc') {
       setSortOrder('desc');
     }
-  }, [searchParams, searchTerm, selectedDossierId, sortOrder]);
+  }, [searchParams, selectedDossierId, sortOrder]);
 
-  // Query verification queue
-  const { data: queueData, isLoading, isError, error: queueError, refetch } = useQuery({
-    queryKey: ['verification', 'queue', effectiveViewMode, searchTerm, selectedStatus, selectedCategory, currentPage, sortOrder],
+  // Query verification queue with debounced search and keepPreviousData
+  const { data: queueData, isLoading, isFetching, isError, error: queueError, refetch } = useQuery({
+    queryKey: ['verification', 'queue', effectiveViewMode, debouncedSearchTerm, selectedStatus, selectedCategory, currentPage, sortOrder],
     queryFn: () =>
       verificationRepository.getVerificationQueue({
         assignedTo: effectiveViewMode === 'my-reviews' ? 'me' : undefined,
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         status: selectedStatus as VerificationFilterCriteria['status'],
         category: selectedCategory,
         page: currentPage,
@@ -193,6 +212,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         sortOrder,
       }),
     enabled: canReview,
+    placeholderData: keepPreviousData,
   });
 
   // Auto-select dossier if search parameter matches workerId or dossierId
@@ -285,11 +305,11 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
     return <NoAccessView moduleName="Worker Verification & Trust Operations" requiredPermission={PERMISSIONS.VERIFICATION_REVIEW} />;
   }
 
-  if (isLoading) {
+  if (isLoading && !queueData && !searchTerm) {
     return <LoadingSpinner message="Loading worker verification queue..." />;
   }
 
-  if (isError) {
+  if (isError && !searchTerm) {
     return (
       <div
         style={{
@@ -526,54 +546,28 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
       {/* Filter and Search Bar */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-3)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-3)',
+          gap: '12px',
           alignItems: 'center',
-          justifyContent: 'space-between',
+          width: '100%',
         }}
       >
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flex: 1, minWidth: '240px', maxWidth: '400px' }}>
-          <div
-            style={{
-              position: 'relative',
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-            }}
-          >
-            <Search
-              size={16}
-              color="var(--color-text-tertiary)"
-              style={{ position: 'absolute', left: 'var(--space-3)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search by worker name, ID, locality..."
-              value={searchTerm}
-              onChange={(e) => {
-                const val = e.target.value;
-                setSearchTerm(val);
-                setCurrentPage(1);
-                updateUrlParams({ search: val, page: 1 });
-              }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-              aria-label="Search verification queue"
-            />
-          </div>
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search by worker name, ID, locality..."
+          ariaLabel="Search verification queue"
+          isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+          containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+        />
 
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
           {/* Status filter buttons */}
           <div style={{ display: 'inline-flex', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', overflow: 'hidden' }}>
             {[
@@ -608,32 +602,25 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
           </div>
 
           {/* Category Dropdown */}
-          <select
+          <CustomSelect
             value={selectedCategory}
-            onChange={(e) => {
-              const cat = e.target.value;
+            onChange={(cat) => {
               setSelectedCategory(cat);
               setCurrentPage(1);
               updateUrlParams({ category: cat, page: 1 });
             }}
-            style={{
-              padding: '6px 10px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-text-primary)',
-              backgroundColor: 'var(--color-surface)',
-            }}
-            aria-label="Filter by category"
-          >
-            <option value="ALL">All Service Categories</option>
-            <option value="House Maid">House Maid</option>
-            <option value="Driver">Driver</option>
-            <option value="Cook">Cook</option>
-            <option value="Babysitter">Babysitter</option>
-            <option value="Elderly Care Helper">Elderly Care Helper</option>
-            <option value="Cleaning Helper">Cleaning Helper</option>
-          </select>
+            options={[
+              { value: 'ALL', label: 'All Service Categories' },
+              { value: 'House Maid', label: 'House Maid' },
+              { value: 'Driver', label: 'Driver' },
+              { value: 'Cook', label: 'Cook' },
+              { value: 'Babysitter', label: 'Babysitter' },
+              { value: 'Elderly Care Helper', label: 'Elderly Care Helper' },
+              { value: 'Cleaning Helper', label: 'Cleaning Helper' },
+            ]}
+            ariaLabel="Filter by category"
+            minWidth="175px"
+          />
         </div>
       </div>
 
@@ -721,7 +708,37 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
             </div>
           )}
 
-          {queueData?.items.length === 0 ? (
+          {isLoading && !queueData ? (
+            <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+              <LoadingSpinner message="Loading worker verification queue..." />
+            </div>
+          ) : isError && !queueData ? (
+            <div style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+              <div style={{ color: 'var(--color-error-dark)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={36} color="var(--color-error-dark)" />
+                <div style={{ fontWeight: 600 }}>Failed to load verification queue</div>
+                <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: 'var(--font-size-xs)', maxWidth: '520px' }}>
+                  {(queueError as Error)?.message || 'Unable to connect to verification queue service.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => refetch()}
+                  style={{
+                    marginTop: 'var(--space-2)',
+                    padding: '6px 16px',
+                    backgroundColor: 'var(--color-brand-600)',
+                    color: '#fff',
+                    borderRadius: 'var(--radius-md)',
+                    border: 'none',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Retry Loading
+                </button>
+              </div>
+            </div>
+          ) : queueData?.items.length === 0 ? (
             <div style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
               <ShieldCheck size={48} color="var(--color-brand-600)" style={{ marginBottom: 'var(--space-3)' }} />
               <p style={{ fontWeight: 600, fontSize: 'var(--font-size-md)' }}>No pending worker dossiers</p>
@@ -731,7 +748,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
                   <tr>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>

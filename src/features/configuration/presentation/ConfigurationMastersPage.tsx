@@ -42,6 +42,7 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { useSessionSecurityStore } from '../../../core/auth/sessionSecurityStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 const CONFIGURATION_SECTIONS: Array<{
   id: ConfigurationTab;
@@ -1103,25 +1104,16 @@ export const ConfigurationMastersPage: React.FC = () => {
               </p>
             </div>
             <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-              <select
+              <CustomSelect
                 value={selectedRole}
-                onChange={(e) => setSelectedRole(e.target.value)}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 600,
-                  backgroundColor: 'var(--color-surface)',
-                }}
-                aria-label="Select role to configure"
-              >
-                {roleDefinitions?.map((r) => (
-                  <option key={r.role} value={r.role}>
-                    {r.roleName} {r.isImmutable ? '(Immutable)' : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedRole(val)}
+                options={(roleDefinitions || []).map((r) => ({
+                  value: r.role,
+                  label: `${r.roleName}${r.isImmutable ? ' (Immutable)' : ''}`,
+                }))}
+                ariaLabel="Select role to configure"
+                minWidth="200px"
+              />
               <button
                 disabled={roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable}
                 onClick={() => setIsRoleSaveOpen(true)}
@@ -2363,16 +2355,18 @@ export const ConfigurationMastersPage: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Assigned Role Persona</label>
-              <select
+              <CustomSelect
                 value={createAdminDraft.roleCode}
-                onChange={(e) => setCreateAdminDraft({ ...createAdminDraft, roleCode: e.target.value as AdminRole })}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-surface)' }}
-              >
-                <option value="OPERATIONS_ADMIN">Operations Admin (Full lifecycle & matching)</option>
-                <option value="VERIFICATION_EXECUTIVE">Verification Executive (KYC document vetting)</option>
-                <option value="SUPPORT_EXECUTIVE">Support Executive (Household dispute mediation)</option>
-                <option value="SUPER_ADMIN">Super Admin (System master configuration)</option>
-              </select>
+                onChange={(val) => setCreateAdminDraft({ ...createAdminDraft, roleCode: val as AdminRole })}
+                options={[
+                  { value: 'OPERATIONS_ADMIN', label: 'Operations Admin (Full lifecycle & matching)' },
+                  { value: 'VERIFICATION_EXECUTIVE', label: 'Verification Executive (KYC document vetting)' },
+                  { value: 'SUPPORT_EXECUTIVE', label: 'Support Executive (Household dispute mediation)' },
+                  { value: 'SUPER_ADMIN', label: 'Super Admin (System master configuration)' },
+                ]}
+                ariaLabel="Assigned Role Persona"
+                width="100%"
+              />
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
@@ -2442,16 +2436,18 @@ export const ConfigurationMastersPage: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>New Role Persona</label>
-              <select
+              <CustomSelect
                 value={newRoleCode}
-                onChange={(e) => setNewRoleCode(e.target.value as AdminRole)}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-surface)' }}
-              >
-                <option value="OPERATIONS_ADMIN">Operations Admin</option>
-                <option value="VERIFICATION_EXECUTIVE">Verification Executive</option>
-                <option value="SUPPORT_EXECUTIVE">Support Executive</option>
-                <option value="SUPER_ADMIN">Super Admin</option>
-              </select>
+                onChange={(val) => setNewRoleCode(val as AdminRole)}
+                options={[
+                  { value: 'OPERATIONS_ADMIN', label: 'Operations Admin' },
+                  { value: 'VERIFICATION_EXECUTIVE', label: 'Verification Executive' },
+                  { value: 'SUPPORT_EXECUTIVE', label: 'Support Executive' },
+                  { value: 'SUPER_ADMIN', label: 'Super Admin' },
+                ]}
+                ariaLabel="New Role Persona"
+                width="100%"
+              />
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>

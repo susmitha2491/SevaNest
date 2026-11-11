@@ -212,6 +212,7 @@ input, select, textarea {
   font-family: inherit;
   color: var(--color-text-primary);
   font-size: var(--font-size-xs);
+  box-sizing: border-box;
 }
 
 input::placeholder, textarea::placeholder {
@@ -219,9 +220,48 @@ input::placeholder, textarea::placeholder {
   opacity: 1;
 }
 
+/* Base Select Styling & Dropdown Zoom Responsiveness Fix */
+select:not(.select-unstyled) {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-color: var(--color-bg-surface);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748B'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px 14px;
+  padding-right: 30px !important;
+  min-height: 32px;
+  max-width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  line-height: 1.4;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+select:not(.select-unstyled):hover:not(:disabled) {
+  border-color: var(--color-border-muted);
+}
+
+select:not(.select-unstyled):focus {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
+}
+
+select:not(.select-unstyled):disabled {
+  background-color: var(--color-bg-disabled);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
 select option {
   background-color: #ffffff;
   color: var(--color-text-primary);
+  padding: 6px 10px;
+  font-size: var(--font-size-xs);
 }
 
 /* Accessible Focus States */
@@ -230,7 +270,7 @@ select option {
   outline-offset: 2px;
 }
 
-div:has(> input:focus) {
+div:not(.search-input-wrapper):has(> input:focus) {
   border-color: var(--color-primary) !important;
   box-shadow: 0 0 0 1px var(--color-primary);
 }
@@ -536,7 +576,9 @@ tbody tr:hover {
   top: calc(100% + 8px);
   right: 0;
   width: 280px;
-  max-width: calc(100vw - 32px);
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
   background-color: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -581,5 +623,84 @@ tbody tr:hover {
   background-color: var(--color-status-danger-bg);
   color: var(--color-status-danger-text);
 }
+
+/* Responsive Table Wrappers */
+.table-responsive,
+div:has(> table) {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Global Responsive Zoom & Viewport Adaptations */
+@media (max-width: 1024px) {
+  :root {
+    --header-height: 52px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-profile-dropdown {
+    right: -8px;
+    width: 260px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-profile-dropdown {
+    right: -12px;
+    width: 240px;
+  }
+}
+
+/* Search Input Global Responsiveness & Focus */
+.search-input-wrapper {
+  max-width: 100%;
+}
+
+.search-input-field:focus,
+.search-input-field:focus-visible {
+  border-color: var(--color-primary, #0F766E) !important;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15) !important;
+  outline: none !important;
+}
+
+/* Custom Select Dropdown & Combobox */
+button[role="combobox"]:focus,
+button[role="combobox"]:focus-visible {
+  border-color: var(--color-primary, #0F766E) !important;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15) !important;
+  outline: none !important;
+}
+
+/* Responsive Table Container & Scrollbar */
+.table-responsive-container,
+div[style*="overflowX: 'auto'"],
+div[style*="overflow-x: auto"] {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-muted, #cbd5e1) transparent;
+}
+
+.table-responsive-container::-webkit-scrollbar,
+div[style*="overflowX: 'auto'"]::-webkit-scrollbar,
+div[style*="overflow-x: auto"]::-webkit-scrollbar {
+  height: 6px;
+}
+
+.table-responsive-container::-webkit-scrollbar-track,
+div[style*="overflowX: 'auto'"]::-webkit-scrollbar-track,
+div[style*="overflow-x: auto"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-responsive-container::-webkit-scrollbar-thumb,
+div[style*="overflowX: 'auto'"]::-webkit-scrollbar-thumb,
+div[style*="overflow-x: auto"]::-webkit-scrollbar-thumb {
+  background-color: var(--color-border-muted, #cbd5e1);
+  border-radius: 9999px;
+}
+
 
 

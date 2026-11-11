@@ -3,8 +3,6 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import {
-  Search,
-  Filter,
   ShieldAlert,
   Star,
   RefreshCw,
@@ -13,7 +11,6 @@ import {
   ExternalLink,
   Eye,
   AlertTriangle,
-  X,
 } from 'lucide-react';
 import { workerRepository } from '../data/workerRepository';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
@@ -24,6 +21,9 @@ import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessVi
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { WorkerDetailModal } from './WorkerDetailModal';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export const WorkersListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -31,6 +31,8 @@ export const WorkersListPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || 'ALL');
   const [verificationFilter, setVerificationFilter] = useState<
     'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
@@ -58,13 +60,31 @@ export const WorkersListPage: React.FC = () => {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // Sync debounced search to URL without reloading or thrashing
+  useEffect(() => {
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        if (trimmed) {
+          if (next.get('search') !== trimmed) next.set('search', trimmed);
+        } else {
+          if (next.has('search')) next.delete('search');
+        }
+        return next;
+      }, { replace: true });
+    }
+  }, [debouncedSearchTerm, setSearchParams]);
+
   useEffect(() => {
     const wid = searchParams.get('workerId') || searchParams.get('applicationId');
     if (wid !== null) {
       setDetailModalId(wid);
     }
-    const q = searchParams.get('search');
-    if (q !== null) {
+    const q = searchParams.get('search') || '';
+    if (q !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = q;
       setSearchTerm(q);
     }
     const verif = searchParams.get('verificationStatus');
@@ -121,7 +141,7 @@ export const WorkersListPage: React.FC = () => {
     queryKey: [
       'workers',
       'infinite',
-      searchTerm,
+      debouncedSearchTerm,
       categoryFilter,
       verificationFilter,
       statusFilter,
@@ -136,7 +156,7 @@ export const WorkersListPage: React.FC = () => {
       }
 
       const criteria: WorkerFilterCriteria = {
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
         locality: localityFilter !== 'ALL' ? localityFilter : undefined,
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
@@ -277,10 +297,6 @@ export const WorkersListPage: React.FC = () => {
 
   if (!canView) {
     return <NoAccessView moduleName="Domestic Worker Management" requiredPermission={PERMISSIONS.WORKER_VIEW} />;
-  }
-
-  if (isLoading && !data && !isError) {
-    return <LoadingSpinner message="Loading domestic worker roster..." />;
   }
 
   if (isError && !searchTerm) {
@@ -432,252 +448,138 @@ export const WorkersListPage: React.FC = () => {
         style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-3)',
+          gap: '12px',
           alignItems: 'center',
-          backgroundColor: 'var(--color-bg-surface)',
-          padding: 'var(--space-4)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border-subtle)',
+          backgroundColor: 'var(--color-bg-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
         }}
       >
         {/* Search */}
-        <div style={{ position: 'relative', flex: '1 1 240px' }}>
-          <Search
-            size={16}
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--color-text-muted)',
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Search by worker name, ID, category, or locality..."
-            value={searchTerm}
-            onChange={(e) => {
-              const val = e.target.value;
-              setSearchTerm(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val) {
-                  next.set('search', val);
-                } else {
-                  next.delete('search');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            style={{
-              width: '100%',
-              padding: '8px 32px 8px 36px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-text-primary)',
-            }}
-          />
-          {searchTerm && (
-            <button
-              onClick={() => {
-                setSearchTerm('');
-                setSearchParams((prev) => {
-                  const next = new window.URLSearchParams(prev);
-                  next.delete('search');
-                  return next;
-                }, { replace: true });
-              }}
-              aria-label="Clear search"
-              style={{
-                position: 'absolute',
-                right: '10px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                color: 'var(--color-text-muted)',
-                cursor: 'pointer',
-                padding: '2px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search by worker name, ID, category, or locality..."
+          ariaLabel="Search workers"
+          containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+        />
 
         {/* Category Filter */}
-        <div>
-          <select
-            value={categoryFilter}
-            onChange={(e) => {
-              const val = e.target.value;
-              setCategoryFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('category', val);
-                } else {
-                  next.delete('category');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by skill category"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat === 'ALL' ? 'Category: All Skills' : cat}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          value={categoryFilter}
+          onChange={(val) => {
+            setCategoryFilter(val);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (val !== 'ALL') {
+                next.set('category', val);
+              } else {
+                next.delete('category');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={categories.map((cat) => ({
+            value: cat,
+            label: cat === 'ALL' ? 'Category: All Skills' : cat,
+          }))}
+          ariaLabel="Filter by skill category"
+          minWidth="160px"
+        />
 
         {/* Verification Status Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Filter size={14} color="var(--color-text-muted)" />
-          <select
-            value={verificationFilter}
-            onChange={(e) => {
-              const val = e.target.value as 'ALL' | 'VERIFIED' | 'PENDING';
-              setVerificationFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('verificationStatus', val);
-                } else {
-                  next.delete('verificationStatus');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by verification state"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            <option value="ALL">Verification: All</option>
-            <option value="VERIFIED">Fully Verified Only</option>
-            <option value="PENDING">Pending Verification</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={verificationFilter}
+          onChange={(val) => {
+            const nextVal = val as 'ALL' | 'VERIFIED' | 'PENDING';
+            setVerificationFilter(nextVal);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (nextVal !== 'ALL') {
+                next.set('verificationStatus', nextVal);
+              } else {
+                next.delete('verificationStatus');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={[
+            { value: 'ALL', label: 'Verification: All' },
+            { value: 'VERIFIED', label: 'Fully Verified Only' },
+            { value: 'PENDING', label: 'Pending Verification' },
+          ]}
+          ariaLabel="Filter by verification state"
+          minWidth="170px"
+        />
 
         {/* Status Filter */}
-        <div>
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              const val = e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
-              setStatusFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('status', val);
-                } else {
-                  next.delete('status');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by account status"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            <option value="ALL">Status: All</option>
-            <option value="ACTIVE">Active</option>
-            <option value="SUSPENDED">Suspended</option>
-            <option value="BLACKLISTED">Blacklisted</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={statusFilter}
+          onChange={(val) => {
+            const nextVal = val as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
+            setStatusFilter(nextVal);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (nextVal !== 'ALL') {
+                next.set('status', nextVal);
+              } else {
+                next.delete('status');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={[
+            { value: 'ALL', label: 'Status: All' },
+            { value: 'ACTIVE', label: 'Active' },
+            { value: 'SUSPENDED', label: 'Suspended' },
+            { value: 'BLACKLISTED', label: 'Blacklisted' },
+          ]}
+          ariaLabel="Filter by account status"
+          minWidth="150px"
+        />
 
         {/* Locality Filter */}
-        <div>
-          <select
-            value={localityFilter}
-            onChange={(e) => {
-              const val = e.target.value;
-              setLocalityFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('locality', val);
-                } else {
-                  next.delete('locality');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by operating locality"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            {localities.map((loc) => (
-              <option key={loc} value={loc}>
-                {loc === 'ALL' ? 'Locality: All Clusters' : loc}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          value={localityFilter}
+          onChange={(val) => {
+            setLocalityFilter(val);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (val !== 'ALL') {
+                next.set('locality', val);
+              } else {
+                next.delete('locality');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={localities.map((loc) => ({
+            value: loc,
+            label: loc === 'ALL' ? 'Locality: All Clusters' : loc,
+          }))}
+          ariaLabel="Filter by operating locality"
+          minWidth="160px"
+        />
 
         {/* Sort Field */}
-        <div>
-          <select
-            value={`${sortField}-${sortOrder}`}
-            onChange={(e) => {
-              const [field, order] = e.target.value.split('-') as ['ratingAverage' | 'experienceYears' | 'name' | 'id', 'asc' | 'desc'];
-              setSortField(field);
-              setSortOrder(order);
-            }}
-            aria-label="Sort worker roster"
-            style={{
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-            }}
-          >
-            <option value="ratingAverage-desc">Sort: Highest Rating</option>
-            <option value="experienceYears-desc">Sort: Most Experience</option>
-            <option value="name-asc">Sort: Worker Name (A-Z)</option>
-            <option value="id-asc">Sort: Worker ID</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={`${sortField}-${sortOrder}`}
+          onChange={(val) => {
+            const [field, order] = val.split('-') as ['ratingAverage' | 'experienceYears' | 'name' | 'id', 'asc' | 'desc'];
+            setSortField(field);
+            setSortOrder(order);
+          }}
+          options={[
+            { value: 'ratingAverage-desc', label: 'Sort: Highest Rating' },
+            { value: 'experienceYears-desc', label: 'Sort: Most Experience' },
+            { value: 'name-asc', label: 'Sort: Worker Name (A-Z)' },
+            { value: 'id-asc', label: 'Sort: Worker ID' },
+          ]}
+          ariaLabel="Sort worker roster"
+          minWidth="175px"
+        />
       </div>
 
       {/* Workers Roster Table with Continuous Scroll and Sticky Header */}
@@ -696,7 +598,7 @@ export const WorkersListPage: React.FC = () => {
           position: 'relative',
         }}
       >
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+        <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
           <thead
             style={{
               position: 'sticky',
@@ -741,7 +643,13 @@ export const WorkersListPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {isError ? (
+            {isLoading && !data && !isError ? (
+              <tr>
+                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
+                  <LoadingSpinner message="Loading domestic worker roster..." />
+                </td>
+              </tr>
+            ) : isError ? (
               <tr>
                 <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -823,7 +731,9 @@ export const WorkersListPage: React.FC = () => {
                     )}
                   </td>
                   <td style={{ padding: '14px 16px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
+                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                      {detailModalId === worker.id ? `${worker.name} (Viewing)` : worker.name}
+                    </div>
                     {worker.phoneMasked && (
                       <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{worker.phoneMasked}</div>
                     )}

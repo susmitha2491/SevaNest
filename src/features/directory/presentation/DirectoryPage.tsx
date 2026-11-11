@@ -1,12 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Users,
   Briefcase,
   UserCheck,
-  Search,
-  Filter,
   CheckCircle2,
   Star,
   MapPin,
@@ -28,6 +26,9 @@ import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessVi
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 const WORKER_CATEGORY_OPTIONS = [
   { value: 'ALL', label: 'All Skill Categories' },
@@ -79,17 +80,27 @@ export const DirectoryPage: React.FC = () => {
 
   // --- Workers Tab State ---
   const [workerSearch, setWorkerSearch] = useState('');
+  const debouncedWorkerSearch = useDebounce(workerSearch, 400);
   const [workerCategory, setWorkerCategory] = useState('ALL');
   const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
   const [workerPage, setWorkerPage] = useState(1);
   const workerPageSize = 25;
 
+  useEffect(() => {
+    setWorkerPage(1);
+  }, [debouncedWorkerSearch]);
+
   // --- Customers Tab State ---
   const [customerSearch, setCustomerSearch] = useState('');
+  const debouncedCustomerSearch = useDebounce(customerSearch, 400);
   const [customerStatus, setCustomerStatus] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [customerPage, setCustomerPage] = useState(1);
   const customerPageSize = 20;
+
+  useEffect(() => {
+    setCustomerPage(1);
+  }, [debouncedCustomerSearch]);
 
   // --- Query Workers ---
   const {
@@ -100,7 +111,7 @@ export const DirectoryPage: React.FC = () => {
     refetch: refetchWorkers,
     isFetching: isWorkerFetching,
   } = useQuery({
-    queryKey: ['directory-workers', { workerSearch, workerCategory, workerPage }],
+    queryKey: ['directory-workers', { workerSearch: debouncedWorkerSearch, workerCategory, workerPage }],
     queryFn: async () => {
       return await workerRepository.getWorkersPage(
         {
@@ -108,7 +119,7 @@ export const DirectoryPage: React.FC = () => {
           status: 'ACTIVE',
           accountStatus: 'ACTIVE',
           category: workerCategory !== 'ALL' ? workerCategory : undefined,
-          searchTerm: workerSearch.trim() || undefined,
+          searchTerm: debouncedWorkerSearch.trim() || undefined,
         },
         workerPage,
         workerPageSize
@@ -116,6 +127,7 @@ export const DirectoryPage: React.FC = () => {
     },
     enabled: canViewWorkers && activeTab === 'workers',
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const workers = useMemo(() => {
@@ -153,11 +165,11 @@ export const DirectoryPage: React.FC = () => {
     refetch: refetchCustomers,
     isFetching: isCustomerFetching,
   } = useQuery({
-    queryKey: ['directory-customers', { customerSearch, customerStatus, customerPage }],
+    queryKey: ['directory-customers', { customerSearch: debouncedCustomerSearch, customerStatus, customerPage }],
     queryFn: async () => {
       return await customerRepository.getCustomersPage(
         {
-          searchTerm: customerSearch.trim() || undefined,
+          searchTerm: debouncedCustomerSearch.trim() || undefined,
           status: customerStatus,
         },
         customerPage,
@@ -166,6 +178,7 @@ export const DirectoryPage: React.FC = () => {
     },
     enabled: canViewCustomers && activeTab === 'customers',
     staleTime: 30 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const customers = useMemo(() => {
@@ -356,66 +369,35 @@ export const DirectoryPage: React.FC = () => {
           <div
             style={{
               display: 'flex',
-              gap: 'var(--space-3)',
+              gap: '12px',
               alignItems: 'center',
               flexWrap: 'wrap',
-              padding: 'var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
+              padding: '16px',
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 12px)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+              boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
             }}
           >
-            <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-              <Search
-                size={16}
-                style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
-              />
-              <input
-                type="text"
-                placeholder="Search verified worker by name or mobile..."
-                value={workerSearch}
-                onChange={(e) => {
-                  setWorkerSearch(e.target.value);
-                  setWorkerPage(1);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-sm)',
-                  backgroundColor: 'var(--color-bg-app)',
-                  color: 'var(--color-text-primary)',
-                }}
-              />
-            </div>
+            <SearchInput
+              value={workerSearch}
+              onChange={(val) => setWorkerSearch(val)}
+              placeholder="Search verified worker by name or mobile..."
+              ariaLabel="Search verified workers"
+              isLoading={isWorkerFetching && debouncedWorkerSearch.trim().length > 0}
+              containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+            />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Filter size={16} style={{ color: 'var(--color-text-muted)' }} />
-              <select
-                aria-label="Filter by skill category"
-                value={workerCategory}
-                onChange={(e) => {
-                  setWorkerCategory(e.target.value);
-                  setWorkerPage(1);
-                }}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-sm)',
-                  backgroundColor: 'var(--color-bg-app)',
-                  color: 'var(--color-text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {WORKER_CATEGORY_OPTIONS.map((cat) => (
-                  <option key={cat.value} value={cat.value}>
-                    {cat.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CustomSelect
+              value={workerCategory}
+              onChange={(val) => {
+                setWorkerCategory(val);
+                setWorkerPage(1);
+              }}
+              options={WORKER_CATEGORY_OPTIONS}
+              ariaLabel="Filter by skill category"
+              minWidth="180px"
+            />
           </div>
 
           {/* Workers Table */}
@@ -470,7 +452,7 @@ export const DirectoryPage: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+                <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
                       <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
@@ -705,66 +687,35 @@ export const DirectoryPage: React.FC = () => {
           <div
             style={{
               display: 'flex',
-              gap: 'var(--space-3)',
+              gap: '12px',
               alignItems: 'center',
               flexWrap: 'wrap',
-              padding: 'var(--space-3)',
-              backgroundColor: 'var(--color-surface)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
+              padding: '16px',
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 12px)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+              boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
             }}
           >
-            <div style={{ position: 'relative', flex: 1, minWidth: '240px' }}>
-              <Search
-                size={16}
-                style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }}
-              />
-              <input
-                type="text"
-                placeholder="Search customer by ID, name, or mobile..."
-                value={customerSearch}
-                onChange={(e) => {
-                  setCustomerSearch(e.target.value);
-                  setCustomerPage(1);
-                }}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px 8px 36px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-sm)',
-                  backgroundColor: 'var(--color-bg-app)',
-                  color: 'var(--color-text-primary)',
-                }}
-              />
-            </div>
+            <SearchInput
+              value={customerSearch}
+              onChange={(val) => setCustomerSearch(val)}
+              placeholder="Search customer by ID, name, or mobile..."
+              ariaLabel="Search customers"
+              isLoading={isCustomerFetching && debouncedCustomerSearch.trim().length > 0}
+              containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+            />
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Filter size={16} style={{ color: 'var(--color-text-muted)' }} />
-              <select
-                aria-label="Filter by account status"
-                value={customerStatus}
-                onChange={(e) => {
-                  setCustomerStatus(e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED');
-                  setCustomerPage(1);
-                }}
-                style={{
-                  padding: '8px 12px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  fontSize: 'var(--font-size-sm)',
-                  backgroundColor: 'var(--color-bg-app)',
-                  color: 'var(--color-text-primary)',
-                  cursor: 'pointer',
-                }}
-              >
-                {CUSTOMER_STATUS_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <CustomSelect
+              value={customerStatus}
+              onChange={(val) => {
+                setCustomerStatus(val as 'ALL' | 'ACTIVE' | 'SUSPENDED');
+                setCustomerPage(1);
+              }}
+              options={CUSTOMER_STATUS_OPTIONS}
+              ariaLabel="Filter by account status"
+              minWidth="180px"
+            />
           </div>
 
           {/* Customers Table */}
@@ -819,7 +770,7 @@ export const DirectoryPage: React.FC = () => {
               </div>
             ) : (
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+                <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
                       <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>

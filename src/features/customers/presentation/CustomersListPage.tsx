@@ -2,7 +2,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Search, Filter, Ban, RefreshCw, CheckCircle, X } from 'lucide-react';
+import { Ban, RefreshCw, CheckCircle, X } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -15,6 +15,9 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { CustomerDetailModal } from './CustomerDetailModal';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export const CustomersListPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -23,7 +26,8 @@ export const CustomersListPage: React.FC = () => {
   const canView = hasPermission(user?.permissions, PERMISSIONS.CUSTOMER_VIEW);
 
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>(
     () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED') || 'ALL'
   );
@@ -42,24 +46,22 @@ export const CustomersListPage: React.FC = () => {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Debounce search term to prevent rapid server refetches, query thrashing, and page refreshes
+  // Sync debounced search term to URL
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
       setSearchParams((prev) => {
         const next = new window.URLSearchParams(prev);
-        const trimmed = searchTerm.trim();
         if (trimmed) {
-          next.set('search', trimmed);
+          if (next.get('search') !== trimmed) next.set('search', trimmed);
         } else {
-          next.delete('search');
+          if (next.has('search')) next.delete('search');
         }
         return next;
       }, { replace: true });
-    }, 250);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm, setSearchParams]);
+    }
+  }, [debouncedSearchTerm, setSearchParams]);
 
   useEffect(() => {
     const cid = searchParams.get('customerId');
@@ -67,9 +69,9 @@ export const CustomersListPage: React.FC = () => {
       setDetailModalId(cid);
     }
     const q = searchParams.get('search') || '';
-    if (q !== debouncedSearchTerm && q !== searchTerm) {
+    if (q !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = q;
       setSearchTerm(q);
-      setDebouncedSearchTerm(q);
     }
     const stat = searchParams.get('status');
     if (stat && stat !== statusFilter) {
@@ -79,7 +81,7 @@ export const CustomersListPage: React.FC = () => {
     if (loc && loc !== localityFilter) {
       setLocalityFilter(loc);
     }
-  }, [searchParams, detailModalId, debouncedSearchTerm, searchTerm, statusFilter, localityFilter]);
+  }, [searchParams, detailModalId, statusFilter, localityFilter]);
 
   const handleOpenDetailModal = (id: string) => {
     setDetailModalId(id);
@@ -315,10 +317,6 @@ export const CustomersListPage: React.FC = () => {
     return <NoAccessView moduleName="Customer Accounts & Households" requiredPermission={PERMISSIONS.CUSTOMER_VIEW} />;
   }
 
-  if (isLoading && !data) {
-    return <LoadingSpinner message="Loading customer directory..." />;
-  }
-
   if (isError && allCustomers.length === 0 && !searchTerm) {
     return (
       <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
@@ -423,174 +421,89 @@ export const CustomersListPage: React.FC = () => {
         style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-2)',
+          gap: '12px',
           alignItems: 'center',
-          backgroundColor: 'var(--color-bg-surface)',
-          padding: 'var(--space-3)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border-subtle)',
+          backgroundColor: 'var(--color-bg-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
         }}
       >
         {/* Search */}
-        <div style={{ position: 'relative', flex: '1 1 240px' }}>
-          <Search
-            size={16}
-            style={{
-              position: 'absolute',
-              left: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              color: 'var(--color-text-muted)',
-            }}
-          />
-          <input
-            type="text"
-            placeholder="Search by customer name, ID, or locality..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '6px 30px 6px 34px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-text-primary)',
-              height: '34px',
-            }}
-          />
-          {searchTerm && (
-            <button
-              type="button"
-              aria-label="Clear search"
-              onClick={() => {
-                setSearchTerm('');
-                setDebouncedSearchTerm('');
-                setSearchParams((prev) => {
-                  const next = new window.URLSearchParams(prev);
-                  next.delete('search');
-                  return next;
-                }, { replace: true });
-              }}
-              style={{
-                position: 'absolute',
-                right: '8px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--color-text-muted)',
-                padding: '2px',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search by customer name, ID, or locality..."
+          ariaLabel="Search customers"
+          containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+        />
 
         {/* Status Filter */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-          <Filter size={14} color="var(--color-text-muted)" />
-          <select
-            value={statusFilter}
-            onChange={(e) => {
-              const val = e.target.value as 'ALL' | 'ACTIVE' | 'SUSPENDED';
-              setStatusFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('status', val);
-                } else {
-                  next.delete('status');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by account status"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-              height: '34px',
-            }}
-          >
-            <option value="ALL">Status: All</option>
-            <option value="ACTIVE">Active</option>
-            <option value="SUSPENDED">Suspended</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={statusFilter}
+          onChange={(val) => {
+            const nextVal = val as 'ALL' | 'ACTIVE' | 'SUSPENDED';
+            setStatusFilter(nextVal);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (nextVal !== 'ALL') {
+                next.set('status', nextVal);
+              } else {
+                next.delete('status');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={[
+            { value: 'ALL', label: 'Status: All' },
+            { value: 'ACTIVE', label: 'Active' },
+            { value: 'SUSPENDED', label: 'Suspended' },
+          ]}
+          ariaLabel="Filter by account status"
+          minWidth="140px"
+        />
 
         {/* Locality Filter */}
-        <div>
-          <select
-            value={localityFilter}
-            onChange={(e) => {
-              const val = e.target.value;
-              setLocalityFilter(val);
-              setSearchParams((prev) => {
-                const next = new window.URLSearchParams(prev);
-                if (val !== 'ALL') {
-                  next.set('locality', val);
-                } else {
-                  next.delete('locality');
-                }
-                return next;
-              }, { replace: true });
-            }}
-            aria-label="Filter by cluster locality"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-              height: '34px',
-            }}
-          >
-            {localities.map((loc) => (
-              <option key={loc} value={loc}>
-                {loc === 'ALL' ? 'Locality: All Clusters' : loc}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          value={localityFilter}
+          onChange={(val) => {
+            setLocalityFilter(val);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (val !== 'ALL') {
+                next.set('locality', val);
+              } else {
+                next.delete('locality');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={localities.map((loc) => ({
+            value: loc,
+            label: loc === 'ALL' ? 'Locality: All Clusters' : loc,
+          }))}
+          ariaLabel="Filter by cluster locality"
+          minWidth="160px"
+        />
 
         {/* Sort Field */}
-        <div>
-          <select
-            value={`${sortField}-${sortOrder}`}
-            onChange={(e) => {
-              const [field, order] = e.target.value.split('-') as ['name' | 'id' | 'totalBookings', 'asc' | 'desc'];
-              setSortField(field);
-              setSortOrder(order);
-            }}
-            aria-label="Sort customer records"
-            style={{
-              padding: '6px 10px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              color: 'var(--color-text-primary)',
-              height: '34px',
-            }}
-          >
-            <option value="name-asc">Sort: Name (A-Z)</option>
-            <option value="name-desc">Sort: Name (Z-A)</option>
-            <option value="totalBookings-desc">Sort: Most Bookings</option>
-            <option value="id-asc">Sort: Customer ID</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={`${sortField}-${sortOrder}`}
+          onChange={(val) => {
+            const [field, order] = val.split('-') as ['name' | 'id' | 'totalBookings', 'asc' | 'desc'];
+            setSortField(field);
+            setSortOrder(order);
+          }}
+          options={[
+            { value: 'name-asc', label: 'Sort: Name (A-Z)' },
+            { value: 'name-desc', label: 'Sort: Name (Z-A)' },
+            { value: 'totalBookings-desc', label: 'Sort: Most Bookings' },
+            { value: 'id-asc', label: 'Sort: Customer ID' },
+          ]}
+          ariaLabel="Sort customer records"
+          minWidth="170px"
+        />
       </div>
 
       {/* Customer Directory Table with Continuous Scroll and Sticky Header */}
@@ -609,7 +522,7 @@ export const CustomersListPage: React.FC = () => {
           position: 'relative',
         }}
       >
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+        <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
           <thead
             style={{
               position: 'sticky',
@@ -648,7 +561,13 @@ export const CustomersListPage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {isError ? (
+            {isLoading && !data ? (
+              <tr>
+                <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
+                  <LoadingSpinner message="Loading customer directory..." />
+                </td>
+              </tr>
+            ) : isError ? (
               <tr>
                 <td colSpan={8} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
@@ -657,7 +576,6 @@ export const CustomersListPage: React.FC = () => {
                       type="button"
                       onClick={() => {
                         setSearchTerm('');
-                        setDebouncedSearchTerm('');
                         setSearchParams((prev) => {
                           const next = new window.URLSearchParams(prev);
                           next.delete('search');

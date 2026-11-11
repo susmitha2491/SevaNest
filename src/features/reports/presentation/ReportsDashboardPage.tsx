@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Download,
   FileSpreadsheet,
-  Search,
   Eye,
   CheckCircle2,
   ArrowLeft,
@@ -25,6 +24,9 @@ import { ReportItem, ReportCategory, ReportPeriod, ReportInterval } from '../dom
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { SearchInput } from '../../../components/common/SearchInput';
+import { CustomSelect } from '../../../components/common/CustomSelect';
 
 function triggerDownload(
   content: string | ArrayBuffer | Uint8Array,
@@ -54,6 +56,7 @@ export const ReportsDashboardPage: React.FC = () => {
   // Main catalog state
   const [selectedCategory, setSelectedCategory] = useState<ReportCategory>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -73,10 +76,11 @@ export const ReportsDashboardPage: React.FC = () => {
   const canExport = Boolean(canViewReports || hasPermission(user?.permissions, PERMISSIONS.EXPORTS_GENERATE));
 
   // Catalog Query (Always 12 PRD reports)
-  const { data: reports, isLoading: isCatalogLoading, error: catalogError, refetch: refetchCatalog } = useQuery({
-    queryKey: ['reports', 'catalog', selectedCategory, searchTerm],
-    queryFn: () => reportRepository.getReports(selectedCategory, searchTerm),
+  const { data: reports, isLoading: isCatalogLoading, isFetching: isCatalogFetching, error: catalogError, refetch: refetchCatalog } = useQuery({
+    queryKey: ['reports', 'catalog', selectedCategory, debouncedSearchTerm],
+    queryFn: () => reportRepository.getReports(selectedCategory, debouncedSearchTerm),
     enabled: canViewReports,
+    placeholderData: keepPreviousData,
   });
 
   // Active Report Detail Query
@@ -783,16 +787,18 @@ export const ReportsDashboardPage: React.FC = () => {
               {activeReport?.supportedFilters?.minRatings && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginLeft: '8px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>Min Ratings:</span>
-                  <select
-                    value={minRatings}
-                    onChange={(e) => setMinRatings(Number(e.target.value))}
-                    style={{ padding: '3px 8px', borderRadius: '4px', border: '1px solid var(--color-border)', fontSize: '11px', backgroundColor: 'var(--color-surface)' }}
-                  >
-                    <option value={0}>All Ratings</option>
-                    <option value={1}>≥ 1 Review</option>
-                    <option value={3}>≥ 3 Reviews</option>
-                    <option value={5}>≥ 5 Reviews</option>
-                  </select>
+                  <CustomSelect
+                    value={String(minRatings)}
+                    onChange={(val) => setMinRatings(Number(val))}
+                    options={[
+                      { value: '0', label: 'All Ratings' },
+                      { value: '1', label: '≥ 1 Review' },
+                      { value: '3', label: '≥ 3 Reviews' },
+                      { value: '5', label: '≥ 5 Reviews' },
+                    ]}
+                    ariaLabel="Filter by minimum ratings count"
+                    minWidth="120px"
+                  />
                 </div>
               )}
             </div>
@@ -1004,43 +1010,15 @@ export const ReportsDashboardPage: React.FC = () => {
             </div>
 
             {/* Search Input */}
-            <div
-              style={{
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-md)',
-                padding: '0 12px',
-                maxWidth: '500px',
-              }}
-            >
-              <Search size={15} color="var(--color-text-muted)" style={{ flexShrink: 0 }} />
-              <input
-                type="text"
-                placeholder="Search reports by title, requirement code, or description..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '9px 10px',
-                  border: 'none',
-                  outline: 'none',
-                  fontSize: 'var(--font-size-xs)',
-                  backgroundColor: 'transparent',
-                  color: 'var(--color-text-primary)',
-                }}
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', fontSize: '11px', fontWeight: 600 }}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
+            <SearchInput
+              value={searchTerm}
+              onChange={(val) => setSearchTerm(val)}
+              placeholder="Search reports by title, requirement code, or description..."
+              ariaLabel="Search reports catalog"
+              isLoading={isCatalogFetching && debouncedSearchTerm.trim().length > 0}
+              containerStyle={{ flex: '1 1 320px', minWidth: 'min(100%, 240px)' }}
+              maxWidth="500px"
+            />
           </div>
 
           {/* Reports Catalog Table */}

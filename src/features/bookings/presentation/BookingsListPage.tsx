@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
-  Search,
   UserPlus,
   RefreshCw,
   XCircle,
@@ -27,22 +26,59 @@ import { BookingDetailModal } from './BookingDetailModal';
 import { CandidateMatchingModal } from './CandidateMatchingModal';
 import { TrialOutcomeModal } from './TrialOutcomeModal';
 import { ReplacementFulfillmentModal } from './ReplacementFulfillmentModal';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface BookingsListPageProps {
   defaultStatus?: string;
 }
 
 export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatus }) => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
   // Filter & Search states
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
+
   const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || defaultStatus || 'ALL');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [selectedLocality, setSelectedLocality] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset page when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
+  // Sync debounced search to URL without reloading or thrashing
+  useEffect(() => {
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        if (trimmed) {
+          if (next.get('search') !== trimmed) next.set('search', trimmed);
+        } else {
+          if (next.has('search')) next.delete('search');
+        }
+        return next;
+      }, { replace: true });
+    }
+  }, [debouncedSearchTerm, setSearchParams]);
+
+  // Sync URL search param to state only when external change (e.g. back/forward navigation) occurs
+  useEffect(() => {
+    const searchParam = searchParams.get('search') || '';
+    if (searchParam !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = searchParam;
+      setSearchTerm(searchParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const statusParam = searchParams.get('status');
@@ -65,12 +101,12 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
   const canView = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
   const canManage = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_MANAGE);
 
-  // Query bookings
-  const { data: bookingsData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['bookings', 'list', searchTerm, selectedStatus, selectedCategory, selectedLocality, currentPage],
+  // Query bookings with debounced search and keepPreviousData
+  const { data: bookingsData, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['bookings', 'list', debouncedSearchTerm, selectedStatus, selectedCategory, selectedLocality, currentPage],
     queryFn: () =>
       bookingRepository.getBookings({
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         status: selectedStatus,
         category: selectedCategory,
         locality: selectedLocality,
@@ -79,6 +115,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
       }),
     enabled: canView,
     staleTime: 30000,
+    placeholderData: keepPreviousData,
   });
 
   // Confirm booking mutation (activates service)
@@ -112,46 +149,6 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
 
   if (!canView) {
     return <NoAccessView moduleName="Booking & Service Management" requiredPermission={PERMISSIONS.BOOKINGS_VIEW} />;
-  }
-
-  if (isLoading) {
-    return <LoadingSpinner message="Loading active bookings & service requests..." />;
-  }
-
-  if (isError) {
-    return (
-      <div
-        style={{
-          padding: 'var(--space-8)',
-          backgroundColor: 'var(--color-error-bg)',
-          border: '1px solid var(--color-error-border)',
-          borderRadius: 'var(--radius-lg)',
-          textAlign: 'center',
-        }}
-      >
-        <AlertTriangle size={40} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
-        <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-error-dark)' }}>
-          Failed to load bookings
-        </h3>
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--space-4)' }}>
-          An error occurred while communicating with the booking management repository.
-        </p>
-        <button
-          onClick={() => refetch()}
-          style={{
-            padding: 'var(--space-2) var(--space-4)',
-            backgroundColor: 'var(--color-brand-600)',
-            color: '#fff',
-            borderRadius: 'var(--radius-md)',
-            border: 'none',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -190,17 +187,18 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
       {/* Filter and Search Bar */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-3)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--space-3)',
+          gap: '16px',
         }}
       >
         {/* Status Quick-Filter Tabs */}
-        <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)' }}>
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '16px', borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)', scrollbarWidth: 'thin' }}>
           {[
             { key: 'ALL', label: 'All Bookings' },
             { key: 'REQUESTED', label: 'New Requests' },
@@ -218,14 +216,15 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               }}
               style={{
                 padding: '6px 14px',
-                borderRadius: 'var(--radius-full)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary)',
-                fontSize: 'var(--font-size-xs)',
+                borderRadius: 'var(--radius-full, 9999px)',
+                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
+                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
+                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                fontSize: 'var(--font-size-xs, 12px)',
                 fontWeight: 600,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
+                transition: 'all 150ms ease',
               }}
             >
               {tab.label}
@@ -234,81 +233,55 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
         </div>
 
         {/* Search and Secondary Dropdowns */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ position: 'relative', minWidth: '260px', flex: 1, maxWidth: '450px' }}>
-            <Search
-              size={16}
-              color="var(--color-text-tertiary)"
-              style={{ position: 'absolute', left: 'var(--space-3)', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search by customer, worker, booking ID, locality..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-              aria-label="Search bookings"
-            />
-          </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
+          <SearchInput
+            value={searchTerm}
+            onChange={(val) => setSearchTerm(val)}
+            placeholder="Search by customer, worker, booking ID, locality..."
+            ariaLabel="Search bookings"
+            isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+            containerStyle={{ flex: '1 1 300px', minWidth: 'min(100%, 240px)' }}
+          />
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Category Dropdown */}
-            <select
+            <CustomSelect
               value={selectedCategory}
-              onChange={(e) => {
-                setSelectedCategory(e.target.value);
+              onChange={(val) => {
+                setSelectedCategory(val);
                 setCurrentPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-              aria-label="Filter by service category"
-            >
-              <option value="ALL">All Categories</option>
-              <option value="House Maid">House Maid</option>
-              <option value="Cook">Cook</option>
-              <option value="Driver">Driver</option>
-              <option value="Babysitter">Babysitter</option>
-              <option value="Elderly Care Helper">Elderly Care Helper</option>
-            </select>
+              options={[
+                { value: 'ALL', label: 'All Categories' },
+                { value: 'House Maid', label: 'House Maid' },
+                { value: 'Cook', label: 'Cook' },
+                { value: 'Driver', label: 'Driver' },
+                { value: 'Babysitter', label: 'Babysitter' },
+                { value: 'Elderly Care Helper', label: 'Elderly Care Helper' },
+              ]}
+              ariaLabel="Filter by service category"
+              minWidth="130px"
+            />
 
             {/* Locality Dropdown */}
-            <select
+            <CustomSelect
               value={selectedLocality}
-              onChange={(e) => {
-                setSelectedLocality(e.target.value);
+              onChange={(val) => {
+                setSelectedLocality(val);
                 setCurrentPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-              aria-label="Filter by locality cluster"
-            >
-              <option value="ALL">All Localities</option>
-              <option value="Kondapur">Kondapur</option>
-              <option value="Gachibowli">Gachibowli</option>
-              <option value="Madhapur">Madhapur</option>
-              <option value="Hitec City">Hitec City</option>
-              <option value="Jubilee Hills">Jubilee Hills</option>
-              <option value="Banjara Hills">Banjara Hills</option>
-            </select>
+              options={[
+                { value: 'ALL', label: 'All Localities' },
+                { value: 'Kondapur', label: 'Kondapur' },
+                { value: 'Gachibowli', label: 'Gachibowli' },
+                { value: 'Madhapur', label: 'Madhapur' },
+                { value: 'Hitec City', label: 'Hitec City' },
+                { value: 'Jubilee Hills', label: 'Jubilee Hills' },
+                { value: 'Banjara Hills', label: 'Banjara Hills' },
+              ]}
+              ariaLabel="Filter by locality cluster"
+              minWidth="130px"
+            />
           </div>
         </div>
       </div>
@@ -324,7 +297,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
         }}
       >
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
               <tr>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
@@ -348,7 +321,41 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               </tr>
             </thead>
             <tbody>
-              {bookingsData?.items.length === 0 ? (
+              {isLoading && !bookingsData ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <LoadingSpinner message="Loading active bookings & service requests..." />
+                  </td>
+                </tr>
+              ) : isError && !bookingsData ? (
+                <tr>
+                  <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--color-error-dark)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={36} color="var(--color-error-dark)" />
+                      <div style={{ fontWeight: 600 }}>Failed to load bookings</div>
+                      <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: 'var(--font-size-xs)' }}>
+                        An error occurred while communicating with the booking management repository.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => refetch()}
+                        style={{
+                          marginTop: 'var(--space-2)',
+                          padding: '6px 16px',
+                          backgroundColor: 'var(--color-brand-600)',
+                          color: '#fff',
+                          borderRadius: 'var(--radius-md)',
+                          border: 'none',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : bookingsData?.items.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                     {selectedStatus === 'REPLACEMENT_REQUESTED'
@@ -808,24 +815,19 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
           <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
             Cancellation Reason Category:
           </label>
-          <select
+          <CustomSelect
             value={cancelCategory}
-            onChange={(e) => setCancelCategory(e.target.value)}
-            style={{
-              width: '100%',
-              padding: 'var(--space-2)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              backgroundColor: 'var(--color-surface)',
-            }}
-          >
-            <option value="Customer Request">Customer Voluntary Cancellation</option>
-            <option value="Worker Unavailable">Assigned Worker Unavailable</option>
-            <option value="Customer Relocation">Customer Relocated</option>
-            <option value="Trial Rejected No Rematch">Trial Unsatisfactory - Rematch Declined</option>
-            <option value="Other Operational Policy">Other Operational Policy Violation</option>
-          </select>
+            onChange={(val) => setCancelCategory(val)}
+            options={[
+              { value: 'Customer Request', label: 'Customer Voluntary Cancellation' },
+              { value: 'Worker Unavailable', label: 'Assigned Worker Unavailable' },
+              { value: 'Customer Relocation', label: 'Customer Relocated' },
+              { value: 'Trial Rejected No Rematch', label: 'Trial Unsatisfactory - Rematch Declined' },
+              { value: 'Other Operational Policy', label: 'Other Operational Policy Violation' },
+            ]}
+            ariaLabel="Cancellation Reason Category"
+            width="100%"
+          />
         </div>
       </ConfirmDialog>
     </div>

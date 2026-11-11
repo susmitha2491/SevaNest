@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Search, Eye, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Eye, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { auditRepository } from '../data/auditRepository';
 import { AuditLogItem, AuditActionType } from '../domain/types';
@@ -9,28 +9,39 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { env } from '../../../core/config/env';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export const AuditTrailPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
 
   const [searchTerm, setSearchTerm] = useState('');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+
   const [selectedActionType, setSelectedActionType] = useState<AuditActionType>('ALL');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedLog, setSelectedLog] = useState<AuditLogItem | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
 
+  // Reset page when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
   const canViewAudit = hasPermission(user?.permissions, PERMISSIONS.AUDIT_VIEW);
 
-  const { data: auditData, isLoading } = useQuery({
-    queryKey: ['audit', 'logs', selectedActionType, searchTerm, currentPage],
+  const { data: auditData, isLoading, isFetching } = useQuery({
+    queryKey: ['audit', 'logs', selectedActionType, debouncedSearchTerm, currentPage],
     queryFn: () =>
       auditRepository.getAuditLogs({
         actionType: selectedActionType,
-        search: searchTerm,
+        search: debouncedSearchTerm,
         page: currentPage,
         pageSize: 8,
       }),
     enabled: canViewAudit,
+    placeholderData: keepPreviousData,
   });
 
   if (!canViewAudit) {
@@ -41,8 +52,6 @@ export const AuditTrailPage: React.FC = () => {
       />
     );
   }
-
-  if (isLoading) return <LoadingSpinner message="Loading immutable audit logs..." />;
 
   const actionTypes: { key: AuditActionType; label: string }[] = [
     { key: 'ALL', label: 'All Action Types' },
@@ -91,65 +100,37 @@ export const AuditTrailPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-4)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           display: 'flex',
           flexWrap: 'wrap',
-          gap: 'var(--space-3)',
-          justifyContent: 'space-between',
+          gap: '12px',
           alignItems: 'center',
+          width: '100%',
         }}
       >
-        <div style={{ position: 'relative', minWidth: '260px', flex: 1, maxWidth: '450px' }}>
-          <Search
-            size={16}
-            color="var(--color-text-tertiary)"
-            style={{ position: 'absolute', left: 'var(--space-3)', top: '50%', transform: 'translateY(-50%)' }}
-          />
-          <input
-            type="text"
-            placeholder="Search audit trail by actor, target ID, event ID, summary..."
-            value={searchTerm}
-            onChange={(e) => {
-              setSearchTerm(e.target.value);
-              setCurrentPage(1);
-            }}
-            style={{
-              width: '100%',
-              padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-sm)',
-            }}
-            aria-label="Search audit trail"
-          />
-        </div>
+        <SearchInput
+          value={searchTerm}
+          onChange={(val) => setSearchTerm(val)}
+          placeholder="Search audit trail by actor, target ID, event ID, summary..."
+          ariaLabel="Search audit trail"
+          isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+          containerStyle={{ flex: '1 1 320px', minWidth: 'min(100%, 240px)' }}
+        />
 
-        <div>
-          <select
-            value={selectedActionType}
-            onChange={(e) => {
-              setSelectedActionType(e.target.value as AuditActionType);
-              setCurrentPage(1);
-            }}
-            style={{
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              fontSize: 'var(--font-size-xs)',
-              backgroundColor: 'var(--color-surface)',
-            }}
-            aria-label="Filter by action type"
-          >
-            {actionTypes.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        <CustomSelect
+          value={selectedActionType}
+          onChange={(val) => {
+            setSelectedActionType(val as AuditActionType);
+            setCurrentPage(1);
+          }}
+          options={actionTypes.map((t) => ({ value: t.key, label: t.label }))}
+          ariaLabel="Filter by action type"
+          minWidth="220px"
+        />
       </div>
 
       {/* Audit Log Table */}
@@ -163,7 +144,7 @@ export const AuditTrailPage: React.FC = () => {
         }}
       >
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table style={{ width: '100%', minWidth: '700px', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
               <tr>
                 <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>
@@ -190,7 +171,13 @@ export const AuditTrailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {auditData?.items.length === 0 ? (
+              {isLoading && !auditData ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <LoadingSpinner message="Loading immutable audit logs..." />
+                  </td>
+                </tr>
+              ) : auditData?.items.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                     No audit records found matching the filter criteria.

@@ -82,6 +82,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           borderRadius: 'var(--radius-xl)',
           width: '100%',
           maxWidth: '520px',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
+          overflowY: 'auto',
           padding: 'var(--space-6)',
           display: 'flex',
           flexDirection: 'column',

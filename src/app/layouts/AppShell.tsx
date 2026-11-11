@@ -347,16 +347,18 @@ export const AppShell: React.FC = () => {
         {/* Top Header Bar */}
         <header
           style={{
-            height: 'var(--header-height)',
+            minHeight: 'var(--header-height)',
+            height: 'auto',
             backgroundColor: 'var(--color-bg-surface)',
             borderBottom: '1px solid var(--color-border-subtle)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
-            padding: '0 var(--space-4)',
+            padding: 'var(--space-2) var(--space-4)',
             position: 'sticky',
             top: 0,
-            zIndex: 30,
+            zIndex: 45,
+            flexWrap: 'wrap',
           }}
         >
           {/* Header Utilities */}
