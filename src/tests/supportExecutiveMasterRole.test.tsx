@@ -90,12 +90,12 @@ describe('Support Executive Master Role & Operational Workflows', () => {
       const unassignedTab = screen.getByRole('button', { name: /Unassigned Intake Queue/i });
       await user.click(unassignedTab);
 
-      // Verify unassigned queue item exists
-      const claimButtons = await screen.findAllByRole('button', { name: /Claim Ticket/i });
-      expect(claimButtons.length).toBeGreaterThan(0);
+      // Verify queue item exists and has drill-down action
+      const actionButtons = await screen.findAllByRole('button', { name: /Mediate/i });
+      expect(actionButtons.length).toBeGreaterThan(0);
 
-      // Click Claim Ticket drill-down action
-      await user.click(claimButtons[0]);
+      // Click drill-down action
+      await user.click(actionButtons[0]);
 
       // Should drill-down navigate to /support/tickets with searchParams
       await waitFor(() => {
@@ -126,47 +126,42 @@ describe('Support Executive Master Role & Operational Workflows', () => {
       expect(await screen.findByText('Anand Sharma', {}, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('claims an unassigned ticket, transitioning it to assigned state', async () => {
+    it('opens ticket chat workspace without individual claim requirement under collective model', async () => {
       const user = userEvent.setup();
       renderApp('/support');
 
       expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
 
       // Open detail modal for unassigned ticket
-      const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
+      const viewButtons = await screen.findAllByRole('button', { name: /View Chat/i });
       await user.click(viewButtons[0]);
 
-      expect(await screen.findByRole('heading', { name: /Grievance Case: TKT-/i })).toBeInTheDocument();
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-      // If ticket has Claim Ticket button, click it
-      const claimBtn = screen.queryByRole('button', { name: /^Claim Ticket$/i });
-      if (claimBtn) {
-        const claimSpy = vi.spyOn(supportRepository, 'claimTicket');
-        await user.click(claimBtn);
-        expect(claimSpy).toHaveBeenCalled();
-      }
+      // Verify no Claim Ticket button is displayed under collective support model
+      expect(screen.queryByRole('button', { name: /^Claim Ticket$/i })).not.toBeInTheDocument();
     });
 
-    it('logs an immutable telephonic case note with investigation findings', async () => {
+    it('sends customer reply or logs internal note in chat workspace', async () => {
       const user = userEvent.setup();
       renderApp('/support');
 
       expect(await screen.findByRole('heading', { name: /Support Grievance & SLA Queue/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      const viewButtons = await screen.findAllByRole('button', { name: /^View$/i });
+      const viewButtons = await screen.findAllByRole('button', { name: /View Chat/i });
       await user.click(viewButtons[0]);
 
-      expect(await screen.findByRole('heading', { name: /Grievance Case: TKT-/i })).toBeInTheDocument();
+      expect(await screen.findByRole('dialog')).toBeInTheDocument();
 
-      const noteTextarea = screen.getByPlaceholderText(/Enter details of conversation with customer or domestic worker/i);
+      const noteTextarea = screen.getByRole('textbox', { name: /Support reply text/i });
       await user.type(noteTextarea, 'Customer stated worker delayed due to heavy rain. Shift rescheduled to 9 AM.');
 
-      const saveNoteBtn = screen.getByRole('button', { name: /Save Case Note/i });
-      expect(saveNoteBtn).toBeEnabled();
+      const sendBtn = screen.getByRole('button', { name: /Send/i });
+      expect(sendBtn).toBeEnabled();
 
-      const addNoteSpy = vi.spyOn(supportRepository, 'addCaseNote');
-      await user.click(saveNoteBtn);
-      expect(addNoteSpy).toHaveBeenCalled();
+      const sendSpy = vi.spyOn(supportRepository, 'sendTicketMessage');
+      await user.click(sendBtn);
+      expect(sendSpy).toHaveBeenCalled();
     });
 
     it('resolves a grievance with mandatory summary remarks', async () => {

@@ -40,6 +40,16 @@ export interface TicketCaseNote {
   noteType: 'INTERNAL_NOTE' | 'TELEPHONIC_LOG' | 'ESCALATION_SUMMARY' | 'RESOLUTION_SUMMARY';
 }
 
+export interface SupportMessage {
+  id: string;
+  ticketId?: string;
+  from: 'CUSTOMER' | 'WORKER' | 'ADMIN';
+  body: string;
+  createdAt: string;
+  authorUserId: string;
+  internal: boolean;
+}
+
 export interface SupportTicketDetail {
   id: string;
   etag?: string;
@@ -61,6 +71,7 @@ export interface SupportTicketDetail {
   status: TicketStatus;
   createdAt: string;
   caseNotes: TicketCaseNote[];
+  messages?: SupportMessage[];
 }
 
 export interface SupportFilterCriteria {
@@ -91,6 +102,8 @@ export interface PaginatedSupportTickets {
 export interface ISupportRepository {
   getTickets(filter?: SupportFilterCriteria): Promise<PaginatedSupportTickets>;
   getTicketById(id: string): Promise<SupportTicketDetail | null>;
+  getTicketMessages(ticketId: string): Promise<SupportMessage[]>;
+  sendTicketMessage(ticketId: string, body: string, isInternal?: boolean): Promise<SupportMessage>;
   claimTicket(ticketId: string, staffName?: string, etag?: string, options?: { assigneeUserId?: string; note?: string }): Promise<void>;
   assignTicket(ticketId: string, options: { assigneeUserId?: string; note?: string; etag?: string }): Promise<void>;
   setPriority(ticketId: string, priority: 'LOW' | 'MEDIUM' | 'HIGH', etag?: string): Promise<void>;

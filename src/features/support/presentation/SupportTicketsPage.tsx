@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSearchParams, useLocation } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
-  Search,
   ArrowUpRight,
   CheckCircle2,
-  Eye,
   AlertTriangle,
   Clock,
   ChevronLeft,
@@ -14,9 +12,9 @@ import {
   Inbox,
   CheckCircle,
   RefreshCw,
-  UserCheck,
   Users,
   Briefcase,
+  MessageSquare,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -29,6 +27,9 @@ import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { TicketDetailModal } from './TicketDetailModal';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
+import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { CustomSelect } from '../../../components/common/CustomSelect';
+import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface SupportTicketsPageProps {
   viewMode?: 'all' | 'my-assigned' | 'escalated' | 'resolved';
@@ -65,10 +66,44 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
 
   // Filters & Search state
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
+  const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const lastSyncedSearchRef = useRef<string>(searchTerm);
+
   const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || initialDefaultStatus);
   const [selectedPriority, setSelectedPriority] = useState('ALL');
   const [selectedComplainantRole, setSelectedComplainantRole] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Reset pagination when debounced search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchTerm]);
+
+  // Sync debounced search to URL without reloading or thrashing
+  useEffect(() => {
+    const trimmed = debouncedSearchTerm.trim();
+    if (trimmed !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = trimmed;
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        if (trimmed) {
+          if (next.get('search') !== trimmed) next.set('search', trimmed);
+        } else {
+          if (next.has('search')) next.delete('search');
+        }
+        return next;
+      }, { replace: true });
+    }
+  }, [debouncedSearchTerm, setSearchParams]);
+
+  // Sync URL search param to state only when external change (e.g. back/forward navigation) occurs
+  useEffect(() => {
+    const searchParam = searchParams.get('search') || '';
+    if (searchParam !== lastSyncedSearchRef.current) {
+      lastSyncedSearchRef.current = searchParam;
+      setSearchTerm(searchParam);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const statusParam = searchParams.get('status');
@@ -84,11 +119,6 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
           : 'ALL')
       );
     }
-    const searchParam = searchParams.get('search');
-    if (searchParam !== null) {
-      setSearchTerm(searchParam);
-    }
-    setCurrentPage(1);
   }, [searchParams, effectiveViewMode, propDefaultStatus]);
 
   // Modal states
@@ -96,35 +126,33 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isResolveOpen, setIsResolveOpen] = useState(false);
   const [isEscalateOpen, setIsEscalateOpen] = useState(false);
-  const [isReplacementOpen, setIsReplacementOpen] = useState(false);
 
   const canView = hasPermission(user?.permissions, PERMISSIONS.SUPPORT_VIEW);
   const canManage = hasPermission(user?.permissions, PERMISSIONS.SUPPORT_MANAGE);
 
-  // Query tickets
-  const { data: supportData, isLoading, isError, refetch } = useQuery({
+  // Query tickets with debounced queryKey and keepPreviousData
+  const { data: supportData, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: [
       'support',
       'tickets',
       effectiveViewMode,
-      searchTerm,
+      debouncedSearchTerm,
       selectedStatus,
       selectedPriority,
       selectedComplainantRole,
       currentPage,
-      user?.id,
     ],
     queryFn: () =>
       supportRepository.getTickets({
-        searchTerm,
+        searchTerm: debouncedSearchTerm,
         status: selectedStatus,
         priority: selectedPriority,
         complainantType: selectedComplainantRole,
-        assignedToUserId: effectiveViewMode === 'my-assigned' ? user?.id : undefined,
         page: currentPage,
         pageSize: 10,
       }),
     enabled: canView,
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
@@ -196,20 +224,6 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     }
   };
 
-  const handleOpenReplacementFromDetail = (tkt: SupportTicketDetail) => {
-    setIsDetailOpen(false);
-    setSelectedTicket(tkt);
-    setIsReplacementOpen(true);
-    if (searchParams.has('ticketId')) {
-      handledTicketIdRef.current = searchParams.get('ticketId');
-      setSearchParams((prev) => {
-        const next = new window.URLSearchParams(prev);
-        next.delete('ticketId');
-        return next;
-      }, { replace: true });
-    }
-  };
-
   const [staleError, setStaleError] = useState<string | null>(null);
 
   // Mutations
@@ -252,38 +266,21 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     },
   });
 
-  const replacementHandoffMutation = useMutation({
-    mutationFn: async ({ ticketId, remarks, etag }: { ticketId: string; remarks: string; etag?: string }) => {
-      await supportRepository.initiateReplacementHandoff(ticketId, remarks, etag);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['support'] });
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      setIsReplacementOpen(false);
-      setSelectedTicket(null);
-      setStaleError(null);
-    },
-    onError: (err: unknown) => {
-      if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
-        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry replacement handoff.');
-        queryClient.invalidateQueries({ queryKey: ['support'] });
-      }
-    },
-  });
-
   const viewConfig = useMemo(() => {
     switch (effectiveViewMode) {
       case 'my-assigned':
+      case 'all':
+      default:
         return {
-          badge: 'My Assigned Tickets',
+          badge: 'All Support Tickets',
           title: 'Support Grievance & SLA Queue',
-          subtitle: 'Active support grievances and dispute cases currently assigned to your staff profile.',
+          subtitle: 'Mediate household service disputes, communicate with customers and workers, manage SLA countdowns, and orchestrate Operations handoffs.',
           tabs: [
-            { key: 'ALL', label: 'All Assigned' },
+            { key: 'ALL', label: 'All Tickets' },
+            { key: 'CREATED', label: 'Open Inquiries' },
             { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
-            { key: 'ASSIGNED', label: 'Newly Claimed' },
-            { key: 'ESCALATED', label: 'Escalated Cases' },
-            { key: 'RESOLVED', label: 'Resolved by Me' },
+            { key: 'ESCALATED', label: 'Escalated' },
+            { key: 'RESOLVED', label: 'Resolved' },
           ],
         };
       case 'escalated':
@@ -309,20 +306,6 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
             { key: 'ALL', label: 'Full Historical Audit' },
           ],
         };
-      case 'all':
-      default:
-        return {
-          badge: 'All Support Tickets',
-          title: 'Support Grievance & SLA Queue',
-          subtitle: 'Mediate household service disputes, log call findings, manage SLA countdowns, and orchestrate Operations handoffs.',
-          tabs: [
-            { key: 'ALL', label: 'All Tickets' },
-            { key: 'CREATED', label: 'Unassigned' },
-            { key: 'INVESTIGATION_PENDING', label: 'In Investigation' },
-            { key: 'ESCALATED', label: 'Escalated' },
-            { key: 'RESOLVED', label: 'Resolved' },
-          ],
-        };
     }
   }, [effectiveViewMode]);
 
@@ -330,14 +313,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     if (!supportData?.items) return [];
     let items = supportData.items;
 
-    if (effectiveViewMode === 'my-assigned') {
-      items = items.filter((t) => {
-        if (user?.id && t.assignedToStaffId === user.id) return true;
-        if (user?.name && t.assignedToStaffName?.toLowerCase().includes(user.name.toLowerCase())) return true;
-        if (t.assignedToStaffName?.includes('Support Exec') || t.assignedToStaffId?.startsWith('STAFF-SUPP-')) return true;
-        return false;
-      });
-    } else if (effectiveViewMode === 'escalated') {
+    if (effectiveViewMode === 'escalated') {
       if (selectedStatus === 'ALL' || selectedStatus === 'ESCALATED') {
         items = items.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED');
       }
@@ -348,24 +324,10 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
     }
 
     return items;
-  }, [supportData?.items, effectiveViewMode, selectedStatus, user?.id, user?.name]);
+  }, [supportData?.items, effectiveViewMode, selectedStatus]);
 
   const metrics = useMemo(() => {
     const rawItems = supportData?.items || [];
-    if (effectiveViewMode === 'my-assigned') {
-      const myTickets = rawItems.filter((t) => {
-        if (user?.id && t.assignedToStaffId === user.id) return true;
-        if (user?.name && t.assignedToStaffName?.toLowerCase().includes(user.name.toLowerCase())) return true;
-        if (t.assignedToStaffName?.includes('Support Exec') || t.assignedToStaffId?.startsWith('STAFF-SUPP-')) return true;
-        return false;
-      });
-      return [
-        { label: 'My Assigned Cases', value: myTickets.length, icon: UserCheck, color: 'var(--color-brand-600)', bg: 'var(--color-brand-50)' },
-        { label: 'SLA At Risk', value: myTickets.filter((t) => t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED').length, icon: Clock, color: 'var(--color-warning-dark)', bg: 'var(--color-warning-bg)' },
-        { label: 'In Active Investigation', value: myTickets.filter((t) => t.status === 'INVESTIGATION_PENDING' || t.status === 'IN_PROGRESS').length, icon: Inbox, color: 'var(--color-navy)', bg: 'var(--color-bg-subtle)' },
-        { label: 'Resolved by Me', value: myTickets.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED').length, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
-      ];
-    }
     if (effectiveViewMode === 'escalated') {
       return [
         { label: 'Escalated to Operations', value: supportData?.escalatedCount || rawItems.filter((t) => t.status === 'ESCALATED').length, icon: ShieldAlert, color: 'var(--color-error-dark)', bg: 'var(--color-error-bg)' },
@@ -383,57 +345,17 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
         { label: 'SLA Compliant Mediations', value: resolved.filter((t) => t.slaStatus === 'NORMAL').length, icon: Clock, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
       ];
     }
-    // Default 'all' view
+    // Default 'all' view (and collective support queue)
     return [
       { label: 'SLA Impending Breach', value: supportData?.slaAtRiskCount || 0, icon: Clock, color: 'var(--color-warning-dark)', bg: 'var(--color-warning-bg)' },
-      { label: 'Unassigned Queue', value: supportData?.unassignedCount || 0, icon: Inbox, color: 'var(--color-brand-600)', bg: 'var(--color-brand-50)' },
+      { label: 'Open Inquiries', value: supportData?.unassignedCount || 0, icon: Inbox, color: 'var(--color-brand-600)', bg: 'var(--color-brand-50)' },
       { label: 'Escalated to Operations', value: supportData?.escalatedCount || 0, icon: ShieldAlert, color: 'var(--color-error-dark)', bg: 'var(--color-error-bg)' },
       { label: 'Resolved Cases', value: supportData?.resolvedTodayCount || 0, icon: CheckCircle, color: 'var(--color-success-dark)', bg: 'var(--color-success-bg)' },
     ];
-  }, [supportData, effectiveViewMode, user?.id, user?.name]);
+  }, [supportData, effectiveViewMode]);
 
   if (!canView) {
     return <NoAccessView moduleName="Support & Dispute Resolution Console" requiredPermission={PERMISSIONS.SUPPORT_VIEW} />;
-  }
-
-  if (isLoading) {
-    return <LoadingSpinner message="Loading customer & worker grievance queue..." />;
-  }
-
-  if (isError) {
-    return (
-      <div
-        style={{
-          padding: 'var(--space-8)',
-          backgroundColor: 'var(--color-error-bg)',
-          border: '1px solid var(--color-error-border)',
-          borderRadius: 'var(--radius-lg)',
-          textAlign: 'center',
-        }}
-      >
-        <AlertTriangle size={40} color="var(--color-error-dark)" style={{ marginBottom: 'var(--space-2)' }} />
-        <h3 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-error-dark)' }}>
-          Failed to load support tickets
-        </h3>
-        <p style={{ color: 'var(--color-text-secondary)', marginBottom: 'var(--space-4)' }}>
-          An error occurred while fetching support grievances. Please retry.
-        </p>
-        <button
-          onClick={() => refetch()}
-          style={{
-            padding: 'var(--space-2) var(--space-4)',
-            backgroundColor: 'var(--color-brand-600)',
-            color: '#fff',
-            borderRadius: 'var(--radius-md)',
-            border: 'none',
-            fontWeight: 600,
-            cursor: 'pointer',
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
   }
 
   return (
@@ -507,7 +429,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       )}
 
       {/* Metric Cards Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-4)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 'var(--space-4)' }}>
         {metrics.map((m, idx) => {
           const Icon = m.icon;
           return (
@@ -543,91 +465,83 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       {/* Filter and Search Bar (Tier 3 & 4) */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          padding: 'var(--space-3)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          padding: '16px',
+          borderRadius: 'var(--radius-lg, 12px)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           display: 'flex',
           flexDirection: 'column',
-          gap: 'var(--space-3)',
+          gap: '16px',
         }}
       >
-        {/* Tier 3: Search and Supported Filters */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ position: 'relative', minWidth: '260px', flex: 1, maxWidth: '450px' }}>
-            <Search
-              size={16}
-              color="var(--color-text-tertiary)"
-              style={{ position: 'absolute', left: 'var(--space-3)', top: '50%', transform: 'translateY(-50%)' }}
-            />
-            <input
-              type="text"
-              placeholder="Search by complainant, worker, ticket ID, booking ref..."
-              value={searchTerm}
-              onChange={(e) => {
-                setSearchTerm(e.target.value);
-                setCurrentPage(1);
-              }}
-              style={{
-                width: '100%',
-                padding: 'var(--space-2) var(--space-3) var(--space-2) var(--space-8)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-sm)',
-              }}
-              aria-label="Search support tickets"
-            />
-          </div>
+        {/* Tier 3: Search and Supported Filters in one clean responsive row */}
+        <div
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '12px',
+            alignItems: 'center',
+            width: '100%',
+          }}
+        >
+          <SearchInput
+            value={searchTerm}
+            onChange={(val) => setSearchTerm(val)}
+            placeholder="Search by complainant, worker, ticket ID, booking ref..."
+            ariaLabel="Search support tickets"
+            isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+            containerStyle={{ flex: '1 1 320px', minWidth: 'min(100%, 240px)' }}
+          />
 
-          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Complainant Role Filter */}
-            <select
+            <CustomSelect
               value={selectedComplainantRole}
-              onChange={(e) => {
-                setSelectedComplainantRole(e.target.value);
+              onChange={(val) => {
+                setSelectedComplainantRole(val);
                 setCurrentPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-              aria-label="Filter by complainant role"
-            >
-              <option value="ALL">All Complainant Roles</option>
-              <option value="CUSTOMER">Customer Grievances</option>
-              <option value="WORKER">Worker Inquiries</option>
-            </select>
+              options={[
+                { value: 'ALL', label: 'All Complainant Roles' },
+                { value: 'CUSTOMER', label: 'Customer Grievances' },
+                { value: 'WORKER', label: 'Worker Inquiries' },
+              ]}
+              ariaLabel="Filter by complainant role"
+              minWidth="150px"
+            />
 
             {/* Priority Filter */}
-            <select
+            <CustomSelect
               value={selectedPriority}
-              onChange={(e) => {
-                setSelectedPriority(e.target.value);
+              onChange={(val) => {
+                setSelectedPriority(val);
                 setCurrentPage(1);
               }}
-              style={{
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                fontSize: 'var(--font-size-xs)',
-                backgroundColor: 'var(--color-surface)',
-              }}
-              aria-label="Filter by priority"
-            >
-              <option value="ALL">All Priorities</option>
-              <option value="CRITICAL">Critical Priority</option>
-              <option value="HIGH">High Priority</option>
-              <option value="MEDIUM">Medium Priority</option>
-              <option value="LOW">Low Priority</option>
-            </select>
+              options={[
+                { value: 'ALL', label: 'All Priorities' },
+                { value: 'CRITICAL', label: 'Critical Priority' },
+                { value: 'HIGH', label: 'High Priority' },
+                { value: 'MEDIUM', label: 'Medium Priority' },
+                { value: 'LOW', label: 'Low Priority' },
+              ]}
+              ariaLabel="Filter by priority"
+              minWidth="130px"
+            />
           </div>
         </div>
 
         {/* Tier 4: Ticket Status Tabs */}
-        <div style={{ display: 'flex', gap: 'var(--space-2)', overflowX: 'auto', paddingBottom: 'var(--space-1)', borderTop: '1px solid var(--color-border-subtle, #f1f5f9)', paddingTop: 'var(--space-2)' }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '8px',
+            overflowX: 'auto',
+            paddingTop: '16px',
+            borderTop: '1px solid var(--color-border-subtle, #f1f5f9)',
+            scrollbarWidth: 'thin',
+          }}
+        >
           {viewConfig.tabs.map((tab) => (
             <button
               key={tab.key}
@@ -637,14 +551,15 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
               }}
               style={{
                 padding: '6px 14px',
-                borderRadius: 'var(--radius-full)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary)',
-                fontSize: 'var(--font-size-xs)',
+                borderRadius: 'var(--radius-full, 9999px)',
+                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
+                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
+                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                fontSize: 'var(--font-size-xs, 12px)',
                 fontWeight: 600,
                 cursor: 'pointer',
                 whiteSpace: 'nowrap',
+                transition: 'all 150ms ease',
               }}
             >
               {tab.label}
@@ -656,15 +571,15 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       {/* Tickets Table (Tier 5) */}
       <div
         style={{
-          backgroundColor: 'var(--color-surface)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-sm)',
+          backgroundColor: 'var(--color-surface, #ffffff)',
+          borderRadius: 'var(--radius-lg, 12px)',
+          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
           overflow: 'hidden',
-          border: '1px solid var(--color-border)',
+          border: '1px solid var(--color-border, #e2e8f0)',
         }}
       >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <div className="table-responsive-container" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
               <tr>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
@@ -685,18 +600,49 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                   Ticket Status
                 </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Ticket Owner
-                </th>
                 <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
                   Actions
                 </th>
               </tr>
             </thead>
             <tbody>
-              {displayItems.length === 0 ? (
+              {isLoading && !supportData ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <LoadingSpinner message="Loading customer & worker grievance queue..." />
+                  </td>
+                </tr>
+              ) : isError && !supportData ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
+                    <div style={{ color: 'var(--color-error-dark)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                      <AlertTriangle size={36} color="var(--color-error-dark)" />
+                      <div style={{ fontWeight: 600 }}>Failed to load support tickets</div>
+                      <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: 'var(--font-size-xs)' }}>
+                        An error occurred while fetching support grievances.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => refetch()}
+                        style={{
+                          marginTop: 'var(--space-2)',
+                          padding: '6px 16px',
+                          backgroundColor: 'var(--color-brand-600)',
+                          color: '#fff',
+                          borderRadius: 'var(--radius-md)',
+                          border: 'none',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : displayItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
                     {effectiveViewMode === 'my-assigned'
                       ? 'No support cases currently assigned to your staff profile.'
                       : effectiveViewMode === 'escalated'
@@ -820,18 +766,6 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                     </td>
 
                     {/* Ticket Owner */}
-                    <td style={{ padding: 'var(--space-4)', fontSize: 'var(--font-size-xs)' }}>
-                      {tkt.assignedToStaffName ? (
-                        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                          {tkt.assignedToStaffName}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                          Unassigned
-                        </span>
-                      )}
-                    </td>
-
                     {/* Actions */}
                     <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
                       <div style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
@@ -841,7 +775,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                             setIsDetailOpen(true);
                           }}
                           style={{
-                            padding: '4px 8px',
+                            padding: '4px 10px',
                             borderRadius: 'var(--radius-md)',
                             border: '1px solid var(--color-border)',
                             backgroundColor: 'var(--color-surface)',
@@ -853,8 +787,10 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                             alignItems: 'center',
                             gap: '4px',
                           }}
+                          aria-label={`View Chat for support ticket ${tkt.id}`}
                         >
-                          <Eye size={13} /> View
+                          <MessageSquare size={13} color="var(--color-primary, #0f766e)" />
+                          <span>View Chat</span>
                         </button>
 
                         {canManage && tkt.status !== 'RESOLVED' && tkt.status !== 'CLOSED' && (
@@ -968,14 +904,13 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
         )}
       </div>
 
-      {/* Ticket Detail Modal */}
+      {/* Ticket Chat & Details Workspace Modal */}
       <TicketDetailModal
         ticket={selectedTicket}
         isOpen={isDetailOpen}
         onClose={handleCloseDetailModal}
         onOpenResolve={handleOpenResolveFromDetail}
         onOpenEscalate={handleOpenEscalateFromDetail}
-        onOpenReplacement={handleOpenReplacementFromDetail}
       />
 
       {/* Resolve Confirmation Dialog */}
@@ -1021,30 +956,6 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
         }}
         onCancel={() => {
           setIsEscalateOpen(false);
-          setSelectedTicket(null);
-        }}
-      />
-
-      {/* Replacement Request Handoff Dialog */}
-      <ConfirmDialog
-        isOpen={isReplacementOpen}
-        title={`Initiate Replacement Handoff for ${selectedTicket?.id}`}
-        description={`Linked Booking: ${selectedTicket?.bookingRef}. This action flags the booking in Operations Admin Replacement Workstation for candidate rematching.`}
-        confirmLabel="Dispatch Replacement Handoff"
-        isDestructive={true}
-        requireRemarks={true}
-        remarksPlaceholder="Enter mandatory replacement justification notes..."
-        onConfirm={(remarks) => {
-          if (selectedTicket) {
-            replacementHandoffMutation.mutate({
-              ticketId: selectedTicket.id,
-              remarks: remarks || 'Replacement handoff requested by customer support.',
-              etag: selectedTicket.etag,
-            });
-          }
-        }}
-        onCancel={() => {
-          setIsReplacementOpen(false);
           setSelectedTicket(null);
         }}
       />

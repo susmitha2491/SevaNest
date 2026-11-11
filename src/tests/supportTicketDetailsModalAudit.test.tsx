@@ -119,7 +119,7 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
       expect(screen.queryByText('2026-11-06T11:42:17.207Z')).not.toBeInTheDocument();
     });
 
-    it('renders all case activity and communication history timestamps in IST', () => {
+    it('renders all case activity and communication history timestamps in IST', async () => {
       render(
         <QueryClientProvider client={queryClient}>
           <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
@@ -127,13 +127,13 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
       );
 
       // NOTE-1: 2026-11-06T11:45:00.000Z -> 06 Nov 2026, 05:15 PM IST
-      expect(screen.getByText('06 Nov 2026, 05:15 PM IST')).toBeInTheDocument();
+      expect(await screen.findByText('06 Nov 2026, 05:15 PM IST')).toBeInTheDocument();
 
       // NOTE-2: 2026-11-06T12:00:00.000Z -> 06 Nov 2026, 05:30 PM IST
-      expect(screen.getByText('06 Nov 2026, 05:30 PM IST')).toBeInTheDocument();
+      expect(await screen.findByText('06 Nov 2026, 05:30 PM IST')).toBeInTheDocument();
 
       // NOTE-3: 2026-11-06T14:30:00.000Z -> 06 Nov 2026, 08:00 PM IST
-      expect(screen.getByText('06 Nov 2026, 08:00 PM IST')).toBeInTheDocument();
+      expect(await screen.findByText('06 Nov 2026, 08:00 PM IST')).toBeInTheDocument();
 
       // Ensure no raw UTC Z strings are rendered in the DOM
       expect(screen.queryByText(/2026-11-06T/)).not.toBeInTheDocument();
@@ -148,41 +148,46 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
   });
 
   /* =========================================================================
-     2. Redesigned Modal Sections & Layout
+     2. Chat-Based Support Workspace Layout & Sections
      ========================================================================= */
-  describe('2. Modal Layout & Section Structure', () => {
-    it('renders compact header with Case ID, status, priority, and close button', () => {
+  describe('2. Chat Workspace Layout & Identity Ribbon', () => {
+    it('renders conversation header with Complainant name, type badge, Ticket ID, and close button', () => {
       render(
         <QueryClientProvider client={queryClient}>
           <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
         </QueryClientProvider>
       );
 
-      // Header title
-      expect(screen.getByRole('heading', { name: /Grievance Case: TKT-9842/i })).toBeInTheDocument();
+      // Complainant Name & Ticket ID
+      expect(screen.getByRole('heading', { name: 'Vikramaditya Singhania' })).toBeInTheDocument();
+      expect(screen.getByText('CUSTOMER')).toBeInTheDocument();
+      expect(screen.getByText('#TKT-9842')).toBeInTheDocument();
 
-      // Priority selector
-      const prioritySelect = screen.getByLabelText(/Priority:/i);
-      expect(prioritySelect).toBeInTheDocument();
-      expect(prioritySelect).toHaveValue('HIGH');
+      // Category and dispute category
+      expect(screen.getByText('House Maid')).toBeInTheDocument();
+      expect(screen.getByText('ATTENDANCE BREACH')).toBeInTheDocument();
 
       // Top close button
       expect(screen.getByTestId('close-ticket-modal-button')).toBeInTheDocument();
     });
 
-    it('renders Section 1 (SLA Information) with distinct visual styling for BREACHED state', () => {
+    it('renders Context Ribbon with phone, booking ref, linked worker, and SLA pill', () => {
       render(
         <QueryClientProvider client={queryClient}>
           <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
         </QueryClientProvider>
       );
 
-      expect(screen.getByText(/SLA Status:/i)).toBeInTheDocument();
-      expect(screen.getByText('BREACHED')).toBeInTheDocument();
+      // Complainant Phone, Booking Ref, Subject Worker
+      expect(screen.getByText('+91 98765 43210')).toBeInTheDocument();
+      expect(screen.getByText('BK-55209')).toBeInTheDocument();
+      expect(screen.getByText('Sunita Devi')).toBeInTheDocument();
+
+      // SLA Tracking pill for BREACHED state
       expect(screen.getByText(/Breached by 2h 15m/i)).toBeInTheDocument();
     });
 
-    it('renders Section 1 (SLA Information) with distinct styling for AT_RISK and NORMAL states', () => {
+    it('renders SLA status with distinct styling for AT_RISK and NORMAL states', () => {
       const atRiskTicket: SupportTicketDetail = {
         ...baseMockTicket,
         slaStatus: 'AT_RISK',
@@ -195,8 +200,7 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
         </QueryClientProvider>
       );
 
-      expect(screen.getByText('AT_RISK')).toBeInTheDocument();
-      expect(screen.getByText(/1h 10m remaining/i)).toBeInTheDocument();
+      expect(screen.getByText('1h 10m remaining')).toBeInTheDocument();
 
       // Re-render with NORMAL healthy state
       const normalTicket: SupportTicketDetail = {
@@ -211,79 +215,62 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
         </QueryClientProvider>
       );
 
-      expect(screen.getByText('NORMAL')).toBeInTheDocument();
-      expect(screen.getByText(/Healthy SLA \(18h left\)/i)).toBeInTheDocument();
+      expect(screen.getByText('Healthy SLA (18h left)')).toBeInTheDocument();
     });
 
-    it('renders Section 2 (Customer & Booking Information) in a structured two-column layout', () => {
+    it('renders original grievance statement as the initial message in conversation', () => {
       render(
         <QueryClientProvider client={queryClient}>
           <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
         </QueryClientProvider>
       );
 
-      // Column 1: Customer Profile
-      expect(screen.getByText('Vikramaditya Singhania')).toBeInTheDocument();
-      expect(screen.getByText(/CUST-8831/i)).toBeInTheDocument();
-      expect(screen.getByText(/\+91 98765 43210/i)).toBeInTheDocument();
-      expect(screen.getByText('CUSTOMER')).toBeInTheDocument();
-      expect(screen.getByText(/Sunita Devi/i)).toBeInTheDocument();
-      expect(screen.getByText(/\(WRK-2201\)/i)).toBeInTheDocument();
-
-      // Column 2: Booking Reference & Dispute
-      expect(screen.getByText('BK-55209')).toBeInTheDocument();
-      expect(screen.getByText(/ATTENDANCE BREACH/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/House Maid/i).length).toBeGreaterThanOrEqual(1);
-    });
-
-    it('renders Section 3 (Customer Complaint) in a dedicated card', () => {
-      render(
-        <QueryClientProvider client={queryClient}>
-          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
-        </QueryClientProvider>
-      );
-
-      expect(screen.getByText(/Complainant Grievance Statement:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Initial Grievance/i)).toBeInTheDocument();
       expect(
         screen.getByText('Worker failed to report for scheduled shift on three consecutive days without prior notification.')
       ).toBeInTheDocument();
     });
 
-    it('renders Section 4 (Case Activity) with empty state when no case notes exist', () => {
-      const ticketWithoutNotes: SupportTicketDetail = {
-        ...baseMockTicket,
-        caseNotes: [],
-      };
-
-      render(
-        <QueryClientProvider client={queryClient}>
-          <TicketDetailModal ticket={ticketWithoutNotes} isOpen={true} onClose={vi.fn()} />
-        </QueryClientProvider>
-      );
-
-      expect(screen.getByText(/No case activity or telephonic logs recorded yet/i)).toBeInTheDocument();
-    });
-
-    it('distinguishes telephonic logs, internal notes, and escalation summaries visually', () => {
+    it('distinguishes internal staff notes with private staff-only label and lock icon', async () => {
       render(
         <QueryClientProvider client={queryClient}>
           <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
         </QueryClientProvider>
       );
 
-      expect(screen.getAllByText('Telephonic Call Log').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('Internal Staff Note').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Escalation Handoff')).toBeInTheDocument();
+      const internalNotes = await screen.findAllByText(/Internal Staff Note/i);
+      expect(internalNotes.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/Private • Staff-Only/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('verifies that Claim Ticket and Ticket Owner fields are absent in collective support model', () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      expect(screen.queryByRole('button', { name: /^Claim Ticket$/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Ticket Owner:$/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Assigned To:$/i)).not.toBeInTheDocument();
     });
   });
 
   /* =========================================================================
-     3. Case Note Logging & Action Handlers
+     3. Chat Interactions, Priority Editing & Case Actions
      ========================================================================= */
-  describe('3. Case Actions & Note Logging Interactions', () => {
-    it('submits a new case note via addCaseNote mutation when clicking "Save Case Note"', async () => {
+  describe('3. Chat Composer Interactions & Case Actions', () => {
+    it('dispatches reply message when typing and clicking Send', async () => {
       const user = userEvent.setup();
-      const addNoteSpy = vi.spyOn(supportRepository, 'addCaseNote').mockResolvedValueOnce();
+      const sendSpy = vi.spyOn(supportRepository, 'sendTicketMessage').mockResolvedValueOnce({
+        id: 'msg-new',
+        ticketId: 'TKT-9842',
+        from: 'ADMIN',
+        body: 'We are reviewing your attendance grievance.',
+        createdAt: new Date().toISOString(),
+        authorUserId: 'adm-004',
+        internal: false,
+      });
 
       render(
         <QueryClientProvider client={queryClient}>
@@ -291,19 +278,56 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
         </QueryClientProvider>
       );
 
-      const textarea = screen.getByPlaceholderText(/Enter details of conversation with customer/i);
-      await user.type(textarea, 'Spoke with customer over phone. Customer agreed to await replacement candidate.');
+      const textarea = screen.getByRole('textbox', { name: /Support reply text/i });
+      await user.type(textarea, 'We are reviewing your attendance grievance.');
 
-      const saveBtn = screen.getByRole('button', { name: /Save Case Note/i });
-      expect(saveBtn).not.toBeDisabled();
-      await user.click(saveBtn);
+      const sendBtn = screen.getByRole('button', { name: /Send/i });
+      expect(sendBtn).not.toBeDisabled();
+      await user.click(sendBtn);
 
       await waitFor(() => {
-        expect(addNoteSpy).toHaveBeenCalledWith(
+        expect(sendSpy).toHaveBeenCalledWith(
           'TKT-9842',
-          'Spoke with customer over phone. Customer agreed to await replacement candidate.',
-          'TELEPHONIC_LOG',
-          'Support Executive'
+          'We are reviewing your attendance grievance.',
+          false
+        );
+      });
+    });
+
+    it('dispatches internal staff note when switching to Internal Note mode', async () => {
+      const user = userEvent.setup();
+      const sendSpy = vi.spyOn(supportRepository, 'sendTicketMessage').mockResolvedValueOnce({
+        id: 'msg-note',
+        ticketId: 'TKT-9842',
+        from: 'ADMIN',
+        body: 'Escalation to Ops needed if worker is unreachable.',
+        createdAt: new Date().toISOString(),
+        authorUserId: 'adm-004',
+        internal: true,
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      // Switch to internal note mode
+      const noteTab = screen.getByRole('button', { name: /Internal Note \(Staff-Only\)/i });
+      await user.click(noteTab);
+
+      const textarea = screen.getByRole('textbox', { name: /Internal note text/i });
+      await user.type(textarea, 'Escalation to Ops needed if worker is unreachable.');
+
+      const logNoteBtn = screen.getByRole('button', { name: /Log Note/i });
+      expect(logNoteBtn).not.toBeDisabled();
+      await user.click(logNoteBtn);
+
+      await waitFor(() => {
+        expect(sendSpy).toHaveBeenCalledWith(
+          'TKT-9842',
+          'Escalation to Ops needed if worker is unreachable.',
+          true
         );
       });
     });
@@ -318,7 +342,7 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
         </QueryClientProvider>
       );
 
-      const prioritySelect = screen.getByLabelText(/Priority:/i);
+      const prioritySelect = screen.getByLabelText(/Select ticket priority/i);
       await user.selectOptions(prioritySelect, 'LOW');
 
       await waitFor(() => {
@@ -326,37 +350,10 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
       });
     });
 
-    it('renders Claim Ticket when ticket is unassigned or created', async () => {
-      const user = userEvent.setup();
-      const claimSpy = vi.spyOn(supportRepository, 'claimTicket').mockResolvedValueOnce();
-
-      const unassignedTicket: SupportTicketDetail = {
-        ...baseMockTicket,
-        assignedToStaffId: undefined,
-        assignedToStaffName: undefined,
-        status: 'CREATED',
-      };
-
-      render(
-        <QueryClientProvider client={queryClient}>
-          <TicketDetailModal ticket={unassignedTicket} isOpen={true} onClose={vi.fn()} />
-        </QueryClientProvider>
-      );
-
-      const claimBtn = screen.getByRole('button', { name: /Claim Ticket/i });
-      expect(claimBtn).toBeInTheDocument();
-      await user.click(claimBtn);
-
-      await waitFor(() => {
-        expect(claimSpy).toHaveBeenCalledWith('TKT-9842', 'Support Executive', '"v1-etag"');
-      });
-    });
-
-    it('triggers callbacks for Mark Resolved, Request Replacement, and Escalate Ops', async () => {
+    it('triggers callbacks for Resolve Ticket and Escalate Ops', async () => {
       const user = userEvent.setup();
       const resolveFn = vi.fn();
       const escalateFn = vi.fn();
-      const replacementFn = vi.fn();
 
       render(
         <QueryClientProvider client={queryClient}>
@@ -366,25 +363,211 @@ describe('Support Ticket Details Modal UI & Timezone (Asia/Kolkata IST) Audit', 
             onClose={vi.fn()}
             onOpenResolve={resolveFn}
             onOpenEscalate={escalateFn}
-            onOpenReplacement={replacementFn}
           />
         </QueryClientProvider>
       );
 
-      // 1. Mark Resolved
+      // 1. Resolve Ticket
       const resolveBtn = screen.getByRole('button', { name: /Mark Resolved/i });
       await user.click(resolveBtn);
       expect(resolveFn).toHaveBeenCalledWith(baseMockTicket);
 
-      // 2. Request Replacement
-      const replacementBtn = screen.getByRole('button', { name: /Request Replacement/i });
-      await user.click(replacementBtn);
-      expect(replacementFn).toHaveBeenCalledWith(baseMockTicket);
-
-      // 3. Escalate Ops
+      // 2. Escalate Ops
       const escalateBtn = screen.getByRole('button', { name: /Escalate Ops/i });
       await user.click(escalateBtn);
       expect(escalateFn).toHaveBeenCalledWith(baseMockTicket);
+    });
+
+    it('renders read-only archived notice and disables composer when ticket is resolved or closed', () => {
+      const resolvedTicket: SupportTicketDetail = {
+        ...baseMockTicket,
+        status: 'RESOLVED',
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={resolvedTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      expect(screen.getByText(/The conversation is archived and read-only/i)).toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: /Support reply text/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Mark Resolved/i })).not.toBeInTheDocument();
+    });
+
+    it('displays actual worker full name in header and grievance and preserves WORKER badge', async () => {
+      const workerTicket: SupportTicketDetail = {
+        ...baseMockTicket,
+        id: 'TKT-7711',
+        complainantId: 'WRK-9001',
+        complainantName: 'Kamala Bai',
+        complainantType: 'WORKER',
+        description: 'Monthly payout deduction dispute filed by domestic helper.',
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={workerTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      // Chat header has actual worker name and WORKER badge
+      const headerTitle = screen.getByRole('heading', { name: 'Kamala Bai' });
+      expect(headerTitle).toBeInTheDocument();
+      expect(screen.getByText('WORKER')).toBeInTheDocument();
+
+      // Initial grievance has actual worker name
+      expect(screen.getAllByText('Kamala Bai').length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('retrieves worker full name from workerRepository when ticket name is generic Worker', async () => {
+      const { workerRepository } = await import('../features/workers/data/workerRepository');
+      vi.spyOn(workerRepository, 'getWorkerById').mockResolvedValueOnce({
+        id: 'WRK-9002',
+        name: 'Sunita Devi',
+        category: 'House Maid',
+        experienceYears: 4,
+        ratingAverage: 4.7,
+        totalReviews: 19,
+        locality: 'Kondapur',
+        isFullyVerified: true,
+        status: 'ACTIVE',
+        accountStatus: 'ACTIVE',
+        verificationLevel: 'VERIFIED',
+        onboardingStatus: 'VERIFIED',
+        verificationStatus: 'VERIFIED',
+        applicationStatus: 'VERIFIED',
+        matchingEligible: true,
+        registeredAt: '2026-01-01',
+        internalNotes: [],
+      } as unknown as import('../features/workers/domain/types').WorkerDetail);
+
+      const genericWorkerTicket: SupportTicketDetail = {
+        ...baseMockTicket,
+        id: 'TKT-7712',
+        complainantId: 'WRK-9002',
+        complainantName: 'Worker',
+        complainantType: 'WORKER',
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={genericWorkerTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      // Should dynamically resolve to Sunita Devi
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: 'Sunita Devi' })).toBeInTheDocument();
+      });
+      expect(screen.getByText('WORKER')).toBeInTheDocument();
+    });
+
+    it('retains fallback "Worker" when no name is available without fabricating name from ID', async () => {
+      const fallbackWorkerTicket: SupportTicketDetail = {
+        ...baseMockTicket,
+        id: 'TKT-7713',
+        complainantId: 'U-00',
+        complainantName: 'Worker',
+        complainantType: 'WORKER',
+        subjectWorkerId: undefined,
+        subjectWorkerName: undefined,
+        bookingRef: undefined,
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={fallbackWorkerTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      const headerTitle = screen.getByRole('heading', { name: 'Worker' });
+      expect(headerTitle).toBeInTheDocument();
+      expect(screen.getByText('WORKER')).toBeInTheDocument();
+      // Must not fabricate a name from the ID
+      expect(screen.queryByText('Worker U-00')).not.toBeInTheDocument();
+    });
+
+    it('displays actual customer full name and falls back cleanly to "Customer"', async () => {
+      const customerTicket: SupportTicketDetail = {
+        ...baseMockTicket,
+        id: 'TKT-7714',
+        complainantId: 'CUST-1001',
+        complainantName: 'Radha Raman',
+        complainantType: 'CUSTOMER',
+      };
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={customerTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      expect(screen.getByRole('heading', { name: 'Radha Raman' })).toBeInTheDocument();
+      expect(screen.getByText('CUSTOMER')).toBeInTheDocument();
+    });
+
+    it('renders clean textarea placeholder without keyboard instructions', () => {
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      const textarea = screen.getByRole('textbox', { name: /Support reply text/i });
+      expect(textarea).toBeInTheDocument();
+      // Placeholder must NOT contain keyboard instruction
+      const placeholder = textarea.getAttribute('placeholder') || '';
+      expect(placeholder).not.toContain('(Enter to send, Shift+Enter for new line)');
+      expect(placeholder).toContain('Vikramaditya Singhania');
+      expect(placeholder).toBe('Type a response to Vikramaditya Singhania...');
+    });
+
+    it('switches placeholder to clean internal note text when toggling note mode', async () => {
+      const user = userEvent.setup();
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      const internalNoteBtn = screen.getByRole('button', { name: /Internal Note \(Staff-Only\)/i });
+      await user.click(internalNoteBtn);
+
+      const textarea = screen.getByRole('textbox', { name: /Internal note text/i });
+      expect(textarea).toBeInTheDocument();
+      expect(textarea).toHaveAttribute('placeholder', 'Write an internal staff note...');
+      expect(textarea.getAttribute('placeholder')).not.toContain('(Enter to send');
+    });
+
+    it('sends message on Enter and allows Shift+Enter for multiline newline', async () => {
+      const user = userEvent.setup();
+      const sendSpy = vi.spyOn(supportRepository, 'sendTicketMessage').mockResolvedValueOnce({
+        id: 'MSG-TEST-1',
+        ticketId: baseMockTicket.id,
+        from: 'ADMIN',
+        body: 'Investigating issue immediately.',
+        createdAt: new Date().toISOString(),
+        authorUserId: 'adm-004',
+        internal: false,
+      });
+
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TicketDetailModal ticket={baseMockTicket} isOpen={true} onClose={vi.fn()} />
+        </QueryClientProvider>
+      );
+
+      const textarea = screen.getByRole('textbox', { name: /Support reply text/i });
+
+      // Shift+Enter should NOT submit
+      await user.type(textarea, 'Line 1{Shift>}{Enter}{/Shift}Line 2');
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Clear and type single line, then press Enter
+      await user.clear(textarea);
+      await user.type(textarea, 'Investigating issue immediately.{Enter}');
+      expect(sendSpy).toHaveBeenCalledWith(baseMockTicket.id, 'Investigating issue immediately.', false);
     });
   });
 });

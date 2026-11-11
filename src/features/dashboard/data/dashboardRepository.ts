@@ -29,6 +29,7 @@ import {
   RepeatCustomerItem,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
+import { getWorkerName, getCustomerName } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
@@ -486,8 +487,8 @@ export class MockDashboardRepository implements IDashboardRepository {
         ALL: [
           { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute', ticketOwner: 'Pooja (Support Exec)' },
           { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
-          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
-          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
+          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
+          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
           { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs', ticketOwner: 'Pooja (Support Exec)' },
           { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
           { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record', ticketOwner: 'Pooja (Support Exec)' },
@@ -497,8 +498,8 @@ export class MockDashboardRepository implements IDashboardRepository {
           { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
         ],
         UNASSIGNED: [
-          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
-          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Claim Ticket' },
+          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
+          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
         ],
         MY_CASES: [
           { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
@@ -1923,11 +1924,33 @@ export class RealDashboardRepository implements IDashboardRepository {
 
     const mapTicketToQueueItem = (raw: Record<string, unknown>, defaultAction: string): SupportDashboardQueueItem => {
       const creator = raw.creator as Record<string, unknown> | undefined;
+      const roleType = (raw.creatorKind as 'CUSTOMER' | 'WORKER') || (raw.complainantType as 'CUSTOMER' | 'WORKER') || 'CUSTOMER';
+      const creatorProfile = creator?.profile as Record<string, unknown> | undefined;
+      const workerObj = raw.worker as Record<string, unknown> | undefined;
+      const customerObj = raw.customer as Record<string, unknown> | undefined;
+      const compUserId = String(raw.creatorUserId || raw.workerId || raw.customerId || raw.complainantId || '');
+
+      const dirName = roleType === 'WORKER'
+        ? (getWorkerName(compUserId) || (raw.workerId ? getWorkerName(String(raw.workerId)) : undefined))
+        : (getCustomerName(compUserId) || (raw.customerId ? getCustomerName(String(raw.customerId)) : undefined));
+
       const complainantName = String(
-        raw.complainantName ||
-        creator?.fullName ||
-        (raw.creatorKind === 'CUSTOMER' ? 'Customer' : 'Worker') ||
-        'User'
+        (typeof raw.complainantName === 'string' && raw.complainantName.trim() && raw.complainantName !== 'Worker' && raw.complainantName !== 'Customer' ? raw.complainantName.trim() : undefined) ||
+        (typeof raw.creatorName === 'string' && raw.creatorName.trim() ? raw.creatorName.trim() : undefined) ||
+        (typeof creator?.fullName === 'string' && creator.fullName.trim() ? creator.fullName.trim() : undefined) ||
+        (typeof creator?.name === 'string' && creator.name.trim() ? creator.name.trim() : undefined) ||
+        (typeof creatorProfile?.fullName === 'string' ? (creatorProfile.fullName as string).trim() : undefined) ||
+        (typeof creatorProfile?.name === 'string' ? (creatorProfile.name as string).trim() : undefined) ||
+        (creator?.firstName ? `${creator.firstName} ${creator.lastName || ''}`.trim() : undefined) ||
+        (roleType === 'WORKER' && typeof workerObj?.fullName === 'string' ? (workerObj.fullName as string).trim() : undefined) ||
+        (roleType === 'WORKER' && typeof workerObj?.name === 'string' ? (workerObj.name as string).trim() : undefined) ||
+        (roleType === 'WORKER' && typeof raw.workerName === 'string' && raw.workerName.trim() ? raw.workerName.trim() : undefined) ||
+        (roleType === 'CUSTOMER' && typeof customerObj?.fullName === 'string' ? (customerObj.fullName as string).trim() : undefined) ||
+        (roleType === 'CUSTOMER' && typeof customerObj?.name === 'string' ? (customerObj.name as string).trim() : undefined) ||
+        (roleType === 'CUSTOMER' && typeof raw.customerName === 'string' && raw.customerName.trim() ? raw.customerName.trim() : undefined) ||
+        (roleType === 'WORKER' && typeof raw.subjectWorkerName === 'string' && raw.subjectWorkerName.trim() ? raw.subjectWorkerName.trim() : undefined) ||
+        dirName ||
+        (roleType === 'CUSTOMER' ? 'Customer' : 'Worker')
       );
       const isBreached = Boolean(raw.slaBreachedAt) || raw.slaStatus === 'BREACHED';
       const isAtRisk = raw.slaStatus === 'AT_RISK' || (!isBreached && Boolean(raw.dueAt) && raw.status !== 'CLOSED' && raw.status !== 'RESOLVED' && (new Date(String(raw.dueAt)).getTime() - Date.now() <= 24 * 3600 * 1000));

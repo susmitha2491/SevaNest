@@ -50,7 +50,7 @@ describe('Support Grievance & SLA Workflows', () => {
     ).toBeInTheDocument();
 
     expect(screen.getByText(/SLA Impending Breach/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Unassigned Queue/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Open Inquiries/i).length).toBeGreaterThan(0);
     expect(screen.getByPlaceholderText(/Search by complainant, worker, ticket ID/i)).toBeInTheDocument();
 
     // Verify ticket records
@@ -58,26 +58,26 @@ describe('Support Grievance & SLA Workflows', () => {
     expect(screen.getByText('Anand Sharma')).toBeInTheDocument();
   });
 
-  it('opens ticket detail modal showing case notes timeline and allows logging a new case note', async () => {
+  it('opens ticket chat workspace showing conversation timeline and allows replying to customer', async () => {
     const user = userEvent.setup();
     renderWithProviders(<SupportTicketsPage />);
 
-    const viewButtons = await screen.findAllByRole('button', { name: /View/i });
+    const viewButtons = await screen.findAllByRole('button', { name: /View Chat/i });
     expect(viewButtons.length).toBeGreaterThan(0);
     await user.click(viewButtons[0]);
 
     // Check modal contents
-    expect(await screen.findByRole('heading', { name: /Grievance Case: TKT-4921/i })).toBeInTheDocument();
-    expect(screen.getByText(/Complainant Profile/i)).toBeInTheDocument();
-    expect(screen.getByText(/Case Activity & Telephonic Logs/i)).toBeInTheDocument();
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getAllByText('Anand Sharma').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/#TKT-4921/i)).toBeInTheDocument();
 
-    // Log a new telephonic note
-    const noteInput = screen.getByPlaceholderText(/Enter details of conversation/i);
+    // Type and send a reply to customer
+    const noteInput = screen.getByRole('textbox', { name: /Support reply text/i });
     await user.type(noteInput, 'Contacted customer family: Confirmed arrangement for next day shift.');
 
-    const saveNoteBtn = screen.getByRole('button', { name: /Save Case Note/i });
-    expect(saveNoteBtn).toBeEnabled();
-    await user.click(saveNoteBtn);
+    const sendBtn = screen.getByRole('button', { name: /Send/i });
+    expect(sendBtn).toBeEnabled();
+    await user.click(sendBtn);
   });
 
   it('opens ticket resolution dialog with mandatory remarks', async () => {

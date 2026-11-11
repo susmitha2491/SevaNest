@@ -464,10 +464,11 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       );
 
       // Actions permitted because user holds support.manage
-      expect(screen.getByText('Claim Ticket')).toBeInTheDocument();
-      expect(screen.getByText('Log Telephonic Finding / Internal Case Note')).toBeInTheDocument();
+      expect(screen.getByRole('textbox', { name: /Support reply text/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Send/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Mark Resolved/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Escalate Ops/i })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Claim Ticket/i })).not.toBeInTheDocument();
     });
 
     it('restricts actions in TicketDetailModal when support.manage is absent', () => {
@@ -514,10 +515,10 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       );
 
       // Actions hidden because user lacks support.manage
-      expect(screen.queryByText('Claim Ticket')).not.toBeInTheDocument();
-      expect(screen.queryByText('Log Telephonic Finding / Internal Case Note')).not.toBeInTheDocument();
+      expect(screen.queryByRole('textbox', { name: /Support reply text/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Mark Resolved/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Escalate Ops/i })).not.toBeInTheDocument();
+      expect(screen.getByText(/You do not have permission to send messages/i)).toBeInTheDocument();
     });
   });
 

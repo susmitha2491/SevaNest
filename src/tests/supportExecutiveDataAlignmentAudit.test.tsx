@@ -182,24 +182,25 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
     });
   });
 
-  describe('2. Ticket Owner Column Alignment', () => {
-    it('renames column to "Ticket Owner" in Support Queue and renders owner or "Unassigned"', async () => {
+  describe('2. Collective Support Model - Removal of Ticket Assignment & Ownership Columns', () => {
+    it('verifies that Ticket Owner and Assigned Staff columns are removed from Support Queue table', async () => {
       renderWithProviders(<SupportTicketsPage viewMode="all" />, '/support');
 
-      // Table header verification
-      expect(await screen.findByRole('columnheader', { name: /Ticket Owner/i })).toBeInTheDocument();
+      // Table header verification: neither Ticket Owner nor Assigned Staff should exist
+      expect(screen.queryByRole('columnheader', { name: /Ticket Owner/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('columnheader', { name: /Assigned Staff/i })).not.toBeInTheDocument();
 
-      // Check assigned and unassigned row values
-      const unassignedBadges = await screen.findAllByText(/Unassigned/i);
-      expect(unassignedBadges.length).toBeGreaterThan(0);
+      // Verified standard columns are present
+      expect(await screen.findByRole('columnheader', { name: /Ticket ID/i })).toBeInTheDocument();
+      expect(screen.getByRole('columnheader', { name: /Complainant/i })).toBeInTheDocument();
     });
 
-    it('renders "Ticket Owner" column in Support Executive Dashboard workstation table', async () => {
+    it('verifies that Ticket Owner column is removed from Support Executive Dashboard workstation table', async () => {
       renderWithProviders(<SupportExecutiveDashboard />, '/dashboard');
 
       expect(await screen.findByRole('heading', { name: /Support Operations Console/i })).toBeInTheDocument();
-      expect(await screen.findByRole('columnheader', { name: /Ticket Owner/i })).toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /Ticket Owner/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('columnheader', { name: /Assigned Staff/i })).not.toBeInTheDocument();
     });
   });
 
@@ -214,7 +215,7 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
 
       // Tier 2: Summary KPI Cards
       expect(screen.getByText(/SLA Impending Breach/i)).toBeInTheDocument();
-      expect(screen.getByText(/Unassigned Queue/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Open Inquiries/i).length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText(/Escalated to Operations/i)).toBeInTheDocument();
       expect(screen.getByText(/Resolved Cases/i)).toBeInTheDocument();
 
@@ -230,7 +231,7 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
       expect(screen.getByRole('button', { name: /All Tickets/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /In Investigation/i })).toBeInTheDocument();
 
-      // Tier 5: Ticket Table with 8 columns
+      // Tier 5: Ticket Table with 7 collective columns
       const table = container.querySelector('table');
       expect(table).toBeInTheDocument();
       const headers = within(table!).getAllByRole('columnheader').map((th) => th.textContent?.trim());
@@ -241,7 +242,6 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
         'Priority',
         'SLA Status',
         'Ticket Status',
-        'Ticket Owner',
         'Actions',
       ]);
     });

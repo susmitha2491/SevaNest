@@ -13,8 +13,10 @@ import {
   WorkerBlacklistInfo,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getWorkerPhone, setWorkerPhone } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { hasPermission, PERMISSIONS } from '../../../core/rbac/permissions';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { DomainError, ValidationError, NotFoundError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { mapToBackendReasonCode } from '../../verification/data/verificationRepository';
@@ -669,6 +671,12 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   if (rawCleanPhone) {
     setWorkerPhone(rawId, rawCleanPhone);
     if (item.userId) setWorkerPhone(String(item.userId), rawCleanPhone);
+  }
+
+  const workerFullName = String(item.fullName || item.name || '');
+  if (workerFullName && workerFullName !== 'Worker') {
+    setWorkerName(rawId, workerFullName);
+    if (item.userId) setWorkerName(String(item.userId), workerFullName);
   }
 
   let phoneMasked: string | undefined = undefined;
@@ -1674,19 +1682,75 @@ export class RealWorkerRepository implements IWorkerRepository {
 
   async getWorkerById(id: string): Promise<WorkerDetail | null> {
     try {
-      const [workerRes, verifRes, refRes, availRes] = await Promise.all([
-        httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}`),
-        httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}/verification`).catch(() => ({ data: undefined })),
-        httpClient.get<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }>(`/admin/workers/${encodeURIComponent(id)}/references`).catch(() => ({ data: [] })),
-        httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}/availability`).catch(() => ({ data: undefined })),
+      let rawWorker: Record<string, unknown> | null = null;
+      let effectiveId = id;
+
+      try {
+        const workerRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(id)}`);
+        const body = workerRes.data as Record<string, unknown>;
+        rawWorker = (body?.data && typeof body.data === 'object' && !Array.isArray(body.data)
+          ? body.data
+          : body) as Record<string, unknown>;
+      } catch (err: unknown) {
+        const status =
+          (err as { statusCode?: number; response?: { status?: number } })?.response?.status ||
+          (err as { statusCode?: number })?.statusCode;
+        // If 404, check if id is a userId that maps to an actual workerId
+        if (status === 404) {
+          try {
+            const listRes = await httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/workers', {
+              params: { limit: 100 },
+            });
+            const list = Array.isArray(listRes.data)
+              ? listRes.data
+              : Array.isArray(listRes.data?.data)
+              ? listRes.data.data
+              : [];
+            const match = list.find((w) => String(w.userId) === id || String(w.id) === id);
+            if (match && match.id && String(match.id) !== id) {
+              effectiveId = String(match.id);
+              const retryRes = await httpClient.get<Record<string, unknown>>(
+                `/admin/workers/${encodeURIComponent(effectiveId)}`
+              );
+              const retryBody = retryRes.data as Record<string, unknown>;
+              rawWorker = (retryBody?.data && typeof retryBody.data === 'object' && !Array.isArray(retryBody.data)
+                ? retryBody.data
+                : retryBody) as Record<string, unknown>;
+            } else if (match) {
+              rawWorker = match;
+            }
+          } catch {
+            // Ignore fallback lookup error
+          }
+        }
+      }
+
+      // If worker profile does not exist, return null immediately without making useless sub-requests
+      if (!rawWorker || Object.keys(rawWorker).length === 0) return null;
+
+      // Only fetch verification sub-resource if current user has verification permission (avoids 403 Forbidden)
+      const user = useAuthStore.getState().user;
+      const canViewVerification =
+        hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW) ||
+        hasPermission(user?.permissions, '*');
+
+      const [verifRes, refRes, availRes] = await Promise.all([
+        canViewVerification
+          ? httpClient
+              .get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(effectiveId)}/verification`)
+              .catch(() => ({ data: undefined }))
+          : Promise.resolve({ data: undefined }),
+        httpClient
+          .get<Array<Record<string, unknown>> | { data?: Array<Record<string, unknown>> }>(
+            `/admin/workers/${encodeURIComponent(effectiveId)}/references`
+          )
+          .catch(() => ({ data: [] })),
+        httpClient
+          .get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(effectiveId)}/availability`)
+          .catch(() => ({ data: undefined })),
       ]);
 
-      const rawWorker = workerRes.data as Record<string, unknown>;
-      if (!rawWorker) return null;
-      const unwrappedWorker = (rawWorker?.data && typeof rawWorker.data === 'object' && !Array.isArray(rawWorker.data)
-        ? rawWorker.data
-        : rawWorker) as Record<string, unknown>;
-
+      const unwrappedWorker = rawWorker;
       const rawVerif = verifRes.data as Record<string, unknown> | undefined;
       const unwrappedVerif = (rawVerif?.data && typeof rawVerif.data === 'object' && !Array.isArray(rawVerif.data)
         ? rawVerif.data
@@ -1695,7 +1759,6 @@ export class RealWorkerRepository implements IWorkerRepository {
       const rawRefs = refRes.data as unknown;
       const rawAvail = availRes.data as unknown;
 
-      if (!unwrappedWorker || Object.keys(unwrappedWorker).length === 0) return null;
       return mapBackendWorkerDetailToWorkerDetail(unwrappedWorker, unwrappedVerif, rawRefs, rawAvail);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);

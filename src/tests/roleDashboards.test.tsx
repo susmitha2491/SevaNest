@@ -224,7 +224,7 @@ describe('Role-Based Operational Dashboards', () => {
       const unassignedTab = await screen.findByText(/Unassigned Intake Queue \(\d+\)/);
       fireEvent.click(unassignedTab);
       expect(await screen.findByText('Payout Clarification')).toBeInTheDocument();
-      expect((await screen.findAllByText('Claim Ticket')).length).toBeGreaterThan(0);
+      expect((await screen.findAllByText(/Mediate Dispute|Open Workspace/i)).length).toBeGreaterThan(0);
 
       // Switch to Escalated tab
       const escalatedTab = await screen.findByText(/Escalated to Operations \(\d+\)/);

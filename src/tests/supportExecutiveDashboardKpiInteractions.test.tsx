@@ -8,6 +8,7 @@ import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
 import { resetRefreshCoordinator } from '../core/auth/tokenRefreshCoordinator';
 import { resetSessionRestorationState } from '../core/auth/sessionRestoration';
+import { verificationRepository } from '../features/verification/data/verificationRepository';
 
 function renderApp(initialPath: string = '/dashboard') {
   const queryClient = new QueryClient({
@@ -338,6 +339,14 @@ describe('Support Executive Dashboard Default Tab & Interaction Audit', () => {
     });
 
     it('Verification Executive lands on /verification and mounts Trust Operations unaffected', async () => {
+      vi.spyOn(verificationRepository, 'getVerificationQueue').mockResolvedValueOnce({
+        items: [],
+        total: 0,
+        page: 1,
+        pageSize: 10,
+        totalPages: 1,
+      } as unknown as Awaited<ReturnType<typeof verificationRepository.getVerificationQueue>>);
+
       useAuthStore.getState().setSession(
         {
           id: 'adm-003',

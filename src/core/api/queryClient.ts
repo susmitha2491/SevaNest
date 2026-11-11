@@ -10,7 +10,16 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes fresh cache
       gcTime: 1000 * 60 * 30, // 30 minutes garbage collection
-      retry: 1, // Safe retry on query reads
+      retry: (failureCount, error) => {
+        const status =
+          (error as { statusCode?: number; response?: { status?: number } })?.statusCode ||
+          (error as { response?: { status?: number } })?.response?.status;
+        // Do not retry client authorization or not-found errors
+        if (status === 404 || status === 403 || status === 401 || status === 400 || status === 422) {
+          return false;
+        }
+        return failureCount < 1;
+      },
       refetchOnWindowFocus: false,
     },
     mutations: {

@@ -220,7 +220,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
         <div>
           <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
             Support Operations Console
@@ -255,7 +255,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
           gap: 'var(--space-4)',
         }}
       >
@@ -376,7 +376,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
               )}
             </div>
           ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-sm)' }}>
+            <table style={{ width: '100%', minWidth: '720px', borderCollapse: 'collapse', fontSize: 'var(--font-size-sm)' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
                   <th style={{ padding: '8px 12px' }}>Ticket ID</th>
@@ -385,7 +385,6 @@ export const SupportExecutiveDashboard: React.FC = () => {
                   <th style={{ padding: '8px 12px' }}>Dispute Category</th>
                   <th style={{ padding: '8px 12px' }}>SLA Indicator</th>
                   <th style={{ padding: '8px 12px' }}>Status</th>
-                  <th style={{ padding: '8px 12px' }}>Ticket Owner</th>
                   <th style={{ padding: '8px 12px', textAlign: 'right' }}>Mediation Action</th>
                 </tr>
               </thead>
@@ -457,13 +456,6 @@ export const SupportExecutiveDashboard: React.FC = () => {
                     <td style={{ padding: '12px' }}>
                       <StatusBadge status={item.status} />
                     </td>
-                    <td style={{ padding: '12px', fontSize: 'var(--font-size-xs)' }}>
-                      {item.ticketOwner ? (
-                        <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.ticketOwner}</span>
-                      ) : (
-                        <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>Unassigned</span>
-                      )}
-                    </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>
                       <button
                         onClick={() => navigate(`/support/tickets?search=${encodeURIComponent(item.ticketId)}&ticketId=${encodeURIComponent(item.ticketId)}`)}
@@ -482,7 +474,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
                         }}
                       >
                         {activeTab === 'ESCALATED' ? <ArrowUpRight size={14} /> : <LifeBuoy size={14} />}
-                        <span>{item.actionLabel}</span>
+                        <span>{item.actionLabel === 'Claim Ticket' ? 'Mediate Dispute' : item.actionLabel}</span>
                         <ArrowRight size={12} />
                       </button>
                     </td>
