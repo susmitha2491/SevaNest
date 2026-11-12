@@ -2415,3 +2415,28 @@ Executive Review Workstation:
 
 
 
+
+
+---
+
+## 24. Support Executive Dashboard Reporting & Date-Range Filter Contract Gaps (GAP-SUP-RPT-01)
+
+### 24.1 Ticket Trends Time-Series & Date-Range Filtering for Support Executive (`GAP-SUP-RPT-01`)
+
+- **Gap Identifier:** `GAP-SUP-RPT-01`
+- **Module Affected:** Support Executive Dashboard (`SupportExecutiveDashboard.tsx`, `dashboardRepository.ts`)
+- **Features Affected:**
+  1. Dashboard Header date-range filter (`from` / `to`)
+  2. Ticket Trends chart (`Created` and `Resolved` tickets over time)
+- **Observed Backend API & OpenAPI Contract (`docs/api/openapi.json` & live Render checks):**
+  1. `GET /api/v1/admin/dashboard`: Returns only current live complaint snapshot counts (`sections.complaints: { open, inProgress, escalated, unassigned }`) and accepts no date-range query parameters.
+  2. `GET /api/v1/admin/support/tickets`: Accepts `page, limit, status, priority, categoryId, assignedToUserId, creatorUserId, unassigned, bookingId, creatorKind` and does **not** support `from`/`to` date-range filtering (`?from=...&to=...` is ignored and returns all records).
+  3. `GET /api/v1/admin/reports/support-tickets` (`FR-RPT-011`): Supports `from`, `to`, and `interval`, **but**:
+     - Returns `403 FORBIDDEN` (`"You do not have permission to perform this action"`) for `SUPPORT_EXECUTIVE`, whose backend permissions (`booking.view`, `customer.view`, `worker.view`, `support.view`, `support.manage`, `rating.view`) omit `reports.view`.
+     - Even when authorized, `data.series` only returns `{ period, count }` (created count per period) without per-period `resolved` / `closed` counts.
+- **Required Backend Support:**
+  1. Authorize `SUPPORT_EXECUTIVE` (via `support.view` or scoped reporting access) to read `GET /api/v1/admin/reports/support-tickets` and support `from`/`to` date-range filtering consistently on `/api/v1/admin/support/tickets` and `/api/v1/admin/dashboard`.
+  2. Extend `FR-RPT-011` (`data.series`) to include both `created` and `resolved` (`closed`) counts per interval bucket.
+- **Frontend Contract-Aligned Action:**
+  - `SupportExecutiveDashboard` uses `GET /api/v1/admin/dashboard` and `GET /api/v1/admin/support/tickets` strictly for KPI counts, Ticket Status Distribution, SLA Monitoring (`slaBreachedAt`, `dueAt`), and Recent Support Activity (`createdAt`, `updatedAt`, `escalatedAt`, `closedAt`).
+  - Both the date-range filter and the **Ticket Trends** section are omitted completely from the Support Executive Dashboard without issuing `/admin/reports/support-tickets` requests or fabricating time-series values.
