@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { authRepository } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
@@ -129,7 +130,7 @@ export const SignInPage: React.FC = () => {
       <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <label htmlFor="admin-email" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-            Admin Email Address
+            Admin Email Address <RequiredIndicator />
           </label>
           <div
             style={{
@@ -175,7 +176,7 @@ export const SignInPage: React.FC = () => {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
           <label htmlFor="admin-password" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-            Password
+            Password <RequiredIndicator />
           </label>
           <div
             style={{

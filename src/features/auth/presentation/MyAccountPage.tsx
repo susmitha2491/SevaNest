@@ -21,6 +21,7 @@ import {
 import { useAuthStore } from '../../../core/auth/authStore';
 import { authRepository } from '../data/authRepository';
 import { getRoleLabel, getDefaultLandingRoute } from '../../../core/rbac/permissions';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 export const MyAccountPage: React.FC = () => {
   const navigate = useNavigate();
@@ -891,7 +892,7 @@ export const MyAccountPage: React.FC = () => {
                     color: 'var(--color-text-primary)',
                   }}
                 >
-                  Full Name <span style={{ color: 'var(--color-error)' }}>*</span>
+                  Full Name <RequiredIndicator />
                 </label>
                 <input
                   id="edit-profile-name"
@@ -1474,7 +1475,7 @@ export const MyAccountPage: React.FC = () => {
                   marginBottom: '4px',
                 }}
               >
-                Current Password <span style={{ color: 'var(--color-status-danger-text)' }}>*</span>
+                Current Password <RequiredIndicator />
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -1548,7 +1549,7 @@ export const MyAccountPage: React.FC = () => {
                   marginBottom: '4px',
                 }}
               >
-                New Password <span style={{ color: 'var(--color-status-danger-text)' }}>*</span>
+                New Password <RequiredIndicator />
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -1626,7 +1627,7 @@ export const MyAccountPage: React.FC = () => {
                   marginBottom: '4px',
                 }}
               >
-                Confirm New Password <span style={{ color: 'var(--color-status-danger-text)' }}>*</span>
+                Confirm New Password <RequiredIndicator />
               </label>
               <div style={{ position: 'relative' }}>
                 <input

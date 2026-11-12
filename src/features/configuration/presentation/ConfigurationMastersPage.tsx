@@ -22,6 +22,7 @@ import {
   LucideIcon,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
@@ -1957,7 +1958,9 @@ export const ConfigurationMastersPage: React.FC = () => {
             </h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Cluster / Locality Name</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Cluster / Locality Name <RequiredIndicator />
+              </label>
               <input
                 type="text"
                 value={areaDraft.clusterName}
@@ -1967,7 +1970,9 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>City Name</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                City Name <RequiredIndicator />
+              </label>
               <input
                 type="text"
                 value={areaDraft.cityName}
@@ -2074,7 +2079,9 @@ export const ConfigurationMastersPage: React.FC = () => {
             </h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Message Title Template</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Message Title Template <RequiredIndicator />
+              </label>
               <input
                 type="text"
                 value={templateDraft.titleTemplate}
@@ -2084,7 +2091,9 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Message Body Copy Template</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Message Body Copy Template <RequiredIndicator />
+              </label>
               <textarea
                 rows={4}
                 value={templateDraft.bodyTemplate}
@@ -2332,7 +2341,7 @@ export const ConfigurationMastersPage: React.FC = () => {
             )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Administrator Email</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Administrator Email <RequiredIndicator /></label>
               <input
                 type="email"
                 placeholder="name@sevanest.internal"
@@ -2343,7 +2352,7 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Temporary Password (min 8 characters)</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Temporary Password (min 8 characters) <RequiredIndicator /></label>
               <input
                 type="password"
                 placeholder="••••••••••••"
@@ -2354,7 +2363,7 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Assigned Role Persona</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Assigned Role Persona <RequiredIndicator /></label>
               <CustomSelect
                 value={createAdminDraft.roleCode}
                 onChange={(val) => setCreateAdminDraft({ ...createAdminDraft, roleCode: val as AdminRole })}
@@ -2435,7 +2444,7 @@ export const ConfigurationMastersPage: React.FC = () => {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>New Role Persona</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>New Role Persona <RequiredIndicator /></label>
               <CustomSelect
                 value={newRoleCode}
                 onChange={(val) => setNewRoleCode(val as AdminRole)}
@@ -2451,7 +2460,7 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Audit Justification Remarks</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Audit Justification Remarks <RequiredIndicator /></label>
               <textarea
                 rows={3}
                 placeholder="Reason for role change (recorded in authoritative audit log)..."
@@ -2536,7 +2545,7 @@ export const ConfigurationMastersPage: React.FC = () => {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                Operational Justification Remarks <span style={{ color: 'var(--color-status-danger-text)' }}>*</span>
+                Operational Justification Remarks <RequiredIndicator />
               </label>
               <textarea
                 rows={3}

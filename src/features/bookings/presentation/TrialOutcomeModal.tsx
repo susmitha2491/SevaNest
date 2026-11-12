@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { BookingDetail, TrialOutcome } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 interface TrialOutcomeModalProps {
   booking: BookingDetail | null;
@@ -112,7 +113,7 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
         <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto' }}>
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)', textTransform: 'uppercase' }}>
-              Trial Result:
+              Trial Result <RequiredIndicator />
             </label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label

@@ -170,7 +170,7 @@ describe('Worker Verification & Trust Workstation', () => {
 
     // Verify ConfirmDialog opens with category selection
     expect(await screen.findByText(/Reject (Identity|Address) Proof/i)).toBeInTheDocument();
-    expect(screen.getByText(/Rejection Category:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Rejection Category/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Enter mandatory operational remarks/i)).toBeInTheDocument();
 
     // Confirm button is disabled if remarks are empty

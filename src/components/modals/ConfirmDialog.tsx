@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
+import { RequiredIndicator } from '../common/RequiredIndicator';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface ConfirmDialogProps {
   isDestructive?: boolean;
   requireRemarks?: boolean;
   showRemarks?: boolean;
+  remarksLabel?: string;
   remarksPlaceholder?: string;
   errorMessage?: string | null;
   onConfirm: (remarks?: string) => void;
@@ -32,6 +34,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   isDestructive = false,
   requireRemarks = false,
   showRemarks = false,
+  remarksLabel,
   remarksPlaceholder = 'Enter mandatory operational rationale / remarks...',
   errorMessage = null,
   onConfirm,
@@ -42,6 +45,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 }) => {
   const [remarks, setRemarks] = useState('');
   const [isConfirmedCheckbox, setIsConfirmedCheckbox] = useState(!isDestructive);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      setRemarks('');
+      setIsConfirmedCheckbox(!isDestructive);
+    }
+  }, [isOpen, isDestructive]);
 
   if (!isOpen) return null;
 
@@ -147,7 +157,17 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         {(requireRemarks || showRemarks) && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
             <label htmlFor="remarks-input" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-              Operational Remarks {requireRemarks ? '(Mandatory)' : '(Optional)'}
+              {remarksLabel ? (
+                <>
+                  {remarksLabel}
+                  {requireRemarks && <RequiredIndicator />}
+                </>
+              ) : (
+                <>
+                  Operational Remarks
+                  {requireRemarks ? <RequiredIndicator /> : ' (Optional)'}
+                </>
+              )}
             </label>
             <textarea
               id="remarks-input"
@@ -155,6 +175,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               onChange={(e) => setRemarks(e.target.value)}
               placeholder={remarksPlaceholder}
               rows={3}
+              disabled={isLoading}
               style={{
                 backgroundColor: 'var(--color-bg-app)',
                 border: '1px solid var(--color-border)',
@@ -164,6 +185,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 fontSize: 'var(--font-size-sm)',
                 fontFamily: 'inherit',
                 resize: 'vertical',
+                opacity: isLoading ? 0.7 : 1,
               }}
             />
           </div>

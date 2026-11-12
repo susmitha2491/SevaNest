@@ -20,6 +20,7 @@ import {
 } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 interface ReplacementFulfillmentModalProps {
   booking: BookingDetail | null;
@@ -498,7 +499,7 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                   }}
                 >
                   <strong style={{ color: 'var(--color-error-dark)', fontSize: 'var(--font-size-xs)' }}>
-                    Reject Replacement Request (Mandatory Remarks Required by Backend, max 1000 chars):
+                    Reject Replacement Request Remarks (max 1000 chars) <RequiredIndicator />
                   </strong>
                   <textarea
                     rows={2}

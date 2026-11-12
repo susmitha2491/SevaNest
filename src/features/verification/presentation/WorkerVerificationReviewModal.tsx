@@ -27,6 +27,7 @@ import { evaluateVerificationWorkflow, VerificationStepDefinition } from '../dom
 import { formatDocumentVaultError } from '../domain/documentVaultErrorFormatter';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import {
@@ -5051,7 +5052,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                 htmlFor="verification-call-notes-input"
                 style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}
               >
-                Employer Reference Call Outcome / Call Notes <span style={{ color: 'var(--color-error)' }}>*</span>
+                Employer Reference Call Outcome / Call Notes <RequiredIndicator />
               </label>
               <p style={{ fontSize: '11px', color: 'var(--color-text-secondary)', margin: 0 }}>
                 Backend validation rule requires verification call notes before Previous Employment check can be approved.
@@ -5090,7 +5091,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   htmlFor="police-ref-number-input"
                   style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
                 >
-                  Police Clearance / Certificate Reference Number
+                  Police Clearance / Certificate Reference Number <RequiredIndicator />
                 </label>
                 <input
                   id="police-ref-number-input"
@@ -5116,7 +5117,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   htmlFor="police-expiry-date-input"
                   style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '4px' }}
                 >
-                  Certificate Expiration Date
+                  Certificate Expiration Date <RequiredIndicator />
                 </label>
                 <input
                   id="police-expiry-date-input"
@@ -5175,7 +5176,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         >
           <div style={{ marginBottom: 'var(--space-2)' }}>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px' }}>
-              Rejection Category: *
+              Rejection Category <RequiredIndicator />
             </label>
             <CustomSelect
               value={rejectionCategory}
@@ -5341,7 +5342,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               htmlFor="reject-app-reason-category-select"
               style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: '4px' }}
             >
-              Rejection Reason Code / Category: <span style={{ color: 'var(--color-error)' }}>*</span>
+              Rejection Reason Code / Category <RequiredIndicator />
             </label>
             <CustomSelect
               id="reject-app-reason-category-select"

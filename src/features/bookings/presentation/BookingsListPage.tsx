@@ -28,6 +28,7 @@ import { TrialOutcomeModal } from './TrialOutcomeModal';
 import { ReplacementFulfillmentModal } from './ReplacementFulfillmentModal';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { SearchInput } from '../../../components/common/SearchInput';
 
 export interface BookingsListPageProps {
@@ -813,7 +814,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
       >
         <div style={{ marginBottom: 'var(--space-3)' }}>
           <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-            Cancellation Reason Category:
+            Cancellation Reason Category <RequiredIndicator />
           </label>
           <CustomSelect
             value={cancelCategory}

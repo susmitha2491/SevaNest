@@ -8,6 +8,7 @@ import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
@@ -203,7 +204,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           {/* Reason Category Dropdown */}
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '2px', textTransform: 'uppercase' }}>
-              Refund Reason Category (Mandatory):
+              Refund Reason Category <RequiredIndicator />
             </label>
             <CustomSelect
               value={reasonCategory}
@@ -217,7 +218,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           {/* Operational Remarks */}
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '2px', textTransform: 'uppercase' }}>
-              Operational Remarks & Settlement Rationale (Mandatory):
+              Operational Remarks & Settlement Rationale <RequiredIndicator />
             </label>
             <textarea
               rows={3}

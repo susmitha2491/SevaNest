@@ -135,7 +135,7 @@ describe('Booking & Service Management Workflows', () => {
     await user.click(cancelButtons[0]);
 
     expect(await screen.findByText(/Cancel Booking B-84920/i)).toBeInTheDocument();
-    expect(screen.getByText(/Cancellation Reason Category:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Cancellation Reason Category/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Enter mandatory operational remarks for cancellation/i)).toBeInTheDocument();
 
     const confirmBtn = screen.getByRole('button', { name: /^Confirm$/i });

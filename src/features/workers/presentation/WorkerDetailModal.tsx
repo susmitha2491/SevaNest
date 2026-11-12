@@ -53,6 +53,7 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 export type WorkerModalWorkflowStep =
   | 'worker-info'
@@ -5199,7 +5200,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               marginBottom: 'var(--space-1)',
             }}
           >
-            Rejection Category: *
+            Rejection Category <RequiredIndicator />
           </label>
           <CustomSelect
             value={rejectCategory}
@@ -5321,7 +5322,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 marginBottom: 'var(--space-1)',
               }}
             >
-              Rejection Reason Category: *
+              Rejection Reason Category <RequiredIndicator />
             </label>
             <CustomSelect
               id="worker-rejection-category-select"
@@ -5464,7 +5465,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   htmlFor="input-doc-number"
                   style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '4px' }}
                 >
-                  Document Number / Reference Number *
+                  Document Number / Reference Number <RequiredIndicator />
                 </label>
                 <input
                   id="input-doc-number"
@@ -5495,7 +5496,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   htmlFor="input-expiry-date"
                   style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, marginBottom: '4px' }}
                 >
-                  Document Expiry Date *
+                  Document Expiry Date <RequiredIndicator />
                 </label>
                 <input
                   id="input-expiry-date"

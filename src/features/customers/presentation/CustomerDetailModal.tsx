@@ -18,6 +18,7 @@ import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge'
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
@@ -906,7 +907,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
             </p>
             <div>
               <label htmlFor="reveal-reason-input" style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', display: 'block', marginBottom: '4px' }}>
-                Operational Rationale (Mandatory)
+                Operational Rationale <RequiredIndicator />
               </label>
               <textarea
                 id="reveal-reason-input"

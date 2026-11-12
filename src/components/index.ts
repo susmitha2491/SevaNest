@@ -2,6 +2,7 @@
 export * from './common/KPICard';
 export * from './common/CustomSelect';
 export * from './common/SearchInput';
+export * from './common/RequiredIndicator';
 
 // Modals
 export * from './modals/ConfirmDialog';
