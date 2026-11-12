@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, cleanup, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -7,8 +7,10 @@ import { routes } from '../app/router/routes';
 import { useAuthStore } from '../core/auth/authStore';
 import { authRepository, RealAuthRepository } from '../features/auth/data/authRepository';
 import { httpClient } from '../core/api/httpClient';
+import { queryClient as appQueryClient } from '../core/api/queryClient';
 import { restoreSession, resetSessionRestorationState } from '../core/auth/sessionRestoration';
 import { resetRefreshCoordinator } from '../core/auth/tokenRefreshCoordinator';
+import { RateLimitExceededError, UnauthorizedError } from '../core/errors/DomainError';
 import { PERMISSIONS } from '../core/rbac/permissions';
 
 function renderApp(initialEntry = '/auth/login') {
@@ -321,6 +323,199 @@ describe('Audit & Fix: Unnecessary /api/v1/users/me 401 Request on Unauthenticat
       // Confirm ZERO calls to /users/me after logout on login page
       const usersMeCalls = getSpy.mock.calls.filter((call) => String(call[0]).includes('/users/me'));
       expect(usersMeCalls.length).toBe(0);
+    });
+  });
+
+  /* =========================================================================
+     6. Rate Limit (HTTP 429) Session Restoration, Cooldown, and Concurrency Safety
+     ========================================================================= */
+  describe('6. Rate Limit (HTTP 429) Session Restoration Without Artificial Restrictions', () => {
+    it('deduplicates concurrent refresh calls into one request even when backend returns HTTP 429 and preserves refresh token', async () => {
+      const realRepo = new RealAuthRepository();
+      vi.spyOn(authRepository, 'refreshToken').mockImplementation((token?: string) => realRepo.refreshToken(token));
+      window.sessionStorage.setItem('sevanest_refresh_token', 'rt-429-dedup-token');
+
+      let postCount = 0;
+      vi.spyOn(httpClient, 'post').mockImplementation(async (url: string) => {
+        if (url === '/auth/token/refresh') {
+          postCount++;
+          await new Promise((r) => setTimeout(r, 20));
+          throw {
+            isAxiosError: true,
+            response: {
+              status: 429,
+              data: { message: 'Rate limit exceeded.' },
+            },
+          };
+        }
+        throw new Error(`Unexpected POST ${url}`);
+      });
+
+      const results = await Promise.all([restoreSession(), restoreSession(), restoreSession()]);
+      expect(results).toEqual([false, false, false]);
+      expect(postCount).toBe(1);
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBe('rt-429-dedup-token');
+      expect(useAuthStore.getState().restorationError).toBe('Rate limit exceeded.');
+    });
+
+    it('renders visible enabled Retry Connection button without countdown locks on 429 and recovers cleanly on manual retry', async () => {
+      const user = userEvent.setup();
+      const realRepo = new RealAuthRepository();
+      vi.spyOn(authRepository, 'refreshToken').mockImplementation((token?: string) => realRepo.refreshToken(token));
+      vi.spyOn(authRepository, 'getCurrentSession').mockImplementation((token?: string) => realRepo.getCurrentSession(token));
+      window.sessionStorage.setItem('sevanest_refresh_token', 'rt-429-manual-retry');
+
+      let postCount = 0;
+      vi.spyOn(httpClient, 'post').mockImplementation(async (url: string) => {
+        if (url === '/auth/token/refresh') {
+          postCount++;
+          if (postCount === 1) {
+            throw {
+              isAxiosError: true,
+              response: {
+                status: 429,
+                data: { message: 'Rate limit exceeded.' },
+              },
+            };
+          }
+          return {
+            data: {
+              accessToken: 'jwt-recovered-manual',
+              refreshToken: 'rt-rotated-manual',
+              user: {
+                id: 'adm-429-manual',
+                name: 'Support Exec',
+                email: 'support.executive@sevanest.example.com',
+                role: 'SUPPORT_EXECUTIVE',
+                permissions: ['support.view', 'dashboard.view'],
+              },
+            },
+          } as never;
+        }
+        throw new Error(`Unexpected POST ${url}`);
+      });
+
+      useAuthStore.setState({
+        isInitialized: false,
+        isRestoring: false,
+        isAuthenticated: false,
+        user: null,
+        accessToken: null,
+      });
+
+      const { router } = renderApp('/support');
+
+      expect(
+        await screen.findByRole('heading', { name: /Authentication Service Unavailable/i }, { timeout: 4000 })
+      ).toBeInTheDocument();
+      const retryBtn = screen.getByRole('button', { name: /^Retry Connection$/i });
+      expect(retryBtn).toBeEnabled();
+      expect(retryBtn).toHaveStyle({ backgroundColor: 'var(--color-primary)' });
+      expect(screen.queryByText(/Retrying automatically in/i)).not.toBeInTheDocument();
+
+      // Refresh token preserved, user not redirected to /auth/login
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBe('rt-429-manual-retry');
+      expect(router.state.location.pathname).toBe('/support');
+      expect(postCount).toBe(1);
+
+      // Clicking Retry Connection is unblocked immediately and restores session when backend recovers
+      await user.click(retryBtn);
+      await waitFor(() => {
+        expect(useAuthStore.getState().isAuthenticated).toBe(true);
+      });
+      expect(postCount).toBe(2);
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBe('rt-rotated-manual');
+    });
+
+    it('preserves refresh token on 429 even if response text contains invalid/expired wording', async () => {
+      const realRepo = new RealAuthRepository();
+      vi.spyOn(authRepository, 'refreshToken').mockImplementation((token?: string) => realRepo.refreshToken(token));
+      window.sessionStorage.setItem('sevanest_refresh_token', 'rt-429-no-headers');
+
+      vi.spyOn(httpClient, 'post').mockRejectedValueOnce({
+        isAxiosError: true,
+        response: {
+          status: 429,
+          headers: {},
+          data: { message: 'Temporary rate limit - invalid burst detected by proxy' },
+        },
+      });
+
+      useAuthStore.setState({
+        isInitialized: false,
+        isRestoring: false,
+        isAuthenticated: false,
+        user: null,
+        accessToken: null,
+      });
+
+      renderApp('/support');
+
+      expect(
+        await screen.findByRole('heading', { name: /Authentication Service Unavailable/i }, { timeout: 4000 })
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Retry Connection$/i })).toBeEnabled();
+      expect(window.sessionStorage.getItem('sevanest_refresh_token')).toBe('rt-429-no-headers');
+    });
+
+    it('does not retry 429 or 401 in QueryClient and replays stale-token 401 without extra /refresh when token already rotated', async () => {
+      const retryFn = appQueryClient.getDefaultOptions().queries?.retry;
+      expect(typeof retryFn).toBe('function');
+      if (typeof retryFn === 'function') {
+        expect(retryFn(0, new RateLimitExceededError('Rate limit exceeded.'))).toBe(false);
+        expect(retryFn(0, new UnauthorizedError('Expired'))).toBe(false);
+      }
+
+      // Simulate store already updated with newer access token by a prior concurrent request
+      useAuthStore.getState().setSession(
+        {
+          id: 'adm-supp',
+          name: 'Support Exec',
+          email: 'support.executive@sevanest.example.com',
+          role: 'SUPPORT_EXECUTIVE',
+          permissions: ['support.view'],
+        },
+        'fresh-access-token',
+        'fresh-refresh-token'
+      );
+
+      const postSpy = vi.spyOn(httpClient, 'post');
+      const adapterSpy = vi.fn(async (config: { headers?: Record<string, unknown> }) => ({
+        data: { ok: true },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      }));
+      const originalAdapter = httpClient.defaults.adapter;
+      httpClient.defaults.adapter = adapterSpy as never;
+
+      try {
+        interface ResInterceptorManagerWithHandlers {
+          handlers: Array<{ rejected: (error: unknown) => Promise<unknown> }>;
+        }
+        const resManager = httpClient.interceptors.response as unknown as ResInterceptorManagerWithHandlers;
+        const responseInterceptor = resManager.handlers[0].rejected;
+
+        await act(async () => {
+          await responseInterceptor({
+            isAxiosError: true,
+            config: {
+              url: '/admin/support/tickets',
+              headers: { Authorization: 'Bearer stale-access-token' },
+            },
+            response: { status: 401, data: { message: 'Token expired' } },
+          });
+        });
+
+        // Must replay directly with the newer in-memory token instead of hitting /auth/token/refresh
+        const refreshCalls = postSpy.mock.calls.filter((call) => String(call[0]).includes('/auth/token/refresh'));
+        expect(refreshCalls.length).toBe(0);
+        expect(adapterSpy).toHaveBeenCalledTimes(1);
+        expect(adapterSpy.mock.calls[0][0]?.headers?.Authorization).toBe('Bearer fresh-access-token');
+      } finally {
+        httpClient.defaults.adapter = originalAdapter;
+      }
     });
   });
 });

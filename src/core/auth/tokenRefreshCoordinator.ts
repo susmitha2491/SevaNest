@@ -5,7 +5,7 @@ import { AdminUser } from './authTypes';
 import { getStoredRefreshToken, setStoredRefreshToken, clearStoredRefreshToken } from './tokenStorage';
 import { mapBackendUserToAdminUser } from '../../features/auth/data/authRepository';
 import { mapHttpErrorToDomainError } from '../errors/errorMapper';
-import { UnauthorizedError, ServerFailureError } from '../errors/DomainError';
+import { UnauthorizedError, ServerFailureError, ConcurrencyConflictError } from '../errors/DomainError';
 import { logger } from '../logging/logger';
 
 export interface TokenRefreshResult {
@@ -123,7 +123,7 @@ export async function requestTokenRefresh(explicitToken?: string): Promise<Token
         if (currentStored && currentStored !== tokenToRefresh && lastRefreshResult) {
           return lastRefreshResult;
         }
-        return performHttpRefresh(tokenToRefresh);
+        return performHttpRefresh(currentStored || tokenToRefresh);
       });
     }
 
@@ -140,7 +140,7 @@ export async function requestTokenRefresh(explicitToken?: string): Promise<Token
 /**
  * Dispatches the raw HTTP POST /auth/token/refresh call and processes the response.
  */
-async function performHttpRefresh(currentToken: string): Promise<TokenRefreshResult> {
+async function performHttpRefresh(currentToken: string, hasRetried = false): Promise<TokenRefreshResult> {
   try {
     const response = await httpClient.post<Record<string, unknown>>(
       '/auth/token/refresh',
@@ -226,6 +226,22 @@ async function performHttpRefresh(currentToken: string): Promise<TokenRefreshRes
     return result;
   } catch (err: unknown) {
     const domainError = mapHttpErrorToDomainError(err);
+
+    // Handle HTTP 409 REFRESH_IN_PROGRESS per OpenAPI: reuse newest token if already rotated
+    if (
+      !hasRetried &&
+      domainError instanceof ConcurrencyConflictError &&
+      domainError.errorCode === 'REFRESH_IN_PROGRESS'
+    ) {
+      const latestStored = getStoredRefreshToken();
+      if (latestStored && latestStored !== currentToken) {
+        if (lastRefreshResult && lastRefreshResult.refreshToken === latestStored) {
+          return lastRefreshResult;
+        }
+        return performHttpRefresh(latestStored, true);
+      }
+    }
+
     const isExplicitAuthFailure =
       domainError instanceof UnauthorizedError ||
       (axios.isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403));

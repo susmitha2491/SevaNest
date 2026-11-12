@@ -4,7 +4,7 @@ import { authRepository } from '../../features/auth/data/authRepository';
 import { getStoredRefreshToken, clearStoredRefreshToken, setStoredRefreshToken } from './tokenStorage';
 import { logger } from '../logging/logger';
 import { mapHttpErrorToDomainError } from '../errors/errorMapper';
-import { UnauthorizedError, ForbiddenError } from '../errors/DomainError';
+import { UnauthorizedError, ForbiddenError, RateLimitExceededError, ServerFailureError, NetworkError } from '../errors/DomainError';
 
 let restoreSessionPromise: Promise<boolean> | null = null;
 
@@ -83,11 +83,19 @@ export async function restoreSession(): Promise<boolean> {
       return true;
     } catch (err: unknown) {
       const domainError = mapHttpErrorToDomainError(err);
+      const isTemporaryFailure =
+        domainError instanceof RateLimitExceededError ||
+        domainError instanceof NetworkError ||
+        err instanceof ServerFailureError ||
+        (axios.isAxiosError(err) &&
+          (!err.response || err.response.status === 429 || err.response.status >= 500));
+
       const isExplicitAuthFailure =
-        domainError instanceof UnauthorizedError ||
-        domainError instanceof ForbiddenError ||
-        (axios.isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) ||
-        (err instanceof Error && /expired|invalid|unauthorized/i.test(err.message));
+        !isTemporaryFailure &&
+        (domainError instanceof UnauthorizedError ||
+          domainError instanceof ForbiddenError ||
+          (axios.isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) ||
+          (err instanceof Error && /expired|invalid|unauthorized/i.test(err.message)));
 
       logger.warn('Failed to restore administrative session from refresh token', {
         error: err instanceof Error ? err.message : String(err),
@@ -103,9 +111,9 @@ export async function restoreSession(): Promise<boolean> {
         }
         useAuthStore.getState().setRestorationError(null);
       } else {
-        // Transient network or server failure (5xx, offline, timeout):
-        // Preserve the stored token so user can retry or recover when connection is restored.
-        // Do not silently treat server downtime as an unauthenticated session.
+        // Transient network, rate-limit (429), or server failure (5xx):
+        // Preserve the stored token so user can retry or recover when connection/backend recovers.
+        // Do not silently treat server downtime or 429 as an unauthenticated session.
         logger.error('Temporary server or network failure during session restoration. Refresh token preserved.', {
           error: domainError.message,
         });

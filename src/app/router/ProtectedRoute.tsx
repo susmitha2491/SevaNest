@@ -48,7 +48,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
             width: '36px',
             height: '36px',
             border: '3px solid var(--color-border)',
-            borderTopColor: 'var(--color-brand-primary)',
+            borderTopColor: 'var(--color-primary)',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
           }}
@@ -60,8 +60,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
     );
   }
 
-  // Graceful error state when session verification fails due to server or network downtime
-  // (distinguishes server/network failure from expected unauthenticated state)
+  // Graceful error state when session verification fails due to temporary server, rate-limit, or network failure
+  // (distinguishes temporary failure from expected unauthenticated state)
   if (restorationError && !isAuthenticated) {
     return (
       <div
@@ -94,8 +94,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
             onClick={() => restoreSession()}
             style={{
               padding: '8px 16px',
-              backgroundColor: 'var(--color-brand-primary)',
-              color: '#ffffff',
+              backgroundColor: 'var(--color-primary)',
+              color: 'var(--color-primary-foreground)',
               border: 'none',
               borderRadius: 'var(--radius-md)',
               fontWeight: 600,

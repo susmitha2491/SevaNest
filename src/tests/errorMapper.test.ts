@@ -70,11 +70,18 @@ describe('HTTP-to-Domain Error Mapper', () => {
     expect((domainError as ValidationError).fieldErrors).toHaveProperty('email');
   });
 
-  it('maps HTTP 429 to RateLimitExceededError', () => {
-    const error = createMockAxiosError(429, { message: 'Too many requests' });
-    const domainError = mapHttpErrorToDomainError(error);
+  it('maps HTTP 429 to RateLimitExceededError cleanly without artificial client-side delays', () => {
+    const error = createMockAxiosError(
+      429,
+      { message: 'Too many requests' },
+      { 'x-correlation-id': 'corr-429' }
+    );
+    const domainError = mapHttpErrorToDomainError(error) as RateLimitExceededError;
     expect(domainError).toBeInstanceOf(RateLimitExceededError);
     expect(domainError.code).toBe('RATE_LIMIT_EXCEEDED');
+    expect(domainError.statusCode).toBe(429);
+    expect(domainError.message).toBe('Too many requests');
+    expect(domainError.correlationId).toBe('corr-429');
   });
 
   it('maps HTTP 500 to ServerFailureError', () => {

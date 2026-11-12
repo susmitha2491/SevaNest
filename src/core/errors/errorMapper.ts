@@ -16,7 +16,23 @@ interface ApiErrorPayload {
   message?: string;
   requestId?: string;
   fieldErrors?: Record<string, string[]>;
-  details?: Array<{ field: string; messages: string[] }>;
+  details?: Array<{ field?: string; messages?: string[] }>;
+}
+
+function readHeaderValue(headers: unknown, targetName: string): string | undefined {
+  if (!headers || typeof headers !== 'object') return undefined;
+  const maybeGet = (headers as { get?: (name: string) => unknown }).get;
+  if (typeof maybeGet === 'function') {
+    const val = maybeGet.call(headers, targetName);
+    if (val !== undefined && val !== null) return String(val);
+  }
+  const lowerTarget = targetName.toLowerCase();
+  for (const [k, v] of Object.entries(headers as Record<string, unknown>)) {
+    if (k.toLowerCase() === lowerTarget && v !== undefined && v !== null) {
+      return String(v);
+    }
+  }
+  return undefined;
 }
 
 export function mapHttpErrorToDomainError(error: unknown): DomainError {
@@ -30,12 +46,13 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
     const payload = axiosError.response?.data;
     
     // Extract correlation ID from x-correlation-id, x-request-id or payload.requestId
-    const correlationId = headers
-      ? ((headers['x-correlation-id'] || headers['x-request-id']) as string)
-      : payload?.requestId;
+    const correlationId =
+      readHeaderValue(headers, 'x-correlation-id') ||
+      readHeaderValue(headers, 'x-request-id') ||
+      (payload && typeof payload === 'object' ? payload.requestId : undefined);
 
     const status = axiosError.response?.status;
-    const serverMessage = payload?.message;
+    const serverMessage = payload && typeof payload === 'object' ? payload.message : undefined;
 
     // Network / CORS connectivity failure
     if (!axiosError.response) {

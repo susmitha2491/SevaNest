@@ -4,7 +4,7 @@ import { useAuthStore } from '../auth/authStore';
 import { mapHttpErrorToDomainError } from '../errors/errorMapper';
 import { logger } from '../logging/logger';
 import { getStoredRefreshToken } from '../auth/tokenStorage';
-import { requestTokenRefresh, isRefreshInProgress } from '../auth/tokenRefreshCoordinator';
+import { requestTokenRefresh } from '../auth/tokenRefreshCoordinator';
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -14,25 +14,21 @@ declare module 'axios' {
   }
 }
 
-/**
- * In-flight token refresh state management to protect against concurrent refresh requests.
- */
-let isRefreshing = false;
-let failedQueue: Array<{
-  resolve: (token: string) => void;
-  reject: (error: unknown) => void;
-}> = [];
+function readAuthHeader(headers: InternalAxiosRequestConfig['headers']): string | undefined {
+  if (!headers) return undefined;
+  const viaGet = typeof headers.get === 'function' ? headers.get('Authorization') : undefined;
+  if (typeof viaGet === 'string') return viaGet;
+  const raw = headers.Authorization ?? headers.authorization;
+  return typeof raw === 'string' ? raw : undefined;
+}
 
-const processQueue = (error: unknown, token: string | null = null) => {
-  failedQueue.forEach((prom) => {
-    if (error) {
-      prom.reject(error);
-    } else if (token) {
-      prom.resolve(token);
-    }
-  });
-  failedQueue = [];
-};
+function setAuthHeader(headers: InternalAxiosRequestConfig['headers'], token: string): void {
+  if (typeof headers.set === 'function') {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.Authorization = `Bearer ${token}`;
+  }
+}
 
 /**
  * Standard HTTP Client for SevaNest Admin Portal.
@@ -109,16 +105,15 @@ httpClient.interceptors.response.use(
         return Promise.reject(mapHttpErrorToDomainError(error));
       }
 
-      // If a refresh is already in progress, enqueue this request
-      if (isRefreshing || isRefreshInProgress()) {
-        return new Promise<string>((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
-            return httpClient(originalRequest);
-          })
-          .catch((err) => Promise.reject(mapHttpErrorToDomainError(err)));
+      // If another concurrent call already rotated the in-memory access token after this request was sent,
+      // replay directly with the newer token instead of triggering another /refresh request
+      const sentAuth = readAuthHeader(originalRequest.headers);
+      const latestAccessToken = useAuthStore.getState().accessToken;
+      if (sentAuth && latestAccessToken && sentAuth !== `Bearer ${latestAccessToken}`) {
+        originalRequest._retry = true;
+        originalRequest.headers = originalRequest.headers ?? ({} as InternalAxiosRequestConfig['headers']);
+        setAuthHeader(originalRequest.headers, latestAccessToken);
+        return httpClient(originalRequest);
       }
 
       const currentRefreshToken = useAuthStore.getState().refreshToken || getStoredRefreshToken();
@@ -130,19 +125,15 @@ httpClient.interceptors.response.use(
       }
 
       originalRequest._retry = true;
-      isRefreshing = true;
 
       try {
+        // Deduplicated shared refresh coordinator handles concurrency, Web Locks, and 429 cooldowns
         const { accessToken } = await requestTokenRefresh(currentRefreshToken);
-        processQueue(null, accessToken);
-
-        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        originalRequest.headers = originalRequest.headers ?? ({} as InternalAxiosRequestConfig['headers']);
+        setAuthHeader(originalRequest.headers, accessToken);
         return httpClient(originalRequest);
       } catch (refreshErr) {
-        processQueue(refreshErr, null);
         return Promise.reject(mapHttpErrorToDomainError(refreshErr));
-      } finally {
-        isRefreshing = false;
       }
     }
 

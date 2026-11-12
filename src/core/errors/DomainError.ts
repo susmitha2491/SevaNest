@@ -5,12 +5,14 @@
 
 export abstract class DomainError extends Error {
   public abstract readonly code: string;
+  public readonly statusCode?: number;
   public readonly correlationId?: string;
 
-  constructor(message: string, correlationId?: string) {
+  constructor(message: string, correlationId?: string, statusCode?: number) {
     super(message);
     this.name = this.constructor.name;
     this.correlationId = correlationId;
+    this.statusCode = statusCode;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }
@@ -18,7 +20,7 @@ export abstract class DomainError extends Error {
 export class UnauthorizedError extends DomainError {
   public readonly code = 'UNAUTHORIZED';
   constructor(message = 'Session expired or unauthenticated. Please sign in to continue.', correlationId?: string) {
-    super(message, correlationId);
+    super(message, correlationId, 401);
   }
 }
 
@@ -27,7 +29,7 @@ export class ForbiddenError extends DomainError {
   public readonly requiredPermission?: string;
 
   constructor(message = 'You do not have permission to perform this action.', requiredPermission?: string, correlationId?: string) {
-    super(message, correlationId);
+    super(message, correlationId, 403);
     this.requiredPermission = requiredPermission;
   }
 }
@@ -41,10 +43,10 @@ export class NotFoundError extends DomainError {
     errorCode?: string
   ) {
     if (typeof correlationId === 'object' && correlationId !== null) {
-      super(message, correlationId.correlationId);
+      super(message, correlationId.correlationId, 404);
       this.errorCode = correlationId.errorCode ?? errorCode;
     } else {
-      super(message, correlationId);
+      super(message, correlationId, 404);
       this.errorCode = errorCode;
     }
   }
@@ -52,7 +54,6 @@ export class NotFoundError extends DomainError {
 
 export class ConcurrencyConflictError extends DomainError {
   public readonly code = 'CONCURRENCY_CONFLICT';
-  public readonly statusCode?: number;
   public readonly errorCode?: string;
   constructor(
     message = 'This record was modified by another user. Please reload the latest data.',
@@ -61,12 +62,10 @@ export class ConcurrencyConflictError extends DomainError {
     errorCode?: string
   ) {
     if (typeof correlationId === 'object' && correlationId !== null) {
-      super(message, correlationId.correlationId);
-      this.statusCode = correlationId.statusCode ?? statusCode;
+      super(message, correlationId.correlationId, correlationId.statusCode ?? statusCode ?? 409);
       this.errorCode = correlationId.errorCode ?? errorCode;
     } else {
-      super(message, correlationId);
-      this.statusCode = statusCode;
+      super(message, correlationId, statusCode ?? 409);
       this.errorCode = errorCode;
     }
   }
@@ -91,12 +90,12 @@ export class ValidationError extends DomainError {
       ('errorCode' in fieldErrors || 'details' in fieldErrors || 'correlationId' in fieldErrors)
     ) {
       const opts = fieldErrors as { correlationId?: string; errorCode?: string; details?: unknown; fieldErrors?: Record<string, string[]> };
-      super(message, opts.correlationId ?? correlationId);
+      super(message, opts.correlationId ?? correlationId, 422);
       this.fieldErrors = opts.fieldErrors;
       this.errorCode = opts.errorCode ?? errorCode;
       this.details = opts.details ?? details;
     } else {
-      super(message, correlationId);
+      super(message, correlationId, 422);
       this.fieldErrors = fieldErrors as Record<string, string[]> | undefined;
       this.errorCode = errorCode;
       this.details = details;
@@ -107,7 +106,7 @@ export class ValidationError extends DomainError {
 export class RateLimitExceededError extends DomainError {
   public readonly code = 'RATE_LIMIT_EXCEEDED';
   constructor(message = 'Too many requests. Please wait a moment before trying again.', correlationId?: string) {
-    super(message, correlationId);
+    super(message, correlationId, 429);
   }
 }
 
