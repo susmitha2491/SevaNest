@@ -54,7 +54,8 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 
@@ -145,7 +146,8 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
 
       // Must NEVER display "Access Restricted"
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
 
     it('Redirects Verification Executive to /verification when history traversal hits unauthorized /payments', async () => {

@@ -201,35 +201,34 @@ describe('Role-Based Operational Dashboards', () => {
       );
     });
 
-    it('renders Support Operations Console with SLA metrics and priority queues', async () => {
+    it('renders Support Analytics Dashboard with 6 KPI cards, distribution & SLA charts, and activity feed', async () => {
       renderApp('/dashboard');
 
-      expect(await screen.findByText('Support Operations Console')).toBeInTheDocument();
-      expect(await screen.findByText('Total Tickets')).toBeInTheDocument();
-      expect(await screen.findByText('Unassigned Tickets')).toBeInTheDocument();
-      expect((await screen.findAllByText('My Assigned Tickets')).length).toBeGreaterThanOrEqual(1);
-      expect(await screen.findByText('In Progress')).toBeInTheDocument();
-      expect(await screen.findByText('SLA Imminent Breach')).toBeInTheDocument();
-      expect((await screen.findAllByText('Escalated Tickets')).length).toBeGreaterThanOrEqual(1);
-      expect(await screen.findByText('Resolved Tickets')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
+      expect(screen.getAllByText('Total Tickets').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Open Tickets')).toBeInTheDocument();
+      expect(screen.getAllByText('In Investigation').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Escalated Tickets')).toBeInTheDocument();
+      expect(screen.getByText('Resolved Tickets')).toBeInTheDocument();
+      expect(screen.getByText('SLA At Risk / Breached')).toBeInTheDocument();
+
+      expect(screen.getByRole('heading', { name: /Ticket Status Distribution/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /SLA Monitoring/i })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Ticket Trends/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Recent Support Activity/i })).toBeInTheDocument();
     });
 
-    it('allows toggling between SLA At Risk, Unassigned, Active Cases, and Escalated tabs', async () => {
+    it('renders SLA tier bars and omits duplicate ticket table from the Dashboard', async () => {
       renderApp('/dashboard');
 
-      expect(await screen.findByText(/SLA At Risk & Breached \(\d+\)/)).toBeInTheDocument();
-      expect(await screen.findByText('Unannounced Absence')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /SLA Monitoring/i })).toBeInTheDocument();
+      expect(screen.getByText('Normal')).toBeInTheDocument();
+      expect(screen.getByText('At Risk')).toBeInTheDocument();
+      expect(screen.getByText('Breached')).toBeInTheDocument();
 
-      // Switch to Unassigned Intake Queue tab
-      const unassignedTab = await screen.findByText(/Unassigned Intake Queue \(\d+\)/);
-      fireEvent.click(unassignedTab);
-      expect(await screen.findByText('Payout Clarification')).toBeInTheDocument();
-      expect((await screen.findAllByText(/Mediate Dispute|Open Workspace/i)).length).toBeGreaterThan(0);
-
-      // Switch to Escalated tab
-      const escalatedTab = await screen.findByText(/Escalated to Operations \(\d+\)/);
-      fireEvent.click(escalatedTab);
-      expect(await screen.findByText('Contract Termination')).toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Unassigned Intake Queue/i })).not.toBeInTheDocument();
     });
   });
 });

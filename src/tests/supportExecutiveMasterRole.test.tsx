@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
@@ -7,6 +7,7 @@ import { routes } from '../app/router/routes';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
 import { supportRepository } from '../features/support/data/supportRepository';
+import { dashboardRepository } from '../features/dashboard/data/dashboardRepository';
 
 function renderApp(initialPath: string = '/dashboard') {
   const queryClient = new QueryClient({
@@ -54,54 +55,154 @@ describe('Support Executive Master Role & Operational Workflows', () => {
     );
   });
 
-  describe('1. Support Operations Console Dashboard', () => {
-    it('renders the Support Operations Console with 7 KPI cards and operational queues', async () => {
+  describe('1. Support Executive Analytics Dashboard', () => {
+    it('renders Dashboard header, 6 KPI cards, distribution & SLA charts, and recent activity without Ticket Trends or duplicate tables', async () => {
       const { router } = renderApp('/dashboard');
 
       expect(
-        await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })
+        await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 8000 })
       ).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
 
-      // Check all 7 KPI cards
-      expect(screen.getByText('Total Tickets')).toBeInTheDocument();
-      expect(screen.getByText('Unassigned Tickets')).toBeInTheDocument();
-      expect(screen.getAllByText('My Assigned Tickets').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('In Progress')).toBeInTheDocument();
-      expect(screen.getByText('SLA Imminent Breach')).toBeInTheDocument();
-      expect(screen.getAllByText('Escalated Tickets').length).toBeGreaterThanOrEqual(1);
+      // 6 KPI Cards
+      expect(screen.getAllByText('Total Tickets').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Open Tickets')).toBeInTheDocument();
+      expect(screen.getAllByText('In Investigation').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Escalated Tickets')).toBeInTheDocument();
       expect(screen.getByText('Resolved Tickets')).toBeInTheDocument();
+      expect(screen.getByText('SLA At Risk / Breached')).toBeInTheDocument();
 
-      // Check Queue Tabs
-      expect(screen.getByRole('button', { name: /SLA At Risk & Breached/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Unassigned Intake Queue/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /My Active Cases/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Escalated to Operations/i })).toBeInTheDocument();
+      // Analytics panels
+      expect(screen.getByRole('heading', { name: /Ticket Status Distribution/i })).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: /Ticket Status Distribution Doughnut Chart/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /SLA Monitoring/i })).toBeInTheDocument();
+      expect(screen.getByRole('list', { name: /SLA Monitoring Chart/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Recent Support Activity/i })).toBeInTheDocument();
+
+      // Ticket Trends, date-range filter, and duplicate queue tables must NOT appear
+      expect(screen.queryByRole('heading', { name: /Ticket Trends/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /SLA At Risk & Breached/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Unassigned Intake Queue/i })).not.toBeInTheDocument();
 
       expect(router.state.location.pathname).toBe('/dashboard');
     });
 
-    it('switches queue tabs and navigates directly to support case via drill-down action', async () => {
+    it('preserves Support Executive sidebar order and opens ticket details/chat directly from Recent Support Activity inside Dashboard', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/dashboard');
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 8000 })).toBeInTheDocument();
 
-      // Switch to Unassigned queue tab
-      const unassignedTab = screen.getByRole('button', { name: /Unassigned Intake Queue/i });
-      await user.click(unassignedTab);
+      // Verify exact Support Executive sidebar label and order
+      const navLinks = within(screen.getByRole('navigation'))
+        .getAllByRole('link')
+        .map((el) => el.textContent?.trim());
+      expect(navLinks).toEqual([
+        'Dashboard',
+        'Support',
+        'Directory',
+        'Worker Management',
+        'Customer Management',
+      ]);
 
-      // Verify queue item exists and has drill-down action
-      const actionButtons = await screen.findAllByRole('button', { name: /Mediate/i });
-      expect(actionButtons.length).toBeGreaterThan(0);
+      // Click a recent activity item -> opens TicketDetailModal directly within Dashboard context
+      const activityList = screen.getByRole('list', { name: /Recent support activity list/i });
+      const activityButtons = within(activityList).getAllByRole('button');
+      expect(activityButtons.length).toBeGreaterThan(0);
 
-      // Click drill-down action
-      await user.click(actionButtons[0]);
+      await user.click(activityButtons[0]);
 
-      // Should drill-down navigate to /support/tickets with searchParams
-      await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/support/tickets');
-        expect(router.state.location.search).toContain('ticketId=');
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/dashboard');
+      expect(router.state.location.search).toBe('');
+
+      // Verify chat functionality works directly inside Dashboard modal
+      const noteTextarea = screen.getByRole('textbox', { name: /Support reply text/i });
+      await user.type(noteTextarea, 'Reached out to complainant from Dashboard chat modal.');
+      const sendBtn = screen.getByRole('button', { name: /Send/i });
+      expect(sendBtn).toBeEnabled();
+    });
+
+    it('opens selected recent activity ticket chat modal directly within Dashboard without redirecting to /support', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(dashboardRepository, 'getSupportExecutiveDashboard').mockResolvedValueOnce({
+        kpis: {
+          openUnassignedGrievances: 1,
+          myActiveCases: 0,
+          slaAtRiskCount: 1,
+          slaBreachedCount: 0,
+          resolvedTodayCount: 0,
+          totalTickets: 1,
+          unassignedTickets: 1,
+          myAssignedTickets: 0,
+          inProgressTickets: 0,
+          slaImminentBreach: 1,
+          escalatedTickets: 0,
+          resolvedTickets: 0,
+        },
+        queues: {
+          ALL: [
+            {
+              id: 'Q-VIEW-1',
+              ticketId: 'TKT-4921',
+              complainantName: 'Anand Sharma',
+              roleType: 'CUSTOMER',
+              category: 'House Maid',
+              disputeCategory: 'ATTENDANCE_BREACH',
+              slaIndicator: 'AT_RISK',
+              status: 'INVESTIGATION_PENDING',
+              actionLabel: 'View Ticket',
+            },
+          ],
+          AT_RISK: [],
+          UNASSIGNED: [],
+          MY_CASES: [],
+          ESCALATED: [],
+        },
+        analytics: {
+          openTickets: 1,
+          inInvestigationTickets: 0,
+          escalatedTickets: 0,
+          resolvedTickets: 0,
+          slaAtRiskOrBreached: 1,
+          statusDistribution: [
+            { status: 'OPEN', label: 'Open', count: 1, color: '#3B82F6' },
+            { status: 'IN_INVESTIGATION', label: 'In Investigation', count: 0, color: '#D97706' },
+            { status: 'ESCALATED', label: 'Escalated', count: 0, color: '#DC2626' },
+            { status: 'RESOLVED', label: 'Resolved', count: 0, color: '#16A34A' },
+          ],
+          slaMonitoring: { normal: 0, atRisk: 1, breached: 0 },
+          recentActivity: [
+            {
+              id: 'ACT-1',
+              ticketId: 'TKT-4921',
+              activityType: 'UPDATED',
+              activityLabel: 'Ticket Updated',
+              timestamp: '2026-11-11T09:00:00.000Z',
+              status: 'INVESTIGATION_PENDING',
+              complainantName: 'Anand Sharma',
+              roleType: 'CUSTOMER',
+              category: 'House Maid',
+              disputeCategory: 'ATTENDANCE_BREACH',
+              slaIndicator: 'AT_RISK',
+            },
+          ],
+        },
       });
+      const { router } = renderApp('/dashboard');
+
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 8000 })).toBeInTheDocument();
+
+      const activityBtn = await screen.findByRole('button', { name: /Open ticket TKT-4921/i });
+      await user.click(activityBtn);
+
+      const dialog = await screen.findByRole('dialog');
+      expect(dialog).toBeInTheDocument();
+      expect(within(dialog).getByText(/#TKT-4921/i)).toBeInTheDocument();
+      expect(router.state.location.pathname).toBe('/dashboard');
+      expect(screen.getByRole('textbox', { name: /Support reply text/i })).toBeInTheDocument();
     });
   });
 
@@ -173,7 +274,12 @@ describe('Support Executive Master Role & Operational Workflows', () => {
       const resolveButtons = await screen.findAllByRole('button', { name: /^Resolve$/i });
       await user.click(resolveButtons[0]);
 
-      expect(await screen.findByRole('heading', { name: /Resolve Ticket/i })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Resolve Grievance/i })).toBeInTheDocument();
+      expect(
+        screen.getByText('Describe how the complaint was addressed and what resolution was communicated to the customer or worker.')
+      ).toBeInTheDocument();
+      expect(screen.getByText('Resolution Summary')).toBeInTheDocument();
+      expect(screen.queryByText(/\(Mandatory\)/i)).not.toBeInTheDocument();
 
       const remarksInput = screen.getByPlaceholderText(/Enter resolution summary notes/i);
       const confirmBtn = screen.getByRole('button', { name: /Confirm & Close Ticket/i });

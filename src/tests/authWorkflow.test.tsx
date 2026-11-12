@@ -421,7 +421,8 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
 
     it('5. A stale previous route such as /workers does not override the default dashboard after fresh sign-in', async () => {
@@ -465,7 +466,8 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 

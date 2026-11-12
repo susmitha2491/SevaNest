@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -154,17 +154,21 @@ describe('Support Executive: Unified Workers & Customers Directory Specification
     it('displays "Directory" and removes standalone "Workers Directory"', () => {
       renderDirectoryApp('/directory');
 
-      // Directory module visible in sidebar
-      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
+      // Exact Support Executive sidebar modules in order
+      const navLinks = within(screen.getByRole('navigation'))
+        .getAllByRole('link')
+        .map((el) => el.textContent?.trim());
+      expect(navLinks).toEqual([
+        'Dashboard',
+        'Support',
+        'Directory',
+        'Worker Management',
+        'Customer Management',
+      ]);
 
       // Standalone Workers Directory strictly removed
       expect(screen.queryByRole('link', { name: /Workers Directory/i })).not.toBeInTheDocument();
-
-      // Other authorized modules remain intact
-      expect(screen.getByRole('link', { name: /Support Dashboard/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Customer Management/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Booking Management/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Support$/i })).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Support Dashboard/i })).not.toBeInTheDocument();
 
       // Unauthorized modules omitted
       expect(screen.queryByRole('link', { name: /Verification/i })).not.toBeInTheDocument();

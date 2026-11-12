@@ -208,7 +208,8 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
 
       // 2. Navigate to another module: /support
       await act(async () => {
@@ -240,7 +241,8 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
   });
 

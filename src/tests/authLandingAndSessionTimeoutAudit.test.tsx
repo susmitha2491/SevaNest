@@ -179,7 +179,8 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
   });
 
@@ -220,7 +221,8 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
 
     it('clears stale storage keys (last_visited_route, selected_module) during clearSession', () => {
@@ -333,7 +335,8 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
   });
 

@@ -384,13 +384,58 @@ export type SupportDashboardQueues = Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES
   RESOLVED?: SupportDashboardQueueItem[];
 };
 
+export interface SupportStatusDistributionItem {
+  status: string;
+  label: string;
+  count: number;
+  color: string;
+}
+
+export interface SupportSLAMonitoringOverview {
+  normal: number;
+  atRisk: number;
+  breached: number;
+  notes?: string;
+}
+
+export type SupportActivityType = 'CREATED' | 'UPDATED' | 'ESCALATED' | 'RESOLVED';
+
+export interface SupportRecentActivityItem {
+  id: string;
+  ticketId: string;
+  etag?: string;
+  activityType: SupportActivityType;
+  activityLabel: string;
+  timestamp: string;
+  status: string;
+  complainantName: string;
+  roleType: 'CUSTOMER' | 'WORKER';
+  category: string;
+  disputeCategory: string;
+  slaIndicator: 'NORMAL' | 'AT_RISK' | 'BREACHED';
+}
+
+export interface SupportExecutiveAnalyticsData {
+  openTickets: number | null;
+  inInvestigationTickets: number | null;
+  escalatedTickets: number | null;
+  resolvedTickets: number | null;
+  slaAtRiskOrBreached: number | null;
+  statusDistribution: SupportStatusDistributionItem[];
+  slaMonitoring: SupportSLAMonitoringOverview | null;
+  recentActivity: SupportRecentActivityItem[];
+}
+
+export interface SupportExecutiveDashboardData {
+  kpis: SupportExecutiveKPIs;
+  queues: SupportDashboardQueues;
+  analytics?: SupportExecutiveAnalyticsData;
+}
+
 export interface IDashboardRepository {
   getSuperAdminDashboard(): Promise<SuperAdminDashboardData>;
   getSuperAdminAnalytics(from?: string, to?: string): Promise<SuperAdminAnalyticsData>;
   getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData>;
   getVerificationExecutiveDashboard(): Promise<VerificationExecutiveDashboardData>;
-  getSupportExecutiveDashboard(): Promise<{
-    kpis: SupportExecutiveKPIs;
-    queues: SupportDashboardQueues;
-  }>;
+  getSupportExecutiveDashboard(): Promise<SupportExecutiveDashboardData>;
 }

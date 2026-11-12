@@ -56,11 +56,67 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
 
   const modules: NavModule[] = [];
 
+  if (isSupportExec) {
+    if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
+      modules.push({
+        id: 'dashboard',
+        name: 'Dashboard',
+        path: '/dashboard',
+        icon: LayoutDashboard,
+        requiredPermission: PERMISSIONS.DASHBOARD_VIEW,
+        end: true,
+      });
+    }
+    if (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW)) {
+      modules.push({
+        id: 'support',
+        name: 'Support',
+        path: '/support',
+        icon: LifeBuoy,
+        requiredPermission: PERMISSIONS.SUPPORT_VIEW,
+        end: false,
+      });
+    }
+    if (hasPermission(permissions, PERMISSIONS.WORKER_VIEW) || hasPermission(permissions, PERMISSIONS.CUSTOMER_VIEW)) {
+      modules.push({
+        id: 'directory',
+        name: 'Directory',
+        path: '/directory',
+        icon: Users,
+        requiredPermission: hasPermission(permissions, PERMISSIONS.WORKER_VIEW)
+          ? PERMISSIONS.WORKER_VIEW
+          : PERMISSIONS.CUSTOMER_VIEW,
+        end: true,
+      });
+    }
+    if (hasPermission(permissions, PERMISSIONS.WORKER_VIEW)) {
+      modules.push({
+        id: 'workers',
+        name: 'Worker Management',
+        path: '/workers',
+        icon: Briefcase,
+        requiredPermission: PERMISSIONS.WORKER_VIEW,
+        end: true,
+      });
+    }
+    if (hasPermission(permissions, PERMISSIONS.CUSTOMER_VIEW)) {
+      modules.push({
+        id: 'customers',
+        name: 'Customer Management',
+        path: '/customers',
+        icon: Users,
+        requiredPermission: PERMISSIONS.CUSTOMER_VIEW,
+        end: false,
+      });
+    }
+    return modules;
+  }
+
   // 1. Dashboard
   if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
     modules.push({
       id: 'dashboard',
-      name: isSupportExec ? 'Support Dashboard' : 'Dashboard',
+      name: 'Dashboard',
       path: '/dashboard',
       icon: LayoutDashboard,
       requiredPermission: PERMISSIONS.DASHBOARD_VIEW,

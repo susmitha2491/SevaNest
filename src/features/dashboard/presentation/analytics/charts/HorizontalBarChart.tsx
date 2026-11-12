@@ -17,6 +17,7 @@ interface HorizontalBarChartProps {
   emptyMessage?: string;
   maxItems?: number;
   ariaLabel?: string;
+  showRank?: boolean;
 }
 
 export const HorizontalBarChart: React.FC<HorizontalBarChartProps> = ({
@@ -24,6 +25,7 @@ export const HorizontalBarChart: React.FC<HorizontalBarChartProps> = ({
   emptyMessage = 'No records available in this period',
   maxItems = 6,
   ariaLabel = 'Horizontal Ranking Chart',
+  showRank = true,
 }) => {
   if (!items || items.length === 0) {
     return (
@@ -72,22 +74,24 @@ export const HorizontalBarChart: React.FC<HorizontalBarChartProps> = ({
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: '0 4px',
-                    height: '18px',
-                    borderRadius: 'var(--radius-sm)',
-                    backgroundColor: index < 3 ? 'var(--color-primary)' : 'var(--color-border)',
-                    color: index < 3 ? '#fff' : 'var(--color-text-secondary)',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                  }}
-                >
-                  #{index + 1}
-                </span>
+                {showRank && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 4px',
+                      height: '18px',
+                      borderRadius: 'var(--radius-sm)',
+                      backgroundColor: index < 3 ? 'var(--color-primary)' : 'var(--color-border)',
+                      color: index < 3 ? '#fff' : 'var(--color-text-secondary)',
+                      fontSize: '10px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    #{index + 1}
+                  </span>
+                )}
                 <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-navy)' }}>
                   {item.title}
                 </span>

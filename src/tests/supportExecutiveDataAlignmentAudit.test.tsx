@@ -195,10 +195,12 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
       expect(screen.getByRole('columnheader', { name: /Complainant/i })).toBeInTheDocument();
     });
 
-    it('verifies that Ticket Owner column is removed from Support Executive Dashboard workstation table', async () => {
+    it('verifies that Ticket Owner column and duplicate ticket queue table are absent from Support Executive Dashboard', async () => {
       renderWithProviders(<SupportExecutiveDashboard />, '/dashboard');
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
       expect(screen.queryByRole('columnheader', { name: /Ticket Owner/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('columnheader', { name: /Assigned Staff/i })).not.toBeInTheDocument();
     });
@@ -263,6 +265,100 @@ describe('Support Executive Data Alignment & UI Improvement Audit', () => {
       const istElements = screen.queryAllByText(/IST/);
       // Non-empty or safely formatted
       expect(Array.isArray(istElements)).toBe(true);
+    });
+  });
+
+  describe('5. Support Analytics Derivation', () => {
+    it('derives SLA Monitoring, Status Distribution, and Recent Activity without calling reporting endpoints', async () => {
+      const futureSafe = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+      const soonAtRisk = new Date(Date.now() + 6 * 3600 * 1000).toISOString();
+
+      const getSpy = vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/dashboard') {
+          return {
+            data: {
+              sections: {
+                complaints: { open: 2, inProgress: 1, escalated: 1, unassigned: 2 },
+              },
+            },
+          } as any;
+        }
+        if (url === '/admin/support/tickets') {
+          return {
+            data: {
+              success: true,
+              data: [
+                {
+                  id: 'T-CREATED',
+                  status: 'OPEN',
+                  dueAt: futureSafe,
+                  slaBreachedAt: null,
+                  createdAt: '2026-11-11T09:00:00.000Z',
+                  updatedAt: '2026-11-11T09:00:00.000Z',
+                },
+                {
+                  id: 'T-UPDATED',
+                  status: 'OPEN',
+                  dueAt: soonAtRisk,
+                  slaBreachedAt: null,
+                  createdAt: '2026-11-10T09:00:00.000Z',
+                  updatedAt: '2026-11-11T08:00:00.000Z',
+                },
+                {
+                  id: 'T-INPROG',
+                  status: 'IN_PROGRESS',
+                  dueAt: futureSafe,
+                  slaBreachedAt: null,
+                  assignedAt: '2026-11-10T10:00:00.000Z',
+                  createdAt: '2026-11-10T08:00:00.000Z',
+                  updatedAt: '2026-11-10T10:00:00.000Z',
+                },
+                {
+                  id: 'T-ESC',
+                  status: 'ESCALATED',
+                  escalatedAt: '2026-11-09T12:00:00.000Z',
+                  slaBreachedAt: '2026-11-09T12:00:00.000Z',
+                  createdAt: '2026-11-07T12:00:00.000Z',
+                  updatedAt: '2026-11-09T12:00:00.000Z',
+                },
+                {
+                  id: 'T-CLOSED',
+                  status: 'CLOSED',
+                  escalatedAt: '2026-10-30T04:00:00.000Z',
+                  closedAt: '2026-11-08T15:00:00.000Z',
+                  slaBreachedAt: null,
+                  createdAt: '2026-10-30T03:00:00.000Z',
+                  updatedAt: '2026-11-08T15:00:00.000Z',
+                },
+              ],
+              meta: { total: 5 },
+            },
+          } as any;
+        }
+        throw new Error(`Unexpected call: ${url}`);
+      });
+
+      const dashRepo = new RealDashboardRepository();
+      const res = await dashRepo.getSupportExecutiveDashboard();
+
+      expect(getSpy).not.toHaveBeenCalledWith('/admin/reports/support-tickets', expect.anything());
+      expect(res.analytics?.slaMonitoring).toEqual(
+        expect.objectContaining({ normal: 3, atRisk: 1, breached: 1 })
+      );
+      expect(res.analytics?.slaAtRiskOrBreached).toBe(2);
+      expect(res.analytics?.statusDistribution.map((s) => ({ status: s.status, count: s.count }))).toEqual([
+        { status: 'OPEN', count: 2 },
+        { status: 'IN_INVESTIGATION', count: 1 },
+        { status: 'ESCALATED', count: 1 },
+        { status: 'RESOLVED', count: 1 },
+      ]);
+      expect(res.analytics?.recentActivity.map((a) => [a.ticketId, a.activityType])).toEqual([
+        ['T-CREATED', 'CREATED'],
+        ['T-UPDATED', 'UPDATED'],
+        ['T-INPROG', 'UPDATED'],
+        ['T-ESC', 'ESCALATED'],
+        ['T-CLOSED', 'RESOLVED'],
+      ]);
     });
   });
 });

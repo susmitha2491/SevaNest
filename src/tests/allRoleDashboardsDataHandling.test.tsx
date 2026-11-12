@@ -300,8 +300,8 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
 
       renderWithClient(<SupportExecutiveDashboard />);
 
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i })).toBeInTheDocument();
-      expect(await screen.findByText(/All support queues are clear/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(await screen.findByText(/No recent support ticket activity recorded/i)).toBeInTheDocument();
     });
 
     it('displays domain error message with Retry button upon support API failure', async () => {

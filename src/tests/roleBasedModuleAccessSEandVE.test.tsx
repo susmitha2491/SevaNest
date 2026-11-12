@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../core/auth/authStore';
@@ -370,15 +370,22 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
     it('renders only authorized navigation items in sidebar and omits prohibited modules', () => {
       renderFullPortal('/support');
 
-      // Authorized modules visible
-      expect(screen.getByRole('link', { name: /Support Dashboard/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Customer Management/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /Booking Management/i })).toBeInTheDocument();
-      expect(screen.getByRole('link', { name: /^Support$/i })).toBeInTheDocument();
+      // Authorized modules visible in exact Support Executive sidebar order
+      const navLinks = within(screen.getByRole('navigation'))
+        .getAllByRole('link')
+        .map((el) => el.textContent?.trim());
+      expect(navLinks).toEqual([
+        'Dashboard',
+        'Support',
+        'Directory',
+        'Worker Management',
+        'Customer Management',
+      ]);
 
       // Prohibited modules strictly omitted
+      expect(screen.queryByRole('link', { name: /Support Dashboard/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Workers Directory/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Booking Management/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Verification/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Payments/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Reports/i })).not.toBeInTheDocument();

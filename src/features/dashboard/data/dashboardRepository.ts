@@ -11,9 +11,13 @@ import {
   VerificationAttentionApplication,
   VerificationSLAOverview,
   VerificationStatusDistributionItem,
-  SupportExecutiveKPIs,
   SupportDashboardQueueItem,
   SupportDashboardQueues,
+  SupportExecutiveDashboardData,
+  SupportExecutiveAnalyticsData,
+  SupportStatusDistributionItem,
+  SupportRecentActivityItem,
+  SupportActivityType,
   SuperAdminAnalyticsData,
   BookingFunnelData,
   CategoryDemandData,
@@ -35,6 +39,73 @@ import { useAuthStore } from '../../../core/auth/authStore';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+
+function buildSupportStatusDistribution(
+  open: number,
+  inInvestigation: number,
+  escalated: number,
+  resolved: number
+): SupportStatusDistributionItem[] {
+  return [
+    { status: 'OPEN', label: 'Open', count: open, color: '#3B82F6' },
+    { status: 'IN_INVESTIGATION', label: 'In Investigation', count: inInvestigation, color: '#D97706' },
+    { status: 'ESCALATED', label: 'Escalated', count: escalated, color: '#DC2626' },
+    { status: 'RESOLVED', label: 'Resolved', count: resolved, color: '#16A34A' },
+  ];
+}
+
+function classifyTicketSLA(t: Record<string, unknown>, nowMs: number): 'NORMAL' | 'AT_RISK' | 'BREACHED' {
+  const status = String(t.status || '').toUpperCase();
+  const isClosed = status === 'CLOSED' || status === 'RESOLVED';
+  if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') {
+    return 'BREACHED';
+  }
+  if (isClosed) {
+    return 'NORMAL';
+  }
+  if (t.slaStatus === 'AT_RISK') {
+    return 'AT_RISK';
+  }
+  if (t.dueAt) {
+    const dueMs = new Date(String(t.dueAt)).getTime();
+    if (!isNaN(dueMs)) {
+      if (dueMs <= nowMs) return 'BREACHED';
+      if (dueMs - nowMs <= 24 * 3600 * 1000) return 'AT_RISK';
+    }
+  }
+  return 'NORMAL';
+}
+
+function buildRecentActivityFromQueueItems(items: SupportDashboardQueueItem[]): SupportRecentActivityItem[] {
+  return items.slice(0, 8).map((item) => {
+    const status = item.status.toUpperCase();
+    let activityType: SupportActivityType = 'UPDATED';
+    let activityLabel = 'Ticket Updated';
+    if (status === 'RESOLVED' || status === 'CLOSED') {
+      activityType = 'RESOLVED';
+      activityLabel = 'Ticket Resolved';
+    } else if (status === 'ESCALATED' || status === 'REPLACEMENT_INITIATED') {
+      activityType = 'ESCALATED';
+      activityLabel = 'Ticket Escalated';
+    } else if (status === 'OPEN' || status === 'CREATED') {
+      activityType = 'CREATED';
+      activityLabel = 'Ticket Created';
+    }
+    return {
+      id: item.id,
+      ticketId: item.ticketId,
+      activityType,
+      activityLabel,
+      timestamp: '',
+      status: item.status,
+      complainantName: item.complainantName,
+      roleType: item.roleType,
+      category: item.category,
+      disputeCategory: item.disputeCategory,
+      slaIndicator: item.slaIndicator,
+    };
+  });
+}
 
 export class MockDashboardRepository implements IDashboardRepository {
   async getSuperAdminDashboard(): Promise<SuperAdminDashboardData> {
@@ -464,56 +535,62 @@ export class MockDashboardRepository implements IDashboardRepository {
     };
   }
 
-  async getSupportExecutiveDashboard(): Promise<{
-    kpis: SupportExecutiveKPIs;
-    queues: SupportDashboardQueues;
-  }> {
+  async getSupportExecutiveDashboard(): Promise<SupportExecutiveDashboardData> {
+    const allQueues: SupportDashboardQueueItem[] = [
+      { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute', ticketOwner: 'Pooja (Support Exec)' },
+      { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
+      { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
+      { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
+      { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs', ticketOwner: 'Pooja (Support Exec)' },
+      { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
+      { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record', ticketOwner: 'Pooja (Support Exec)' },
+    ];
+
+    const openCount = allQueues.filter((t) => t.status === 'OPEN' || t.status === 'CREATED').length;
+    const inInvestigationCount = allQueues.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED').length;
+    const escalatedCount = allQueues.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED').length;
+    const resolvedCount = allQueues.filter((t) => t.status === 'RESOLVED' || t.status === 'CLOSED').length;
+    const normalSla = allQueues.filter((t) => t.slaIndicator === 'NORMAL').length;
+    const atRiskSla = allQueues.filter((t) => t.slaIndicator === 'AT_RISK').length;
+    const breachedSla = allQueues.filter((t) => t.slaIndicator === 'BREACHED').length;
+
     return {
       kpis: {
-        totalTickets: 20,
-        unassignedTickets: 11,
-        myAssignedTickets: 4,
-        inProgressTickets: 3,
-        slaImminentBreach: 1,
-        escalatedTickets: 1,
-        resolvedTickets: 19,
-        openUnassignedGrievances: 11,
-        myActiveCases: 4,
-        slaAtRiskCount: null,
-        slaBreachedCount: 1,
-        resolvedTodayCount: 19,
+        totalTickets: allQueues.length,
+        unassignedTickets: 2,
+        myAssignedTickets: 1,
+        inProgressTickets: inInvestigationCount,
+        slaImminentBreach: atRiskSla,
+        escalatedTickets: escalatedCount,
+        resolvedTickets: resolvedCount,
+        openUnassignedGrievances: 2,
+        myActiveCases: 1,
+        slaAtRiskCount: atRiskSla,
+        slaBreachedCount: breachedSla,
+        resolvedTodayCount: resolvedCount,
       },
       queues: {
-        ALL: [
-          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute', ticketOwner: 'Pooja (Support Exec)' },
-          { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
-          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
-          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
-          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs', ticketOwner: 'Pooja (Support Exec)' },
-          { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
-          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record', ticketOwner: 'Pooja (Support Exec)' },
-        ],
-        AT_RISK: [
-          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
-          { id: 'Q-02', ticketId: 'TKT-4902', complainantName: 'Priya Reddy', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Replacement Delay', slaIndicator: 'BREACHED', status: 'ESCALATED', actionLabel: 'High Priority Intake' },
-        ],
-        UNASSIGNED: [
-          { id: 'Q-03', ticketId: 'TKT-4919', complainantName: 'Sunita Devi', roleType: 'WORKER', category: 'House Maid', disputeCategory: 'Payout Clarification', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
-          { id: 'Q-04', ticketId: 'TKT-4915', complainantName: 'Kavita Kumari', roleType: 'WORKER', category: 'Babysitter', disputeCategory: 'Overtime Dispute', slaIndicator: 'NORMAL', status: 'OPEN', actionLabel: 'Mediate Dispute' },
-        ],
-        MY_CASES: [
-          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
-        ],
-        IN_PROGRESS: [
-          { id: 'Q-01', ticketId: 'TKT-4921', complainantName: 'Anand Sharma', roleType: 'CUSTOMER', category: 'House Maid', disputeCategory: 'Unannounced Absence', slaIndicator: 'AT_RISK', status: 'INVESTIGATION_PENDING', actionLabel: 'Mediate Dispute' },
-          { id: 'Q-05', ticketId: 'TKT-4890', complainantName: 'Rajesh Kumar', roleType: 'CUSTOMER', category: 'Driver', disputeCategory: 'Service Quality Dispute', slaIndicator: 'NORMAL', status: 'INVESTIGATION_PENDING', actionLabel: 'Open Call Logs' },
-        ],
-        ESCALATED: [
-          { id: 'Q-06', ticketId: 'TKT-4877', complainantName: 'Manish V', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Contract Termination', slaIndicator: 'NORMAL', status: 'ESCALATED', actionLabel: 'View Ops Status' },
-        ],
-        RESOLVED: [
-          { id: 'Q-07', ticketId: 'TKT-4850', complainantName: 'Rohit Verma', roleType: 'CUSTOMER', category: 'Cook', disputeCategory: 'Resolution Complete', slaIndicator: 'NORMAL', status: 'RESOLVED', actionLabel: 'Inspect Record' },
-        ],
+        ALL: allQueues,
+        AT_RISK: [allQueues[0], allQueues[1]],
+        UNASSIGNED: [allQueues[2], allQueues[3]],
+        MY_CASES: [allQueues[4]],
+        IN_PROGRESS: [allQueues[0], allQueues[4]],
+        ESCALATED: [allQueues[5]],
+        RESOLVED: [allQueues[6]],
+      },
+      analytics: {
+        openTickets: openCount,
+        inInvestigationTickets: inInvestigationCount,
+        escalatedTickets: escalatedCount,
+        resolvedTickets: resolvedCount,
+        slaAtRiskOrBreached: atRiskSla + breachedSla,
+        statusDistribution: buildSupportStatusDistribution(openCount, inInvestigationCount, escalatedCount, resolvedCount),
+        slaMonitoring: {
+          normal: normalSla,
+          atRisk: atRiskSla,
+          breached: breachedSla,
+        },
+        recentActivity: buildRecentActivityFromQueueItems(allQueues),
       },
     };
   }
@@ -702,12 +779,12 @@ export class RealDashboardRepository implements IDashboardRepository {
           bookings: bookings ? {
             byStatus: Array.isArray(bookings.byStatus)
               ? bookings.byStatus.map((item) => {
-                  const b = item as Record<string, unknown>;
-                  return {
-                    status: String(b.status || ''),
-                    count: Number(b.count || 0),
-                  };
-                })
+                const b = item as Record<string, unknown>;
+                return {
+                  status: String(b.status || ''),
+                  count: Number(b.count || 0),
+                };
+              })
               : [],
             grossBookings,
           } : undefined,
@@ -1366,12 +1443,12 @@ export class RealDashboardRepository implements IDashboardRepository {
           bookings: bookings ? {
             byStatus: Array.isArray(bookings.byStatus)
               ? bookings.byStatus.map((item) => {
-                  const b = item as Record<string, unknown>;
-                  return {
-                    status: String(b.status || ''),
-                    count: Number(b.count || 0),
-                  };
-                })
+                const b = item as Record<string, unknown>;
+                return {
+                  status: String(b.status || ''),
+                  count: Number(b.count || 0),
+                };
+              })
               : [],
             grossBookings: bookings.grossBookings !== undefined ? Number(bookings.grossBookings) : undefined,
           } : undefined,
@@ -1890,10 +1967,7 @@ export class RealDashboardRepository implements IDashboardRepository {
     }
   }
 
-  async getSupportExecutiveDashboard(): Promise<{
-    kpis: SupportExecutiveKPIs;
-    queues: SupportDashboardQueues;
-  }> {
+  async getSupportExecutiveDashboard(): Promise<SupportExecutiveDashboardData> {
     const parseSupportQueueList = (list: unknown, tabName: string): SupportDashboardQueueItem[] => {
       if (!list) return [];
       if (!Array.isArray(list)) {
@@ -1952,9 +2026,7 @@ export class RealDashboardRepository implements IDashboardRepository {
         dirName ||
         (roleType === 'CUSTOMER' ? 'Customer' : 'Worker')
       );
-      const isBreached = Boolean(raw.slaBreachedAt) || raw.slaStatus === 'BREACHED';
-      const isAtRisk = raw.slaStatus === 'AT_RISK' || (!isBreached && Boolean(raw.dueAt) && raw.status !== 'CLOSED' && raw.status !== 'RESOLVED' && (new Date(String(raw.dueAt)).getTime() - Date.now() <= 24 * 3600 * 1000));
-      const slaIndicator = isBreached ? 'BREACHED' : isAtRisk ? 'AT_RISK' : 'NORMAL';
+      const slaIndicator = classifyTicketSLA(raw, Date.now());
 
       const assignee = raw.assignee as Record<string, unknown> | undefined;
       const ticketOwner = String(
@@ -1980,8 +2052,297 @@ export class RealDashboardRepository implements IDashboardRepository {
       };
     };
 
+    const fetchAllSupportTickets = async (): Promise<{
+      rawTickets: Record<string, unknown>[];
+      metaTotal?: number;
+    }> => {
+      const firstRes = await httpClient.get<{
+        success: boolean;
+        data: Record<string, unknown>[];
+        meta?: { total?: number; totalItems?: number };
+      }>('/admin/support/tickets', { params: { limit: 100 } });
+
+      const firstItems = Array.isArray(firstRes.data?.data) ? firstRes.data.data : [];
+      const metaObj = firstRes.data?.meta;
+      const metaTotal = typeof metaObj?.total === 'number'
+        ? metaObj.total
+        : (typeof metaObj?.totalItems === 'number' ? metaObj.totalItems : undefined);
+
+      if (typeof metaTotal === 'number' && metaTotal > firstItems.length && firstItems.length > 0) {
+        const totalPages = Math.min(Math.ceil(metaTotal / 100), 10);
+        const extraResponses = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, i) =>
+            httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/support/tickets', {
+              params: { page: i + 2, limit: 100 },
+            })
+          )
+        );
+        const seen = new Set(firstItems.map((t) => String(t.id || t.ticketId || '')));
+        const combined = [...firstItems];
+        for (const pRes of extraResponses) {
+          const items = Array.isArray(pRes.data?.data) ? pRes.data.data : [];
+          for (const item of items) {
+            const key = String(item.id || item.ticketId || '');
+            if (!key || !seen.has(key)) {
+              if (key) seen.add(key);
+              combined.push(item);
+            }
+          }
+        }
+        return { rawTickets: combined, metaTotal };
+      }
+
+      return { rawTickets: firstItems, metaTotal };
+    };
+
+    const deriveRecentActivity = (rawTickets: Record<string, unknown>[]): SupportRecentActivityItem[] => {
+      const events = rawTickets
+        .map((t) => {
+          const item = mapTicketToQueueItem(t, 'View Ticket');
+          if (!item.ticketId) return null;
+
+          const status = String(t.status || 'OPEN').toUpperCase();
+          const createdAt = t.createdAt ? String(t.createdAt) : '';
+          const updatedAt = t.updatedAt ? String(t.updatedAt) : '';
+          const assignedAt = t.assignedAt ? String(t.assignedAt) : '';
+          const escalatedAt = t.escalatedAt ? String(t.escalatedAt) : '';
+          const closedAt = t.closedAt ? String(t.closedAt) : '';
+
+          let activityType: SupportActivityType = 'CREATED';
+          let activityLabel = 'Ticket Created';
+          let timestamp = createdAt || updatedAt;
+
+          if (status === 'CLOSED' || status === 'RESOLVED' || Boolean(closedAt)) {
+            activityType = 'RESOLVED';
+            activityLabel = 'Ticket Resolved';
+            timestamp = closedAt || updatedAt || createdAt;
+          } else if (status === 'ESCALATED' || status === 'REPLACEMENT_INITIATED' || Boolean(escalatedAt)) {
+            activityType = 'ESCALATED';
+            activityLabel = 'Ticket Escalated';
+            timestamp = escalatedAt || updatedAt || createdAt;
+          } else {
+            const createdMs = createdAt ? Date.parse(createdAt) : NaN;
+            const updatedMs = updatedAt ? Date.parse(updatedAt) : NaN;
+            const wasUpdatedAfterCreation =
+              (!isNaN(createdMs) && !isNaN(updatedMs) && Math.abs(updatedMs - createdMs) > 1000) ||
+              Boolean(assignedAt) ||
+              status === 'IN_PROGRESS' ||
+              status === 'INVESTIGATION_PENDING' ||
+              status === 'ASSIGNED';
+            if (wasUpdatedAfterCreation) {
+              activityType = 'UPDATED';
+              activityLabel = 'Ticket Updated';
+              timestamp = updatedAt || assignedAt || createdAt;
+            }
+          }
+
+          const updatedAtMs = t.updatedAt ? Date.parse(String(t.updatedAt)) : NaN;
+          const etag = !isNaN(updatedAtMs) ? `"${updatedAtMs}"` : undefined;
+          const sortMs = timestamp ? Date.parse(timestamp) : NaN;
+          return {
+            sortMs: isNaN(sortMs) ? 0 : sortMs,
+            entry: {
+              id: item.id,
+              ticketId: item.ticketId,
+              etag,
+              activityType,
+              activityLabel,
+              timestamp,
+              status: item.status,
+              complainantName: item.complainantName,
+              roleType: item.roleType,
+              category: item.category,
+              disputeCategory: item.disputeCategory,
+              slaIndicator: item.slaIndicator,
+            } satisfies SupportRecentActivityItem,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== null);
+
+      events.sort((a, b) => b.sortMs - a.sortMs);
+      return events.slice(0, 8).map((e) => e.entry);
+    };
+
+    const buildSupportFromTickets = (
+      rawTickets: Record<string, unknown>[],
+      metaTotal: number | undefined,
+      complaintsSection?: Record<string, unknown>,
+      rawQueues?: Record<string, unknown>
+    ): SupportExecutiveDashboardData => {
+      const currentUser = useAuthStore.getState().user;
+      const currentUserId = currentUser?.id;
+      const currentUserName = currentUser?.name;
+      const now = Date.now();
+
+      const openTicketsList = rawTickets.filter((t) => !t.status || t.status === 'OPEN' || t.status === 'CREATED');
+      const unassignedTickets = rawTickets.filter(
+        (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
+      );
+      const myCasesTickets = rawTickets.filter((t) => {
+        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+        if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
+        if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
+        return false;
+      });
+      const inProgressTickets = rawTickets.filter(
+        (t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED'
+      );
+      const escalatedTicketsList = rawTickets.filter(
+        (t) =>
+          t.status === 'ESCALATED' ||
+          t.status === 'REPLACEMENT_INITIATED' ||
+          (Boolean(t.escalatedAt) && t.status !== 'CLOSED' && t.status !== 'RESOLVED')
+      );
+      const resolvedTicketsList = rawTickets.filter(
+        (t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt)
+      );
+
+      let slaNormalCount = 0;
+      let slaAtRiskClassified = 0;
+      let slaBreachedClassified = 0;
+      for (const t of rawTickets) {
+        const tier = classifyTicketSLA(t, now);
+        if (tier === 'BREACHED') slaBreachedClassified++;
+        else if (tier === 'AT_RISK') slaAtRiskClassified++;
+        else slaNormalCount++;
+      }
+
+      const slaImminentBreach = rawTickets.filter((t) => {
+        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
+        if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return false;
+        if (t.slaStatus === 'AT_RISK') return true;
+        if (t.dueAt) {
+          const dueMs = new Date(String(t.dueAt)).getTime();
+          return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
+        }
+        return false;
+      }).length;
+
+      const atRiskQueueTickets = rawTickets.filter(
+        (t) =>
+          Boolean(t.slaBreachedAt) ||
+          t.slaStatus === 'AT_RISK' ||
+          t.slaStatus === 'BREACHED' ||
+          (t.dueAt && t.status !== 'CLOSED' && t.status !== 'RESOLVED' && (new Date(String(t.dueAt)).getTime() - now <= 24 * 3600 * 1000))
+      );
+
+      const openCount = complaintsSection?.open !== undefined ? Number(complaintsSection.open) : openTicketsList.length;
+      const inInvestigationCount = complaintsSection?.inProgress !== undefined ? Number(complaintsSection.inProgress) : inProgressTickets.length;
+      const escalatedCount = complaintsSection?.escalated !== undefined ? Number(complaintsSection.escalated) : escalatedTicketsList.length;
+      const resolvedCount = resolvedTicketsList.length;
+      const totalTickets = typeof metaTotal === 'number'
+        ? metaTotal
+        : rawTickets.length > 0
+          ? rawTickets.length
+          : openCount + inInvestigationCount + escalatedCount + resolvedCount;
+
+      const queues: SupportDashboardQueues =
+        rawQueues && ('AT_RISK' in rawQueues || 'UNASSIGNED' in rawQueues)
+          ? {
+            ALL: 'ALL' in rawQueues ? parseSupportQueueList(rawQueues.ALL, 'ALL') : undefined,
+            AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
+            UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
+            MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
+            IN_PROGRESS: 'IN_PROGRESS' in rawQueues ? parseSupportQueueList(rawQueues.IN_PROGRESS, 'IN_PROGRESS') : undefined,
+            ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+            RESOLVED: 'RESOLVED' in rawQueues ? parseSupportQueueList(rawQueues.RESOLVED, 'RESOLVED') : undefined,
+          }
+          : {
+            ALL: rawTickets.map((t) => mapTicketToQueueItem(t, 'View Ticket')),
+            AT_RISK: atRiskQueueTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
+            UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
+            MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
+            IN_PROGRESS: inProgressTickets.map((t) => mapTicketToQueueItem(t, 'Investigate')),
+            ESCALATED: escalatedTicketsList.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
+            RESOLVED: resolvedTicketsList.map((t) => mapTicketToQueueItem(t, 'Inspect Record')),
+          };
+
+      const analytics: SupportExecutiveAnalyticsData = {
+        openTickets: openCount,
+        inInvestigationTickets: inInvestigationCount,
+        escalatedTickets: escalatedCount,
+        resolvedTickets: resolvedCount,
+        slaAtRiskOrBreached: rawTickets.length > 0 || totalTickets === 0 ? slaAtRiskClassified + slaBreachedClassified : null,
+        statusDistribution: buildSupportStatusDistribution(openCount, inInvestigationCount, escalatedCount, resolvedCount),
+        slaMonitoring:
+          rawTickets.length > 0 || totalTickets === 0
+            ? {
+              normal: slaNormalCount,
+              atRisk: slaAtRiskClassified,
+              breached: slaBreachedClassified,
+              notes: 'Classified from backend slaBreachedAt, active dueAt deadlines (<=24h at risk), and ticket status.',
+            }
+            : null,
+        recentActivity: deriveRecentActivity(rawTickets),
+      };
+
+      if (complaintsSection) {
+        const openUnassignedGrievances = parseOptionalMetric(
+          complaintsSection.unassigned ?? complaintsSection.open,
+          'complaints.open'
+        );
+        const myActiveCases = parseOptionalMetric(
+          complaintsSection.inProgress ?? complaintsSection.investigationPending,
+          'complaints.inProgress'
+        );
+        const slaAtRiskCount: number | null = null;
+        const slaBreachedCount = complaintsSection.escalated !== undefined
+          ? parseOptionalMetric(complaintsSection.escalated, 'complaints.escalated')
+          : null;
+        const resolvedTodayCount: number | null = null;
+
+        return {
+          kpis: {
+            totalTickets,
+            unassignedTickets: complaintsSection.unassigned !== undefined ? Number(complaintsSection.unassigned) : unassignedTickets.length,
+            myAssignedTickets: myCasesTickets.length,
+            inProgressTickets: inInvestigationCount,
+            slaImminentBreach,
+            escalatedTickets: escalatedCount,
+            resolvedTickets: resolvedCount,
+            openUnassignedGrievances,
+            myActiveCases,
+            slaAtRiskCount,
+            slaBreachedCount,
+            resolvedTodayCount,
+          },
+          queues,
+          analytics,
+        };
+      }
+
+      const hasExplicitAtRisk = rawTickets.some((t) => t.slaStatus === 'AT_RISK');
+      const slaAtRiskCount: number | null = hasExplicitAtRisk
+        ? rawTickets.filter((t) => t.slaStatus === 'AT_RISK').length
+        : null;
+      const slaBreachedCount = rawTickets.filter((t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED').length;
+      const todayIso = new Date().toISOString().split('T')[0];
+      const resolvedToday = rawTickets.filter(
+        (t) => (t.status === 'CLOSED' || t.status === 'RESOLVED') && t.closedAt && String(t.closedAt).startsWith(todayIso)
+      ).length;
+      const hasClosedTickets = rawTickets.some((t) => t.status === 'CLOSED' || t.status === 'RESOLVED');
+
+      return {
+        kpis: {
+          totalTickets,
+          unassignedTickets: unassignedTickets.length,
+          myAssignedTickets: myCasesTickets.length,
+          inProgressTickets: inProgressTickets.length,
+          slaImminentBreach,
+          escalatedTickets: escalatedTicketsList.length,
+          resolvedTickets: resolvedTicketsList.length,
+          openUnassignedGrievances: unassignedTickets.length,
+          myActiveCases: myCasesTickets.length,
+          slaAtRiskCount,
+          slaBreachedCount,
+          resolvedTodayCount: hasClosedTickets ? resolvedToday : null,
+        },
+        queues,
+        analytics,
+      };
+    };
+
     try {
-      // 1. First attempt to read from unified /admin/dashboard
       let complaintsSection: Record<string, unknown> | undefined;
       let rawQueues: Record<string, unknown> | undefined;
 
@@ -1997,7 +2358,6 @@ export class RealDashboardRepository implements IDashboardRepository {
             ? (raw.kpis as Record<string, unknown>)
             : undefined;
 
-          // If payload explicitly contains dedicated support KPI structure
           if (
             kpisRecord ||
             ('openUnassignedGrievances' in raw) ||
@@ -2029,7 +2389,13 @@ export class RealDashboardRepository implements IDashboardRepository {
               throw new ServerFailureError('Dashboard contract violation: missing or malformed support queues.');
             }
 
-            const rawQueues = raw.queues as Record<string, unknown>;
+            const rawLegacyQueues = raw.queues as Record<string, unknown>;
+            const parsedQueues: SupportDashboardQueues = {
+              AT_RISK: parseSupportQueueList(rawLegacyQueues.AT_RISK, 'AT_RISK'),
+              UNASSIGNED: parseSupportQueueList(rawLegacyQueues.UNASSIGNED, 'UNASSIGNED'),
+              MY_CASES: parseSupportQueueList(rawLegacyQueues.MY_CASES, 'MY_CASES'),
+              ESCALATED: parseSupportQueueList(rawLegacyQueues.ESCALATED, 'ESCALATED'),
+            };
 
             const totalTickets = typeof metricsSource.totalTickets === 'number'
               ? metricsSource.totalTickets
@@ -2053,6 +2419,13 @@ export class RealDashboardRepository implements IDashboardRepository {
               ? metricsSource.resolvedTickets
               : resolvedTodayCount;
 
+            const combinedLegacyItems = [
+              ...parsedQueues.AT_RISK,
+              ...parsedQueues.UNASSIGNED,
+              ...parsedQueues.MY_CASES,
+              ...parsedQueues.ESCALATED,
+            ];
+
             return {
               kpis: {
                 totalTickets,
@@ -2068,16 +2441,37 @@ export class RealDashboardRepository implements IDashboardRepository {
                 slaBreachedCount,
                 resolvedTodayCount,
               },
-              queues: {
-                AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
-                UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
-                MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
-                ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
+              queues: parsedQueues,
+              analytics: {
+                openTickets: unassignedTickets,
+                inInvestigationTickets: inProgressTickets,
+                escalatedTickets,
+                resolvedTickets,
+                slaAtRiskOrBreached:
+                  slaAtRiskCount !== null && slaBreachedCount !== null
+                    ? slaAtRiskCount + slaBreachedCount
+                    : null,
+                statusDistribution: buildSupportStatusDistribution(
+                  unassignedTickets ?? 0,
+                  inProgressTickets ?? 0,
+                  escalatedTickets ?? 0,
+                  resolvedTickets ?? 0
+                ),
+                slaMonitoring:
+                  totalTickets === 0
+                    ? { normal: 0, atRisk: 0, breached: 0 }
+                    : slaAtRiskCount !== null && slaBreachedCount !== null
+                      ? {
+                        normal: Math.max(0, totalTickets - slaAtRiskCount - slaBreachedCount),
+                        atRisk: slaAtRiskCount,
+                        breached: slaBreachedCount,
+                      }
+                      : null,
+                recentActivity: buildRecentActivityFromQueueItems(combinedLegacyItems),
               },
             };
           }
 
-          // Check if unified dashboard has sections.complaints
           if (raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections)) {
             const sections = raw.sections as Record<string, unknown>;
             if (sections.complaints && typeof sections.complaints === 'object') {
@@ -2093,227 +2487,11 @@ export class RealDashboardRepository implements IDashboardRepository {
         if (err instanceof ServerFailureError) {
           throw err;
         }
-        // Fall back gracefully to support tickets API
       }
 
-      // If complaints section is present from /admin/dashboard
-      if (complaintsSection) {
-        const openUnassignedGrievances = parseOptionalMetric(
-          complaintsSection.unassigned ?? complaintsSection.open,
-          'complaints.open'
-        );
-        const myActiveCases = parseOptionalMetric(
-          complaintsSection.inProgress ?? complaintsSection.investigationPending,
-          'complaints.inProgress'
-        );
-        // SLA-at-risk threshold is not defined on backend complaints summary; do not invent client-side thresholds for complaintsSection.
-        const slaAtRiskCount: number | null = null;
-        const slaBreachedCount = complaintsSection.escalated !== undefined
-          ? parseOptionalMetric(complaintsSection.escalated, 'complaints.escalated')
-          : null;
-        const resolvedTodayCount: number | null = null;
+      const { rawTickets, metaTotal } = await fetchAllSupportTickets();
 
-        // Fetch authorized support tickets API for queue breakdown and exact KPI resolution
-        const ticketsRes = await httpClient.get<{
-          success: boolean;
-          data: Record<string, unknown>[];
-          meta?: { total?: number; totalItems?: number };
-        }>('/admin/support/tickets', { params: { limit: 100 } });
-        const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
-        const metaObj = ticketsRes.data?.meta;
-        const metaTotal = typeof metaObj?.total === 'number' ? metaObj.total : (typeof metaObj?.totalItems === 'number' ? metaObj.totalItems : undefined);
-        const totalTickets = typeof metaTotal === 'number' ? metaTotal : (rawTickets.length > 0 ? rawTickets.length : ((openUnassignedGrievances ?? 0) + (myActiveCases ?? 0) + (slaBreachedCount ?? 0)));
-
-        const currentUser = useAuthStore.getState().user;
-        const currentUserId = currentUser?.id;
-        const currentUserName = currentUser?.name;
-
-        const unassignedTickets = complaintsSection.unassigned !== undefined
-          ? Number(complaintsSection.unassigned)
-          : rawTickets.filter((t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED').length;
-
-        const myAssignedTickets = rawTickets.filter((t) => {
-          if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
-          if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
-          if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
-          return false;
-        }).length;
-
-        const inProgressTickets = complaintsSection.inProgress !== undefined
-          ? Number(complaintsSection.inProgress)
-          : rawTickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED').length;
-
-        const now = Date.now();
-        const slaImminentBreach = rawTickets.filter((t) => {
-          if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
-          if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return false;
-          if (t.slaStatus === 'AT_RISK') return true;
-          if (t.dueAt) {
-            const dueMs = new Date(String(t.dueAt)).getTime();
-            return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
-          }
-          return false;
-        }).length;
-
-        const escalatedTickets = complaintsSection.escalated !== undefined
-          ? Number(complaintsSection.escalated)
-          : rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt)).length;
-
-        const resolvedTickets = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt)).length;
-
-        // Populate queues
-        let queues: Record<'AT_RISK' | 'UNASSIGNED' | 'MY_CASES' | 'ESCALATED', SupportDashboardQueueItem[]> & {
-          ALL?: SupportDashboardQueueItem[];
-          IN_PROGRESS?: SupportDashboardQueueItem[];
-          RESOLVED?: SupportDashboardQueueItem[];
-        };
-        if (rawQueues && ('AT_RISK' in rawQueues || 'UNASSIGNED' in rawQueues)) {
-          queues = {
-            ALL: 'ALL' in rawQueues ? parseSupportQueueList(rawQueues.ALL, 'ALL') : undefined,
-            AT_RISK: parseSupportQueueList(rawQueues.AT_RISK, 'AT_RISK'),
-            UNASSIGNED: parseSupportQueueList(rawQueues.UNASSIGNED, 'UNASSIGNED'),
-            MY_CASES: parseSupportQueueList(rawQueues.MY_CASES, 'MY_CASES'),
-            IN_PROGRESS: 'IN_PROGRESS' in rawQueues ? parseSupportQueueList(rawQueues.IN_PROGRESS, 'IN_PROGRESS') : undefined,
-            ESCALATED: parseSupportQueueList(rawQueues.ESCALATED, 'ESCALATED'),
-            RESOLVED: 'RESOLVED' in rawQueues ? parseSupportQueueList(rawQueues.RESOLVED, 'RESOLVED') : undefined,
-          };
-        } else {
-          const atRiskTickets = rawTickets.filter(
-            (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED' ||
-              (t.dueAt && t.status !== 'CLOSED' && t.status !== 'RESOLVED' && (new Date(String(t.dueAt)).getTime() - now <= 24 * 3600 * 1000))
-          );
-          const unassignedTicketsList = rawTickets.filter(
-            (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
-          );
-          const myCasesTicketsList = rawTickets.filter((t) => {
-            if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
-            if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
-            if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
-            return false;
-          });
-          const inProgressTicketsList = rawTickets.filter(
-            (t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED'
-          );
-          const escalatedTicketsList = rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt));
-          const resolvedTicketsList = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt));
-
-          queues = {
-            ALL: rawTickets.map((t) => mapTicketToQueueItem(t, 'View Ticket')),
-            AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
-            UNASSIGNED: unassignedTicketsList.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
-            MY_CASES: myCasesTicketsList.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
-            IN_PROGRESS: inProgressTicketsList.map((t) => mapTicketToQueueItem(t, 'Investigate')),
-            ESCALATED: escalatedTicketsList.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
-            RESOLVED: resolvedTicketsList.map((t) => mapTicketToQueueItem(t, 'Inspect Record')),
-          };
-        }
-
-        return {
-          kpis: {
-            totalTickets,
-            unassignedTickets,
-            myAssignedTickets,
-            inProgressTickets,
-            slaImminentBreach,
-            escalatedTickets,
-            resolvedTickets,
-            openUnassignedGrievances,
-            myActiveCases,
-            slaAtRiskCount,
-            slaBreachedCount,
-            resolvedTodayCount,
-          },
-          queues,
-        };
-      }
-
-      // 2. Derive accurately from authorized support tickets API: GET /admin/support/tickets
-      const ticketsRes = await httpClient.get<{
-        success: boolean;
-        data: Record<string, unknown>[];
-        meta?: { total?: number; totalItems?: number };
-      }>('/admin/support/tickets', { params: { limit: 100 } });
-
-      const rawTickets = Array.isArray(ticketsRes.data?.data) ? ticketsRes.data.data : [];
-      const metaObj = ticketsRes.data?.meta;
-      const metaTotal = typeof metaObj?.total === 'number' ? metaObj.total : (typeof metaObj?.totalItems === 'number' ? metaObj.totalItems : undefined);
-      const totalTickets = typeof metaTotal === 'number' ? metaTotal : rawTickets.length;
-
-      const currentUser = useAuthStore.getState().user;
-      const currentUserId = currentUser?.id;
-      const currentUserName = currentUser?.name;
-
-      const now = Date.now();
-      const atRiskTickets = rawTickets.filter(
-        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'AT_RISK' || t.slaStatus === 'BREACHED' ||
-          (t.dueAt && t.status !== 'CLOSED' && t.status !== 'RESOLVED' && (new Date(String(t.dueAt)).getTime() - now <= 24 * 3600 * 1000))
-      );
-      const unassignedTickets = rawTickets.filter(
-        (t) => !t.assignedToUserId && !t.assignedToStaffId && !t.assigneeUserId && t.status !== 'CLOSED' && t.status !== 'RESOLVED'
-      );
-      const myCasesTickets = rawTickets.filter((t) => {
-        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
-        if (currentUserId && (t.assignedToUserId === currentUserId || t.assignedToStaffId === currentUserId || t.assigneeUserId === currentUserId)) return true;
-        if (currentUserName && typeof t.assignedToStaffName === 'string' && t.assignedToStaffName.toLowerCase().includes(currentUserName.toLowerCase())) return true;
-        return false;
-      });
-      const escalatedTickets = rawTickets.filter((t) => t.status === 'ESCALATED' || t.status === 'REPLACEMENT_INITIATED' || Boolean(t.escalatedAt));
-      const inProgressTickets = rawTickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'INVESTIGATION_PENDING' || t.status === 'ASSIGNED');
-      const resolvedTickets = rawTickets.filter((t) => t.status === 'CLOSED' || t.status === 'RESOLVED' || Boolean(t.closedAt));
-
-      const slaImminentBreach = rawTickets.filter((t) => {
-        if (t.status === 'CLOSED' || t.status === 'RESOLVED') return false;
-        if (Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED') return false;
-        if (t.slaStatus === 'AT_RISK') return true;
-        if (t.dueAt) {
-          const dueMs = new Date(String(t.dueAt)).getTime();
-          return !isNaN(dueMs) && (dueMs - now <= 24 * 3600 * 1000);
-        }
-        return false;
-      }).length;
-
-      const openUnassignedGrievances = unassignedTickets.length;
-      const myActiveCases = myCasesTickets.length;
-      const hasExplicitAtRisk = rawTickets.some((t) => t.slaStatus === 'AT_RISK');
-      const slaAtRiskCount: number | null = hasExplicitAtRisk
-        ? rawTickets.filter((t) => t.slaStatus === 'AT_RISK').length
-        : null;
-      const slaBreachedCount = rawTickets.filter(
-        (t) => Boolean(t.slaBreachedAt) || t.slaStatus === 'BREACHED'
-      ).length;
-
-      const todayIso = new Date().toISOString().split('T')[0];
-      const resolvedToday = rawTickets.filter(
-        (t) => (t.status === 'CLOSED' || t.status === 'RESOLVED') && t.closedAt && String(t.closedAt).startsWith(todayIso)
-      ).length;
-      const hasClosedTickets = rawTickets.some((t) => t.status === 'CLOSED' || t.status === 'RESOLVED');
-      const resolvedTodayCount: number | null = hasClosedTickets ? resolvedToday : null;
-
-      return {
-        kpis: {
-          totalTickets,
-          unassignedTickets: unassignedTickets.length,
-          myAssignedTickets: myCasesTickets.length,
-          inProgressTickets: inProgressTickets.length,
-          slaImminentBreach,
-          escalatedTickets: escalatedTickets.length,
-          resolvedTickets: resolvedTickets.length,
-          openUnassignedGrievances,
-          myActiveCases,
-          slaAtRiskCount,
-          slaBreachedCount,
-          resolvedTodayCount,
-        },
-        queues: {
-          ALL: rawTickets.map((t) => mapTicketToQueueItem(t, 'View Ticket')),
-          AT_RISK: atRiskTickets.map((t) => mapTicketToQueueItem(t, 'Mediate Dispute')),
-          UNASSIGNED: unassignedTickets.map((t) => mapTicketToQueueItem(t, 'Claim Ticket')),
-          MY_CASES: myCasesTickets.map((t) => mapTicketToQueueItem(t, 'Open Call Logs')),
-          IN_PROGRESS: inProgressTickets.map((t) => mapTicketToQueueItem(t, 'Investigate')),
-          ESCALATED: escalatedTickets.map((t) => mapTicketToQueueItem(t, 'View Ops Status')),
-          RESOLVED: resolvedTickets.map((t) => mapTicketToQueueItem(t, 'Inspect Record')),
-        },
-      };
+      return buildSupportFromTickets(rawTickets, metaTotal, complaintsSection, rawQueues);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

@@ -247,7 +247,8 @@ describe('SevaNest Admin Portal: Tab-Close Logout, Login Rate-Limit Audit & Inac
       });
 
       expect(useAuthStore.getState().user?.role).toBe('SUPPORT_EXECUTIVE');
-      expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
 
     it('navigates Verification Executive to /verification on fresh login', async () => {

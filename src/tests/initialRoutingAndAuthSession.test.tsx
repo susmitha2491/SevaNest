@@ -176,7 +176,8 @@ describe('Initial Login Page Routing & Session Verification', () => {
       expect(router.state.location.pathname).toBe('/dashboard');
     });
 
-    expect(await screen.findByRole('heading', { name: /Support Operations Console/i }, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
   });
 
   it('4b. Direct unauthenticated visit to /verification redirects to login and preserves destination', async () => {

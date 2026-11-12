@@ -306,7 +306,8 @@ describe('Dashboard Module Audit & Validation (PRD Section 7 & Section 3 Complia
       });
 
       renderWithClient(<DashboardPage />);
-      expect(await screen.findByText('Support Operations Console')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Dashboard$/i })).toBeInTheDocument();
+      expect(screen.getByText(/Support operations overview and ticket monitoring\./i)).toBeInTheDocument();
     });
   });
 
