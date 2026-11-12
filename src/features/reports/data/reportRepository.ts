@@ -1,6 +1,7 @@
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
+import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import {
   ReportItem,
   ReportCategory,
@@ -185,31 +186,43 @@ export function formatReportTitle(slug: string): string {
     .join(' ');
 }
 
+export function getTodayISTDateString(now: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    return now.toISOString().slice(0, 10);
+  }
+}
+
 export function buildStandardDateRange(criteria?: ReportFilterCriteria): { from: string; to: string } {
   const now = new Date();
-  const to = criteria?.to || now.toISOString().slice(0, 10);
+  const todayIST = getTodayISTDateString(now);
+  const to = criteria?.to || todayIST;
 
   if (criteria?.from) {
     return { from: criteria.from, to };
   }
 
+  const offsetDate = (days: number) => getTodayISTDateString(new Date(now.getTime() - days * 24 * 60 * 60 * 1000));
+
   if (criteria?.period === 'LAST_7_DAYS') {
-    const fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return { from: fromDate.toISOString().slice(0, 10), to };
+    return { from: offsetDate(7), to };
   }
 
   if (criteria?.period === 'LAST_30_DAYS') {
-    const fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return { from: fromDate.toISOString().slice(0, 10), to };
+    return { from: offsetDate(30), to };
   }
 
   if (criteria?.period === 'LAST_90_DAYS') {
-    const fromDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-    return { from: fromDate.toISOString().slice(0, 10), to };
+    return { from: offsetDate(90), to };
   }
 
-  // Default to year-to-date starting from 2026-01-01 to capture all test data
-  return { from: '2026-01-01', to };
+  return { from: `${to.slice(0, 4)}-01-01`, to };
 }
 
 export function generateExcelXml(
@@ -320,12 +333,19 @@ interface ParsedReportPayload {
   metricsSummary: ReportMetricSummary[];
   previewColumns: string[];
   previewRows: Array<Record<string, string | number>>;
+  trendSeries?: Array<{ period: string; value: number; formattedValue?: string }>;
+}
+
+function formatReportMoney(minor: number, currency = 'INR'): string {
+  const major = Number(minor || 0) / 100;
+  return currency === 'INR' ? formatCurrencyINR(major) : `${currency} ${major.toFixed(2)}`;
 }
 
 export function parseBackendReportData(slug: string, rawData: unknown): ParsedReportPayload {
   const metricsSummary: ReportMetricSummary[] = [];
   let previewColumns: string[] = [];
   let previewRows: Array<Record<string, string | number>> = [];
+  let trendSeries: Array<{ period: string; value: number; formattedValue?: string }> | undefined;
 
   if (!rawData) {
     return { metricsSummary, previewColumns: ['Metric', 'Value'], previewRows: [] };
@@ -379,7 +399,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Total Registrations', value: reg });
       metricsSummary.push({ label: 'Fully Verified Today', value: ver });
-      metricsSummary.push({ label: 'Overall Conversion', value: `${(conv * 100).toFixed(1)}%`, isPositive: conv >= 0.5 });
+      metricsSummary.push({ label: 'Overall Conversion', value: `${(conv * 100).toFixed(2)}%`, isPositive: conv >= 0.5 });
 
       previewColumns = ['Period', 'Registered Workers', 'Fully Verified Today', 'Conversion Rate %'];
       if (Array.isArray(data?.series)) {
@@ -387,7 +407,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
           Period: s.period,
           'Registered Workers': Number(s.registered || 0),
           'Fully Verified Today': Number(s.verified || 0),
-          'Conversion Rate %': `${(Number(s.verificationConversion || 0) * 100).toFixed(1)}%`,
+          'Conversion Rate %': `${(Number(s.verificationConversion || 0) * 100).toFixed(2)}%`,
         }));
       }
       break;
@@ -407,7 +427,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Booking Requests', value: reqs });
       metricsSummary.push({ label: 'Reached Confirmed', value: conf });
-      metricsSummary.push({ label: 'Net Confirmation Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate >= 0.2 });
+      metricsSummary.push({ label: 'Net Confirmation Rate', value: `${(rate * 100).toFixed(2)}%`, isPositive: rate >= 0.2 });
 
       previewColumns = ['Period', 'Booking Requests Created', 'Reached Confirmed', 'Confirmation Rate %'];
       if (Array.isArray(data?.series)) {
@@ -415,7 +435,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
           Period: s.period,
           'Booking Requests Created': Number(s.requests || 0),
           'Reached Confirmed': Number(s.confirmed || 0),
-          'Confirmation Rate %': `${(Number(s.confirmationRate || 0) * 100).toFixed(1)}%`,
+          'Confirmation Rate %': `${(Number(s.confirmationRate || 0) * 100).toFixed(2)}%`,
         }));
       }
       break;
@@ -444,18 +464,20 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
     }
 
     case 'demand-by-area': {
-      const areas = Array.isArray(rawData) ? (rawData as Array<{ areaId: string; code: string; name: string; requests: number }>) : [];
+      const areas = Array.isArray(rawData)
+        ? (rawData as Array<{ areaId: string; city?: string; code?: string; name: string; requests: number }>)
+        : [];
       const total = areas.reduce((sum, a) => sum + Number(a.requests || 0), 0);
       metricsSummary.push({ label: 'Total Area Requests', value: total });
       metricsSummary.push({ label: 'Active Clusters', value: areas.length });
 
-      previewColumns = ['Geographic Service Area', 'Area Code', 'Booking Requests', 'Share of Demand %'];
+      previewColumns = ['Geographic Service Area', 'City', 'Booking Requests', 'Share of Demand %'];
       previewRows = areas.map((a) => {
         const reqs = Number(a.requests || 0);
         const share = total > 0 ? `${((reqs / total) * 100).toFixed(1)}%` : '0.0%';
         return {
           'Geographic Service Area': a.name,
-          'Area Code': a.code,
+          City: a.city || a.code || '—',
           'Booking Requests': reqs,
           'Share of Demand %': share,
         };
@@ -471,7 +493,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Fully Verified Worker Pool', value: verified });
       metricsSummary.push({ label: 'Workers with Active Booking', value: active });
-      metricsSummary.push({ label: 'Current Utilization Rate', value: `${(util * 100).toFixed(1)}%`, isPositive: util >= 0.5 });
+      metricsSummary.push({ label: 'Current Utilization Rate', value: `${(util * 100).toFixed(2)}%`, isPositive: util >= 0.5 });
       metricsSummary.push({ label: 'Available Standby Pool', value: Math.max(0, verified - active) });
 
       previewColumns = ['Operational Telemetry Metric', 'Current Snapshot Value'];
@@ -492,7 +514,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Interviews & Trials Held', value: held });
       metricsSummary.push({ label: 'Confirmed Placements', value: conf });
-      metricsSummary.push({ label: 'Conversion Ratio', value: `${(conv * 100).toFixed(1)}%`, isPositive: conv >= 0.6 });
+      metricsSummary.push({ label: 'Conversion Ratio', value: `${(conv * 100).toFixed(2)}%`, isPositive: conv >= 0.6 });
 
       previewColumns = ['Metric Indicator', 'Cohort Measurement'];
       previewRows = [
@@ -511,7 +533,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Total Created Bookings', value: total });
       metricsSummary.push({ label: 'Cancelled Bookings', value: cancelled });
-      metricsSummary.push({ label: 'Cancellation Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate <= 0.15 });
+      metricsSummary.push({ label: 'Cancellation Rate', value: `${(rate * 100).toFixed(2)}%`, isPositive: rate <= 0.15 });
 
       previewColumns = ['Booking Cohort Metric', 'Observed Value'];
       previewRows = [
@@ -530,7 +552,7 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
 
       metricsSummary.push({ label: 'Active Placements Cohort', value: active });
       metricsSummary.push({ label: 'Replacement Requests Raised', value: replacements });
-      metricsSummary.push({ label: 'Replacement Incident Rate', value: `${(rate * 100).toFixed(1)}%`, isPositive: rate <= 0.1 });
+      metricsSummary.push({ label: 'Replacement Incident Rate', value: `${(rate * 100).toFixed(2)}%`, isPositive: rate <= 0.1 });
 
       previewColumns = ['Placement Lifecycle Metric', 'Observed Measurement'];
       previewRows = [
@@ -542,36 +564,79 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
     }
 
     case 'payment-collections': {
+      type FeeTotalEntry = { feeCode?: string; currency?: string; payments?: number; grossMinor?: number; refundedMinor?: number };
+      type CollectionSeriesEntry = {
+        period: string;
+        feeCode?: string;
+        feeType?: string;
+        currency?: string;
+        payments?: number;
+        count?: number;
+        grossMinor?: number;
+        refundedMinor?: number;
+      };
       const data = rawData as {
         interval?: string;
-        totalsByFeeType?: Record<string, { payments: number; grossMinor: number; refundedMinor: number }>;
-        series?: Array<{ period: string; feeType: string; count: number; grossMinor: number; refundedMinor: number }>;
+        totalsByFeeType?: FeeTotalEntry[] | Record<string, FeeTotalEntry>;
+        series?: CollectionSeriesEntry[];
       };
 
       let totalGrossMinor = 0;
       let totalRefundedMinor = 0;
       let totalPayments = 0;
+      let primaryCurrency = 'INR';
 
-      if (data?.totalsByFeeType) {
-        for (const stats of Object.values(data.totalsByFeeType)) {
-          totalGrossMinor += Number(stats.grossMinor || 0);
-          totalRefundedMinor += Number(stats.refundedMinor || 0);
-          totalPayments += Number(stats.payments || 0);
+      const feeTotals = Array.isArray(data?.totalsByFeeType)
+        ? data.totalsByFeeType
+        : data?.totalsByFeeType
+        ? Object.values(data.totalsByFeeType)
+        : [];
+
+      for (const stats of feeTotals) {
+        if (stats.currency) primaryCurrency = stats.currency;
+        totalGrossMinor += Number(stats.grossMinor || 0);
+        totalRefundedMinor += Number(stats.refundedMinor || 0);
+        totalPayments += Number(stats.payments || 0);
+      }
+
+      previewColumns = ['Period', 'Fee Classification', 'Payments Count', 'Gross Collections (₹)', 'Refunded Amount (₹)'];
+      const periodGrossMap = new Map<string, number>();
+
+      if (Array.isArray(data?.series)) {
+        previewRows = data.series.map((s) => {
+          const grossMinor = Number(s.grossMinor || 0);
+          const refundedMinor = Number(s.refundedMinor || 0);
+          const paymentsCount = Number(s.payments ?? s.count ?? 0);
+          const curr = s.currency || primaryCurrency;
+          periodGrossMap.set(s.period, (periodGrossMap.get(s.period) ?? 0) + grossMinor);
+          return {
+            Period: s.period,
+            'Fee Classification': s.feeCode || s.feeType || '—',
+            'Payments Count': paymentsCount,
+            'Gross Collections (₹)': formatReportMoney(grossMinor, curr),
+            'Refunded Amount (₹)': formatReportMoney(refundedMinor, curr),
+          };
+        });
+      }
+
+      // Derive totals cleanly from series only if totalsByFeeType was omitted
+      if (feeTotals.length === 0 && Array.isArray(data?.series)) {
+        for (const s of data.series) {
+          totalGrossMinor += Number(s.grossMinor || 0);
+          totalRefundedMinor += Number(s.refundedMinor || 0);
+          totalPayments += Number(s.payments ?? s.count ?? 0);
         }
       }
 
-      metricsSummary.push({ label: 'Gross Settled Collections', value: `₹${(totalGrossMinor / 100).toLocaleString('en-IN')}` });
-      metricsSummary.push({ label: 'Refunded Realizations', value: `₹${(totalRefundedMinor / 100).toLocaleString('en-IN')}` });
-      metricsSummary.push({ label: 'Total Invoices Recorded', value: totalPayments });
+      metricsSummary.push({ label: 'Gross Settled Collections', value: formatReportMoney(totalGrossMinor, primaryCurrency) });
+      metricsSummary.push({ label: 'Refunded Realizations', value: formatReportMoney(totalRefundedMinor, primaryCurrency) });
+      metricsSummary.push({ label: 'Total Payments Recorded', value: totalPayments });
 
-      previewColumns = ['Period', 'Fee Classification', 'Payments Count', 'Gross Collections (₹)', 'Refunded Amount (₹)'];
-      if (Array.isArray(data?.series)) {
-        previewRows = data.series.map((s) => ({
-          Period: s.period,
-          'Fee Classification': s.feeType,
-          'Payments Count': Number(s.count || 0),
-          'Gross Collections (₹)': `₹${(Number(s.grossMinor || 0) / 100).toLocaleString('en-IN')}`,
-          'Refunded Amount (₹)': `₹${(Number(s.refundedMinor || 0) / 100).toLocaleString('en-IN')}`,
+      if (periodGrossMap.size > 0) {
+        trendSeries = Array.from(periodGrossMap.entries()).map(([period, minor]) => ({
+          period,
+          value: minor / 100,
+          formattedValue: formatReportMoney(minor, primaryCurrency),
         }));
       }
       break;
@@ -581,14 +646,18 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
       const data = rawData as {
         created?: number;
         closed?: number;
-        averageResolutionSeconds?: number;
+        averageResolutionSeconds?: number | null;
         byStatus?: Array<{ status: string; count: number }>;
+        series?: Array<{ period: string; count: number }>;
       };
 
       const created = Number(data?.created ?? 0);
       const closed = Number(data?.closed ?? 0);
-      const avgSec = Number(data?.averageResolutionSeconds ?? 0);
-      const avgHours = avgSec > 0 ? `${(avgSec / 3600).toFixed(1)} hrs` : 'N/A';
+      const avgSec =
+        data?.averageResolutionSeconds !== null && data?.averageResolutionSeconds !== undefined
+          ? Number(data.averageResolutionSeconds)
+          : null;
+      const avgHours = avgSec !== null && avgSec > 0 ? `${(avgSec / 3600).toFixed(1)} hrs` : 'N/A';
 
       metricsSummary.push({ label: 'Tickets Logged', value: created });
       metricsSummary.push({ label: 'Closed & Resolved', value: closed });
@@ -606,13 +675,23 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
           };
         });
       }
+
+      if (Array.isArray(data?.series)) {
+        trendSeries = data.series.map((s) => ({
+          period: s.period,
+          value: Number(s.count || 0),
+          formattedValue: String(Number(s.count || 0)),
+        }));
+      }
       break;
     }
 
     case 'top-rated-workers': {
-      const workers = Array.isArray(rawData) ? (rawData as Array<{ workerId: string; name: string; ratingCount: number; averageRating: number }>) : [];
+      const workers = Array.isArray(rawData)
+        ? (rawData as Array<{ workerId: string; name: string; ratingCount: number; averageRating: number }>)
+        : [];
       metricsSummary.push({ label: 'Ranked Workers', value: workers.length });
-      metricsSummary.push({ label: 'Top Rating', value: workers.length > 0 ? `${workers[0].averageRating.toFixed(1)} ★` : 'N/A' });
+      metricsSummary.push({ label: 'Top Rating', value: workers.length > 0 ? `${Number(workers[0].averageRating).toFixed(1)} ★` : 'N/A' });
       const totalRatings = workers.reduce((s, w) => s + Number(w.ratingCount || 0), 0);
       metricsSummary.push({ label: 'Consumer Reviews Evaluated', value: totalRatings });
 
@@ -627,22 +706,20 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
     }
 
     case 'repeat-customers': {
-      const customers = Array.isArray(rawData) ? (rawData as Array<{ customerUserId: string; name: string; bookings: number }>) : [];
+      const customers = Array.isArray(rawData)
+        ? (rawData as Array<{ customerUserId: string; name: string; bookings: number }>)
+        : [];
       metricsSummary.push({ label: 'Repeat Customers', value: customers.length });
       metricsSummary.push({ label: 'Top Repeat Customer', value: customers.length > 0 ? `${customers[0].name} (${customers[0].bookings})` : 'N/A' });
       const totalBookings = customers.reduce((s, c) => s + Number(c.bookings || 0), 0);
       metricsSummary.push({ label: 'Total Repeat Bookings', value: totalBookings });
 
-      previewColumns = ['Customer Name', 'Customer User ID', 'Completed Bookings', 'Retention Tier'];
-      previewRows = customers.map((c) => {
-        const count = Number(c.bookings || 0);
-        return {
-          'Customer Name': c.name,
-          'Customer User ID': c.customerUserId,
-          'Completed Bookings': count,
-          'Retention Tier': count >= 5 ? 'High Frequency Booker' : 'Repeat Booker',
-        };
-      });
+      previewColumns = ['Customer Name', 'Customer User ID', 'Bookings Count'];
+      previewRows = customers.map((c) => ({
+        'Customer Name': c.name,
+        'Customer User ID': c.customerUserId,
+        'Bookings Count': Number(c.bookings || 0),
+      }));
       break;
     }
 
@@ -660,7 +737,142 @@ export function parseBackendReportData(slug: string, rawData: unknown): ParsedRe
     }
   }
 
-  return { metricsSummary, previewColumns, previewRows };
+  return { metricsSummary, previewColumns, previewRows, trendSeries };
+}
+
+async function executeReportExport(
+  repo: IReportRepository,
+  reportId: string,
+  format: 'CSV' | 'XLSX' | 'PDF' = 'CSV',
+  criteria?: ReportFilterCriteria
+): Promise<ExportResult> {
+  const slug = resolveReportSlug(reportId);
+  const activeSubTab = criteria?.subTab;
+
+  // Combined FR-RPT-012 export when triggered without an explicit subTab (e.g. from Reports Catalogue)
+  if ((slug === 'top-rated-workers-repeat-customers' || slug === 'fr-rpt-012') && !activeSubTab) {
+    const [workersRep, repeatRep] = await Promise.all([
+      repo.getReportById('top-rated-workers-repeat-customers', { ...criteria, subTab: 'top-rated-workers' }),
+      repo.getReportById('top-rated-workers-repeat-customers', { ...criteria, subTab: 'repeat-customers' }),
+    ]);
+    const workerRows = workersRep?.previewRows || [];
+    const repeatRows = repeatRep?.previewRows || [];
+    const totalRowCount = workerRows.length + repeatRows.length;
+
+    if (format === 'XLSX' && workersRep) {
+      const combinedReport: ReportItem = {
+        ...workersRep,
+        cadence: REPORT_DEFINITIONS['top-rated-workers-repeat-customers'].cadence,
+        from: repeatRep?.from ?? workersRep.from,
+        to: repeatRep?.to ?? workersRep.to,
+        notes: Array.from(new Set([...(workersRep.notes || []), ...(repeatRep?.notes || [])])),
+        metricsSummary: [...workersRep.metricsSummary, ...(repeatRep?.metricsSummary || [])],
+        extraSheets: repeatRep
+          ? [
+              {
+                sheetName: 'Repeat Customers',
+                columns: repeatRep.previewColumns,
+                rows: repeatRows,
+              },
+            ]
+          : undefined,
+      };
+      const fileName = getReportCanonicalFilename(combinedReport, 'xlsx');
+      const xlsxBuffer = await generateProfessionalExcel(combinedReport, criteria);
+      return {
+        fileName,
+        xlsxBuffer,
+        format: 'XLSX',
+        rowCount: totalRowCount,
+        generatedAt: new Date().toISOString(),
+      };
+    }
+
+    const csvColumns = ['Section', 'Name', 'Reference ID', 'Count', 'Metric'];
+    const csvRows: Array<Record<string, string | number>> = [
+      ...workerRows.map((r) => ({
+        Section: 'Top-Rated Workers',
+        Name: r['Worker Name'] ?? '',
+        'Reference ID': r['Worker Reference ID'] ?? '',
+        Count: r['Ratings Count'] ?? 0,
+        Metric: r['Average Rating'] ?? '',
+      })),
+      ...repeatRows.map((r) => ({
+        Section: 'Repeat Customers',
+        Name: r['Customer Name'] ?? '',
+        'Reference ID': r['Customer User ID'] ?? '',
+        Count: r['Bookings Count'] ?? r['Completed Bookings'] ?? 0,
+        Metric: r['Retention Tier'] ?? 'Repeat Customer Bookings',
+      })),
+    ];
+    const metaRef = workersRep || repeatRep || REPORT_DEFINITIONS['top-rated-workers-repeat-customers'];
+    const fileName = getReportCanonicalFilename(
+      { requirement: metaRef.requirement, name: metaRef.name, id: 'top-rated-workers-repeat-customers' },
+      'csv'
+    );
+    return {
+      fileName,
+      csvContent: generateCleanCsv(csvColumns, csvRows),
+      format: 'CSV',
+      rowCount: totalRowCount,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  let rep = await repo.getReportById(reportId, criteria);
+  const rows = rep?.previewRows || [];
+  const columns = rep?.previewColumns || (rows.length > 0 ? Object.keys(rows[0]) : ['Metric', 'Value']);
+  const effectiveSubTab = activeSubTab || rep?.activeSubTab;
+
+  // Include supplementary periodic series sheet for support-tickets Excel export when present
+  if (format === 'XLSX' && rep && rep.id === 'support-tickets' && rep.trendSeries && rep.trendSeries.length > 0) {
+    rep = {
+      ...rep,
+      extraSheets: [
+        ...(rep.extraSheets || []),
+        {
+          sheetName: 'Periodic Volume',
+          columns: ['Reporting Period', 'Tickets Created'],
+          rows: rep.trendSeries.map((pt) => ({
+            'Reporting Period': pt.period,
+            'Tickets Created': pt.value,
+          })),
+        },
+      ],
+    };
+  }
+
+  const totalXlsxRows = rows.length + (rep?.extraSheets?.reduce((sum, s) => sum + s.rows.length, 0) ?? 0);
+
+  if (format === 'XLSX') {
+    const fileName = rep
+      ? getReportCanonicalFilename(rep, 'xlsx', effectiveSubTab)
+      : `FR-RPT_${reportId}.xlsx`;
+    const xlsxBuffer = rep
+      ? await generateProfessionalExcel(rep, criteria)
+      : new Uint8Array();
+
+    return {
+      fileName,
+      xlsxBuffer,
+      format: 'XLSX',
+      rowCount: totalXlsxRows,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  const fileName = rep
+    ? getReportCanonicalFilename(rep, 'csv', effectiveSubTab)
+    : `FR-RPT_${reportId}.csv`;
+  const csvContent = generateCleanCsv(columns, rows);
+
+  return {
+    fileName,
+    csvContent,
+    format: 'CSV',
+    rowCount: rows.length,
+    generatedAt: new Date().toISOString(),
+  };
 }
 
 export class RealReportRepository implements IReportRepository {
@@ -793,13 +1005,45 @@ export class RealReportRepository implements IReportRepository {
       if (meta.supportedFilters.minRatings && criteria?.minRatings !== undefined) {
         params.minRatings = criteria.minRatings;
       }
+      const isPaginatedReport =
+        actualEndpointSlug === 'demand-by-area' ||
+        actualEndpointSlug === 'top-rated-workers' ||
+        actualEndpointSlug === 'repeat-customers';
       if (criteria?.page) params.page = criteria.page;
-      if (criteria?.limit) params.limit = criteria.limit;
+      if (criteria?.limit || isPaginatedReport) {
+        params.limit = criteria?.limit ?? 100;
+      }
 
       const endpoint = `/admin/reports/${encodeURIComponent(actualEndpointSlug)}`;
       const res = await httpClient.get<Record<string, unknown>>(endpoint, { params });
       const envelope = res.data;
-      const rawData = envelope?.data !== undefined ? envelope.data : envelope;
+      let rawData = envelope?.data !== undefined ? envelope.data : envelope;
+
+      // Aggregate remaining pages on paginated reports when caller didn't request a single page
+      const metaObj = (envelope?.meta && typeof envelope.meta === 'object'
+        ? (envelope.meta as { total?: number; limit?: number })
+        : undefined);
+      if (
+        isPaginatedReport &&
+        !criteria?.page &&
+        Array.isArray(rawData) &&
+        metaObj?.total &&
+        metaObj.total > rawData.length
+      ) {
+        const pageSize = Number(params.limit || metaObj.limit || 100);
+        const totalPages = Math.ceil(metaObj.total / pageSize);
+        const allRows = [...rawData];
+        for (let p = 2; p <= totalPages; p += 1) {
+          const nextRes = await httpClient.get<Record<string, unknown>>(endpoint, {
+            params: { ...params, page: p, limit: pageSize },
+          });
+          const nextRows = nextRes.data?.data;
+          if (Array.isArray(nextRows)) {
+            allRows.push(...nextRows);
+          }
+        }
+        rawData = allRows;
+      }
 
       const definition = typeof envelope?.definition === 'string'
         ? envelope.definition
@@ -827,6 +1071,7 @@ export class RealReportRepository implements IReportRepository {
           supportedFilters: actualEndpointSlug === 'top-rated-workers'
             ? { dateRange: false, interval: false, minRatings: true }
             : { dateRange: true, interval: false, minRatings: false },
+          trendSeries: parsed.trendSeries,
           subTabs: [
             { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
             { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
@@ -850,6 +1095,7 @@ export class RealReportRepository implements IReportRepository {
         to: (envelope?.to as string) || (params.to as string) || null,
         interval: (params.interval as 'day' | 'week' | 'month') || undefined,
         supportedFilters: meta.supportedFilters,
+        trendSeries: parsed.trendSeries,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -862,41 +1108,7 @@ export class RealReportRepository implements IReportRepository {
     criteria?: ReportFilterCriteria
   ): Promise<ExportResult> {
     try {
-      const rep = await this.getReportById(reportId, criteria);
-      const rows = rep?.previewRows || [];
-      const columns = rep?.previewColumns || (rows.length > 0 ? Object.keys(rows[0]) : ['Metric', 'Value']);
-      const activeSubTab = criteria?.subTab || rep?.activeSubTab;
-
-      if (format === 'XLSX') {
-        const fileName = rep
-          ? getReportCanonicalFilename(rep, 'xlsx', activeSubTab)
-          : `FR-RPT_${reportId}.xlsx`;
-        const xlsxBuffer = rep
-          ? await generateProfessionalExcel(rep, criteria)
-          : new Uint8Array();
-
-        return {
-          fileName,
-          xlsxBuffer,
-          format: 'XLSX',
-          rowCount: rows.length,
-          generatedAt: new Date().toISOString(),
-        };
-      }
-
-      // Default CSV export
-      const fileName = rep
-        ? getReportCanonicalFilename(rep, 'csv', activeSubTab)
-        : `FR-RPT_${reportId}.csv`;
-      const csvContent = generateCleanCsv(columns, rows);
-
-      return {
-        fileName,
-        csvContent,
-        format: 'CSV',
-        rowCount: rows.length,
-        generatedAt: new Date().toISOString(),
-      };
+      return await executeReportExport(this, reportId, format, criteria);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -969,8 +1181,8 @@ export class MockReportRepository implements IReportRepository {
       cadence: 'Geographic Cohort (Paginated)',
       notes: ['Mock baseline evaluation for unit tests.'],
       metricsSummary: [{ label: 'Total Area Requests', value: 48 }],
-      previewColumns: ['Geographic Service Area', 'Area Code', 'Booking Requests', 'Share of Demand %'],
-      previewRows: [{ 'Geographic Service Area': 'Madhapur', 'Area Code': 'HYD_MADHAPUR', 'Booking Requests': 22, 'Share of Demand %': '45.8%' }],
+      previewColumns: ['Geographic Service Area', 'City', 'Booking Requests', 'Share of Demand %'],
+      previewRows: [{ 'Geographic Service Area': 'Madhapur', City: 'Hyderabad', 'Booking Requests': 22, 'Share of Demand %': '45.8%' }],
       supportedFilters: { dateRange: true, interval: false, minRatings: false },
     },
     {
@@ -1116,40 +1328,7 @@ export class MockReportRepository implements IReportRepository {
     format: 'CSV' | 'XLSX' | 'PDF' = 'CSV',
     criteria?: ReportFilterCriteria
   ): Promise<ExportResult> {
-    const rep = await this.getReportById(reportId, criteria);
-    const rows = rep?.previewRows || [];
-    const columns = rep?.previewColumns || ['Metric', 'Value'];
-    const activeSubTab = criteria?.subTab || rep?.activeSubTab;
-
-    if (format === 'XLSX') {
-      const fileName = rep
-        ? getReportCanonicalFilename(rep, 'xlsx', activeSubTab)
-        : `FR-RPT_${reportId}.xlsx`;
-      const xlsxBuffer = rep
-        ? await generateProfessionalExcel(rep, criteria)
-        : new Uint8Array();
-
-      return {
-        fileName,
-        xlsxBuffer,
-        format: 'XLSX',
-        rowCount: rows.length,
-        generatedAt: new Date().toISOString(),
-      };
-    }
-
-    const fileName = rep
-      ? getReportCanonicalFilename(rep, 'csv', activeSubTab)
-      : `FR-RPT_${reportId}.csv`;
-    const csvContent = generateCleanCsv(columns, rows);
-
-    return {
-      fileName,
-      csvContent,
-      format: 'CSV',
-      rowCount: rows.length,
-      generatedAt: new Date().toISOString(),
-    };
+    return executeReportExport(this, reportId, format, criteria);
   }
 }
 

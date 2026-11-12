@@ -13,6 +13,7 @@ export const CANONICAL_REPORT_NAMES: Record<string, string> = {
   'FR-RPT-009': 'Worker_Replacement_Rate',
   'FR-RPT-010': 'Payment_Collections_Realization',
   'FR-RPT-011': 'Support_Ticket_Volume_Resolution',
+  'FR-RPT-012-combined': 'Top_Rated_Workers_and_Repeat_Customers',
   'FR-RPT-012-top-rated-workers': 'Top_Rated_Domestic_Workers',
   'FR-RPT-012-repeat-customers': 'Repeat_Customer_Retention',
 };
@@ -30,9 +31,12 @@ export function getReportCanonicalFilename(
   let lookupKey = req;
 
   if (req === 'FR-RPT-012' || report.id === 'top-rated-workers-repeat-customers') {
-    lookupKey = subTab === 'repeat-customers'
-      ? 'FR-RPT-012-repeat-customers'
-      : 'FR-RPT-012-top-rated-workers';
+    lookupKey =
+      subTab === 'repeat-customers'
+        ? 'FR-RPT-012-repeat-customers'
+        : subTab === 'top-rated-workers'
+        ? 'FR-RPT-012-top-rated-workers'
+        : 'FR-RPT-012-combined';
   }
 
   let baseName = CANONICAL_REPORT_NAMES[lookupKey];
@@ -53,7 +57,7 @@ export function parseCellValue(
   header: string,
   rawVal: unknown
 ): {
-  value: string | number;
+  value: string | number | Date;
   numFmt?: string;
   alignment: 'left' | 'center' | 'right';
   isMonospace?: boolean;
@@ -90,11 +94,13 @@ export function parseCellValue(
     }
   }
 
-  // Percentage string ending with % (e.g. "66.7%")
+  // Percentage string ending with % (e.g. "66.7%" or "5.88%")
   if (s.endsWith('%')) {
     const num = parseFloat(s.replace(/[%\s]/g, ''));
     if (!isNaN(num)) {
-      return { value: num / 100, numFmt: '0.0%', alignment: 'right' };
+      const decimalsMatch = s.match(/\.(\d+)%/);
+      const precision = decimalsMatch && decimalsMatch[1].length >= 2 ? '0.00%' : '0.0%';
+      return { value: num / 100, numFmt: precision, alignment: 'right' };
     }
   }
 
@@ -119,8 +125,15 @@ export function parseCellValue(
     }
   }
 
-  // Dates (YYYY-MM-DD)
-  if (/^\d{4}-\d{2}(-\d{2})?$/.test(s)) {
+  // Dates (YYYY-MM-DD -> genuine Excel Date cell so Excel formats and sorts chronologically; YYYY-MM stays centered text)
+  const isoDateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (isoDateMatch) {
+    const utcDate = new Date(Date.UTC(Number(isoDateMatch[1]), Number(isoDateMatch[2]) - 1, Number(isoDateMatch[3])));
+    if (!Number.isNaN(utcDate.getTime())) {
+      return { value: utcDate, numFmt: 'yyyy-mm-dd', alignment: 'center' };
+    }
+  }
+  if (/^\d{4}-\d{2}$/.test(s)) {
     return { value: s, alignment: 'center' };
   }
 
@@ -158,106 +171,20 @@ export function generateCleanCsv(
   return BOM + [headerLine, ...rowLines].join('\r\n');
 }
 
-/**
- * Generates genuine, fully styled Excel (.xlsx) file using ExcelJS
- */
-export async function generateProfessionalExcel(
-  report: ReportItem,
-  criteria?: ReportFilterCriteria
-): Promise<Uint8Array> {
-  const workbook = new Workbook();
-  workbook.creator = 'SevaNest Admin Portal';
-  workbook.lastModifiedBy = 'SevaNest Admin Portal';
-  workbook.created = new Date();
-  workbook.modified = new Date();
-
-  // Excel sheet name: max 31 chars, no special forbidden chars
-  const sanitizedSheetName = (report.requirement || report.name || 'Report')
-    .replace(/[\\/?*[\]:]/g, '_')
-    .slice(0, 31);
-
-  const worksheet = workbook.addWorksheet(sanitizedSheetName, {
-    views: [{ showGridLines: true }],
-  });
-
-  const columns = report.previewColumns && report.previewColumns.length > 0
-    ? report.previewColumns
-    : ['Metric', 'Value'];
-  const rows = report.previewRows || [];
-
-  // Track max lengths for auto column widths
-  const colWidths: number[] = columns.map((c) => Math.max(c.length, 12));
-
-  // --- 1. TITLE BLOCK ---
-  // Row 1: Portal Header
-  const r1 = worksheet.addRow(['SevaNest Admin Portal — Enterprise Analytics & Reporting']);
-  r1.height = 24;
-  r1.getCell(1).font = { name: 'Calibri', size: 14, bold: true, color: { argb: 'FF1E3A8A' } };
-
-  // Row 2: Report Title and Requirement
-  const r2 = worksheet.addRow([`[${report.requirement || 'FR-RPT'}] ${report.name}`]);
-  r2.height = 20;
-  r2.getCell(1).font = { name: 'Calibri', size: 12, bold: true, color: { argb: 'FF0F172A' } };
-
-  // Row 3: PRD Description
-  const r3 = worksheet.addRow([report.description || 'Authoritative PRD Section 14 Operational Telemetry']);
-  r3.height = 18;
-  r3.getCell(1).font = { name: 'Calibri', size: 10, italic: true, color: { argb: 'FF475569' } };
-
-  // Row 4: Operational Metadata
-  const generatedTimestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  const metaText = `Category: ${report.category}  |  Operational Cadence: ${report.cadence}  |  Generated: ${generatedTimestamp}`;
-  const r4 = worksheet.addRow([metaText]);
-  r4.height = 17;
-  r4.getCell(1).font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } };
-
-  // Row 5: Applied Filters
-  const periodText = criteria?.from && criteria?.to
-    ? `${criteria.from} to ${criteria.to}`
-    : 'All-Time';
-  const intervalText = criteria?.interval ? `  |  Interval: ${criteria.interval.toUpperCase()}` : '';
-  const minRatingsText = criteria?.minRatings ? `  |  Min Reviews: ≥ ${criteria.minRatings}` : '';
-  const filterText = `Reporting Period: ${periodText}${intervalText}${minRatingsText}`;
-  const r5 = worksheet.addRow([filterText]);
-  r5.height = 17;
-  r5.getCell(1).font = { name: 'Calibri', size: 9, bold: true, color: { argb: 'FF334155' } };
-
-  // Row 6: Spacer
-  worksheet.addRow([]);
-
-  // --- 2. EXECUTIVE KPI SUMMARY (if present) ---
-  if (report.metricsSummary && report.metricsSummary.length > 0) {
-    const kpiHeader = worksheet.addRow(['Executive KPI Summary', 'Value']);
-    kpiHeader.height = 20;
-    kpiHeader.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E293B' } };
-    kpiHeader.getCell(2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E293B' } };
-    kpiHeader.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-    kpiHeader.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
-
-    for (const metric of report.metricsSummary) {
-      const kpiRow = worksheet.addRow([metric.label, metric.value]);
-      kpiRow.height = 18;
-      kpiRow.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF475569' } };
-      kpiRow.getCell(2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
-      kpiRow.getCell(2).alignment = { horizontal: 'left' };
-
-      // Update column width tracking for summary
-      if (metric.label.length > colWidths[0]) colWidths[0] = metric.label.length;
-    }
-
-    // Spacer after KPIs
-    worksheet.addRow([]);
-  }
-
-  // --- 3. DATA TABLE ---
+function populateWorksheetDataTable(
+  worksheet: ReturnType<Workbook['addWorksheet']>,
+  columns: string[],
+  rows: Array<Record<string, string | number>>,
+  seedWidths: number[] = []
+): void {
+  const colWidths = columns.map((c, idx) => Math.max(c.length, seedWidths[idx] ?? 12));
   const dataTableStartRow = worksheet.rowCount + 1;
 
-  // Header Row
   const headerRow = worksheet.addRow(columns);
   headerRow.height = 26;
   headerRow.eachCell((cell, colNumber) => {
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } }; // Corporate Navy
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A8A' } };
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = {
       top: { style: 'thin', color: { argb: 'FF0F172A' } },
@@ -272,7 +199,6 @@ export async function generateProfessionalExcel(
     }
   });
 
-  // Data Rows
   if (rows.length === 0) {
     const emptyRow = worksheet.addRow(['No records found for the selected reporting period and filters.']);
     emptyRow.height = 20;
@@ -283,8 +209,7 @@ export async function generateProfessionalExcel(
       const dataRow = worksheet.addRow(rowValues);
       dataRow.height = 20;
 
-      const isOdd = rowIdx % 2 === 1;
-      const rowBgColor = isOdd ? 'FFF8FAFC' : 'FFFFFFFF';
+      const rowBgColor = rowIdx % 2 === 1 ? 'FFF8FAFC' : 'FFFFFFFF';
 
       columns.forEach((col, colIdx) => {
         const colNum = colIdx + 1;
@@ -320,21 +245,21 @@ export async function generateProfessionalExcel(
           right: { style: 'thin', color: { argb: 'FFE2E8F0' } },
         };
 
-        const valLength = String(rowObj[col] ?? '').length;
+        const valLength = Math.max(
+          String(rowObj[col] ?? '').length,
+          parsed.numFmt === 'yyyy-mm-dd' ? 12 : 0
+        );
         if (valLength > colWidths[colIdx]) {
           colWidths[colIdx] = valLength;
         }
       });
     });
 
-    // --- 4. AUTO-FILTER & FREEZE PANES ---
-    // Enable dropdown filter on the data table
     worksheet.autoFilter = {
       from: { row: dataTableStartRow, column: 1 },
       to: { row: dataTableStartRow + rows.length, column: columns.length },
     };
 
-    // Freeze panes at the data table header row
     worksheet.views = [
       {
         state: 'frozen',
@@ -345,15 +270,181 @@ export async function generateProfessionalExcel(
     ];
   }
 
-  // --- 5. COLUMN WIDTHS ---
   columns.forEach((_, idx) => {
     const colNum = idx + 1;
-    // Padding of 4 characters, bounded between 14 and 45
-    const width = Math.min(45, Math.max(14, colWidths[idx] + 4));
+    // Leave room (+5) for header text, Excel AutoFilter dropdown button, and formatted numbers/dates
+    const width = Math.min(54, Math.max(16, colWidths[idx] + 5));
     worksheet.getColumn(colNum).width = width;
   });
+}
 
-  // Write to ArrayBuffer
+function addMergedBannerRow(
+  worksheet: ReturnType<Workbook['addWorksheet']>,
+  text: string,
+  spanCols: number,
+  height: number,
+  font: { name: string; size: number; bold?: boolean; italic?: boolean; color: { argb: string } }
+): void {
+  const row = worksheet.addRow([text]);
+  row.height = height;
+  const cell = row.getCell(1);
+  cell.font = font;
+  cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+  if (spanCols > 1) {
+    worksheet.mergeCells(row.number, 1, row.number, spanCols);
+  }
+}
+
+/**
+ * Generates genuine, fully styled Excel (.xlsx) file using ExcelJS
+ */
+export async function generateProfessionalExcel(
+  report: ReportItem,
+  criteria?: ReportFilterCriteria
+): Promise<Uint8Array> {
+  const workbook = new Workbook();
+  workbook.creator = 'SevaNest Admin Portal';
+  workbook.lastModifiedBy = 'SevaNest Admin Portal';
+  workbook.created = new Date();
+  workbook.modified = new Date();
+
+  const sanitizedSheetName = (report.requirement || report.name || 'Report')
+    .replace(/[\\/?*[\]:]/g, '_')
+    .slice(0, 31);
+
+  const worksheet = workbook.addWorksheet(sanitizedSheetName, {
+    views: [{ showGridLines: true }],
+  });
+
+  const columns = report.previewColumns && report.previewColumns.length > 0
+    ? report.previewColumns
+    : ['Metric', 'Value'];
+  const rows = report.previewRows || [];
+  const seedWidths: number[] = columns.map((c) => Math.max(c.length, 12));
+  const bannerSpanCols = Math.max(columns.length, 4);
+
+  // --- 1. TITLE BLOCK ---
+  addMergedBannerRow(worksheet, 'SevaNest Admin Portal — Enterprise Analytics & Reporting', bannerSpanCols, 24, {
+    name: 'Calibri',
+    size: 14,
+    bold: true,
+    color: { argb: 'FF1E3A8A' },
+  });
+
+  addMergedBannerRow(worksheet, `[${report.requirement || 'FR-RPT'}] ${report.name}`, bannerSpanCols, 20, {
+    name: 'Calibri',
+    size: 12,
+    bold: true,
+    color: { argb: 'FF0F172A' },
+  });
+
+  addMergedBannerRow(worksheet, report.description || 'Authoritative PRD Section 14 Operational Telemetry', bannerSpanCols, 28, {
+    name: 'Calibri',
+    size: 10,
+    italic: true,
+    color: { argb: 'FF475569' },
+  });
+
+  const generatedTimestamp = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  const metaText = `Category: ${report.category}  |  Operational Cadence: ${report.cadence}  |  Generated: ${generatedTimestamp}`;
+  addMergedBannerRow(worksheet, metaText, bannerSpanCols, 18, {
+    name: 'Calibri',
+    size: 9,
+    color: { argb: 'FF64748B' },
+  });
+
+  const periodText =
+    report.from && report.to
+      ? `${report.from} to ${report.to}`
+      : report.supportedFilters?.dateRange === false
+      ? (report.cadence?.includes('Snapshot') ? 'Point-in-Time Snapshot' : 'All-Time')
+      : criteria?.from && criteria?.to
+      ? `${criteria.from} to ${criteria.to}`
+      : 'All-Time';
+  const activeInterval = report.interval || (report.supportedFilters?.interval ? criteria?.interval : undefined);
+  const intervalText = activeInterval ? `  |  Interval: ${activeInterval.toUpperCase()}` : '';
+  const minRatingsText =
+    report.supportedFilters?.minRatings && criteria?.minRatings
+      ? `  |  Min Reviews: ≥ ${criteria.minRatings}`
+      : '';
+  const filterText = `Reporting Period: ${periodText}${intervalText}${minRatingsText}`;
+  addMergedBannerRow(worksheet, filterText, bannerSpanCols, 18, {
+    name: 'Calibri',
+    size: 9,
+    bold: true,
+    color: { argb: 'FF334155' },
+  });
+
+  if (report.notes && report.notes.length > 0) {
+    const notesText = `Backend Data Scope Notes: ${report.notes.join(' | ')}`;
+    addMergedBannerRow(worksheet, notesText, bannerSpanCols, notesText.length > 110 ? 30 : 20, {
+      name: 'Calibri',
+      size: 9,
+      italic: true,
+      color: { argb: 'FF475569' },
+    });
+  }
+
+  worksheet.addRow([]);
+
+  // --- 2. EXECUTIVE KPI SUMMARY (if present) ---
+  if (report.metricsSummary && report.metricsSummary.length > 0) {
+    const kpiHeader = worksheet.addRow(['Executive KPI Summary', 'Value']);
+    kpiHeader.height = 20;
+    kpiHeader.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    kpiHeader.getCell(2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF1E293B' } };
+    kpiHeader.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+    kpiHeader.getCell(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } };
+
+    for (const metric of report.metricsSummary) {
+      const kpiRow = worksheet.addRow([metric.label, metric.value]);
+      kpiRow.height = 18;
+      kpiRow.getCell(1).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF475569' } };
+      const parsedKpi = parseCellValue(metric.label, metric.value);
+      const valCell = kpiRow.getCell(2);
+      valCell.value = parsedKpi.value;
+      if (parsedKpi.numFmt) {
+        valCell.numFmt = parsedKpi.numFmt;
+      }
+      valCell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+      valCell.alignment = { horizontal: parsedKpi.alignment };
+
+      if (metric.label.length > seedWidths[0]) seedWidths[0] = metric.label.length;
+      const valLen = String(metric.value ?? '').length;
+      if (seedWidths.length > 1 && valLen > seedWidths[1]) {
+        seedWidths[1] = valLen;
+      }
+    }
+
+    worksheet.addRow([]);
+  }
+
+  // --- 3. DATA TABLE ---
+  populateWorksheetDataTable(worksheet, columns, rows, seedWidths);
+
+  // --- 4. SUPPLEMENTARY SHEETS (e.g. Support periodic volume or FR-RPT-012 combined cohort) ---
+  if (report.extraSheets && report.extraSheets.length > 0) {
+    for (const extra of report.extraSheets) {
+      const sheetName = extra.sheetName.replace(/[\\/?*[\]:]/g, '_').slice(0, 31);
+      const extraSheet = workbook.addWorksheet(sheetName, { views: [{ showGridLines: true }] });
+      const extraSpan = Math.max(extra.columns.length, 4);
+      addMergedBannerRow(extraSheet, `[${report.requirement || 'FR-RPT'}] ${report.name} — ${extra.sheetName}`, extraSpan, 22, {
+        name: 'Calibri',
+        size: 12,
+        bold: true,
+        color: { argb: 'FF1E3A8A' },
+      });
+      addMergedBannerRow(extraSheet, filterText, extraSpan, 18, {
+        name: 'Calibri',
+        size: 9,
+        bold: true,
+        color: { argb: 'FF334155' },
+      });
+      extraSheet.addRow([]);
+      populateWorksheetDataTable(extraSheet, extra.columns, extra.rows);
+    }
+  }
+
   const buffer = await workbook.xlsx.writeBuffer();
   return new Uint8Array(buffer);
 }

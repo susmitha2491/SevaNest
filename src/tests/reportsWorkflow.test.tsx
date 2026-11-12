@@ -5,6 +5,7 @@ import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
 import { ReportsDashboardPage } from '../features/reports/presentation/ReportsDashboardPage';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
@@ -13,8 +14,10 @@ import {
   generateCleanCsv,
   getReportCanonicalFilename,
 } from '../features/reports/utils/reportExportGenerator';
-import { createReportRepository } from '../features/reports/data/reportRepository';
+import { createReportRepository, RealReportRepository } from '../features/reports/data/reportRepository';
 import { ReportItem } from '../features/reports/domain/types';
+import { httpClient } from '../core/api/httpClient';
+import { vi } from 'vitest';
 
 function renderWithProviders(ui: React.ReactElement) {
   const testQueryClient = new QueryClient({
@@ -64,14 +67,15 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.getByText('FR-RPT-010')).toBeInTheDocument();
     expect(screen.getByText('Payment Collections & Fee Realization')).toBeInTheDocument();
 
-    // Verify presence of Export actions in the catalogue rows
-    const exportCsvButtons = screen.getAllByRole('button', { name: /^Export CSV:/i });
-    const exportExcelButtons = screen.getAllByRole('button', { name: /^Export Excel:/i });
-    expect(exportCsvButtons.length).toBeGreaterThan(0);
-    expect(exportExcelButtons.length).toBeGreaterThan(0);
+    // Verify presence of a single Export button per catalogue row
+    const exportButtons = screen.getAllByRole('button', { name: /^Export:/i });
+    expect(exportButtons).toHaveLength(12);
+    expect(screen.queryByRole('button', { name: /^Export CSV:/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Export Excel:/i })).not.toBeInTheDocument();
   });
 
-  it('renders Export Excel and Export CSV buttons when user has only canonical backend report.view permission', async () => {
+  it('renders single direct Export button without format menu when user has only canonical backend report.view permission', async () => {
+    const user = userEvent.setup();
     useAuthStore.setState({
       user: {
         id: 'STAFF-BACKEND-01',
@@ -86,10 +90,13 @@ describe('Operational Reports & Analytics Workflows', () => {
     renderWithProviders(<ReportsDashboardPage />);
 
     expect(await screen.findByRole('heading', { name: /Reports & Analytics/i })).toBeInTheDocument();
-    const exportCsvButtons = await screen.findAllByRole('button', { name: /^Export CSV:/i });
-    const exportExcelButtons = await screen.findAllByRole('button', { name: /^Export Excel:/i });
-    expect(exportCsvButtons.length).toBeGreaterThan(0);
-    expect(exportExcelButtons.length).toBeGreaterThan(0);
+    const exportButtons = await screen.findAllByRole('button', { name: /^Export:/i });
+    expect(exportButtons.length).toBeGreaterThan(0);
+
+    await user.click(exportButtons[0]);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Excel \(\.xlsx\) exported successfully/i)).toBeInTheDocument();
   });
 
   it('filters reports catalogue by category pill and search query', async () => {
@@ -108,7 +115,7 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.getByText('Payment Collections & Fee Realization')).toBeInTheDocument();
   });
 
-  it('opens report view displaying KPI indicators, dataset table, triggers CSV export, and navigates back', async () => {
+  it('opens report view displaying KPI indicators, dataset table, triggers direct Excel export, and navigates back', async () => {
     const user = userEvent.setup();
     renderWithProviders(<ReportsDashboardPage />);
 
@@ -123,17 +130,12 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.getByText(/Tabular Dataset/i)).toBeInTheDocument();
     expect(screen.getByText('2026-10-01')).toBeInTheDocument();
 
-    // Trigger CSV Export
-    const exportCsvBtn = screen.getByRole('button', { name: /Export CSV/i });
-    await user.click(exportCsvBtn);
+    // Trigger direct Excel (.xlsx) Export via single Export button (no CSV/Excel selector menu)
+    const exportBtn = screen.getByRole('button', { name: /^Export$/i });
+    await user.click(exportBtn);
 
-    expect(await screen.findByText(/CSV exported successfully/i)).toBeInTheDocument();
-
-    // Trigger Excel (.xlsx) Export
-    const exportXlsxBtn = screen.getByRole('button', { name: /Export Excel/i });
-    await user.click(exportXlsxBtn);
-
-    expect(await screen.findByText(/XLSX exported successfully/i)).toBeInTheDocument();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(await screen.findByText(/Excel \(\.xlsx\) exported successfully/i)).toBeInTheDocument();
 
     // Navigate back to reports catalogue
     const backBtn = screen.getByRole('button', { name: /Back to Reports/i });
@@ -239,11 +241,37 @@ describe('Operational Reports & Analytics Workflows', () => {
       expect(buffer).toBeInstanceOf(Uint8Array);
       expect(buffer.byteLength).toBeGreaterThan(1000);
 
-      // Verify that standard spreadsheet parsers can read the generated binary buffer
-      const parsedWorkbook = XLSX.read(buffer, { type: 'buffer' });
+      // Verify that standard spreadsheet parsers & ExcelJS read widths, filters, merges & yyyy-mm-dd dates
+      const parsedWorkbook = XLSX.read(buffer, { type: 'buffer', cellDates: true, cellNF: true });
       expect(parsedWorkbook.SheetNames).toContain('FR-RPT-001');
       const sheet = parsedWorkbook.Sheets['FR-RPT-001'];
       expect(sheet).toBeDefined();
+      expect(sheet['!merges']?.length).toBeGreaterThanOrEqual(5);
+      expect(sheet['!autofilter']).toBeDefined();
+      const csvView = XLSX.utils.sheet_to_csv(sheet);
+      expect(csvView).toContain('2026-10-01');
+      expect(csvView).toContain('2026-11-01');
+      expect(csvView).toContain('Reporting Period: 2026-01-01 to 2026-11-05');
+
+      const verifyWb = new Workbook();
+      const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+      await verifyWb.xlsx.load(arrayBuffer);
+      const excelSheet = verifyWb.getWorksheet('FR-RPT-001');
+      expect(excelSheet).toBeDefined();
+      for (let colIdx = 1; colIdx <= 4; colIdx += 1) {
+        expect(excelSheet?.getColumn(colIdx).width ?? 0).toBeGreaterThanOrEqual(16);
+      }
+      expect(excelSheet?.autoFilter).toBeDefined();
+
+      // Verify first period row uses a genuine Date cell with yyyy-mm-dd number format
+      let foundFormattedDate = false;
+      excelSheet?.eachRow((row) => {
+        const cell = row.getCell(1);
+        if (cell.value instanceof Date && cell.numFmt === 'yyyy-mm-dd') {
+          foundFormattedDate = true;
+        }
+      });
+      expect(foundFormattedDate).toBe(true);
     });
 
     it('exports proper XLSX and CSV using reportRepository for all sub-tabs of FR-RPT-012', async () => {
@@ -264,6 +292,188 @@ describe('Operational Reports & Analytics Workflows', () => {
       expect(repeatCsv.fileName).toBe('FR-RPT-012_Repeat_Customer_Retention.csv');
       expect(repeatCsv.csvContent).toContain('Customer Name,Customer User ID');
       expect(repeatCsv.csvContent).toContain('Rohan Rao');
+    });
+  });
+
+  describe('Real Backend Report Accuracy & Export Parity', () => {
+    it('maps payment-collections backend feeCode and payments fields accurately and matches CSV export', async () => {
+      const paymentPayload = {
+        data: {
+          report: 'payment-collections',
+          definition: 'Payments paid in the period by fee type.',
+          notes: [],
+          from: '2026-01-01',
+          to: '2026-11-12',
+          data: {
+            interval: 'month',
+            totalsByFeeType: [
+              { feeCode: 'BOOKING_FEE', currency: 'INR', payments: 14, grossMinor: 700000, refundedMinor: 0 },
+            ],
+            series: [
+              { period: '2026-10-01', feeCode: 'BOOKING_FEE', currency: 'INR', payments: 7, grossMinor: 350000, refundedMinor: 0 },
+              { period: '2026-11-01', feeCode: 'BOOKING_FEE', currency: 'INR', payments: 7, grossMinor: 350000, refundedMinor: 0 },
+            ],
+          },
+        },
+      };
+
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValue(paymentPayload as unknown as Awaited<ReturnType<typeof httpClient.get>>);
+      const repo = new RealReportRepository();
+      const report = await repo.getReportById('payment-collections', { from: '2026-01-01', to: '2026-11-12', interval: 'month' });
+
+      expect(report?.metricsSummary).toEqual([
+        { label: 'Gross Settled Collections', value: '₹7,000.00' },
+        { label: 'Refunded Realizations', value: '₹0.00' },
+        { label: 'Total Payments Recorded', value: 14 },
+      ]);
+      expect(report?.previewRows).toEqual([
+        { Period: '2026-10-01', 'Fee Classification': 'BOOKING_FEE', 'Payments Count': 7, 'Gross Collections (₹)': '₹3,500.00', 'Refunded Amount (₹)': '₹0.00' },
+        { Period: '2026-11-01', 'Fee Classification': 'BOOKING_FEE', 'Payments Count': 7, 'Gross Collections (₹)': '₹3,500.00', 'Refunded Amount (₹)': '₹0.00' },
+      ]);
+
+      const exportedCsv = await repo.generateExport('payment-collections', 'CSV', { from: '2026-01-01', to: '2026-11-12', interval: 'month' });
+      expect(exportedCsv.csvContent).toContain('2026-10-01,BOOKING_FEE,7,"₹3,500.00",₹0.00');
+      expect(exportedCsv.csvContent).toContain('2026-11-01,BOOKING_FEE,7,"₹3,500.00",₹0.00');
+      getSpy.mockRestore();
+    });
+
+    it('maps demand-by-area city field and repeat-customers Bookings Count accurately without invented fields', async () => {
+      const getSpy = vi
+        .spyOn(httpClient, 'get')
+        .mockResolvedValueOnce({
+          data: {
+            report: 'demand-by-area',
+            data: [{ areaId: 'a-1', name: 'Madhapur', city: 'Hyderabad', requests: 19 }],
+            meta: { page: 1, limit: 100, total: 1 },
+          },
+        } as unknown as Awaited<ReturnType<typeof httpClient.get>>)
+        .mockResolvedValueOnce({
+          data: {
+            report: 'repeat-customers',
+            data: [{ customerUserId: 'c-1', name: 'Ajay Nagirikanti', bookings: 9 }],
+            meta: { page: 1, limit: 100, total: 1 },
+          },
+        } as unknown as Awaited<ReturnType<typeof httpClient.get>>);
+
+      const repo = new RealReportRepository();
+      const areaReport = await repo.getReportById('demand-by-area');
+      expect(areaReport?.previewColumns).toContain('City');
+      expect(areaReport?.previewRows[0].City).toBe('Hyderabad');
+
+      const repeatReport = await repo.getReportById('top-rated-workers-repeat-customers', { subTab: 'repeat-customers' });
+      expect(repeatReport?.previewColumns).toEqual(['Customer Name', 'Customer User ID', 'Bookings Count']);
+      expect(repeatReport?.previewRows[0]).toEqual({
+        'Customer Name': 'Ajay Nagirikanti',
+        'Customer User ID': 'c-1',
+        'Bookings Count': 9,
+      });
+      getSpy.mockRestore();
+    });
+
+    it('renders genuine zero utilization without falling back to hardcoded values', async () => {
+      const repo = new RealReportRepository();
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          report: 'worker-utilization',
+          data: { verifiedWorkers: 10, workersWithActiveBooking: 0, utilization: 0 },
+        },
+      } as unknown as Awaited<ReturnType<typeof httpClient.get>>);
+
+      const report = await repo.getReportById('worker-utilization');
+      expect(report?.metricsSummary.find((m) => m.label === 'Workers with Active Booking')?.value).toBe(0);
+      expect(report?.metricsSummary.find((m) => m.label === 'Current Utilization Rate')?.value).toBe('0.00%');
+
+      // Point-in-time Excel export must not falsely stamp YTD date filter boundaries
+      const utilExport = await generateProfessionalExcel(report!, { from: '2026-01-01', to: '2026-11-12', interval: 'month' });
+      const wb = XLSX.read(utilExport, { type: 'buffer' });
+      const sheetCsv = XLSX.utils.sheet_to_csv(wb.Sheets['FR-RPT-006']);
+      expect(sheetCsv).toContain('Point-in-Time Snapshot');
+      expect(sheetCsv).not.toContain('2026-01-01 to 2026-11-12');
+      getSpy.mockRestore();
+    });
+
+    it('includes backend scope notes for FR-RPT-001 without fabricating missing Jan-Sep months', async () => {
+      const repo = new RealReportRepository();
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          report: 'new-customers',
+          definition: 'Customer accounts created per day/week/month.',
+          notes: ['Counts accounts, not completed profiles.', 'Counts only what is recorded; nothing is estimated or back-filled.'],
+          from: '2026-01-01',
+          to: '2026-11-12',
+          data: {
+            interval: 'month',
+            total: 48,
+            series: [
+              { period: '2026-10-01', count: 20 },
+              { period: '2026-11-01', count: 28 },
+            ],
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof httpClient.get>>);
+
+      const exp = await repo.generateExport('new-customers', 'XLSX', { from: '2026-01-01', to: '2026-11-12', interval: 'month' });
+      expect(exp.rowCount).toBe(2);
+      const wb = XLSX.read(exp.xlsxBuffer, { type: 'buffer' });
+      const sheetCsv = XLSX.utils.sheet_to_csv(wb.Sheets['FR-RPT-001']);
+      expect(sheetCsv).toContain('Counts only what is recorded; nothing is estimated or back-filled.');
+      expect(sheetCsv).toContain('2026-10-01');
+      expect(sheetCsv).toContain('2026-11-01');
+      getSpy.mockRestore();
+    });
+
+    it('includes Periodic Volume worksheet in FR-RPT-011 support-tickets Excel export', async () => {
+      const repo = new RealReportRepository();
+      const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          report: 'support-tickets',
+          from: '2026-01-01',
+          to: '2026-11-12',
+          data: {
+            interval: 'month',
+            created: 20,
+            closed: 6,
+            averageResolutionSeconds: 317586,
+            byStatus: [
+              { status: 'CLOSED', count: 6 },
+              { status: 'ESCALATED', count: 9 },
+              { status: 'OPEN', count: 5 },
+            ],
+            series: [
+              { period: '2026-10-01', count: 12 },
+              { period: '2026-11-01', count: 8 },
+            ],
+          },
+        },
+      } as unknown as Awaited<ReturnType<typeof httpClient.get>>);
+
+      const exp = await repo.generateExport('support-tickets', 'XLSX', { from: '2026-01-01', to: '2026-11-12', interval: 'month' });
+      expect(exp.rowCount).toBe(5);
+      const wb = XLSX.read(exp.xlsxBuffer, { type: 'buffer' });
+      expect(wb.SheetNames).toContain('FR-RPT-011');
+      expect(wb.SheetNames).toContain('Periodic Volume');
+      const periodicCsv = XLSX.utils.sheet_to_csv(wb.Sheets['Periodic Volume']);
+      expect(periodicCsv).toContain('2026-10-01,12');
+      expect(periodicCsv).toContain('2026-11-01,8');
+      getSpy.mockRestore();
+    });
+
+    it('exports both top-rated workers and repeat customers when FR-RPT-012 is exported without subTab', async () => {
+      const repo = createReportRepository(true);
+
+      const combinedXlsx = await repo.generateExport('top-rated-workers-repeat-customers', 'XLSX');
+      expect(combinedXlsx.fileName).toBe('FR-RPT-012_Top_Rated_Workers_and_Repeat_Customers.xlsx');
+      expect(combinedXlsx.rowCount).toBe(2);
+      const wb = XLSX.read(combinedXlsx.xlsxBuffer, { type: 'buffer' });
+      expect(wb.SheetNames).toContain('FR-RPT-012');
+      expect(wb.SheetNames).toContain('Repeat Customers');
+      expect(XLSX.utils.sheet_to_csv(wb.Sheets['Repeat Customers'])).toContain('Rohan Rao');
+
+      const combinedCsv = await repo.generateExport('top-rated-workers-repeat-customers', 'CSV');
+      expect(combinedCsv.fileName).toBe('FR-RPT-012_Top_Rated_Workers_and_Repeat_Customers.csv');
+      expect(combinedCsv.rowCount).toBe(2);
+      expect(combinedCsv.csvContent).toContain('Top-Rated Workers,Shabana Begum');
+      expect(combinedCsv.csvContent).toContain('Repeat Customers,Rohan Rao');
     });
   });
 });

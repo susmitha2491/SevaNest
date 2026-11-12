@@ -39,6 +39,12 @@ export interface ReportItem {
   to?: string | null;
   interval?: ReportInterval;
   supportedFilters?: ReportSupportedFilters;
+  trendSeries?: Array<{ period: string; value: number; formattedValue?: string }>;
+  extraSheets?: Array<{
+    sheetName: string;
+    columns: string[];
+    rows: Array<Record<string, string | number>>;
+  }>;
   subTabs?: Array<{ id: string; label: string; slug: string }>;
   activeSubTab?: string;
 }
