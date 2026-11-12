@@ -7,6 +7,7 @@ import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { authRepository } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { DomainError } from '../../../core/errors/DomainError';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 import { isQuickLoginEnabled } from '../../../core/config/env';
 import { QuickLoginSection } from './QuickLoginSection';
@@ -21,6 +22,7 @@ type SignInFormValues = z.infer<typeof signInSchema>;
 
 export const SignInPage: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authCorrelationId, setAuthCorrelationId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
@@ -70,6 +72,7 @@ export const SignInPage: React.FC = () => {
     setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
     setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
     setAuthError(null);
+    setAuthCorrelationId(null);
     setSelectedRoleId(role.id);
   };
 
@@ -78,6 +81,7 @@ export const SignInPage: React.FC = () => {
     try {
       setIsSubmitting(true);
       setAuthError(null);
+      setAuthCorrelationId(null);
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
       setSession(loggedInUser, accessToken, refreshToken);
       const userLanding = getDefaultLandingRoute(loggedInUser);
@@ -87,6 +91,7 @@ export const SignInPage: React.FC = () => {
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
       setAuthError(errorMessage);
+      setAuthCorrelationId(err instanceof DomainError && err.correlationId ? err.correlationId : null);
       // Security: Clear password input on failed login attempt while preserving entered email
       setValue('password', '');
       setSelectedRoleId(null);
@@ -121,8 +126,11 @@ export const SignInPage: React.FC = () => {
           }}
           role="alert"
         >
-          <AlertCircle size={15} />
-          <span>{authError}</span>
+          <AlertCircle size={15} style={{ flexShrink: 0 }} />
+          <span>
+            {authError}
+            {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
+          </span>
         </div>
       )}
 
@@ -152,6 +160,7 @@ export const SignInPage: React.FC = () => {
               {...register('email', {
                 onChange: () => {
                   setAuthError(null);
+                  setAuthCorrelationId(null);
                   setSelectedRoleId(null);
                 },
               })}
@@ -198,6 +207,7 @@ export const SignInPage: React.FC = () => {
               {...register('password', {
                 onChange: () => {
                   setAuthError(null);
+                  setAuthCorrelationId(null);
                   setSelectedRoleId(null);
                 },
               })}

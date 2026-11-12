@@ -127,7 +127,7 @@ httpClient.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        // Deduplicated shared refresh coordinator handles concurrency, Web Locks, and 429 cooldowns
+        // Deduplicated shared refresh coordinator handles concurrency and Web Locks
         const { accessToken } = await requestTokenRefresh(currentRefreshToken);
         originalRequest.headers = originalRequest.headers ?? ({} as InternalAxiosRequestConfig['headers']);
         setAuthHeader(originalRequest.headers, accessToken);

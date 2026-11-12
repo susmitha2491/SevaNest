@@ -273,23 +273,105 @@ describe('SevaNest Backend Integration Foundation & Authentication', () => {
       }
     });
 
-    it('maps HTTP 429 ADMIN_LOGIN_LOCKED to RateLimitExceededError', async () => {
+    it('maps HTTP 429 ADMIN_LOGIN_LOCKED to RateLimitExceededError and surfaces retryAfterSeconds when provided', async () => {
       const axiosError = {
         isAxiosError: true,
         response: {
           status: 429,
           data: {
             code: 'ADMIN_LOGIN_LOCKED',
-            message: 'Account temporarily locked due to repeated failures',
+            message: 'Too many failed login attempts. Please try again later.',
+            details: [{ field: 'retryAfterSeconds', messages: ['677'] }],
           },
         },
       };
 
       vi.spyOn(httpClient, 'post').mockRejectedValueOnce(axiosError);
 
-      await expect(
-        realRepo.login({ email: 'ops@sevanest.internal', password: 'pass' })
-      ).rejects.toThrow(RateLimitExceededError);
+      try {
+        await realRepo.login({ email: 'ops@sevanest.internal', password: 'pass' });
+        expect.unreachable('Should have thrown RateLimitExceededError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitExceededError);
+        expect((err as RateLimitExceededError).errorCode).toBe('ADMIN_LOGIN_LOCKED');
+        expect((err as RateLimitExceededError).message).toBe(
+          'Too many failed login attempts. Please try again later. Try again in 677s.'
+        );
+      }
+    });
+
+    it('distinguishes Cloudflare 429 HTML challenge from backend rate limiting and preserves cf-ray reference', async () => {
+      const cfChallengeError = {
+        isAxiosError: true,
+        response: {
+          status: 429,
+          headers: {
+            'cf-mitigated': 'challenge',
+            'cf-ray': 'a593c2bbbffdb2a9-MAA',
+            'content-type': 'text/html; charset=UTF-8',
+          },
+          data: '<!DOCTYPE html><html><head><title>Just a moment...</title></head></html>',
+        },
+      };
+
+      vi.spyOn(httpClient, 'post').mockRejectedValueOnce(cfChallengeError);
+
+      try {
+        await realRepo.login({ email: 'support.executive@sevanest.example.com', password: 'Support@2026' });
+        expect.unreachable('Should have thrown RateLimitExceededError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(RateLimitExceededError);
+        expect((err as RateLimitExceededError).errorCode).toBe('CLOUDFLARE_CHALLENGE');
+        expect((err as RateLimitExceededError).correlationId).toBe('a593c2bbbffdb2a9-MAA');
+        expect((err as RateLimitExceededError).message).toContain('Cloudflare security challenge');
+      }
+    });
+
+    it('maps Render 503 hibernate-wake-error and empty 502 responses accurately with rndr-id reference', async () => {
+      const renderWakeError = {
+        isAxiosError: true,
+        response: {
+          status: 503,
+          headers: {
+            'x-render-routing': 'hibernate-wake-error',
+            'rndr-id': '2e64332a-00a9-484f',
+          },
+          data: '',
+        },
+      };
+
+      vi.spyOn(httpClient, 'post').mockRejectedValueOnce(renderWakeError);
+
+      try {
+        await realRepo.refreshToken('valid-refresh-token');
+        expect.unreachable('Should have thrown ServerFailureError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ServerFailureError);
+        expect((err as ServerFailureError).errorCode).toBe('BACKEND_WAKING_UP');
+        expect((err as ServerFailureError).correlationId).toBe('2e64332a-00a9-484f');
+        expect((err as ServerFailureError).message).toContain('waking up on Render');
+      }
+
+      const gateway502Error = {
+        isAxiosError: true,
+        response: {
+          status: 502,
+          headers: { 'rndr-id': '010e2a65-4d09-4d2c' },
+          data: '',
+        },
+      };
+
+      vi.spyOn(httpClient, 'post').mockRejectedValueOnce(gateway502Error);
+
+      try {
+        await realRepo.login({ email: 'ops@sevanest.internal', password: 'pass' });
+        expect.unreachable('Should have thrown ServerFailureError');
+      } catch (err) {
+        expect(err).toBeInstanceOf(ServerFailureError);
+        expect((err as ServerFailureError).errorCode).toBe('HTTP_502');
+        expect((err as ServerFailureError).correlationId).toBe('010e2a65-4d09-4d2c');
+        expect((err as ServerFailureError).message).toContain('HTTP 502');
+      }
     });
 
     it('maps network or CORS failures to NetworkError with actionable diagnostic message', async () => {

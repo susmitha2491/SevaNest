@@ -105,8 +105,14 @@ export class ValidationError extends DomainError {
 
 export class RateLimitExceededError extends DomainError {
   public readonly code = 'RATE_LIMIT_EXCEEDED';
-  constructor(message = 'Too many requests. Please wait a moment before trying again.', correlationId?: string) {
+  public readonly errorCode?: string;
+  constructor(
+    message = 'Too many requests. Please wait a moment before trying again.',
+    correlationId?: string,
+    errorCode?: string
+  ) {
     super(message, correlationId, 429);
+    this.errorCode = errorCode;
   }
 }
 

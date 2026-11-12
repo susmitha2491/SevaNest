@@ -45,14 +45,19 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
     const headers = axiosError.response?.headers;
     const payload = axiosError.response?.data;
     
-    // Extract correlation ID from x-correlation-id, x-request-id or payload.requestId
+    // Extract correlation ID from backend request IDs, falling back to Cloudflare/Render edge trace IDs
     const correlationId =
       readHeaderValue(headers, 'x-correlation-id') ||
       readHeaderValue(headers, 'x-request-id') ||
-      (payload && typeof payload === 'object' ? payload.requestId : undefined);
+      (payload && typeof payload === 'object' ? payload.requestId : undefined) ||
+      readHeaderValue(headers, 'cf-ray') ||
+      readHeaderValue(headers, 'rndr-id');
 
     const status = axiosError.response?.status;
     const serverMessage = payload && typeof payload === 'object' ? payload.message : undefined;
+    const isCfChallenge =
+      readHeaderValue(headers, 'cf-mitigated')?.toLowerCase() === 'challenge' ||
+      (typeof payload === 'string' && /<title>Just a moment\.\.\.<\/title>|challenges\.cloudflare\.com/i.test(payload));
 
     // Network / CORS connectivity failure
     if (!axiosError.response) {
@@ -179,8 +184,27 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
           428,
           payload?.code
         );
-      case 429:
-        return new RateLimitExceededError(serverMessage || 'Rate limit exceeded.', correlationId);
+      case 429: {
+        if (isCfChallenge) {
+          return new RateLimitExceededError(
+            'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
+            correlationId,
+            'CLOUDFLARE_CHALLENGE'
+          );
+        }
+        const retryHeader = readHeaderValue(headers, 'retry-after');
+        const detailRetry = Array.isArray(payload?.details)
+          ? payload.details.find((d) => d?.field === 'retryAfterSeconds')?.messages?.[0]
+          : undefined;
+        const retrySecRaw = retryHeader || detailRetry;
+        const retrySec = retrySecRaw && /^\d+$/.test(retrySecRaw.trim()) ? Number(retrySecRaw.trim()) : null;
+        const baseMessage = serverMessage || 'Rate limit exceeded.';
+        const fullMessage =
+          retrySec && retrySec > 0 && !/retry (available )?in \d+/i.test(baseMessage)
+            ? `${baseMessage} Try again in ${retrySec}s.`
+            : baseMessage;
+        return new RateLimitExceededError(fullMessage, correlationId, payload?.code);
+      }
       case 500:
       case 502:
       case 503:
@@ -198,6 +222,24 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
             serverMessage || 'Document integrity check failed. The file may be corrupted.',
             correlationId,
             payload.code
+          );
+        }
+        if (
+          !serverMessage &&
+          status === 503 &&
+          readHeaderValue(headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error'
+        ) {
+          return new ServerFailureError(
+            'Authentication backend is waking up on Render (HTTP 503). Please retry in a few seconds.',
+            correlationId,
+            'BACKEND_WAKING_UP'
+          );
+        }
+        if (!serverMessage && (status === 502 || status === 503 || status === 504)) {
+          return new ServerFailureError(
+            `Authentication service is temporarily unavailable (HTTP ${status}). Please try again in a few moments.`,
+            correlationId,
+            `HTTP_${status}`
           );
         }
         return new ServerFailureError(serverMessage || 'Internal server error occurred.', correlationId, payload?.code);
