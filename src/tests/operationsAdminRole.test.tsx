@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -66,56 +66,33 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
     );
   });
 
-  describe('1. Operations Admin Dashboard & Workstation Queues', () => {
-    it('renders all 12 operational KPI cards and allows queue switching across tabs', async () => {
+  describe('1. Operations Admin Dashboard & Core Visualizations', () => {
+    it('renders essential PRD operational KPIs, status distribution, and triage breakdown without cluttered legacy tabs', async () => {
       renderWithProviders(<OperationsAdminDashboard />);
 
       // Dashboard header
-      expect(await screen.findByText('Operations Command Console')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Operations Command Console' })).toBeInTheDocument();
 
-      // KPI summary cards
-      expect(screen.getByText('Total Customers')).toBeInTheDocument();
-      expect(screen.getByText('Available Workforce')).toBeInTheDocument();
-      expect(screen.getByText('New Requests')).toBeInTheDocument();
-      expect(screen.getByText('Awaiting Matching')).toBeInTheDocument();
-      expect(screen.getByText("Today's Trials")).toBeInTheDocument();
-      expect(screen.getByText('Awaiting Confirmation')).toBeInTheDocument();
-      expect(screen.getByText('Active Engagements')).toBeInTheDocument();
-      expect(screen.getByText('Replacement Queue')).toBeInTheDocument();
-      expect(screen.getByText('Pending Verification')).toBeInTheDocument();
-      expect(screen.getByText('Open Disputes')).toBeInTheDocument();
-      expect(screen.getByText('Pending Refunds')).toBeInTheDocument();
-      expect(screen.getByText('Police Verif Alert')).toBeInTheDocument();
+      // Essential Operational KPI cards
+      expect(screen.getAllByText('Total Bookings').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Verified & Active Workers')).toBeInTheDocument();
+      expect(screen.getByText('Replacement Requests')).toBeInTheDocument();
+      expect(screen.getByText('Active Complaints')).toBeInTheDocument();
+      expect(screen.getByText('Open Alerts')).toBeInTheDocument();
+      expect(screen.getByText('Collections (MTD)')).toBeInTheDocument();
 
-      // Operational Visualizations
-      expect(screen.getByText('Booking Status Overview & Lifecycle Summary')).toBeInTheDocument();
-      expect(screen.getByText('Worker Availability Overview')).toBeInTheDocument();
-      expect(screen.getByText('Verification Progress Oversight')).toBeInTheDocument();
-      expect(screen.getByText('Replacement Status')).toBeInTheDocument();
-      expect(screen.getByText('Support Escalation Overview')).toBeInTheDocument();
-      expect(screen.getByText('Payment & Collections Realization Summary')).toBeInTheDocument();
-      expect(screen.getByText('Recent Operational Activities & Backlog Queues')).toBeInTheDocument();
+      // Core Visualizations & Action Triggers
+      expect(screen.getByRole('heading', { name: 'Booking Status Distribution' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Alerts & Complaints Breakdown' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open Bookings/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Open Support/i })).toBeInTheDocument();
 
-      // Check default New Booking Requests queue tab
-      expect(screen.getByText(/New Booking Requests \(\d+\)/)).toBeInTheDocument();
-      expect(screen.getByText('Anand Sharma')).toBeInTheDocument();
-
-      // Switch to Urgent Replacements tab
-      const replacementTab = screen.getByText(/Urgent Replacements \(\d+\)/);
-      fireEvent.click(replacementTab);
-      expect(await screen.findByText('Priya Reddy')).toBeInTheDocument();
-      expect(screen.getAllByText('Process Rematch').length).toBeGreaterThan(0);
-
-      // Switch to Refund Authorizations tab
-      const refundTab = screen.getByText(/Refund Authorizations \(\d+\)/);
-      fireEvent.click(refundTab);
-      expect(await screen.findByText('TXN-892050')).toBeInTheDocument();
-      expect(screen.getAllByText('Authorize Refund').length).toBeGreaterThan(0);
-
-      // Switch to Operational Follow-up tab
-      const followUpTab = screen.getByText(/Operational Follow-up \(\d+\)/);
-      fireEvent.click(followUpTab);
-      expect(await screen.findByText(/Sunita Devi \(Worker\)/)).toBeInTheDocument();
+      // Cluttered legacy sections removed
+      expect(screen.queryByText('End-to-End Booking Lifecycle Monitor')).not.toBeInTheDocument();
+      expect(screen.queryByText('Verification Progress Oversight')).not.toBeInTheDocument();
+      expect(screen.queryByText('Pending Refunds & Settlements')).not.toBeInTheDocument();
+      expect(screen.queryByText('Recent Operational Activities & Backlog Queues')).not.toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
     });
   });
 
@@ -287,7 +264,7 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
-      expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
+      expect(screen.getByText('Support Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
 
       // Verification Management must NOT be visible for Operations Admin without verification.review
@@ -351,7 +328,7 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
-      expect(screen.getByText('Support & Grievance Management')).toBeInTheDocument();
+      expect(screen.getByText('Support Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
 
       // Verification Management is strictly hidden because Operations Admin lacks verification.review

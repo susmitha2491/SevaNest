@@ -128,7 +128,150 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
       renderWithClient(<OperationsAdminDashboard />);
 
       expect(await screen.findByRole('heading', { name: /Operations Command Console/i })).toBeInTheDocument();
-      expect(await screen.findByText(/All items in this operational queue are cleared/i)).toBeInTheDocument();
+      expect(await screen.findByText(/No open operational alerts or complaints recorded/i)).toBeInTheDocument();
+      expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('maps backend /admin/dashboard sections payload without inventing omitted pendingKyc, customers, or refunds', async () => {
+      vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
+        data: {
+          success: true,
+          data: {
+            generatedAt: '2026-11-12T05:11:54.906Z',
+            sections: {
+              bookings: {
+                byStatus: [
+                  { status: 'NEW_REQUEST', count: 10 },
+                  { status: 'MATCHED', count: 9 },
+                  { status: 'INTERVIEW_TRIAL_SCHEDULED', count: 2 },
+                  { status: 'INTERVIEW_TRIAL_COMPLETED', count: 1 },
+                  { status: 'CONFIRMED', count: 6 },
+                  { status: 'ACTIVE', count: 2 },
+                  { status: 'COMPLETED', count: 3 },
+                  { status: 'CANCELLED', count: 17 },
+                ],
+              },
+              workers: { registered: 70, verifiedAndActive: 28 },
+              complaints: { open: 5, inProgress: 0, escalated: 9, unassigned: 14 },
+              replacements: { requested: 0, approved: 0 },
+              alerts: { open: 30, critical: 2, warning: 20 },
+              collections: [{ currency: 'INR', todayMinor: 50000, monthToDateMinor: 350000 }],
+            },
+          },
+        },
+      });
+
+      const repo = new RealDashboardRepository();
+      const result = await repo.getOperationsAdminDashboard();
+
+      expect(result.kpis.totalBookings).toBe(50);
+      expect(result.kpis.newBookingRequests).toBe(10);
+      expect(result.kpis.bookingsAwaitingMatching).toBe(9);
+      expect(result.kpis.scheduledTrialsToday).toBe(2);
+      expect(result.kpis.bookingsAwaitingConfirmation).toBe(7);
+      expect(result.kpis.activeLiveEngagements).toBe(2);
+      expect(result.kpis.totalWorkers).toBe(70);
+      expect(result.kpis.verifiedAndActiveWorkers).toBe(28);
+      expect(result.kpis.replacementRequests).toBe(0);
+      expect(result.kpis.openDisputes).toBe(14);
+      // Omitted permission-gated/unavailable metrics remain null rather than fabricated 0
+      expect(result.kpis.totalCustomers).toBeNull();
+      expect(result.kpis.pendingVerificationCases).toBeNull();
+      expect(result.kpis.pendingRefunds).toBeNull();
+      expect(result.kpis.expiringVerifications).toBeNull();
+      expect(result.sections?.alerts).toEqual({ open: 30, critical: 2, warning: 20 });
+      expect(result.sections?.collections?.[0].monthToDateFormatted).toBe('₹3,500.00');
+    });
+
+    it('renders backend sections UI cleanly and omits Pending KYC card when backend omits pendingKyc', async () => {
+      useAuthStore.setState({
+        user: {
+          id: 'ops-real-01',
+          name: 'Operations Manager',
+          email: 'operations.manager@sevanest.example.com',
+          role: 'OPERATIONS_ADMIN',
+          permissions: [
+            PERMISSIONS.DASHBOARD_VIEW,
+            PERMISSIONS.BOOKINGS_VIEW,
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.SUPPORT_VIEW,
+            PERMISSIONS.PAYMENTS_VIEW,
+          ],
+        },
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+
+      vi.spyOn(dashboardRepository, 'getOperationsAdminDashboard').mockResolvedValueOnce({
+        generatedAt: '2026-11-12T05:11:54.906Z',
+        kpis: {
+          totalBookings: 50,
+          totalCustomers: null,
+          totalWorkers: 70,
+          verifiedAndActiveWorkers: 28,
+          newBookingRequests: 10,
+          bookingsAwaitingMatching: 9,
+          scheduledTrialsToday: 2,
+          bookingsAwaitingConfirmation: 7,
+          activeLiveEngagements: 2,
+          replacementRequests: 0,
+          pendingVerificationCases: null,
+          openDisputes: 14,
+          pendingRefunds: null,
+          expiringVerifications: null,
+        },
+        queues: {
+          NEW_REQUESTS: [],
+          MATCHING: [],
+          TRIALS: [],
+          CONFIRMATIONS: [],
+          ACTIVE_SERVICES: [],
+          REPLACEMENTS: [],
+          REFUNDS: [],
+          FOLLOW_UPS: [],
+          SUPPORT_HANDOFFS: [],
+        },
+        sections: {
+          bookings: {
+            byStatus: [
+              { status: 'NEW_REQUEST', count: 10 },
+              { status: 'MATCHED', count: 9 },
+              { status: 'INTERVIEW_TRIAL_SCHEDULED', count: 2 },
+              { status: 'INTERVIEW_TRIAL_COMPLETED', count: 1 },
+              { status: 'CONFIRMED', count: 6 },
+              { status: 'ACTIVE', count: 2 },
+              { status: 'COMPLETED', count: 3 },
+              { status: 'CANCELLED', count: 17 },
+            ],
+          },
+          workers: { registered: 70, verifiedAndActive: 28 },
+          complaints: { open: 5, inProgress: 0, escalated: 9, unassigned: 14 },
+          replacements: { requested: 0, approved: 0 },
+          alerts: { open: 30, critical: 2, warning: 20 },
+          collections: [
+            {
+              currency: 'INR',
+              todayMinor: 50000,
+              monthToDateMinor: 350000,
+              todayINR: 500,
+              monthToDateINR: 3500,
+              todayFormatted: '₹500.00',
+              monthToDateFormatted: '₹3,500.00',
+            },
+          ],
+        },
+      });
+
+      renderWithClient(<OperationsAdminDashboard />);
+
+      expect(await screen.findByRole('heading', { name: 'Operations Command Console' })).toBeInTheDocument();
+      expect(screen.getAllByText('50').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('28')).toBeInTheDocument();
+      expect(screen.getByText('30')).toBeInTheDocument();
+      expect(screen.getByText('₹3,500.00')).toBeInTheDocument();
+      expect(screen.getByText('Critical Alerts')).toBeInTheDocument();
+      expect(screen.getByText('Unassigned Complaints')).toBeInTheDocument();
+      expect(screen.queryByText('Pending KYC')).not.toBeInTheDocument();
     });
 
     it('displays domain error message with Retry button upon API failure', async () => {

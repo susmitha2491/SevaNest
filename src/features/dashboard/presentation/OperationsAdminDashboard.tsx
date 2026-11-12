@@ -1,41 +1,120 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import {
-  CalendarCheck,
-  Users,
-  RefreshCw,
-  LifeBuoy,
-  DollarSign,
-  AlertCircle,
-  ArrowRight,
-  Briefcase,
-  ShieldCheck,
-  Info,
-  TrendingUp,
-} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CalendarCheck,
+  CreditCard,
+  LifeBuoy,
+  RefreshCw,
+  Shield,
+  UserCheck,
+} from 'lucide-react';
 import { dashboardRepository } from '../data/dashboardRepository';
-import { OperationsQueueTab } from '../domain/types';
 import { KPICard } from '../../../shared/components/KPICard/KPICard';
-import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
+import { DonutChart, DonutChartSegment } from './analytics/charts/DonutChart';
+import { HorizontalBarChart, HorizontalBarItem } from './analytics/charts/HorizontalBarChart';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+
+const cardSurfaceStyle: React.CSSProperties = {
+  backgroundColor: 'var(--color-bg-surface)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-lg)',
+  padding: 'var(--space-5)',
+  boxShadow: 'var(--shadow-sm)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--space-4)',
+};
+
+const cardHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: 'var(--space-2)',
+  flexWrap: 'wrap',
+};
+
+const headerActionBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  padding: '4px 10px',
+  borderRadius: 'var(--radius-md)',
+  border: '1px solid var(--color-border)',
+  backgroundColor: 'var(--color-bg-app)',
+  color: 'var(--color-primary)',
+  fontSize: 'var(--font-size-xs)',
+  fontWeight: 600,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+};
+
+const BOOKING_STATUS_META: Record<string, { label: string; color: string; order: number }> = {
+  NEW_REQUEST: { label: 'New Request', color: '#3B82F6', order: 1 },
+  REQUESTED: { label: 'New Request', color: '#3B82F6', order: 1 },
+  MATCHED: { label: 'Matched', color: '#6366F1', order: 2 },
+  MATCHING_IN_PROGRESS: { label: 'Matched', color: '#6366F1', order: 2 },
+  INTERVIEW_TRIAL_SCHEDULED: { label: 'Trial Scheduled', color: '#8B5CF6', order: 3 },
+  INTERVIEW_SCHEDULED: { label: 'Trial Scheduled', color: '#8B5CF6', order: 3 },
+  INTERVIEW_TRIAL_COMPLETED: { label: 'Trial Completed', color: '#0EA5E9', order: 4 },
+  TRIAL_ACTIVE: { label: 'Trial Completed', color: '#0EA5E9', order: 4 },
+  PENDING_PAYMENT: { label: 'Pending Payment', color: '#F59E0B', order: 5 },
+  CUSTOMER_CONFIRMATION_PENDING: { label: 'Pending Payment', color: '#F59E0B', order: 5 },
+  CONFIRMED: { label: 'Confirmed', color: '#14B8A6', order: 6 },
+  ACTIVE: { label: 'Active', color: '#16A34A', order: 7 },
+  SERVICE_ACTIVE: { label: 'Active', color: '#16A34A', order: 7 },
+  REPLACEMENT_REQUESTED: { label: 'Replacement Requested', color: '#F97316', order: 8 },
+  REPLACED: { label: 'Replaced', color: '#64748B', order: 9 },
+  COMPLETED: { label: 'Completed', color: '#10B981', order: 10 },
+  CANCELLED: { label: 'Cancelled', color: '#EF4444', order: 11 },
+};
+
+function formatStatusLabel(status: string): string {
+  return status
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
 
 export const OperationsAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<OperationsQueueTab>('NEW_REQUESTS');
+  const { user } = useAuthStore();
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const canViewDashboard = !user || hasPermission(user.permissions, PERMISSIONS.DASHBOARD_VIEW);
+  const canViewBookings = !user || hasPermission(user.permissions, PERMISSIONS.BOOKINGS_VIEW);
+  const canViewWorkers = !user || hasPermission(user.permissions, PERMISSIONS.WORKER_VIEW);
+  const canViewSupport = !user || hasPermission(user.permissions, PERMISSIONS.SUPPORT_VIEW);
+  const canViewPayments = !user || hasPermission(user.permissions, PERMISSIONS.PAYMENTS_VIEW);
+  const canReviewVerification = !user || hasPermission(user.permissions, PERMISSIONS.VERIFICATION_REVIEW);
+
+  const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard', 'operations-admin'],
     queryFn: () => dashboardRepository.getOperationsAdminDashboard(),
+    enabled: canViewDashboard,
   });
+
+  if (!canViewDashboard) {
+    return (
+      <NoAccessView
+        moduleName="Operations Command Console"
+        requiredPermission={PERMISSIONS.DASHBOARD_VIEW}
+      />
+    );
+  }
 
   if (isLoading) {
     return <LoadingSpinner message="Loading Operations Command Console..." />;
   }
 
-  if (isError || !data) {
+  if (isError || !data || !data.kpis) {
     const errorMessage =
-      error instanceof Error ? error.message : 'Failed to load Operations Console metrics.';
+      error instanceof Error ? error.message : 'Failed to load Operations Dashboard metrics.';
 
     return (
       <div style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
@@ -43,6 +122,7 @@ export const OperationsAdminDashboard: React.FC = () => {
           {errorMessage}
         </p>
         <button
+          type="button"
           onClick={() => refetch()}
           style={{
             padding: '8px 16px',
@@ -59,41 +139,209 @@ export const OperationsAdminDashboard: React.FC = () => {
     );
   }
 
-  const { kpis, queues, sections } = data;
-  const currentQueue = queues[activeTab] || [];
+  const { kpis, sections } = data;
 
-  const getBookingCount = (statusKey: string, fallback: number = 0) => {
-    const item = sections?.bookings?.byStatus?.find((s) => s.status === statusKey);
-    return item ? item.count : fallback;
-  };
+  const hasBookingMetrics =
+    Boolean(sections?.bookings) ||
+    kpis.totalBookings != null ||
+    kpis.newBookingRequests != null;
 
-  const newRequestsCount = getBookingCount('REQUESTED', kpis.newBookingRequests);
-  const matchingCount = getBookingCount('MATCHING_IN_PROGRESS', kpis.bookingsAwaitingMatching);
-  const trialsCount = getBookingCount('INTERVIEW_SCHEDULED', kpis.scheduledTrialsToday);
-  const confirmedCount = getBookingCount('CONFIRMED', kpis.bookingsAwaitingConfirmation);
-  const activeCount = getBookingCount('SERVICE_ACTIVE', kpis.activeLiveEngagements);
-  const completedCount = getBookingCount('COMPLETED', 0);
-  const cancelledCount = getBookingCount('CANCELLED', 0);
-  const replacementCount = getBookingCount('REPLACEMENT_REQUESTED', kpis.replacementRequests);
+  const totalBookingsVal = sections?.bookings
+    ? (sections.bookings.grossBookings ??
+      sections.bookings.byStatus.reduce((sum, item) => sum + item.count, 0))
+    : kpis.totalBookings ??
+      (hasBookingMetrics
+        ? (kpis.newBookingRequests ?? 0) +
+          (kpis.bookingsAwaitingMatching ?? 0) +
+          (kpis.scheduledTrialsToday ?? 0) +
+          (kpis.bookingsAwaitingConfirmation ?? 0) +
+          (kpis.activeLiveEngagements ?? 0)
+        : null);
 
-  const collections = sections?.collections;
+  const bookingSubtitleParts: string[] = [];
+  if (kpis.newBookingRequests != null) bookingSubtitleParts.push(`${kpis.newBookingRequests} new`);
+  if (kpis.scheduledTrialsToday != null) bookingSubtitleParts.push(`${kpis.scheduledTrialsToday} trials`);
+  if (kpis.activeLiveEngagements != null) bookingSubtitleParts.push(`${kpis.activeLiveEngagements} active`);
+
+  const verifiedWorkersVal =
+    sections?.workers?.verifiedAndActive ??
+    kpis.verifiedAndActiveWorkers ??
+    kpis.totalWorkers ??
+    null;
+  const registeredWorkersVal = sections?.workers?.registered ?? kpis.totalWorkers ?? null;
+  const workerReadinessPct =
+    registeredWorkersVal && registeredWorkersVal > 0 && verifiedWorkersVal != null
+      ? Math.round((verifiedWorkersVal / registeredWorkersVal) * 100)
+      : null;
+
+  const showPendingKyc =
+    sections?.pendingKyc != null ||
+    (kpis.pendingVerificationCases != null && canReviewVerification);
+
+  const replacementsRequestedVal =
+    sections?.replacements?.requested ?? kpis.replacementRequests ?? null;
+
+  const activeComplaintsVal = sections?.complaints
+    ? sections.complaints.open + sections.complaints.inProgress + sections.complaints.escalated
+    : kpis.openDisputes ?? null;
+
+  const alertsSection = sections?.alerts ?? null;
+  const primaryCollection =
+    sections?.collections && sections.collections.length > 0 ? sections.collections[0] : null;
+
+  // Merge equivalent legacy/canonical booking statuses in natural workflow order
+  const bookingSegmentMap = new Map<string, DonutChartSegment & { order: number }>();
+  if (sections?.bookings?.byStatus) {
+    for (const entry of sections.bookings.byStatus) {
+      if (!entry.status) continue;
+      const meta = BOOKING_STATUS_META[entry.status] ?? {
+        label: formatStatusLabel(entry.status),
+        color: '#94A3B8',
+        order: 99,
+      };
+      const existing = bookingSegmentMap.get(meta.label);
+      if (existing) {
+        existing.value += entry.count;
+      } else {
+        bookingSegmentMap.set(meta.label, {
+          id: entry.status,
+          label: meta.label,
+          value: entry.count,
+          color: meta.color,
+          order: meta.order,
+        });
+      }
+    }
+  } else if (hasBookingMetrics) {
+    const legacyCounts: Array<{ id: string; value: number | null | undefined }> = [
+      { id: 'NEW_REQUEST', value: kpis.newBookingRequests },
+      { id: 'MATCHED', value: kpis.bookingsAwaitingMatching },
+      { id: 'INTERVIEW_TRIAL_SCHEDULED', value: kpis.scheduledTrialsToday },
+      { id: 'CONFIRMED', value: kpis.bookingsAwaitingConfirmation },
+      { id: 'ACTIVE', value: kpis.activeLiveEngagements },
+    ];
+    for (const item of legacyCounts) {
+      if (item.value == null) continue;
+      const meta = BOOKING_STATUS_META[item.id];
+      bookingSegmentMap.set(meta.label, {
+        id: item.id,
+        label: meta.label,
+        value: item.value,
+        color: meta.color,
+        order: meta.order,
+      });
+    }
+  }
+
+  const bookingStatusSegments: DonutChartSegment[] = Array.from(bookingSegmentMap.values())
+    .sort((a, b) => a.order - b.order)
+    .map(({ id, label, value, color }) => ({ id, label, value, color }));
+
+  const bookingDistributionTotal = bookingStatusSegments.reduce((sum, seg) => sum + seg.value, 0);
+
+  const operationalTriageItems: HorizontalBarItem[] = [];
+  if (alertsSection) {
+    operationalTriageItems.push(
+      {
+        id: 'CRITICAL_ALERTS',
+        title: 'Critical Alerts',
+        subtitle: 'Immediate operational attention',
+        value: alertsSection.critical,
+        formattedValue: `${alertsSection.critical}`,
+        color: 'var(--color-error)',
+      },
+      {
+        id: 'WARNING_ALERTS',
+        title: 'Warning Alerts',
+        subtitle: 'Monitoring required',
+        value: alertsSection.warning,
+        formattedValue: `${alertsSection.warning}`,
+        color: 'var(--color-warning)',
+      }
+    );
+  }
+  if (sections?.complaints) {
+    const { open, inProgress, escalated, unassigned } = sections.complaints;
+    operationalTriageItems.push(
+      {
+        id: 'UNASSIGNED_COMPLAINTS',
+        title: 'Unassigned Complaints',
+        subtitle: 'Awaiting owner assignment',
+        value: unassigned,
+        formattedValue: `${unassigned}`,
+        color: '#F97316',
+      },
+      {
+        id: 'ESCALATED_COMPLAINTS',
+        title: 'Escalated Complaints',
+        subtitle: 'Escalated to Operations',
+        value: escalated,
+        formattedValue: `${escalated}`,
+        color: '#DC2626',
+      },
+      {
+        id: 'OPEN_IN_PROGRESS_COMPLAINTS',
+        title: 'Open & In-Progress Complaints',
+        subtitle: `${open} open · ${inProgress} in progress`,
+        value: open + inProgress,
+        formattedValue: `${open + inProgress}`,
+        color: '#3B82F6',
+      }
+    );
+  } else if (kpis.openDisputes != null && kpis.openDisputes > 0) {
+    operationalTriageItems.push({
+      id: 'ACTIVE_COMPLAINTS',
+      title: 'Active Complaints',
+      subtitle: 'Open support grievances',
+      value: kpis.openDisputes,
+      formattedValue: `${kpis.openDisputes}`,
+      color: '#3B82F6',
+    });
+  }
+
+  const totalAttentionCount =
+    (alertsSection?.open ?? 0) + (activeComplaintsVal ?? 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+      {/* 1. Dashboard Header */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+          gap: 'var(--space-3)',
+        }}
+      >
         <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+          <h1
+            style={{
+              fontSize: 'var(--font-size-3xl)',
+              fontWeight: 700,
+              color: 'var(--color-navy)',
+              margin: 0,
+            }}
+          >
             Operations Command Console
           </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Operational overview of marketplace customer demand, workforce supply, verification progress, and booking lifecycles.
+          <p
+            style={{
+              fontSize: 'var(--font-size-sm)',
+              color: 'var(--color-text-secondary)',
+              marginTop: 'var(--space-1)',
+            }}
+          >
+            Marketplace operations overview across bookings, active workers, replacements, complaints, and collections.
           </p>
         </div>
+
         <button
+          type="button"
           onClick={() => refetch()}
+          disabled={isFetching}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
             padding: '8px 14px',
@@ -103,862 +351,210 @@ export const OperationsAdminDashboard: React.FC = () => {
             fontSize: 'var(--font-size-sm)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
-            cursor: 'pointer',
+            cursor: isFetching ? 'not-allowed' : 'pointer',
+            opacity: isFetching ? 0.7 : 1,
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
-          <span>Refresh Operations</span>
+          <RefreshCw
+            size={14}
+            color="var(--color-primary)"
+            style={{ animation: isFetching ? 'spin 1s linear infinite' : undefined }}
+          />
+          <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
-      {/* 4 Primary Operational KPI Cards */}
+      {/* 2. Essential Operational KPI Cards */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 185px), 1fr))',
           gap: 'var(--space-4)',
         }}
       >
-        <KPICard
-          title="Active Engagements"
-          value={kpis.activeLiveEngagements}
-          subtitle="Live recurring household service"
-          icon={Users}
-          onClick={() => setActiveTab('ACTIVE_SERVICES')}
-        />
-        <KPICard
-          title="New Requests"
-          value={kpis.newBookingRequests}
-          subtitle="Awaiting candidate matching"
-          icon={CalendarCheck}
-          onClick={() => setActiveTab('NEW_REQUESTS')}
-        />
-        <KPICard
-          title="Available Workforce"
-          value={kpis.totalWorkers}
-          subtitle="Total registered workforce"
-          icon={Briefcase}
-          onClick={() => navigate('/workers')}
-        />
-        <KPICard
-          title="Replacement Queue"
-          value={kpis.replacementRequests}
-          subtitle="Urgent household rematching"
-          icon={RefreshCw}
-          onClick={() => setActiveTab('REPLACEMENTS')}
-        />
+        {totalBookingsVal !== null && (
+          <KPICard
+            title="Total Bookings"
+            value={totalBookingsVal}
+            subtitle={bookingSubtitleParts.join(' · ') || 'Booking requests & active services'}
+            icon={CalendarCheck}
+            onClick={canViewBookings ? () => navigate('/bookings') : undefined}
+          />
+        )}
+
+        {(verifiedWorkersVal !== null || registeredWorkersVal !== null) && (
+          <KPICard
+            title="Verified & Active Workers"
+            value={verifiedWorkersVal}
+            subtitle={
+              registeredWorkersVal != null
+                ? workerReadinessPct != null
+                  ? `${workerReadinessPct}% of ${registeredWorkersVal} registered`
+                  : `${registeredWorkersVal} registered workers`
+                : 'Active verified workforce'
+            }
+            icon={UserCheck}
+            onClick={canViewWorkers ? () => navigate('/workers') : undefined}
+          />
+        )}
+
+        {showPendingKyc && (
+          <KPICard
+            title="Pending KYC"
+            value={kpis.pendingVerificationCases}
+            subtitle={
+              sections?.pendingKyc
+                ? `${sections.pendingKyc.submitted} submitted · ${sections.pendingKyc.inReview} in review`
+                : 'Worker verification queue'
+            }
+            icon={Shield}
+            onClick={canReviewVerification ? () => navigate('/verification') : undefined}
+          />
+        )}
+
+        {replacementsRequestedVal !== null && (
+          <KPICard
+            title="Replacement Requests"
+            value={replacementsRequestedVal}
+            subtitle={
+              sections?.replacements
+                ? `${sections.replacements.approved} approved`
+                : 'Rematch requests'
+            }
+            icon={RefreshCw}
+            onClick={canViewBookings ? () => navigate('/bookings') : undefined}
+          />
+        )}
+
+        {activeComplaintsVal !== null && (
+          <KPICard
+            title="Active Complaints"
+            value={activeComplaintsVal}
+            subtitle={
+              sections?.complaints
+                ? `${sections.complaints.open} open · ${sections.complaints.escalated} escalated`
+                : 'Open support grievances'
+            }
+            icon={LifeBuoy}
+            onClick={canViewSupport ? () => navigate('/support') : undefined}
+          />
+        )}
+
+        {alertsSection && (
+          <KPICard
+            title="Open Alerts"
+            value={alertsSection.open}
+            subtitle={`${alertsSection.critical} critical · ${alertsSection.warning} warning`}
+            icon={AlertTriangle}
+          />
+        )}
+
+        {primaryCollection && canViewPayments && (
+          <KPICard
+            title="Collections (MTD)"
+            value={primaryCollection.monthToDateFormatted}
+            subtitle={`Today: ${primaryCollection.todayFormatted}`}
+            icon={CreditCard}
+            onClick={() => navigate('/payments')}
+          />
+        )}
       </div>
 
-      {/* Simplified Booking Status Overview & Lifecycle Summary */}
-      <div
-        style={{
-          backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
-          padding: 'var(--space-5)',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-          <div>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
-              <TrendingUp size={18} color="var(--color-primary)" />
-              <span>Booking Status Overview & Lifecycle Summary</span>
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', marginBottom: 0 }}>
-              Operational progression from initial customer intake to active service deployment. Click any stage to inspect relevant records.
-            </p>
-          </div>
-          <button
-            onClick={() => navigate('/bookings')}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '6px 12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-primary-subtle)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              border: '1px solid var(--color-border)',
-              cursor: 'pointer',
-            }}
-          >
-            <span>View All Bookings</span>
-            <ArrowRight size={12} />
-          </button>
-        </div>
-
-        {/* 5-Stage Core Lifecycle Pipeline */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-            gap: 'var(--space-3)',
-          }}
-        >
-          {[
-            {
-              step: '1',
-              label: 'New Intake',
-              sublabel: 'Customer Demand',
-              count: newRequestsCount,
-              statusKey: 'REQUESTED',
-              route: '/bookings?status=REQUESTED',
-              color: 'var(--color-primary)',
-            },
-            {
-              step: '2',
-              label: 'Awaiting Matching',
-              sublabel: 'Shortlisting Pool',
-              count: matchingCount,
-              statusKey: 'MATCHING_IN_PROGRESS',
-              route: '/bookings?status=MATCHING_IN_PROGRESS',
-              color: '#6366f1',
-            },
-            {
-              step: '3',
-              label: "Today's Trials",
-              sublabel: 'Interviews & Trials',
-              count: trialsCount,
-              statusKey: 'INTERVIEW_SCHEDULED',
-              route: '/bookings?status=INTERVIEW_SCHEDULED',
-              color: '#0ea5e9',
-            },
-            {
-              step: '4',
-              label: 'Awaiting Confirmation',
-              sublabel: 'Trial Confirmed',
-              count: confirmedCount,
-              statusKey: 'CONFIRMED',
-              route: '/bookings?status=CONFIRMED',
-              color: '#10b981',
-            },
-            {
-              step: '5',
-              label: 'Active Deployments',
-              sublabel: 'Live Household Service',
-              count: activeCount,
-              statusKey: 'SERVICE_ACTIVE',
-              route: '/bookings?status=SERVICE_ACTIVE',
-              color: '#059669',
-            },
-          ].map((stage) => (
-            <div
-              key={stage.label}
-              onClick={() => navigate(stage.route)}
-              style={{
-                padding: 'var(--space-3) var(--space-4)',
-                borderRadius: 'var(--radius-md)',
-                border: '1px solid var(--color-border)',
-                backgroundColor: 'var(--color-bg-app)',
-                cursor: 'pointer',
-                transition: 'all var(--transition-fast)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                borderLeft: `4px solid ${stage.color}`,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  {stage.sublabel}
-                </span>
-                <span
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    color: stage.color,
-                    backgroundColor: 'var(--color-bg-surface)',
-                    padding: '1px 6px',
-                    borderRadius: 'var(--radius-full)',
-                    border: '1px solid var(--color-border)',
-                  }}
-                >
-                  Step {stage.step}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 'var(--space-2)' }}>
-                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                  {stage.label}
-                </span>
-                <span style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  {stage.count}
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Secondary Lifecycle & Exception Strip */}
-        <div
-          style={{
-            marginTop: 'var(--space-3)',
-            paddingTop: 'var(--space-3)',
-            borderTop: '1px dashed var(--color-border)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'flex-end',
-            gap: 'var(--space-4)',
-            flexWrap: 'wrap',
-            fontSize: 'var(--font-size-xs)',
-          }}
-        >
-          <div
-            onClick={() => navigate('/bookings?status=COMPLETED')}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
-          >
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#64748b' }} />
-            <span>Completed Engagements:</span>
-            <strong style={{ color: 'var(--color-text-primary)' }}>{completedCount}</strong>
-          </div>
-
-          <div
-            onClick={() => navigate('/replacements')}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
-          >
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#f59e0b' }} />
-            <span>Replacement Demands:</span>
-            <strong style={{ color: '#d97706' }}>{replacementCount}</strong>
-          </div>
-
-          <div
-            onClick={() => navigate('/bookings?status=CANCELLED')}
-            style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--color-text-secondary)' }}
-          >
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }} />
-            <span>Cancelled Bookings:</span>
-            <strong style={{ color: '#dc2626' }}>{cancelledCount}</strong>
-          </div>
-        </div>
-      </div>
-
-      {/* Workforce Supply & Verification Command (2-Column Grid) */}
+      {/* 3. Operational Visualizations */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
-          gap: 'var(--space-4)',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
+          gap: 'var(--space-5)',
         }}
       >
-        {/* Worker Availability Overview */}
-        <div
-          style={{
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-5)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
-                <Briefcase size={18} color="var(--color-primary)" />
-                <span>Worker Availability Overview</span>
-              </h3>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-primary)', backgroundColor: 'var(--color-primary-subtle)', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                Workforce Supply
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Registered Workers</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Total Workers registered in pool</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                  {sections?.workers?.registered ?? kpis.totalWorkers}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Verified & Active Workforce</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Eligible for household assignment</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-status-success-text)' }}>
-                  {sections?.workers?.verifiedAndActive ?? kpis.totalWorkers}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Customers</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Registered households & employers</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)' }}>
-                  {kpis.totalCustomers}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: kpis.expiringVerifications > 0 ? '#fffbeb' : 'var(--color-bg-app)', borderRadius: 'var(--radius-md)', border: kpis.expiringVerifications > 0 ? '1px solid #fef3c7' : 'none' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: kpis.expiringVerifications > 0 ? '#b45309' : 'var(--color-text-secondary)', fontWeight: 600 }}>Police Verif Alert</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Clearances expiring within 30 days</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: kpis.expiringVerifications > 0 ? '#d97706' : 'var(--color-text-primary)' }}>
-                  {kpis.expiringVerifications}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={() => navigate('/workers')}
-            style={{
-              marginTop: 'var(--space-4)',
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-bg-app)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'background-color var(--transition-fast)',
-            }}
-          >
-            <span>View Workforce Roster</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-
-        {/* Verification Progress Oversight */}
-        <div
-          style={{
-            backgroundColor: 'var(--color-bg-surface)',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-lg)',
-            padding: 'var(--space-5)',
-            boxShadow: 'var(--shadow-sm)',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)' }}>
-              <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
-                <ShieldCheck size={18} color="#059669" />
-                <span>Verification Progress Oversight</span>
-              </h3>
-              <span style={{ fontSize: '11px', fontWeight: 600, color: '#059669', backgroundColor: '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                Trust Operations
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Pending Verification</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Cases under trust review</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                  {kpis.pendingVerificationCases}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Pending KYC Review</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Awaiting review claim</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#0F766E' }}>
-                  {sections?.pendingKyc?.submitted ?? kpis.pendingVerificationCases}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>KYC Under Review</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>In active executive inspection</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#0284c7' }}>
-                  {sections?.pendingKyc?.inReview ?? 0}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 12px', backgroundColor: 'var(--color-bg-app)', borderRadius: 'var(--radius-md)' }}>
-                <div>
-                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>Total Verification Pipeline</div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-tertiary)' }}>Combined pending & active cases</div>
-                </div>
-                <span style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)' }}>
-                  {kpis.pendingVerificationCases}
-                </span>
-              </div>
-            </div>
-
-            <div style={{ marginTop: 'var(--space-3)', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--color-text-secondary)', backgroundColor: 'var(--color-bg-app)', padding: '6px 10px', borderRadius: 'var(--radius-sm)' }}>
-              <Info size={14} color="var(--color-text-secondary)" style={{ flexShrink: 0 }} />
-              <span>KYC decisions reserved for Verification Executives. Ops Admin provides coordination.</span>
-            </div>
-          </div>
-
-          <button
-            onClick={() => navigate('/verification')}
-            style={{
-              marginTop: 'var(--space-4)',
-              width: '100%',
-              padding: '8px 12px',
-              borderRadius: 'var(--radius-md)',
-              backgroundColor: 'var(--color-bg-app)',
-              border: '1px solid var(--color-border)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              transition: 'background-color var(--transition-fast)',
-            }}
-          >
-            <span>Inspect Verification Queue</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-      </div>
-
-      {/* Operational Alerts & Pending Activities */}
-      <div
-        style={{
-          backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
-          padding: 'var(--space-5)',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-4)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-          <div>
-            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
-              <AlertCircle size={18} color="#dc2626" />
-              <span>Operational Alerts & Pending Activities</span>
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', marginBottom: 0 }}>
-              High-priority operational queues requiring administrative attention, authorizations, and partner rematching.
-            </p>
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: 'var(--space-4)',
-          }}
-        >
-          {/* Replacement Status Card */}
-          <div
-            style={{
-              padding: 'var(--space-4)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'var(--color-bg-app)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
+        <section style={cardSurfaceStyle} aria-label="Booking Status Distribution">
+          <div style={cardHeaderStyle}>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <RefreshCw size={15} color="#d97706" />
-                  <span>Replacement Status</span>
-                </h4>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.replacementRequests > 0 ? '#b45309' : '#059669', backgroundColor: kpis.replacementRequests > 0 ? '#fef3c7' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                  {kpis.replacementRequests} Active
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Pending Replacement Requests</span>
-                  <strong style={{ color: kpis.replacementRequests > 0 ? '#d97706' : 'var(--color-text-primary)' }}>{kpis.replacementRequests}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Approved / Rematched Replacements</span>
-                  <strong style={{ color: 'var(--color-status-success-text)' }}>{sections?.replacements?.approved ?? 0}</strong>
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => navigate('/replacements')}
-              style={{
-                marginTop: 'var(--space-3)',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-primary)',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-              }}
-            >
-              <span>Manage Replacements</span>
-              <ArrowRight size={12} />
-            </button>
-          </div>
-
-          {/* Support Escalation Overview Card */}
-          <div
-            style={{
-              padding: 'var(--space-4)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'var(--color-bg-app)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <LifeBuoy size={15} color="#dc2626" />
-                  <span>Support Escalation Overview</span>
-                </h4>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.openDisputes > 0 ? '#b91c1c' : '#059669', backgroundColor: kpis.openDisputes > 0 ? '#fef2f2' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                  {kpis.openDisputes} Open
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Open Disputes</span>
-                  <strong style={{ color: kpis.openDisputes > 0 ? '#dc2626' : 'var(--color-text-primary)' }}>{sections?.complaints?.open ?? kpis.openDisputes}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>In-Progress Investigations</span>
-                  <strong>{sections?.complaints?.inProgress ?? 0}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>High-Priority Escalated Cases</span>
-                  <strong style={{ color: (sections?.complaints?.escalated ?? 0) > 0 ? '#dc2626' : 'var(--color-text-primary)' }}>{sections?.complaints?.escalated ?? 0}</strong>
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => navigate('/support')}
-              style={{
-                marginTop: 'var(--space-3)',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-primary)',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-              }}
-            >
-              <span>Open Support Console</span>
-              <ArrowRight size={12} />
-            </button>
-          </div>
-
-          {/* Pending Authorizations & Compliance Watchlist Card */}
-          <div
-            style={{
-              padding: 'var(--space-4)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'var(--color-bg-app)',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'space-between',
-            }}
-          >
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-2)' }}>
-                <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px', margin: 0 }}>
-                  <DollarSign size={15} color="#059669" />
-                  <span>Pending Refunds & Settlements</span>
-                </h4>
-                <span style={{ fontSize: '11px', fontWeight: 600, color: kpis.pendingRefunds > 0 ? '#b45309' : '#059669', backgroundColor: kpis.pendingRefunds > 0 ? '#fef3c7' : '#f0fdf4', padding: '2px 8px', borderRadius: 'var(--radius-full)' }}>
-                  {kpis.pendingRefunds} Pending
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-3)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Pending Refunds</span>
-                  <strong style={{ color: kpis.pendingRefunds > 0 ? '#d97706' : 'var(--color-text-primary)' }}>{kpis.pendingRefunds}</strong>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Authorizations Status</span>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>Awaiting Ops authorization</span>
-                </div>
-              </div>
-            </div>
-            <button
-              onClick={() => setActiveTab('REFUNDS')}
-              style={{
-                marginTop: 'var(--space-3)',
-                width: '100%',
-                padding: '6px 10px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--color-bg-surface)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-primary)',
-                fontSize: '11px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-              }}
-            >
-              <span>Authorize Pending Refunds</span>
-              <ArrowRight size={12} />
-            </button>
-          </div>
-        </div>
-
-        {/* Payment and Collection Realization Summary */}
-        <div
-          style={{
-            marginTop: 'var(--space-4)',
-            paddingTop: 'var(--space-4)',
-            borderTop: '1px solid var(--color-border)',
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
-            <h4 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: 0 }}>
-              <DollarSign size={16} color="#059669" />
-              <span>Payment & Collections Realization Summary</span>
-            </h4>
-            <button
-              onClick={() => navigate('/payments')}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '4px',
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-sm)',
-                backgroundColor: 'var(--color-primary-subtle)',
-                color: 'var(--color-primary)',
-                fontSize: '11px',
-                fontWeight: 600,
-                border: '1px solid var(--color-border)',
-                cursor: 'pointer',
-              }}
-            >
-              <span>View Financial Transactions</span>
-              <ArrowRight size={11} />
-            </button>
-          </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: 'var(--space-3)',
-            }}
-          >
-            {collections && collections.length > 0 ? (
-              collections.map((col, idx) => (
-                <div
-                  key={col.currency || idx}
-                  style={{
-                    padding: 'var(--space-3)',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-bg-app)',
-                    border: '1px solid var(--color-border)',
-                  }}
-                >
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-                    Realized Today ({col.currency})
-                  </div>
-                  <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#059669', marginTop: '2px' }}>
-                    {col.todayFormatted}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
-                    Month-to-Date: <strong>{col.monthToDateFormatted}</strong>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div
+              <h2
                 style={{
-                  padding: 'var(--space-3)',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: 'var(--color-bg-app)',
-                  border: '1px solid var(--color-border)',
-                  color: 'var(--color-text-secondary)',
-                  fontSize: 'var(--font-size-xs)',
+                  fontSize: 'var(--font-size-md)',
+                  fontWeight: 700,
+                  color: 'var(--color-navy)',
+                  margin: 0,
                 }}
               >
-                No active collections recorded. Real-time gateway settlement active.
-              </div>
+                Booking Status Distribution
+              </h2>
+              <p
+                style={{
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-secondary)',
+                  marginTop: '4px',
+                }}
+              >
+                Breakdown of bookings across current operational lifecycle stages ({bookingDistributionTotal} total)
+              </p>
+            </div>
+            {canViewBookings && (
+              <button
+                type="button"
+                onClick={() => navigate('/bookings')}
+                style={headerActionBtnStyle}
+              >
+                <span>Open Bookings</span>
+                <ArrowRight size={12} />
+              </button>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Action-Oriented Operational Workstation Tabs */}
-      <div
-        style={{
-          backgroundColor: 'var(--color-bg-surface)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-lg)',
-          overflow: 'hidden',
-          boxShadow: 'var(--shadow-sm)',
-        }}
-      >
-        <div style={{ padding: 'var(--space-4) var(--space-4) 0', borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-surface)' }}>
-          <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Recent Operational Activities & Backlog Queues
-          </h2>
-          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', marginBottom: 'var(--space-3)' }}>
-            Direct triage workstations for customer bookings, candidate rematching, scheduled trials, confirmations, and refund review.
-          </p>
-        </div>
-        {/* Tab Headers */}
-        <div
-          style={{
-            display: 'flex',
-            borderBottom: '1px solid var(--color-border)',
-            backgroundColor: 'var(--color-bg-app)',
-            overflowX: 'auto',
-          }}
-        >
-          {(
-            [
-              { key: 'NEW_REQUESTS', label: 'New Booking Requests', count: queues.NEW_REQUESTS?.length || 0 },
-              { key: 'MATCHING', label: 'Awaiting Matching', count: queues.MATCHING?.length || 0 },
-              { key: 'TRIALS', label: 'Scheduled Trials', count: queues.TRIALS?.length || 0 },
-              { key: 'CONFIRMATIONS', label: 'Awaiting Confirmation', count: queues.CONFIRMATIONS?.length || 0 },
-              { key: 'ACTIVE_SERVICES', label: 'Active Engagements', count: queues.ACTIVE_SERVICES?.length || 0 },
-              { key: 'REPLACEMENTS', label: 'Urgent Replacements', count: queues.REPLACEMENTS?.length || 0 },
-              { key: 'REFUNDS', label: 'Refund Authorizations', count: queues.REFUNDS?.length || 0 },
-              { key: 'FOLLOW_UPS', label: 'Operational Follow-up', count: queues.FOLLOW_UPS?.length || 0 },
-              { key: 'SUPPORT_HANDOFFS', label: 'Support Handoffs', count: queues.SUPPORT_HANDOFFS?.length || 0 },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              style={{
-                padding: 'var(--space-3) var(--space-4)',
-                border: 'none',
-                borderBottom: activeTab === tab.key ? '2px solid var(--color-primary)' : '2px solid transparent',
-                backgroundColor: 'transparent',
-                color: activeTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                fontWeight: 600,
-                fontSize: 'var(--font-size-xs)',
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {tab.label} ({tab.count})
-            </button>
-          ))}
-        </div>
+          <DonutChart
+            segments={bookingStatusSegments}
+            centerLabel="Total Bookings"
+            emptyMessage="No booking records available"
+            ariaLabel="Booking Status Distribution Chart"
+          />
+        </section>
 
-        {/* Tab Content Table */}
-        <div style={{ padding: 'var(--space-4)', overflowX: 'auto' }}>
-          {currentQueue.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-secondary)' }}>
-              All items in this operational queue are cleared. Zero backlog.
+        <section style={cardSurfaceStyle} aria-label="Alerts & Complaints Breakdown">
+          <div style={cardHeaderStyle}>
+            <div>
+              <h2
+                style={{
+                  fontSize: 'var(--font-size-md)',
+                  fontWeight: 700,
+                  color: 'var(--color-navy)',
+                  margin: 0,
+                }}
+              >
+                Alerts & Complaints Breakdown
+              </h2>
+              <p
+                style={{
+                  fontSize: 'var(--font-size-xs)',
+                  color: 'var(--color-text-secondary)',
+                  marginTop: '4px',
+                }}
+              >
+                Live operational alerts and support ticket workload ({totalAttentionCount} open items)
+              </p>
             </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-sm)' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--color-border)', textAlign: 'left', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>
-                  <th style={{ padding: '8px 12px' }}>Record Ref</th>
-                  <th style={{ padding: '8px 12px' }}>Customer Name</th>
-                  <th style={{ padding: '8px 12px' }}>Service Category</th>
-                  <th style={{ padding: '8px 12px' }}>Locality</th>
-                  <th style={{ padding: '8px 12px' }}>Status</th>
-                  <th style={{ padding: '8px 12px' }}>Timeline</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'right' }}>Dominant Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentQueue.map((item) => (
-                  <tr
-                    key={item.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`Open queue item ${item.id} - ${item.dominantAction}`}
-                    className="clickable-table-row"
-                    onClick={(e) => {
-                      const target = e.target as { closest?: (selector: string) => unknown };
-                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                        return;
-                      }
-                      navigate(item.targetRoute);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        const target = e.target as { closest?: (selector: string) => unknown };
-                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                          return;
-                        }
-                        e.preventDefault();
-                        navigate(item.targetRoute);
-                      }
-                    }}
-                    style={{ borderBottom: '1px solid var(--color-border)' }}
-                  >
-                    <td style={{ padding: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>{item.id}</td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-primary)', fontWeight: 500 }}>{item.customerName}</td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-secondary)' }}>{item.category}</td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-secondary)' }}>{item.locality}</td>
-                    <td style={{ padding: '12px' }}>
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td style={{ padding: '12px', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)' }}>{item.submissionTime}</td>
-                    <td style={{ padding: '12px', textAlign: 'right' }}>
-                      <button
-                        onClick={() => navigate(item.targetRoute)}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '6px 12px',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'var(--color-primary-subtle)',
-                          color: 'var(--color-primary)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                          border: '1px solid var(--color-border)',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span>{item.dominantAction}</span>
-                        <ArrowRight size={12} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+            {canViewSupport && (
+              <button
+                type="button"
+                onClick={() => navigate('/support')}
+                style={headerActionBtnStyle}
+              >
+                <span>Open Support</span>
+                <ArrowRight size={12} />
+              </button>
+            )}
+          </div>
+
+          <HorizontalBarChart
+            items={operationalTriageItems}
+            showRank={false}
+            maxItems={5}
+            emptyMessage="No open operational alerts or complaints recorded"
+            ariaLabel="Operational Alerts and Complaints Breakdown"
+          />
+        </section>
       </div>
     </div>
   );

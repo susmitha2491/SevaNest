@@ -92,34 +92,32 @@ describe('Role-Based Operational Dashboards', () => {
       );
     });
 
-    it('renders Operations Command Console with operational KPIs', async () => {
+    it('renders Operations Command Console with essential operational KPIs and visualizations', async () => {
       renderApp('/dashboard');
 
-      expect(await screen.findByText('Operations Command Console')).toBeInTheDocument();
-      expect(await screen.findByText('New Requests')).toBeInTheDocument();
-      expect(await screen.findByText('Available Workforce')).toBeInTheDocument();
-      expect(await screen.findByText('Replacement Queue')).toBeInTheDocument();
-      expect(await screen.findByText('Open Disputes')).toBeInTheDocument();
-      expect(await screen.findByText("Today's Trials")).toBeInTheDocument();
-      expect(await screen.findByText('Pending Refunds')).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: 'Operations Command Console' })).toBeInTheDocument();
+      expect(await screen.findAllByText('Total Bookings')).not.toHaveLength(0);
+      expect(await screen.findByText('Verified & Active Workers')).toBeInTheDocument();
+      expect(await screen.findByText('Replacement Requests')).toBeInTheDocument();
+      expect(await screen.findByText('Active Complaints')).toBeInTheDocument();
+      expect(await screen.findByText('Open Alerts')).toBeInTheDocument();
+      expect(await screen.findByText('Collections (MTD)')).toBeInTheDocument();
+
+      expect(screen.getByRole('heading', { name: /Booking Status Distribution/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Alerts & Complaints Breakdown/i })).toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+      expect(screen.queryByText('Pending Refunds')).not.toBeInTheDocument();
     });
 
-    it('allows switching between operational workstation tabs (New Requests, Replacements, Trials, Refunds)', async () => {
+    it('navigates directly to Bookings from dashboard chart action while respecting support permission gate', async () => {
       renderApp('/dashboard');
 
-      expect(await screen.findByText(/New Booking Requests \(\d+\)/)).toBeInTheDocument();
-      expect(await screen.findByText('Anand Sharma')).toBeInTheDocument();
+      const openBookingsBtn = await screen.findByRole('button', { name: /Open Bookings/i });
+      // Caller permissions in this suite omit SUPPORT_VIEW, so Open Support trigger stays gated
+      expect(screen.queryByRole('button', { name: /Open Support/i })).not.toBeInTheDocument();
+      fireEvent.click(openBookingsBtn);
 
-      // Switch to Replacements tab
-      const replacementTab = await screen.findByText(/Urgent Replacements \(\d+\)/);
-      fireEvent.click(replacementTab);
-      expect(await screen.findByText('Priya Reddy')).toBeInTheDocument();
-      expect((await screen.findAllByText('Process Rematch')).length).toBeGreaterThan(0);
-
-      // Switch to Refunds tab
-      const refundTab = await screen.findByText(/Refund Authorizations \(\d+\)/);
-      fireEvent.click(refundTab);
-      expect((await screen.findAllByText('Authorize Refund')).length).toBeGreaterThan(0);
+      expect(await screen.findByRole('heading', { name: /Booking/i })).toBeInTheDocument();
     });
   });
 

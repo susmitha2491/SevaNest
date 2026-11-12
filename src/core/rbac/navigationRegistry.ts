@@ -226,11 +226,11 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
     });
   }
 
-  // 7. Support & Grievance Management
+  // 7. Support Management
   if (hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW)) {
     modules.push({
       id: 'support',
-      name: isOpsAdmin ? 'Support & Grievance Management' : 'Support',
+      name: isOpsAdmin ? 'Support Management' : 'Support',
       path: '/support',
       icon: LifeBuoy,
       requiredPermission: PERMISSIONS.SUPPORT_VIEW,

@@ -11,18 +11,20 @@ export interface SuperAdminKPIs {
 }
 
 export interface OperationsAdminKPIs {
-  totalCustomers: number;
-  totalWorkers: number;
-  newBookingRequests: number;
-  bookingsAwaitingMatching: number;
-  scheduledTrialsToday: number;
-  bookingsAwaitingConfirmation: number;
-  activeLiveEngagements: number;
-  replacementRequests: number;
-  pendingVerificationCases: number;
-  openDisputes: number;
-  pendingRefunds: number;
-  expiringVerifications: number;
+  totalBookings?: number | null;
+  totalCustomers: number | null;
+  totalWorkers: number | null;
+  verifiedAndActiveWorkers?: number | null;
+  newBookingRequests: number | null;
+  bookingsAwaitingMatching: number | null;
+  scheduledTrialsToday: number | null;
+  bookingsAwaitingConfirmation: number | null;
+  activeLiveEngagements: number | null;
+  replacementRequests: number | null;
+  pendingVerificationCases: number | null;
+  openDisputes: number | null;
+  pendingRefunds: number | null;
+  expiringVerifications: number | null;
 }
 
 export type OperationsQueueTab =
@@ -330,6 +332,7 @@ export interface SuperAdminAnalyticsData {
 }
 
 export interface OperationsAdminDashboardData {
+  generatedAt?: string;
   kpis: OperationsAdminKPIs;
   queues: Record<OperationsQueueTab, OperationsQueueItem[]>;
   sections?: SuperAdminDashboardSections;

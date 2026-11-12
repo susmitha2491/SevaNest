@@ -40,6 +40,80 @@ import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function parseOperationsDashboardSections(sections: Record<string, unknown>): SuperAdminDashboardSections {
+  const workers = asRecord(sections.workers);
+  const bookings = asRecord(sections.bookings);
+  const customers = asRecord(sections.customers);
+  const pendingKyc = asRecord(sections.pendingKyc);
+  const complaints = asRecord(sections.complaints);
+  const replacements = asRecord(sections.replacements);
+  const alerts = asRecord(sections.alerts);
+  const collections = Array.isArray(sections.collections) ? (sections.collections as Record<string, unknown>[]) : undefined;
+  const grossBookingsRaw = bookings?.grossBookings ?? bookings?.total;
+
+  return {
+    bookings: bookings ? {
+      byStatus: Array.isArray(bookings.byStatus)
+        ? bookings.byStatus.map((item) => {
+          const b = asRecord(item) ?? {};
+          return {
+            status: String(b.status || ''),
+            count: Number(b.count || 0),
+          };
+        })
+        : [],
+      grossBookings: grossBookingsRaw !== undefined && grossBookingsRaw !== null ? Number(grossBookingsRaw) : undefined,
+    } : undefined,
+    workers: workers ? {
+      registered: Number(workers.registered || 0),
+      verifiedAndActive: Number(workers.verifiedAndActive || 0),
+    } : undefined,
+    customers: customers ? {
+      registered: Number(customers.registered ?? customers.total ?? 0),
+      active: customers.active !== undefined ? Number(customers.active) : undefined,
+    } : undefined,
+    pendingKyc: pendingKyc ? {
+      submitted: Number(pendingKyc.submitted || 0),
+      inReview: Number(pendingKyc.inReview || 0),
+    } : undefined,
+    complaints: complaints ? {
+      open: Number(complaints.open || 0),
+      inProgress: Number(complaints.inProgress || 0),
+      escalated: Number(complaints.escalated || 0),
+      unassigned: Number(complaints.unassigned || 0),
+    } : undefined,
+    replacements: replacements ? {
+      requested: Number(replacements.requested || 0),
+      approved: Number(replacements.approved || 0),
+    } : undefined,
+    alerts: alerts ? {
+      open: Number(alerts.open || 0),
+      critical: Number(alerts.critical || 0),
+      warning: Number(alerts.warning || 0),
+    } : undefined,
+    collections: collections ? collections.map((col) => {
+      const curr = String(col.currency || 'INR');
+      const todayMinor = Number(col.todayMinor || 0);
+      const monthToDateMinor = Number(col.monthToDateMinor || 0);
+      return {
+        currency: curr,
+        todayMinor,
+        monthToDateMinor,
+        todayINR: todayMinor / 100,
+        monthToDateINR: monthToDateMinor / 100,
+        todayFormatted: curr === 'INR' ? formatCurrencyINR(todayMinor / 100) : `${curr} ${(todayMinor / 100).toFixed(2)}`,
+        monthToDateFormatted: curr === 'INR' ? formatCurrencyINR(monthToDateMinor / 100) : `${curr} ${(monthToDateMinor / 100).toFixed(2)}`,
+      };
+    }) : undefined,
+  };
+}
+
 function buildSupportStatusDistribution(
   open: number,
   inInvestigation: number,
@@ -341,8 +415,10 @@ export class MockDashboardRepository implements IDashboardRepository {
   async getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData> {
     return {
       kpis: {
+        totalBookings: 684,
         totalCustomers: 128,
         totalWorkers: 164,
+        verifiedAndActiveWorkers: 142,
         newBookingRequests: 28,
         bookingsAwaitingMatching: 19,
         scheduledTrialsToday: 12,
@@ -351,18 +427,18 @@ export class MockDashboardRepository implements IDashboardRepository {
         replacementRequests: 14,
         pendingVerificationCases: 18,
         openDisputes: 5,
-        pendingRefunds: 3,
-        expiringVerifications: 8,
+        pendingRefunds: null,
+        expiringVerifications: null,
       },
       sections: {
         bookings: {
-          grossBookings: 348,
+          grossBookings: 684,
           byStatus: [
-            { status: 'REQUESTED', count: 28 },
-            { status: 'MATCHING_IN_PROGRESS', count: 19 },
-            { status: 'INTERVIEW_SCHEDULED', count: 12 },
+            { status: 'NEW_REQUEST', count: 28 },
+            { status: 'MATCHED', count: 19 },
+            { status: 'INTERVIEW_TRIAL_SCHEDULED', count: 12 },
             { status: 'CONFIRMED', count: 6 },
-            { status: 'SERVICE_ACTIVE', count: 348 },
+            { status: 'ACTIVE', count: 348 },
             { status: 'COMPLETED', count: 215 },
             { status: 'CANCELLED', count: 42 },
             { status: 'REPLACEMENT_REQUESTED', count: 14 },
@@ -384,11 +460,16 @@ export class MockDashboardRepository implements IDashboardRepository {
           open: 2,
           inProgress: 2,
           escalated: 1,
-          unassigned: 0,
+          unassigned: 2,
         },
         replacements: {
           requested: 14,
           approved: 12,
+        },
+        alerts: {
+          open: 6,
+          critical: 1,
+          warning: 3,
         },
         collections: [
           {
@@ -1194,98 +1275,51 @@ export class RealDashboardRepository implements IDashboardRepository {
       // Handle the observed backend sections payload
       if (raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections) && !raw.kpis) {
         const sections = raw.sections as Record<string, unknown>;
-        const workers = (sections.workers && typeof sections.workers === 'object' && !Array.isArray(sections.workers))
-          ? (sections.workers as Record<string, unknown>)
-          : undefined;
-        const bookings = (sections.bookings && typeof sections.bookings === 'object' && !Array.isArray(sections.bookings))
-          ? (sections.bookings as Record<string, unknown>)
-          : undefined;
-        const customers = (sections.customers && typeof sections.customers === 'object' && !Array.isArray(sections.customers))
-          ? (sections.customers as Record<string, unknown>)
-          : undefined;
-        const pendingKyc = (sections.pendingKyc && typeof sections.pendingKyc === 'object' && !Array.isArray(sections.pendingKyc))
-          ? (sections.pendingKyc as Record<string, unknown>)
-          : undefined;
-        const complaints = (sections.complaints && typeof sections.complaints === 'object' && !Array.isArray(sections.complaints))
-          ? (sections.complaints as Record<string, unknown>)
-          : undefined;
-        const replacements = (sections.replacements && typeof sections.replacements === 'object' && !Array.isArray(sections.replacements))
-          ? (sections.replacements as Record<string, unknown>)
-          : undefined;
-        const collections = Array.isArray(sections.collections) ? (sections.collections as Record<string, unknown>[]) : undefined;
+        const sectionBreakdowns = parseOperationsDashboardSections(sections);
+        const byStatus = sectionBreakdowns.bookings?.byStatus ?? [];
+        const getStatusCount = (...statusNames: string[]) =>
+          byStatus
+            .filter((s) => statusNames.includes(s.status))
+            .reduce((sum, s) => sum + s.count, 0);
 
-        const byStatus = Array.isArray(bookings?.byStatus) ? (bookings?.byStatus as Record<string, unknown>[]) : [];
-        const getStatusCount = (statusName: string) => {
-          const item = byStatus.find((s) => s && s.status === statusName);
-          return item ? Number(item.count || 0) : 0;
-        };
+        const hasBookings = Boolean(sectionBreakdowns.bookings);
+        const totalBookings = hasBookings
+          ? (sectionBreakdowns.bookings?.grossBookings ?? byStatus.reduce((sum, s) => sum + s.count, 0))
+          : null;
+        const newBookingRequests = hasBookings
+          ? getStatusCount('PENDING_PAYMENT', 'REQUESTED', 'NEW_REQUEST')
+          : null;
+        const bookingsAwaitingMatching = hasBookings
+          ? getStatusCount('MATCHED', 'MATCHING_IN_PROGRESS')
+          : null;
+        const scheduledTrialsToday = hasBookings
+          ? getStatusCount('INTERVIEW_TRIAL_SCHEDULED', 'INTERVIEW_SCHEDULED', 'TRIAL_ACTIVE')
+          : null;
+        const bookingsAwaitingConfirmation = hasBookings
+          ? getStatusCount('INTERVIEW_TRIAL_COMPLETED', 'CONFIRMED', 'CUSTOMER_CONFIRMATION_PENDING')
+          : null;
+        const activeLiveEngagements = hasBookings
+          ? getStatusCount('ACTIVE', 'SERVICE_ACTIVE')
+          : null;
 
-        const totalCustomers = Number(customers?.registered ?? customers?.total ?? raw.totalCustomers ?? 0);
-        const totalWorkers = Number(workers?.registered || workers?.verifiedAndActive || 0);
-        const newBookingRequests = getStatusCount('PENDING_PAYMENT') + getStatusCount('REQUESTED') + getStatusCount('NEW_REQUEST');
-        const bookingsAwaitingMatching = getStatusCount('MATCHED') + getStatusCount('MATCHING_IN_PROGRESS');
-        const scheduledTrialsToday = getStatusCount('INTERVIEW_TRIAL_SCHEDULED') + getStatusCount('INTERVIEW_SCHEDULED');
-        const bookingsAwaitingConfirmation = getStatusCount('INTERVIEW_TRIAL_COMPLETED') + getStatusCount('CONFIRMED');
-        const activeLiveEngagements = getStatusCount('ACTIVE') + getStatusCount('SERVICE_ACTIVE');
-        const replacementRequests = Number(replacements?.requested || 0);
-        const pendingVerificationCases = Number(pendingKyc?.submitted || 0) + Number(pendingKyc?.inReview || 0);
-        const openDisputes = Number(complaints?.open || 0) + Number(complaints?.inProgress || 0) + Number(complaints?.escalated || 0);
-        const pendingRefunds = 0;
-        const expiringVerifications = 0;
-
-        const sectionBreakdowns: SuperAdminDashboardSections = {
-          bookings: bookings ? {
-            byStatus: byStatus.map((item) => {
-              const b = item as Record<string, unknown>;
-              return {
-                status: String(b.status || ''),
-                count: Number(b.count || 0),
-              };
-            }),
-            grossBookings: bookings.grossBookings !== undefined ? Number(bookings.grossBookings) : undefined,
-          } : undefined,
-          workers: workers ? {
-            registered: Number(workers.registered || 0),
-            verifiedAndActive: Number(workers.verifiedAndActive || 0),
-          } : undefined,
-          customers: customers ? {
-            registered: Number(customers.registered ?? customers.total ?? 0),
-            active: customers.active !== undefined ? Number(customers.active) : undefined,
-          } : undefined,
-          pendingKyc: pendingKyc ? {
-            submitted: Number(pendingKyc.submitted || 0),
-            inReview: Number(pendingKyc.inReview || 0),
-          } : undefined,
-          complaints: complaints ? {
-            open: Number(complaints.open || 0),
-            inProgress: Number(complaints.inProgress || 0),
-            escalated: Number(complaints.escalated || 0),
-            unassigned: Number(complaints.unassigned || 0),
-          } : undefined,
-          replacements: replacements ? {
-            requested: Number(replacements.requested || 0),
-            approved: Number(replacements.approved || 0),
-          } : undefined,
-          alerts: (sections.alerts && typeof sections.alerts === 'object') ? {
-            open: Number((sections.alerts as Record<string, unknown>).open || 0),
-            critical: Number((sections.alerts as Record<string, unknown>).critical || 0),
-            warning: Number((sections.alerts as Record<string, unknown>).warning || 0),
-          } : undefined,
-          collections: collections ? collections.map((col) => {
-            const curr = String(col.currency || 'INR');
-            const todayMinor = Number(col.todayMinor || 0);
-            const monthToDateMinor = Number(col.monthToDateMinor || 0);
-            return {
-              currency: curr,
-              todayMinor,
-              monthToDateMinor,
-              todayINR: todayMinor / 100,
-              monthToDateINR: monthToDateMinor / 100,
-              todayFormatted: curr === 'INR' ? formatCurrencyINR(todayMinor / 100) : `${curr} ${(todayMinor / 100).toFixed(2)}`,
-              monthToDateFormatted: curr === 'INR' ? formatCurrencyINR(monthToDateMinor / 100) : `${curr} ${(monthToDateMinor / 100).toFixed(2)}`,
-            };
-          }) : undefined,
-        };
+        const totalCustomers = sectionBreakdowns.customers
+          ? sectionBreakdowns.customers.registered
+          : (raw.totalCustomers !== undefined && raw.totalCustomers !== null ? Number(raw.totalCustomers) : null);
+        const totalWorkers = sectionBreakdowns.workers
+          ? (sectionBreakdowns.workers.registered || sectionBreakdowns.workers.verifiedAndActive)
+          : null;
+        const verifiedAndActiveWorkers = sectionBreakdowns.workers
+          ? sectionBreakdowns.workers.verifiedAndActive
+          : null;
+        const replacementRequests = sectionBreakdowns.replacements
+          ? sectionBreakdowns.replacements.requested
+          : null;
+        const pendingVerificationCases = sectionBreakdowns.pendingKyc
+          ? sectionBreakdowns.pendingKyc.submitted + sectionBreakdowns.pendingKyc.inReview
+          : null;
+        const openDisputes = sectionBreakdowns.complaints
+          ? sectionBreakdowns.complaints.open + sectionBreakdowns.complaints.inProgress + sectionBreakdowns.complaints.escalated
+          : null;
 
         const emptyQueues: Record<OperationsQueueTab, OperationsQueueItem[]> = {
           NEW_REQUESTS: [],
@@ -1300,9 +1334,12 @@ export class RealDashboardRepository implements IDashboardRepository {
         };
 
         return {
+          generatedAt: raw.generatedAt ? String(raw.generatedAt) : undefined,
           kpis: {
+            totalBookings,
             totalCustomers,
             totalWorkers,
+            verifiedAndActiveWorkers,
             newBookingRequests,
             bookingsAwaitingMatching,
             scheduledTrialsToday,
@@ -1311,8 +1348,8 @@ export class RealDashboardRepository implements IDashboardRepository {
             replacementRequests,
             pendingVerificationCases,
             openDisputes,
-            pendingRefunds,
-            expiringVerifications,
+            pendingRefunds: null,
+            expiringVerifications: null,
           },
           queues: (raw.queues && typeof raw.queues === 'object') ? (raw.queues as Record<OperationsQueueTab, OperationsQueueItem[]>) : emptyQueues,
           sections: sectionBreakdowns,
@@ -1416,87 +1453,13 @@ export class RealDashboardRepository implements IDashboardRepository {
         SUPPORT_HANDOFFS: parseQueueList(rawQueues.SUPPORT_HANDOFFS, 'SUPPORT_HANDOFFS'),
       };
 
-      let sectionBreakdowns: SuperAdminDashboardSections | undefined;
-      if (raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections)) {
-        const sections = raw.sections as Record<string, unknown>;
-        const workers = (sections.workers && typeof sections.workers === 'object' && !Array.isArray(sections.workers))
-          ? (sections.workers as Record<string, unknown>)
+      const sectionBreakdowns =
+        raw.sections && typeof raw.sections === 'object' && !Array.isArray(raw.sections)
+          ? parseOperationsDashboardSections(raw.sections as Record<string, unknown>)
           : undefined;
-        const bookings = (sections.bookings && typeof sections.bookings === 'object' && !Array.isArray(sections.bookings))
-          ? (sections.bookings as Record<string, unknown>)
-          : undefined;
-        const customers = (sections.customers && typeof sections.customers === 'object' && !Array.isArray(sections.customers))
-          ? (sections.customers as Record<string, unknown>)
-          : undefined;
-        const pendingKyc = (sections.pendingKyc && typeof sections.pendingKyc === 'object' && !Array.isArray(sections.pendingKyc))
-          ? (sections.pendingKyc as Record<string, unknown>)
-          : undefined;
-        const complaints = (sections.complaints && typeof sections.complaints === 'object' && !Array.isArray(sections.complaints))
-          ? (sections.complaints as Record<string, unknown>)
-          : undefined;
-        const replacements = (sections.replacements && typeof sections.replacements === 'object' && !Array.isArray(sections.replacements))
-          ? (sections.replacements as Record<string, unknown>)
-          : undefined;
-        const collections = Array.isArray(sections.collections) ? (sections.collections as Record<string, unknown>[]) : undefined;
-
-        sectionBreakdowns = {
-          bookings: bookings ? {
-            byStatus: Array.isArray(bookings.byStatus)
-              ? bookings.byStatus.map((item) => {
-                const b = item as Record<string, unknown>;
-                return {
-                  status: String(b.status || ''),
-                  count: Number(b.count || 0),
-                };
-              })
-              : [],
-            grossBookings: bookings.grossBookings !== undefined ? Number(bookings.grossBookings) : undefined,
-          } : undefined,
-          workers: workers ? {
-            registered: Number(workers.registered || 0),
-            verifiedAndActive: Number(workers.verifiedAndActive || 0),
-          } : undefined,
-          customers: customers ? {
-            registered: Number(customers.registered ?? customers.total ?? 0),
-            active: customers.active !== undefined ? Number(customers.active) : undefined,
-          } : undefined,
-          pendingKyc: pendingKyc ? {
-            submitted: Number(pendingKyc.submitted || 0),
-            inReview: Number(pendingKyc.inReview || 0),
-          } : undefined,
-          complaints: complaints ? {
-            open: Number(complaints.open || 0),
-            inProgress: Number(complaints.inProgress || 0),
-            escalated: Number(complaints.escalated || 0),
-            unassigned: Number(complaints.unassigned || 0),
-          } : undefined,
-          replacements: replacements ? {
-            requested: Number(replacements.requested || 0),
-            approved: Number(replacements.approved || 0),
-          } : undefined,
-          alerts: (sections.alerts && typeof sections.alerts === 'object') ? {
-            open: Number((sections.alerts as Record<string, unknown>).open || 0),
-            critical: Number((sections.alerts as Record<string, unknown>).critical || 0),
-            warning: Number((sections.alerts as Record<string, unknown>).warning || 0),
-          } : undefined,
-          collections: collections ? collections.map((col) => {
-            const curr = String(col.currency || 'INR');
-            const todayMinor = Number(col.todayMinor || 0);
-            const monthToDateMinor = Number(col.monthToDateMinor || 0);
-            return {
-              currency: curr,
-              todayMinor,
-              monthToDateMinor,
-              todayINR: todayMinor / 100,
-              monthToDateINR: monthToDateMinor / 100,
-              todayFormatted: curr === 'INR' ? formatCurrencyINR(todayMinor / 100) : `${curr} ${(todayMinor / 100).toFixed(2)}`,
-              monthToDateFormatted: curr === 'INR' ? formatCurrencyINR(monthToDateMinor / 100) : `${curr} ${(monthToDateMinor / 100).toFixed(2)}`,
-            };
-          }) : undefined,
-        };
-      }
 
       return {
+        generatedAt: raw.generatedAt ? String(raw.generatedAt) : undefined,
         kpis: {
           totalCustomers,
           totalWorkers,
