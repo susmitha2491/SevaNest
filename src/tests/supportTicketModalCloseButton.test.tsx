@@ -105,8 +105,7 @@ describe('Support Ticket Detail Modal Close Functionality', () => {
     });
   });
 
-  it('closes ticket detail modal when clicking the bottom Close button', async () => {
-    const user = userEvent.setup();
+  it('omits keyboard shortcut hint and redundant Close link from the composer footer on open tickets', async () => {
     const ticketsRes = await supportRepository.getTickets();
     const targetTicket = ticketsRes.items[0];
 
@@ -115,13 +114,8 @@ describe('Support Ticket Detail Modal Close Functionality', () => {
 
     expect(await screen.findByRole('dialog', {}, { timeout: 4000 })).toBeInTheDocument();
 
-    const bottomCloseButton = screen.getByTestId('bottom-close-ticket-modal-button');
-    expect(bottomCloseButton).toBeInTheDocument();
-    await user.click(bottomCloseButton);
-
-    await waitFor(() => {
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    });
+    expect(screen.queryByText(/Press Enter to send/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bottom-close-ticket-modal-button')).not.toBeInTheDocument();
   });
 });
 

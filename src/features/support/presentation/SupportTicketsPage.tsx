@@ -199,6 +199,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
   const handleOpenResolveFromDetail = (tkt: SupportTicketDetail) => {
     setIsDetailOpen(false);
     setSelectedTicket(tkt);
+    setResolveError(null);
     setIsResolveOpen(true);
     if (searchParams.has('ticketId')) {
       handledTicketIdRef.current = searchParams.get('ticketId');
@@ -213,6 +214,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
   const handleOpenEscalateFromDetail = (tkt: SupportTicketDetail) => {
     setIsDetailOpen(false);
     setSelectedTicket(tkt);
+    setEscalateError(null);
     setIsEscalateOpen(true);
     if (searchParams.has('ticketId')) {
       handledTicketIdRef.current = searchParams.get('ticketId');
@@ -225,6 +227,31 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
   };
 
   const [staleError, setStaleError] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+  const [escalateError, setEscalateError] = useState<string | null>(null);
+
+  // Keep selected ticket hydrated with latest authoritative ETag & history when a modal is open
+  const { data: fetchedTicketDetail } = useQuery({
+    queryKey: ['support', 'ticket', selectedTicket?.id],
+    queryFn: async () => {
+      if (!selectedTicket?.id) return null;
+      try {
+        return await supportRepository.getTicketById(selectedTicket.id);
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean((isDetailOpen || isResolveOpen || isEscalateOpen) && selectedTicket?.id),
+  });
+
+  const activeSelectedTicket = useMemo(() => {
+    if (!selectedTicket) return null;
+    if (fetchedTicketDetail && fetchedTicketDetail.id === selectedTicket.id) {
+      return fetchedTicketDetail;
+    }
+    const listMatch = supportData?.items?.find((item) => item.id === selectedTicket.id);
+    return listMatch || selectedTicket;
+  }, [selectedTicket, fetchedTicketDetail, supportData?.items]);
 
   // Mutations
   const resolveMutation = useMutation({
@@ -237,11 +264,19 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       setIsResolveOpen(false);
       setSelectedTicket(null);
       setStaleError(null);
+      setResolveError(null);
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
       if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
-        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry your action.');
+        const msg =
+          (err as Error)?.message ||
+          'Ticket version was missing or stale. Latest ticket version has been refreshed—please retry.';
+        setStaleError(msg);
+        setResolveError(msg);
         queryClient.invalidateQueries({ queryKey: ['support'] });
+        queryClient.invalidateQueries({ queryKey: ['support', 'ticket', variables.ticketId] });
+      } else {
+        setResolveError((err as Error)?.message || 'Failed to resolve grievance. Please try again.');
       }
     },
   });
@@ -256,12 +291,20 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       setIsEscalateOpen(false);
       setSelectedTicket(null);
       setStaleError(null);
+      setEscalateError(null);
     },
-    onError: (err: unknown) => {
+    onError: (err: unknown, variables) => {
       if (err instanceof ConcurrencyConflictError || (err as { statusCode?: number })?.statusCode === 412 || (err as { statusCode?: number })?.statusCode === 428) {
-        setStaleError('Ticket was modified by another transaction (stale version). Data has been refreshed. Please retry escalation.');
+        const msg =
+          (err as Error)?.message ||
+          'Ticket version was missing or stale. Latest ticket version has been refreshed—please retry.';
+        setStaleError(msg);
+        setEscalateError(msg);
         queryClient.invalidateQueries({ queryKey: ['support'] });
+        queryClient.invalidateQueries({ queryKey: ['support', 'ticket', variables.ticketId] });
         queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      } else {
+        setEscalateError((err as Error)?.message || 'Failed to escalate ticket. Please try again.');
       }
     },
   });
@@ -798,6 +841,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                             <button
                               onClick={() => {
                                 setSelectedTicket(tkt);
+                                setResolveError(null);
                                 setIsResolveOpen(true);
                               }}
                               style={{
@@ -820,6 +864,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                             <button
                               onClick={() => {
                                 setSelectedTicket(tkt);
+                                setEscalateError(null);
                                 setIsEscalateOpen(true);
                               }}
                               style={{
@@ -906,7 +951,7 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
 
       {/* Ticket Chat & Details Workspace Modal */}
       <TicketDetailModal
-        ticket={selectedTicket}
+        ticket={activeSelectedTicket}
         isOpen={isDetailOpen}
         onClose={handleCloseDetailModal}
         onOpenResolve={handleOpenResolveFromDetail}
@@ -916,47 +961,60 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
       {/* Resolve Confirmation Dialog */}
       <ConfirmDialog
         isOpen={isResolveOpen}
-        title={`Resolve Ticket ${selectedTicket?.id}`}
-        description="Enter the comprehensive resolution summary agreed upon with the complainant."
+        title="Resolve Grievance"
+        description="Describe how the complaint was addressed and what resolution was communicated to the customer or worker."
         confirmLabel="Confirm & Close Ticket"
+        remarksLabel="Resolution Summary"
         requireRemarks={true}
         remarksPlaceholder="Enter resolution summary notes (e.g., Worker arrived with customer consent, mediation successful)..."
+        isLoading={resolveMutation.isPending}
+        errorMessage={resolveError}
         onConfirm={(remarks) => {
-          if (selectedTicket) {
+          const trimmedRemarks = remarks?.trim();
+          const targetTicket = activeSelectedTicket || selectedTicket;
+          if (targetTicket && trimmedRemarks) {
+            setResolveError(null);
             resolveMutation.mutate({
-              ticketId: selectedTicket.id,
-              remarks: remarks || 'Grievance resolved via support mediation.',
-              etag: selectedTicket.etag,
+              ticketId: targetTicket.id,
+              remarks: trimmedRemarks,
+              etag: targetTicket.etag,
             });
           }
         }}
         onCancel={() => {
           setIsResolveOpen(false);
           setSelectedTicket(null);
+          setResolveError(null);
         }}
       />
 
       {/* Escalate to Operations Dialog */}
       <ConfirmDialog
         isOpen={isEscalateOpen}
-        title={`Escalate Ticket ${selectedTicket?.id} to Operations`}
+        title={`Escalate Ticket ${activeSelectedTicket?.id} to Operations`}
         description="Escalate this grievance to Operations Admins for replacement rematching, financial refund review, or disciplinary arbitration."
         confirmLabel="Escalate to Operations"
         isDestructive={true}
         requireRemarks={true}
         remarksPlaceholder="Enter mandatory escalation rationale for Operations Admin..."
+        isLoading={escalateMutation.isPending}
+        errorMessage={escalateError}
         onConfirm={(remarks) => {
-          if (selectedTicket) {
+          const trimmedRemarks = remarks?.trim();
+          const targetTicket = activeSelectedTicket || selectedTicket;
+          if (targetTicket && trimmedRemarks) {
+            setEscalateError(null);
             escalateMutation.mutate({
-              ticketId: selectedTicket.id,
-              rationale: remarks || 'Escalated to Operations for immediate arbitration.',
-              etag: selectedTicket.etag,
+              ticketId: targetTicket.id,
+              rationale: trimmedRemarks,
+              etag: targetTicket.etag,
             });
           }
         }}
         onCancel={() => {
           setIsEscalateOpen(false);
           setSelectedTicket(null);
+          setEscalateError(null);
         }}
       />
     </div>

@@ -93,6 +93,56 @@ describe('Support Executive Contract Alignment & Backend Verifications', () => {
       expect(ticket?.etag).toBe('"v4-hash-abc"');
     });
 
+    it('unwraps direct root ticket detail payloads and derives ETag from updatedAt epoch ms on ticket list items', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/support/tickets') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'TKT-LIST-1',
+                  status: 'OPEN',
+                  description: 'Issue',
+                  creatorKind: 'WORKER',
+                  creatorUserId: 'w-1',
+                  category: { id: 'c-1', name: 'Booking issue' },
+                  createdAt: '2026-11-11T05:55:24.063Z',
+                  updatedAt: '2026-11-11T05:55:24.063Z',
+                },
+              ],
+              meta: { total: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/support/tickets/TKT-LIST-1/messages') {
+          return { data: [] } as any;
+        }
+        return {
+          headers: {},
+          data: {
+            id: 'TKT-LIST-1',
+            status: 'OPEN',
+            description: 'Issue',
+            creatorKind: 'WORKER',
+            creatorUserId: 'w-1',
+            category: { id: 'c-1', name: 'Booking issue' },
+            createdAt: '2026-11-11T05:55:24.063Z',
+            updatedAt: '2026-11-11T05:55:24.063Z',
+            history: [],
+          },
+        } as any;
+      });
+
+      const repo = new RealSupportRepository();
+      const list = await repo.getTickets();
+      expect(list.items[0]?.etag).toBe('"1794376524063"');
+
+      const detail = await repo.getTicketById('TKT-LIST-1');
+      expect(detail).not.toBeNull();
+      expect(detail?.id).toBe('TKT-LIST-1');
+      expect(detail?.etag).toBe('"1794376524063"');
+    });
+
     it('sends If-Match header with current ticket ETag during mutations', async () => {
       const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValue({ data: { success: true } } as any);
       const repo = new RealSupportRepository();

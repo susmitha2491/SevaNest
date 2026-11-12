@@ -181,20 +181,31 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
     queryFn: async () => {
       if (!ticket) return [];
       const fetched = await supportRepository.getTicketMessages(ticket.id);
-      if (fetched && fetched.length > 0) return fetched;
-      if (ticket.messages && ticket.messages.length > 0) return ticket.messages;
+      const list: SupportMessage[] =
+        fetched && fetched.length > 0
+          ? [...fetched]
+          : ticket.messages && ticket.messages.length > 0
+          ? [...ticket.messages]
+          : [];
+
       if (ticket.caseNotes && ticket.caseNotes.length > 0) {
-        return ticket.caseNotes.map((cn, idx) => ({
-          id: cn.id || `legacy-note-${idx}`,
-          ticketId: ticket.id,
-          from: (cn.noteType === 'TELEPHONIC_LOG' ? 'CUSTOMER' : 'ADMIN') as 'CUSTOMER' | 'ADMIN',
-          body: cn.noteText,
-          createdAt: cn.timestamp,
-          authorUserId: cn.authorName,
-          internal: cn.noteType !== 'TELEPHONIC_LOG',
-        }));
+        const existingBodies = new Set(list.map((m) => m.body));
+        ticket.caseNotes.forEach((cn, idx) => {
+          if (!existingBodies.has(cn.noteText)) {
+            list.push({
+              id: cn.id || `case-note-${idx}`,
+              ticketId: ticket.id,
+              from: (cn.noteType === 'TELEPHONIC_LOG' ? 'CUSTOMER' : 'ADMIN') as 'CUSTOMER' | 'ADMIN',
+              body: cn.noteText,
+              createdAt: cn.timestamp,
+              authorUserId: cn.authorName,
+              internal: cn.noteType !== 'TELEPHONIC_LOG',
+            });
+            existingBodies.add(cn.noteText);
+          }
+        });
       }
-      return [];
+      return list;
     },
     enabled: isOpen && Boolean(ticket?.id),
     refetchInterval: isOpen ? 6000 : false,
@@ -223,6 +234,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       setMessageText('');
       setErrorMessage(null);
       queryClient.invalidateQueries({ queryKey: ['support', 'messages', ticket?.id] });
+      queryClient.invalidateQueries({ queryKey: ['support', 'ticket', ticket?.id] });
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setTimeout(() => scrollToBottom(true), 100);
@@ -245,6 +257,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['support', 'ticket', ticket?.id] });
       queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       setStaleWarning(null);
     },
@@ -258,6 +271,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           'This ticket was modified by another transaction (stale version). Data has been refreshed.'
         );
         queryClient.invalidateQueries({ queryKey: ['support', 'tickets'] });
+        queryClient.invalidateQueries({ queryKey: ['support', 'ticket', ticket?.id] });
       }
     },
   });
@@ -805,7 +819,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', fontWeight: 700 }}>
                       <Lock size={12} color="#b45309" />
-                      <span>Internal Staff Note</span>
+                      <span>{msg.body.startsWith('Case Resolved:') ? 'Resolution Record (Internal)' : 'Internal Staff Note'}</span>
                       <span
                         style={{
                           fontSize: '10px',
@@ -1159,25 +1173,6 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                     ? '🔒 Internal notes are audited and strictly hidden from customers and domestic workers.'
                     : '💬 Replies are dispatched directly to the complainant mobile application.'}
                 </span>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>Press Enter to send • Shift + Enter for new line</span>
-                  <button
-                    type="button"
-                    data-testid="bottom-close-ticket-modal-button"
-                    onClick={onClose}
-                    style={{
-                      border: 'none',
-                      background: 'none',
-                      color: 'var(--color-text-secondary, #64748b)',
-                      cursor: 'pointer',
-                      fontSize: '11px',
-                      textDecoration: 'underline',
-                      padding: 0,
-                    }}
-                  >
-                    Close
-                  </button>
-                </div>
               </div>
             </div>
           )}

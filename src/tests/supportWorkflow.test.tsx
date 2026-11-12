@@ -88,13 +88,23 @@ describe('Support Grievance & SLA Workflows', () => {
     expect(resolveButtons.length).toBeGreaterThan(0);
     await user.click(resolveButtons[0]);
 
-    expect(await screen.findByRole('heading', { name: /Resolve Ticket TKT-4921/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Resolve Grievance/i })).toBeInTheDocument();
+    expect(
+      screen.getByText('Describe how the complaint was addressed and what resolution was communicated to the customer or worker.')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Resolution Summary')).toBeInTheDocument();
+    expect(screen.getByTestId('required-indicator')).toHaveTextContent('*');
+    expect(screen.queryByText(/\(Mandatory\)/i)).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Enter resolution summary notes/i)).toBeInTheDocument();
 
     const confirmBtn = screen.getByRole('button', { name: /Confirm & Close Ticket/i });
     expect(confirmBtn).toBeDisabled();
 
     const remarksInput = screen.getByPlaceholderText(/Enter resolution summary notes/i);
+    // Whitespace only must not enable submission
+    await user.type(remarksInput, '    ');
+    expect(confirmBtn).toBeDisabled();
+
     await user.type(remarksInput, 'Mediation successful: Worker confirmed morning attendance.');
     expect(confirmBtn).toBeEnabled();
   });

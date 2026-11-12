@@ -339,6 +339,18 @@ export class MockSupportRepository implements ISupportRepository {
         noteText: `Case Resolved: ${resolutionSummary}`,
         noteType: 'RESOLUTION_SUMMARY',
       });
+      if (!this.messagesMap[ticketId]) {
+        this.messagesMap[ticketId] = [];
+      }
+      this.messagesMap[ticketId].push({
+        id: `msg-res-${Date.now()}`,
+        ticketId,
+        from: 'ADMIN',
+        body: `Case Resolved: ${resolutionSummary}`,
+        createdAt: new Date().toISOString(),
+        authorUserId: 'STAFF-SUPP-01',
+        internal: true,
+      });
     }
   }
 
@@ -537,7 +549,17 @@ function mapBackendSupportTicketToDomain(raw: Record<string, unknown>, etag?: st
     authorUserId: String(m.authorUserId || ''),
     internal: Boolean(m.internal),
   }));
-  const resolvedEtag = etag || (raw.etag as string | undefined) || (raw.version !== undefined ? `"${raw.version}"` : undefined);
+  let updatedAtEtag: string | undefined;
+  if (!etag && !raw.etag && raw.version === undefined && raw.updatedAt) {
+    const parsedUpdatedAt = Date.parse(String(raw.updatedAt));
+    if (!Number.isNaN(parsedUpdatedAt)) {
+      updatedAtEtag = `"${parsedUpdatedAt}"`;
+    }
+  }
+  const resolvedEtag =
+    etag ||
+    (raw.etag as string | undefined) ||
+    (raw.version !== undefined ? `"${raw.version}"` : updatedAtEtag);
 
     const compUserId = String(raw.creatorUserId || raw.complainantId || raw.customerUserId || raw.workerId || raw.creatorId || 'U-00');
     const compType: 'CUSTOMER' | 'WORKER' =
@@ -736,18 +758,30 @@ export class RealSupportRepository implements ISupportRepository {
 
   async getTicketById(id: string): Promise<SupportTicketDetail | null> {
     try {
-      const res = await httpClient.get<{ success: boolean; data: Record<string, unknown> }>(`/admin/support/tickets/${id}`);
-      const raw = res.data.data;
-      if (!raw) return null;
+      const res = await httpClient.get<Record<string, unknown>>(`/admin/support/tickets/${id}`);
+      const payload = res.data;
+      const raw =
+        payload &&
+        typeof payload === 'object' &&
+        'data' in payload &&
+        payload.data &&
+        typeof payload.data === 'object' &&
+        !Array.isArray(payload.data)
+          ? (payload.data as Record<string, unknown>)
+          : payload;
+      if (!raw || typeof raw !== 'object' || (!raw.id && !raw.ticketId)) return null;
 
-      const etagHeader = (res.headers['etag'] || res.headers.etag) as string | undefined;
+      const etagHeader = (res.headers?.['etag'] || res.headers?.etag) as string | undefined;
 
       // also fetch messages
       try {
-        const msgRes = await httpClient.get<{ success: boolean; data: { data?: Record<string, unknown>[] } | Record<string, unknown>[] }>(
-          `/admin/support/tickets/${id}/messages`
-        );
-        raw.messages = Array.isArray(msgRes.data.data) ? msgRes.data.data : (msgRes.data.data as { data?: Record<string, unknown>[] })?.data;
+        const msgRes = await httpClient.get<unknown>(`/admin/support/tickets/${id}/messages`);
+        const msgPayload = msgRes.data as Record<string, unknown> | Record<string, unknown>[] | undefined;
+        raw.messages = Array.isArray(msgPayload)
+          ? msgPayload
+          : Array.isArray(msgPayload?.data)
+            ? (msgPayload.data as Record<string, unknown>[])
+            : ((msgPayload?.data as { data?: Record<string, unknown>[] } | undefined)?.data);
       } catch {
         // preserve existing if messages fetch errors
       }
