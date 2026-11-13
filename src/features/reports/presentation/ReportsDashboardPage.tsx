@@ -23,7 +23,7 @@ import {
   buildStandardDateRange,
   getTodayISTDateString,
 } from '../data/reportRepository';
-import { ReportItem, ReportCategory, ReportPeriod, ReportInterval } from '../domain/types';
+import { ReportCategory, ReportInterval, ReportItem, ReportPeriod } from '../domain/types';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
@@ -55,7 +55,7 @@ function triggerDownload(
 
 function isNumericHeaderOrValue(col: string, val: string | number | undefined): boolean {
   if (typeof val === 'number') return true;
-  if (col.includes('%') || col.includes('₹') || /count|requests|bookings|rating|value/i.test(col)) {
+  if (col.includes('%') || col.includes('₹') || /count|requests|bookings|rating|value|amount/i.test(col)) {
     return true;
   }
   return false;
@@ -67,6 +67,23 @@ function formatTrendPeriodLabel(rawPeriod: string, interval?: ReportInterval): s
     return rawPeriod.slice(0, 7);
   }
   return rawPeriod;
+}
+
+function getCategoryBadgeColors(category: ReportItem['category']): { bg: string; text: string } {
+  switch (category) {
+    case 'Finance':
+      return { bg: '#ECFDF5', text: '#065F46' };
+    case 'Marketplace':
+      return { bg: '#EFF6FF', text: '#1E40AF' };
+    case 'Workforce':
+      return { bg: '#F5F3FF', text: '#5B21B6' };
+    case 'Operations':
+      return { bg: '#FFFBEB', text: '#92400E' };
+    case 'Support':
+      return { bg: '#FEF2F2', text: '#991B1B' };
+    default:
+      return { bg: '#F0FDF4', text: '#166534' };
+  }
 }
 
 interface ExportButtonProps {
@@ -124,11 +141,153 @@ const ExportButton: React.FC<ExportButtonProps> = ({
   );
 };
 
+interface ReportDataTableProps {
+  title: string;
+  subtitle: string;
+  columns: string[];
+  rows: Array<Record<string, string | number>>;
+  emptyText: string;
+  searchable?: boolean;
+  maxHeight?: string;
+}
+
+const ReportDataTable: React.FC<ReportDataTableProps> = ({
+  title,
+  subtitle,
+  columns,
+  rows,
+  emptyText,
+  searchable = false,
+  maxHeight,
+}) => {
+  const [tableFilter, setTableFilter] = useState('');
+
+  const filteredRows = useMemo(() => {
+    const q = tableFilter.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((row) =>
+      columns.some((col) => String(row[col] ?? '').toLowerCase().includes(q))
+    );
+  }, [rows, columns, tableFilter]);
+
+  return (
+    <div
+      style={{
+        backgroundColor: 'var(--color-surface)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius-lg)',
+        boxShadow: 'var(--shadow-sm)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          padding: 'var(--space-2) var(--space-4)',
+          borderBottom: '1px solid var(--color-border)',
+          backgroundColor: 'var(--color-bg-subtle)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-navy)' }}>
+            {title} ({filteredRows.length}{tableFilter.trim() ? ` / ${rows.length}` : ''} Records)
+          </span>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
+            {subtitle}
+          </span>
+        </div>
+        {searchable && rows.length > 0 && (
+          <SearchInput
+            value={tableFilter}
+            onChange={(val) => setTableFilter(val)}
+            placeholder="Filter records..."
+            ariaLabel={`Filter ${title}`}
+            containerStyle={{ width: 'min(100%, 240px)' }}
+          />
+        )}
+      </div>
+
+      <div style={{ overflowX: 'auto', maxHeight, overflowY: maxHeight ? 'auto' : undefined }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+          <thead>
+            <tr style={{ backgroundColor: 'var(--color-bg-app)', borderBottom: '1px solid var(--color-border)' }}>
+              {columns.map((col, idx) => {
+                const numeric = isNumericHeaderOrValue(col, filteredRows[0]?.[col]);
+                return (
+                  <th
+                    key={idx}
+                    style={{
+                      position: maxHeight ? 'sticky' : undefined,
+                      top: maxHeight ? 0 : undefined,
+                      backgroundColor: maxHeight ? 'var(--color-bg-app)' : undefined,
+                      padding: '9px 14px',
+                      fontWeight: 700,
+                      color: 'var(--color-text-secondary)',
+                      textTransform: 'uppercase',
+                      fontSize: '11px',
+                      textAlign: numeric ? 'right' : 'left',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {col}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.length === 0 ? (
+              <tr>
+                <td colSpan={columns.length} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+                  {emptyText}
+                </td>
+              </tr>
+            ) : (
+              filteredRows.map((row, rIdx) => (
+                <tr
+                  key={rIdx}
+                  style={{
+                    borderBottom: '1px solid var(--color-border-subtle)',
+                    backgroundColor: rIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
+                  }}
+                >
+                  {columns.map((col, cIdx) => {
+                    const numeric = isNumericHeaderOrValue(col, row[col]);
+                    return (
+                      <td
+                        key={cIdx}
+                        style={{
+                          padding: '9px 14px',
+                          color: 'var(--color-text-primary)',
+                          fontWeight: cIdx === 0 ? 600 : 400,
+                          textAlign: numeric ? 'right' : 'left',
+                          fontVariantNumeric: numeric ? 'tabular-nums' : undefined,
+                          whiteSpace: cIdx === 0 ? 'nowrap' : undefined,
+                        }}
+                      >
+                        {row[col] !== undefined ? String(row[col]) : '—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+};
+
 export const ReportsDashboardPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const todayIST = useMemo(() => getTodayISTDateString(), []);
 
-  // Main catalog state
+  // Catalogue state
   const [selectedCategory, setSelectedCategory] = useState<ReportCategory>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 300);
@@ -217,6 +376,7 @@ export const ReportsDashboardPage: React.FC = () => {
         interval: selectedInterval,
         minRatings: minRatings > 0 ? minRatings : undefined,
         subTab: selectedSubTab,
+        includeDetailedRecords: true,
       });
     },
     enabled: Boolean(selectedReportId && canViewReports && !dateRangeValidationError),
@@ -233,6 +393,16 @@ export const ReportsDashboardPage: React.FC = () => {
     'Retention',
   ];
 
+  const resetDetailFilters = () => {
+    setSelectedReportId(null);
+    setSelectedPeriod('YEAR_TO_DATE');
+    setSelectedInterval('month');
+    setCustomFrom(`${todayIST.slice(0, 4)}-01-01`);
+    setCustomTo(todayIST);
+    setMinRatings(0);
+    setSelectedSubTab('top-rated-workers');
+  };
+
   const handleExport = async (reportId: string, currentReport?: ReportItem | null) => {
     if (!canExport || isExporting || (selectedReportId === reportId && dateRangeValidationError)) return;
     try {
@@ -245,9 +415,11 @@ export const ReportsDashboardPage: React.FC = () => {
         interval: selectedInterval,
         minRatings: minRatings > 0 ? minRatings : undefined,
         subTab: selectedReportId ? selectedSubTab : undefined,
+        includeDetailedRecords: true,
       };
 
       const result = await reportRepository.generateExport(reportId, 'XLSX', criteria);
+
       const payload = result.xlsxBuffer || result.xlsxContent;
       if (payload) {
         triggerDownload(
@@ -279,7 +451,6 @@ export const ReportsDashboardPage: React.FC = () => {
   }
 
   const renderVisualSummary = (report: ReportItem) => {
-    // 1. Worker Utilization snapshot gauge
     if (report.id === 'worker-utilization') {
       const verified = Number(report.metricsSummary.find((m) => m.label.includes('Verified'))?.value ?? 0);
       const active = Number(report.metricsSummary.find((m) => m.label.includes('Active'))?.value ?? 0);
@@ -295,7 +466,7 @@ export const ReportsDashboardPage: React.FC = () => {
       return (
         <div
           style={{
-            padding: 'var(--space-4)',
+            padding: 'var(--space-3) var(--space-4)',
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
@@ -311,26 +482,19 @@ export const ReportsDashboardPage: React.FC = () => {
               {pctDisplay} Active Placement Rate
             </span>
           </div>
-          <div style={{ height: '12px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden', display: 'flex' }}>
-            <div style={{ width: `${clampedPct}%`, backgroundColor: 'var(--color-success)', transition: 'width 0.4s ease' }} title={`Active Workers: ${active}`} />
-            <div style={{ width: `${Math.max(0, 100 - clampedPct)}%`, backgroundColor: 'var(--color-brand-200)', transition: 'width 0.4s ease' }} title={`Standby Workers: ${Math.max(0, verified - active)}`} />
+          <div style={{ height: '10px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden', display: 'flex' }}>
+            <div style={{ width: `${clampedPct}%`, backgroundColor: 'var(--color-success)' }} title={`Active Workers: ${active}`} />
+            <div style={{ width: `${Math.max(0, 100 - clampedPct)}%`, backgroundColor: 'var(--color-brand-200)' }} title={`Standby Workers: ${Math.max(0, verified - active)}`} />
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginTop: 'var(--space-2)', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--color-success)' }} />
-              Active Engagements: <strong>{active}</strong>
-            </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--color-brand-200)' }} />
-              Verified Standby Capacity: <strong>{Math.max(0, verified - active)}</strong>
-            </span>
+            <span>Active Engagements: <strong>{active}</strong></span>
+            <span>Verified Standby Capacity: <strong>{Math.max(0, verified - active)}</strong></span>
             <span>Total Verified Pool: <strong>{verified}</strong></span>
           </div>
         </div>
       );
     }
 
-    // 2. Category or Area Demand Distribution (Horizontal Bars)
     if (report.id === 'demand-by-category' || report.id === 'demand-by-area') {
       const isCat = report.id === 'demand-by-category';
       const rows = report.previewRows.slice(0, 8);
@@ -339,23 +503,23 @@ export const ReportsDashboardPage: React.FC = () => {
       return (
         <div
           style={{
-            padding: 'var(--space-4)',
+            padding: 'var(--space-3) var(--space-4)',
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)', flexWrap: 'wrap', gap: '6px' }}>
             <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <Layers size={16} color="var(--color-brand-600)" />
-              {isCat ? 'Category Demand Share' : 'Top Geographic Demand Clusters'}
+              {isCat ? 'Category Demand Distribution' : 'Top Geographic Demand Clusters'}
             </span>
             <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
-              Demand Distribution
+              Top {rows.length} entries
             </span>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {rows.map((row, idx) => {
               const label = String(row[isCat ? 'Service Category' : 'Geographic Service Area'] || `Item ${idx + 1}`);
               const city = !isCat && row.City && row.City !== '—' ? ` (${row.City})` : '';
@@ -364,10 +528,10 @@ export const ReportsDashboardPage: React.FC = () => {
               const barPct = maxVal > 0 ? Math.round((val / maxVal) * 100) : 0;
 
               return (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px' }}>
+                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px' }}>
                   <div
                     style={{
-                      width: 'min(38%, 200px)',
+                      width: 'min(36%, 190px)',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -379,7 +543,7 @@ export const ReportsDashboardPage: React.FC = () => {
                     {label}
                     {city && <span style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>{city}</span>}
                   </div>
-                  <div style={{ flex: 1, height: '10px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+                  <div style={{ flex: 1, height: '9px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
                     <div
                       style={{
                         width: `${barPct}%`,
@@ -389,7 +553,7 @@ export const ReportsDashboardPage: React.FC = () => {
                       }}
                     />
                   </div>
-                  <div style={{ width: '100px', textAlign: 'right', fontWeight: 700, color: 'var(--color-text-secondary)', fontSize: '11px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+                  <div style={{ width: '104px', textAlign: 'right', fontWeight: 700, color: 'var(--color-text-secondary)', fontSize: '11px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                     {val} reqs ({share})
                   </div>
                 </div>
@@ -400,7 +564,6 @@ export const ReportsDashboardPage: React.FC = () => {
       );
     }
 
-    // 3. Conversion / Rate Ratio Visuals (pure backend ratio without invented SLA targets)
     if (report.id === 'cancellation-rate' || report.id === 'replacement-rate' || report.id === 'interview-conversion') {
       const rateStr = String(
         report.metricsSummary.find((m) => m.label.includes('Rate') || m.label.includes('Ratio'))?.value || '0.00%'
@@ -410,38 +573,31 @@ export const ReportsDashboardPage: React.FC = () => {
       return (
         <div
           style={{
-            padding: 'var(--space-4)',
+            padding: 'var(--space-3) var(--space-4)',
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
             <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <TrendingUp size={16} color="var(--color-brand-600)" />
               Cohort Ratio Summary
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-            <div style={{ fontSize: '22px', fontWeight: 800, color: 'var(--color-navy)', fontVariantNumeric: 'tabular-nums' }}>
+            <div style={{ fontSize: '20px', fontWeight: 800, color: 'var(--color-navy)', fontVariantNumeric: 'tabular-nums' }}>
               {rateStr}
             </div>
-            <div style={{ flex: 1, height: '10px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
-              <div
-                style={{
-                  width: `${rateNum}%`,
-                  height: '100%',
-                  backgroundColor: 'var(--color-brand-600)',
-                }}
-              />
+            <div style={{ flex: 1, height: '9px', backgroundColor: 'var(--color-bg-subtle)', borderRadius: 'var(--radius-full)', overflow: 'hidden' }}>
+              <div style={{ width: `${rateNum}%`, height: '100%', backgroundColor: 'var(--color-brand-600)' }} />
             </div>
           </div>
         </div>
       );
     }
 
-    // 4. Periodic Trend Visual (explicit backend trendSeries or periodic previewRows)
     const explicitTrend = report.trendSeries && report.trendSeries.length > 0 ? report.trendSeries : null;
     const hasPeriodicRows =
       report.previewRows.length > 0 &&
@@ -479,14 +635,14 @@ export const ReportsDashboardPage: React.FC = () => {
       return (
         <div
           style={{
-            padding: 'var(--space-4)',
+            padding: 'var(--space-3) var(--space-4)',
             backgroundColor: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-lg)',
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-2)', flexWrap: 'wrap', gap: '6px' }}>
             <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <BarChart3 size={16} color="var(--color-brand-600)" />
               Periodic Trend ({chartMetricLabel})
@@ -495,10 +651,9 @@ export const ReportsDashboardPage: React.FC = () => {
               {seriesPoints.length} reporting {seriesPoints.length === 1 ? 'period' : 'periods'}
             </span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', height: '110px', paddingTop: '14px', overflowX: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '12px', height: '104px', paddingTop: '12px', overflowX: 'auto' }}>
             {seriesPoints.map((pt, i) => {
-              const barHeight = pt.value <= 0 ? 0 : Math.max(6, Math.round((pt.value / maxVal) * 76));
-
+              const barHeight = pt.value <= 0 ? 0 : Math.max(6, Math.round((pt.value / maxVal) * 72));
               return (
                 <div key={i} style={{ flex: '1 1 56px', minWidth: '52px', display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end' }}>
                   <span style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
@@ -507,15 +662,14 @@ export const ReportsDashboardPage: React.FC = () => {
                   <div
                     style={{
                       width: '100%',
-                      maxWidth: '36px',
+                      maxWidth: '34px',
                       height: `${barHeight}px`,
                       backgroundColor: 'var(--color-brand-600)',
                       borderRadius: '3px 3px 0 0',
-                      transition: 'height 0.3s ease',
                     }}
                     title={`${pt.label}: ${pt.formatted}`}
                   />
-                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '6px', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '5px', whiteSpace: 'nowrap' }}>
                     {pt.label}
                   </span>
                 </div>
@@ -526,7 +680,6 @@ export const ReportsDashboardPage: React.FC = () => {
       );
     }
 
-    // 5. Top-Rated Workers badge display
     if (report.id === 'top-rated-workers-repeat-customers' && report.activeSubTab === 'top-rated-workers') {
       return (
         <div
@@ -544,8 +697,8 @@ export const ReportsDashboardPage: React.FC = () => {
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <div style={{ width: 38, height: 38, borderRadius: 'var(--radius-md)', backgroundColor: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Award size={20} />
+            <div style={{ width: 34, height: 34, borderRadius: 'var(--radius-md)', backgroundColor: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Award size={18} />
             </div>
             <div>
               <div style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)' }}>
@@ -567,7 +720,7 @@ export const ReportsDashboardPage: React.FC = () => {
   };
 
   return (
-    <div style={{ padding: 'var(--space-4) var(--space-5)', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+    <div style={{ padding: 'var(--space-4) var(--space-5)', maxWidth: '1440px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
       {/* Action Notification Banner */}
       {actionFeedback && (
         <div
@@ -591,26 +744,18 @@ export const ReportsDashboardPage: React.FC = () => {
 
       {/* VIEW MODE: SINGLE REPORT WORKSPACE */}
       {selectedReportId ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {/* Top Return Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
             <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedReportId(null);
-                  setSelectedPeriod('YEAR_TO_DATE');
-                  setSelectedInterval('month');
-                  setCustomFrom(`${todayIST.slice(0, 4)}-01-01`);
-                  setCustomTo(todayIST);
-                  setMinRatings(0);
-                  setSelectedSubTab('top-rated-workers');
-                }}
+                onClick={resetDetailFilters}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  padding: '7px 12px',
+                  padding: '6px 12px',
                   borderRadius: 'var(--radius-md)',
                   border: '1px solid var(--color-border)',
                   backgroundColor: 'var(--color-surface)',
@@ -621,7 +766,7 @@ export const ReportsDashboardPage: React.FC = () => {
                   boxShadow: 'var(--shadow-sm)',
                 }}
               >
-                <ArrowLeft size={15} /> Back to Reports
+                <ArrowLeft size={14} /> Back to Reports
               </button>
               <span
                 style={{
@@ -654,7 +799,7 @@ export const ReportsDashboardPage: React.FC = () => {
               </span>
             </div>
 
-            {/* Action Bar (Refresh + Single Export Button) */}
+            {/* Action Bar (Refresh + Single Export Menu Control) */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <button
                 type="button"
@@ -700,7 +845,7 @@ export const ReportsDashboardPage: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedSubTab(tab.id as 'top-rated-workers' | 'repeat-customers')}
                     style={{
-                      padding: '7px 14px',
+                      padding: '6px 14px',
                       borderRadius: 'var(--radius-md)',
                       border: isActive ? 'none' : '1px solid var(--color-border)',
                       backgroundColor: isActive ? 'var(--color-brand-600)' : 'var(--color-surface)',
@@ -721,7 +866,7 @@ export const ReportsDashboardPage: React.FC = () => {
             </div>
           )}
 
-          {/* PRD Specification Banner */}
+          {/* PRD Specification & Backend Scope Banner */}
           <div
             style={{
               padding: 'var(--space-3) var(--space-4)',
@@ -751,7 +896,7 @@ export const ReportsDashboardPage: React.FC = () => {
           {/* Interactive Filter Toolbar */}
           <div
             style={{
-              padding: 'var(--space-3) var(--space-4)',
+              padding: 'var(--space-2) var(--space-4)',
               backgroundColor: 'var(--color-surface)',
               border: '1px solid var(--color-border)',
               borderRadius: 'var(--radius-lg)',
@@ -900,7 +1045,7 @@ export const ReportsDashboardPage: React.FC = () => {
           )}
 
           {isDetailLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '240px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '220px' }}>
               <LoadingSpinner />
             </div>
           ) : detailError ? (
@@ -952,90 +1097,28 @@ export const ReportsDashboardPage: React.FC = () => {
               {/* Visual Summary */}
               {renderVisualSummary(activeReport)}
 
-              {/* Dataset Table */}
-              <div
-                style={{
-                  backgroundColor: 'var(--color-surface)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-lg)',
-                  boxShadow: 'var(--shadow-sm)',
-                  overflow: 'hidden',
-                }}
-              >
-                <div style={{ padding: 'var(--space-2) var(--space-4)', borderBottom: '1px solid var(--color-border)', backgroundColor: 'var(--color-bg-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '6px' }}>
-                  <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-navy)' }}>
-                    Tabular Dataset ({activeReport.previewRows.length} Records)
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>
-                    Authoritative Backend Data
-                  </span>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-                    <thead>
-                      <tr style={{ backgroundColor: 'var(--color-bg-app)', borderBottom: '1px solid var(--color-border)' }}>
-                        {activeReport.previewColumns.map((col, idx) => {
-                          const numeric = isNumericHeaderOrValue(col, activeReport.previewRows[0]?.[col]);
-                          return (
-                            <th
-                              key={idx}
-                              style={{
-                                padding: '9px 14px',
-                                fontWeight: 700,
-                                color: 'var(--color-text-secondary)',
-                                textTransform: 'uppercase',
-                                fontSize: '11px',
-                                textAlign: numeric ? 'right' : 'left',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {col}
-                            </th>
-                          );
-                        })}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {activeReport.previewRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={activeReport.previewColumns.length} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
-                            No telemetry records recorded for the selected period / criteria.
-                          </td>
-                        </tr>
-                      ) : (
-                        activeReport.previewRows.map((row, rIdx) => (
-                          <tr
-                            key={rIdx}
-                            style={{
-                              borderBottom: '1px solid var(--color-border-subtle)',
-                              backgroundColor: rIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
-                            }}
-                          >
-                            {activeReport.previewColumns.map((col, cIdx) => {
-                              const numeric = isNumericHeaderOrValue(col, row[col]);
-                              return (
-                                <td
-                                  key={cIdx}
-                                  style={{
-                                    padding: '9px 14px',
-                                    color: 'var(--color-text-primary)',
-                                    fontWeight: cIdx === 0 ? 600 : 400,
-                                    textAlign: numeric ? 'right' : 'left',
-                                    fontVariantNumeric: numeric ? 'tabular-nums' : undefined,
-                                    whiteSpace: cIdx === 0 ? 'nowrap' : undefined,
-                                  }}
-                                >
-                                  {row[col] !== undefined ? String(row[col]) : '—'}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              {/* Primary Telemetry Dataset Table */}
+              <ReportDataTable
+                title="Tabular Dataset"
+                subtitle="Authoritative Backend Report Telemetry"
+                columns={activeReport.previewColumns}
+                rows={activeReport.previewRows}
+                emptyText="No telemetry records recorded for the selected period / criteria."
+                searchable={activeReport.previewRows.length > 8}
+              />
+
+              {/* Individual Backend Records Table (when available from OpenAPI detail endpoints) */}
+              {activeReport.detailDataset && (
+                <ReportDataTable
+                  title={activeReport.detailDataset.title}
+                  subtitle="Detailed Records"
+                  columns={activeReport.detailDataset.columns}
+                  rows={activeReport.detailDataset.rows}
+                  emptyText="No individual backend records found in this reporting window."
+                  searchable
+                  maxHeight="420px"
+                />
+              )}
             </>
           ) : null}
         </div>
@@ -1043,7 +1126,7 @@ export const ReportsDashboardPage: React.FC = () => {
         /* CATALOGUE LANDING WORKSPACE (12 PRD REPORTS) */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           {/* Compact Page Header */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
             <div>
               <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
                 <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0 }}>
@@ -1066,6 +1149,11 @@ export const ReportsDashboardPage: React.FC = () => {
                 Operational & Business Reports • Marketplace intelligence, workforce telemetry, and financial realizations defined in SevaNest PRD Section 14.
               </p>
             </div>
+            {reports && (
+              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                Showing {reports.length} of {catalogCounts?.ALL ?? 12} reports
+              </span>
+            )}
           </div>
 
           {/* Compact Filter Toolbar: Category Pills + Search Bar */}
@@ -1106,7 +1194,6 @@ export const ReportsDashboardPage: React.FC = () => {
                       display: 'inline-flex',
                       alignItems: 'center',
                       gap: '5px',
-                      transition: 'all 0.15s ease',
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -1142,7 +1229,7 @@ export const ReportsDashboardPage: React.FC = () => {
 
           {/* Reports Catalog Table */}
           {isCatalogLoading ? (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '240px' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '220px' }}>
               <LoadingSpinner />
             </div>
           ) : catalogError ? (
@@ -1180,125 +1267,106 @@ export const ReportsDashboardPage: React.FC = () => {
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', minWidth: '240px' }}>Report Name & PRD Definition</th>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '118px', whiteSpace: 'nowrap' }}>Category</th>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '190px' }}>Cadence / Scope</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '196px', textAlign: 'right', whiteSpace: 'nowrap' }}>Actions</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '204px', textAlign: 'right', whiteSpace: 'nowrap' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {reports && reports.length > 0 ? (
-                      reports.map((report, idx) => (
-                        <tr
-                          key={report.id}
-                          style={{
-                            borderBottom: '1px solid var(--color-border-subtle)',
-                            backgroundColor: idx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
-                          }}
-                        >
-                          <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                            <span
-                              style={{
-                                fontFamily: 'monospace',
-                                fontWeight: 700,
-                                fontSize: '11px',
-                                color: 'var(--color-brand-700)',
-                                backgroundColor: 'var(--color-brand-50)',
-                                padding: '3px 7px',
-                                borderRadius: 'var(--radius-sm)',
-                                border: '1px solid var(--color-brand-200)',
-                                display: 'inline-block',
-                              }}
-                            >
-                              {report.requirement}
-                            </span>
-                          </td>
-
-                          <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
-                            <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', marginBottom: '2px' }}>
-                              {report.name}
-                            </div>
-                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.38, maxWidth: '640px' }}>
-                              {report.description}
-                            </div>
-                          </td>
-
-                          <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
-                            <span
-                              style={{
-                                fontSize: '11px',
-                                fontWeight: 600,
-                                padding: '3px 9px',
-                                borderRadius: 'var(--radius-full)',
-                                backgroundColor:
-                                  report.category === 'Finance'
-                                    ? '#ECFDF5'
-                                    : report.category === 'Marketplace'
-                                    ? '#EFF6FF'
-                                    : report.category === 'Workforce'
-                                    ? '#F5F3FF'
-                                    : report.category === 'Operations'
-                                    ? '#FFFBEB'
-                                    : report.category === 'Support'
-                                    ? '#FEF2F2'
-                                    : '#F0FDF4',
-                                color:
-                                  report.category === 'Finance'
-                                    ? '#065F46'
-                                    : report.category === 'Marketplace'
-                                    ? '#1E40AF'
-                                    : report.category === 'Workforce'
-                                    ? '#5B21B6'
-                                    : report.category === 'Operations'
-                                    ? '#92400E'
-                                    : report.category === 'Support'
-                                    ? '#991B1B'
-                                    : '#166534',
-                                border: '1px solid rgba(0, 0, 0, 0.05)',
-                                display: 'inline-block',
-                              }}
-                            >
-                              {report.category}
-                            </span>
-                          </td>
-
-                          <td style={{ padding: '10px 14px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', fontSize: '11px', fontWeight: 500 }}>
-                            {report.cadence}
-                          </td>
-
-                          <td style={{ padding: '10px 14px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedReportId(report.id)}
-                                aria-label={`View Report: ${report.name}`}
+                      reports.map((report, idx) => {
+                        const catColor = getCategoryBadgeColors(report.category);
+                        return (
+                          <tr
+                            key={report.id}
+                            style={{
+                              borderBottom: '1px solid var(--color-border-subtle)',
+                              backgroundColor: idx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
+                            }}
+                          >
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                              <span
                                 style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: '5px',
-                                  padding: '6px 10px',
-                                  borderRadius: 'var(--radius-md)',
-                                  backgroundColor: 'var(--color-brand-600)',
-                                  color: '#ffffff',
-                                  border: 'none',
-                                  fontSize: '11px',
+                                  fontFamily: 'monospace',
                                   fontWeight: 700,
-                                  cursor: 'pointer',
-                                  boxShadow: 'var(--shadow-sm)',
-                                  whiteSpace: 'nowrap',
+                                  fontSize: '11px',
+                                  color: 'var(--color-brand-700)',
+                                  backgroundColor: 'var(--color-brand-50)',
+                                  padding: '3px 7px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--color-brand-200)',
+                                  display: 'inline-block',
                                 }}
                               >
-                                <Eye size={13} /> View Report
-                              </button>
-                              {canExport && (
-                                <ExportButton
-                                  ariaLabel={`Export: ${report.name}`}
-                                  disabled={isExporting}
-                                  isExportingThis={isExporting && exportingReportId === report.id}
-                                  onExport={() => handleExport(report.id, report)}
-                                />
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                                {report.requirement}
+                              </span>
+                            </td>
+
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
+                              <div style={{ fontWeight: 700, color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)', marginBottom: '2px' }}>
+                                {report.name}
+                              </div>
+                              <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', lineHeight: 1.38, maxWidth: '640px' }}>
+                                {report.description}
+                              </div>
+                            </td>
+
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                              <span
+                                style={{
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  padding: '3px 9px',
+                                  borderRadius: 'var(--radius-full)',
+                                  backgroundColor: catColor.bg,
+                                  color: catColor.text,
+                                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                                  display: 'inline-block',
+                                }}
+                              >
+                                {report.category}
+                              </span>
+                            </td>
+
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', fontSize: '11px', fontWeight: 500 }}>
+                              {report.cadence}
+                            </td>
+
+                            <td style={{ padding: '10px 14px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'nowrap' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedReportId(report.id)}
+                                  aria-label={`View Report: ${report.name}`}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '5px',
+                                    padding: '6px 10px',
+                                    borderRadius: 'var(--radius-md)',
+                                    backgroundColor: 'var(--color-brand-600)',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    boxShadow: 'var(--shadow-sm)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  <Eye size={13} /> View Report
+                                </button>
+                                {canExport && (
+                                  <ExportButton
+                                    ariaLabel={`Export: ${report.name}`}
+                                    disabled={isExporting}
+                                    isExportingThis={isExporting && exportingReportId === report.id}
+                                    onExport={() => handleExport(report.id, report)}
+                                  />
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     ) : (
                       <tr>
                         <td colSpan={5} style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-muted)' }}>

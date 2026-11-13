@@ -15,6 +15,7 @@ import {
   getReportCanonicalFilename,
 } from '../features/reports/utils/reportExportGenerator';
 import { createReportRepository, RealReportRepository } from '../features/reports/data/reportRepository';
+import { clearReportEnrichmentCache } from '../features/reports/data/reportDetailEnricher';
 import { ReportItem } from '../features/reports/domain/types';
 import { httpClient } from '../core/api/httpClient';
 import { vi } from 'vitest';
@@ -35,6 +36,7 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe('Operational Reports & Analytics Workflows', () => {
   beforeEach(() => {
+    clearReportEnrichmentCache();
     useAuthStore.setState({
       user: {
         id: 'STAFF-SUPER-01',
@@ -74,7 +76,7 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.queryByRole('button', { name: /^Export Excel:/i })).not.toBeInTheDocument();
   });
 
-  it('renders single direct Export button without format menu when user has only canonical backend report.view permission', async () => {
+  it('renders single direct Export button (Excel .xlsx) when user has canonical backend report.view permission', async () => {
     const user = userEvent.setup();
     useAuthStore.setState({
       user: {
@@ -95,7 +97,6 @@ describe('Operational Reports & Analytics Workflows', () => {
 
     await user.click(exportButtons[0]);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
-    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
     expect(await screen.findByText(/Excel \(\.xlsx\) exported successfully/i)).toBeInTheDocument();
   });
 
@@ -115,7 +116,7 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.getByText('Payment Collections & Fee Realization')).toBeInTheDocument();
   });
 
-  it('opens report view displaying KPI indicators, dataset table, triggers direct Excel export, and navigates back', async () => {
+  it('opens report view displaying KPI indicators, dataset table, triggers direct Excel export via single Export button, and navigates back', async () => {
     const user = userEvent.setup();
     renderWithProviders(<ReportsDashboardPage />);
 
@@ -130,10 +131,9 @@ describe('Operational Reports & Analytics Workflows', () => {
     expect(screen.getByText(/Tabular Dataset/i)).toBeInTheDocument();
     expect(screen.getByText('2026-10-01')).toBeInTheDocument();
 
-    // Trigger direct Excel (.xlsx) Export via single Export button (no CSV/Excel selector menu)
+    // Trigger direct Excel (.xlsx) Export via single Export button
     const exportBtn = screen.getByRole('button', { name: /^Export$/i });
     await user.click(exportBtn);
-
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(await screen.findByText(/Excel \(\.xlsx\) exported successfully/i)).toBeInTheDocument();
 
@@ -392,7 +392,7 @@ describe('Operational Reports & Analytics Workflows', () => {
       getSpy.mockRestore();
     });
 
-    it('includes backend scope notes for FR-RPT-001 without fabricating missing Jan-Sep months', async () => {
+    it('omits technical developer notes from FR-RPT-001 Excel sheets and preserves real months without fabricating Jan-Sep', async () => {
       const repo = new RealReportRepository();
       const getSpy = vi.spyOn(httpClient, 'get').mockResolvedValueOnce({
         data: {
@@ -416,9 +416,13 @@ describe('Operational Reports & Analytics Workflows', () => {
       expect(exp.rowCount).toBe(2);
       const wb = XLSX.read(exp.xlsxBuffer, { type: 'buffer' });
       const sheetCsv = XLSX.utils.sheet_to_csv(wb.Sheets['FR-RPT-001']);
-      expect(sheetCsv).toContain('Counts only what is recorded; nothing is estimated or back-filled.');
+      expect(sheetCsv).not.toContain('Backend Data Scope Notes');
+      expect(sheetCsv).not.toContain('Record Enrichment & Scope');
+      expect(sheetCsv).not.toContain('/admin/');
+      expect(sheetCsv).toContain('Customer accounts created per day/week/month.');
       expect(sheetCsv).toContain('2026-10-01');
       expect(sheetCsv).toContain('2026-11-01');
+      expect(sheetCsv).not.toContain('2026-01-01,0');
       getSpy.mockRestore();
     });
 
@@ -474,6 +478,244 @@ describe('Operational Reports & Analytics Workflows', () => {
       expect(combinedCsv.rowCount).toBe(2);
       expect(combinedCsv.csvContent).toContain('Top-Rated Workers,Shabana Begum');
       expect(combinedCsv.csvContent).toContain('Repeat Customers,Rohan Rao');
+    });
+
+    it('generates valid Excel (.xlsx) and CSV exports across all 12 PRD report definitions', async () => {
+      const repo = createReportRepository(true);
+      const catalog = await repo.getReports();
+      expect(catalog).toHaveLength(12);
+
+      for (const item of catalog) {
+        const xlsx = await repo.generateExport(item.id, 'XLSX');
+        expect(xlsx.fileName.endsWith('.xlsx')).toBe(true);
+        expect(xlsx.xlsxBuffer).toBeInstanceOf(Uint8Array);
+        const wb = XLSX.read(xlsx.xlsxBuffer, { type: 'buffer' });
+        expect(wb.SheetNames.length).toBeGreaterThanOrEqual(1);
+
+        const csv = await repo.generateExport(item.id, 'CSV');
+        expect(csv.fileName.endsWith('.csv')).toBe(true);
+        expect(csv.csvContent?.startsWith('\uFEFF')).toBe(true);
+      }
+    });
+
+    it('enriches new-customers via detail endpoint for unmasked Excel text phones, addresses, and clean sheets', async () => {
+      const repo = new RealReportRepository();
+      const getSpy = vi.spyOn(httpClient, 'get').mockImplementation(async (url, config) => {
+        if (url === '/admin/reports/new-customers') {
+          return {
+            data: {
+              report: 'new-customers',
+              from: '2026-01-01',
+              to: '2026-11-12',
+              data: {
+                interval: 'month',
+                total: 2,
+                series: [{ period: '2026-11-01', count: 2 }],
+              },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/customers') {
+          const page = Number((config as { params?: { page?: number } })?.params?.page || 1);
+          return {
+            data: {
+              data: page === 1
+                ? [{ id: 'CUST-1', name: 'Priya Singh', mobile: '+91******7410', accountStatus: 'ACTIVE', verificationStatus: 'VERIFIED', createdAt: '2026-11-10T10:00:00Z' }]
+                : [{ id: 'CUST-2', name: 'Rohan Rao', mobile: '+91******5555', accountStatus: 'ACTIVE', verificationStatus: 'PENDING', createdAt: '2026-11-11T10:00:00Z' }],
+              meta: { page, limit: 1, total: 2 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/customers/CUST-1') {
+          return {
+            data: {
+              data: {
+                id: 'CUST-1',
+                name: 'Priya Singh',
+                mobile: '+919638527410',
+                addresses: [{ area: 'Banjara Hills', city: 'Hyderabad', isDefault: true }],
+              },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/customers/CUST-2') {
+          return {
+            data: {
+              data: {
+                id: 'CUST-2',
+                name: 'Rohan Rao',
+                mobile: '+919848055555',
+                addresses: [],
+              },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        return { data: [] } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+      });
+
+      const detailed = await repo.getReportById('new-customers', {
+        from: '2026-01-01',
+        to: '2026-11-12',
+        interval: 'month',
+        includeDetailedRecords: true,
+      });
+
+      expect(detailed?.detailDataset?.title).toBe('Customer Registrations');
+      expect(detailed?.detailDataset?.rows).toHaveLength(2);
+      expect(detailed?.detailDataset?.rows[0]['Mobile Number']).toBe('+91 96385 27410');
+      expect(detailed?.detailDataset?.rows[0].Locality).toBe('Banjara Hills, Hyderabad');
+      expect(detailed?.detailDataset?.rows[1]['Mobile Number']).toBe('+91 98480 55555');
+      expect(detailed?.detailDataset?.rows[1].Locality).toBe('No Address Added');
+
+      const xlsx = await repo.generateExport('new-customers', 'XLSX', {
+        from: '2026-01-01',
+        to: '2026-11-12',
+        interval: 'month',
+        includeDetailedRecords: true,
+      });
+      const verifyWb = new Workbook();
+      const buf = xlsx.xlsxBuffer!;
+      const arrayBuf = buf instanceof Uint8Array
+        ? (buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer)
+        : buf;
+      await verifyWb.xlsx.load(arrayBuf);
+      const detailWs = verifyWb.getWorksheet('Customer Registrations');
+      expect(detailWs).toBeDefined();
+
+      // Verify phone column is stored strictly as Excel Text ('@') with unmasked '+91 96385 27410' and width >= 18
+      let foundTextPhone = false;
+      detailWs?.eachRow((row) => {
+        row.eachCell((cell) => {
+          if (cell.value === '+91 96385 27410') {
+            expect(typeof cell.value).toBe('string');
+            expect(cell.numFmt).toBe('@');
+            foundTextPhone = true;
+          }
+        });
+      });
+      expect(foundTextPhone).toBe(true);
+      expect(detailWs?.getColumn(3).width ?? 0).toBeGreaterThanOrEqual(18);
+
+      const wb = XLSX.read(xlsx.xlsxBuffer, { type: 'buffer' });
+      const detailCsvSheet = XLSX.utils.sheet_to_csv(wb.Sheets['Customer Registrations']);
+      expect(detailCsvSheet).not.toContain('Record Enrichment & Scope');
+      expect(detailCsvSheet).not.toContain('/admin/');
+      expect(detailCsvSheet).toContain('Banjara Hills, Hyderabad');
+
+      getSpy.mockRestore();
+    });
+
+    it('resolves customer names on FR-RPT-003 bookings via /admin/bookings/{id} and complainant names on FR-RPT-011 support tickets', async () => {
+      const repo = new RealReportRepository();
+      const getSpy = vi.spyOn(httpClient, 'get').mockImplementation(async (url) => {
+        if (url === '/admin/reports/booking-funnel') {
+          return {
+            data: {
+              report: 'booking-funnel',
+              from: '2026-01-01',
+              to: '2026-11-12',
+              data: { countsByStatus: [{ status: 'CONFIRMED', count: 1 }], total: 1 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/reports/support-tickets') {
+          return {
+            data: {
+              report: 'support-tickets',
+              from: '2026-01-01',
+              to: '2026-11-12',
+              data: { created: 1, closed: 1, averageResolutionSeconds: 3600, byStatus: [{ status: 'CLOSED', count: 1 }], series: [] },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'BKG-1',
+                  status: 'CONFIRMED',
+                  category: { id: 'c1', name: 'Cook' },
+                  area: { id: 'a1', name: 'Madhapur' },
+                  workerId: 'WRK-1',
+                  createdAt: '2026-11-10T10:00:00Z',
+                  updatedAt: '2026-11-10T11:00:00Z',
+                },
+              ],
+              meta: { page: 1, limit: 100, total: 1 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/bookings/BKG-1') {
+          return {
+            data: {
+              data: {
+                id: 'BKG-1',
+                customerUserId: 'CUST-1',
+                timeline: [{ at: '2026-11-10T11:00:00Z', note: 'Confirmed by ops', actorUserId: 'ADMIN-1' }],
+              },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/customers') {
+          return {
+            data: {
+              data: [{ id: 'CUST-1', name: 'Priya Singh', mobile: '+91******7410' }],
+              meta: { page: 1, limit: 100, total: 1 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/workers') {
+          return {
+            data: {
+              data: [{ id: 'WRK-1', name: 'Shabana Begum', mobile: '+91******3210' }],
+              meta: { page: 1, limit: 100, total: 1 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/payments') {
+          return { data: { data: [], meta: { page: 1, limit: 100, total: 0 } } } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        if (url === '/admin/support/tickets') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'TKT-1',
+                  status: 'CLOSED',
+                  creatorUserId: 'CUST-1',
+                  creatorKind: 'CUSTOMER',
+                  category: { id: 'tc-1', name: 'Delay' },
+                  priority: null,
+                  createdAt: '2026-11-10T09:00:00Z',
+                  closedAt: '2026-11-10T10:00:00Z',
+                },
+              ],
+              meta: { page: 1, limit: 100, total: 1 },
+            },
+          } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+        }
+        return { data: { data: [] } } as unknown as Awaited<ReturnType<typeof httpClient.get>>;
+      });
+
+      const bookingReport = await repo.getReportById('booking-funnel', {
+        from: '2026-01-01',
+        to: '2026-11-12',
+        includeDetailedRecords: true,
+      });
+      expect(bookingReport?.detailDataset?.rows[0].Customer).toBe('Priya Singh');
+      expect(bookingReport?.detailDataset?.rows[0].Worker).toBe('Shabana Begum');
+
+      const ticketReport = await repo.getReportById('support-tickets', {
+        from: '2026-01-01',
+        to: '2026-11-12',
+        includeDetailedRecords: true,
+      });
+      expect(ticketReport?.detailDataset?.rows[0]['Complainant Name']).toBe('Priya Singh');
+      expect(ticketReport?.detailDataset?.rows[0]['User Type']).toBe('CUSTOMER');
+      expect(ticketReport?.detailDataset?.rows[0]['Resolution Time']).toBe('1.0 hrs');
+
+      getSpy.mockRestore();
     });
   });
 });

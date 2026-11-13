@@ -1,5 +1,6 @@
-import { Workbook } from 'exceljs';
-import { ReportItem, ReportFilterCriteria } from '../domain/types';
+import ExcelJS from 'exceljs';
+import type { Workbook as ExcelWorkbook } from 'exceljs';
+import { ReportDetailDataset, ReportFilterCriteria, ReportItem } from '../domain/types';
 
 export const CANONICAL_REPORT_NAMES: Record<string, string> = {
   'FR-RPT-001': 'New_Customer_Acquisition',
@@ -109,8 +110,13 @@ export function parseCellValue(
     return { value: s, alignment: 'center' };
   }
 
+  // Phone / mobile / contact numbers MUST remain formatted text cells (preserve country code, spaces, and leading zeros)
+  if (hLower.includes('mobile') || hLower.includes('phone') || hLower.includes('contact')) {
+    return { value: s, numFmt: '@', alignment: 'left' };
+  }
+
   // Integer count (e.g. "20", "120") but avoid IDs or code columns
-  if (/^-?\d+$/.test(s) && !hLower.includes('id') && !hLower.includes('code') && !hLower.includes('phone')) {
+  if (/^-?\d+$/.test(s) && !hLower.includes('id') && !hLower.includes('code')) {
     const num = Number(s);
     if (!isNaN(num)) {
       return { value: num, numFmt: '#,##0', alignment: 'right' };
@@ -118,7 +124,7 @@ export function parseCellValue(
   }
 
   // Decimal number
-  if (/^-?\d+\.\d+$/.test(s) && !hLower.includes('id') && !hLower.includes('code') && !hLower.includes('phone')) {
+  if (/^-?\d+\.\d+$/.test(s) && !hLower.includes('id') && !hLower.includes('code')) {
     const num = parseFloat(s);
     if (!isNaN(num)) {
       return { value: num, numFmt: '#,##0.00', alignment: 'right' };
@@ -150,7 +156,8 @@ export function parseCellValue(
  */
 export function generateCleanCsv(
   columns: string[],
-  rows: Array<Record<string, string | number>>
+  rows: Array<Record<string, string | number>>,
+  detailDataset?: ReportDetailDataset
 ): string {
   const BOM = '\uFEFF';
 
@@ -163,16 +170,27 @@ export function generateCleanCsv(
     return s;
   };
 
-  const headerLine = columns.map(escapeCell).join(',');
-  const rowLines = rows.map((row) =>
-    columns.map((col) => escapeCell(row[col] ?? '')).join(',')
-  );
+  const renderSection = (cols: string[], dataRows: Array<Record<string, string | number>>): string[] => {
+    const headerLine = cols.map(escapeCell).join(',');
+    const rowLines = dataRows.map((row) =>
+      cols.map((col) => escapeCell(row[col] ?? '')).join(',')
+    );
+    return [headerLine, ...rowLines];
+  };
 
-  return BOM + [headerLine, ...rowLines].join('\r\n');
+  const lines = [...renderSection(columns, rows)];
+
+  if (detailDataset && detailDataset.rows.length > 0 && detailDataset.columns.length > 0) {
+    lines.push('');
+    lines.push(escapeCell(`Detailed Backend Records: ${detailDataset.title}`));
+    lines.push(...renderSection(detailDataset.columns, detailDataset.rows));
+  }
+
+  return BOM + lines.join('\r\n');
 }
 
 function populateWorksheetDataTable(
-  worksheet: ReturnType<Workbook['addWorksheet']>,
+  worksheet: ReturnType<ExcelWorkbook['addWorksheet']>,
   columns: string[],
   rows: Array<Record<string, string | number>>,
   seedWidths: number[] = []
@@ -270,16 +288,18 @@ function populateWorksheetDataTable(
     ];
   }
 
-  columns.forEach((_, idx) => {
+  columns.forEach((col, idx) => {
     const colNum = idx + 1;
+    const hLower = col.toLowerCase();
+    const minWidth = (hLower.includes('mobile') || hLower.includes('phone')) ? 18 : 16;
     // Leave room (+5) for header text, Excel AutoFilter dropdown button, and formatted numbers/dates
-    const width = Math.min(54, Math.max(16, colWidths[idx] + 5));
+    const width = Math.min(54, Math.max(minWidth, colWidths[idx] + 5));
     worksheet.getColumn(colNum).width = width;
   });
 }
 
 function addMergedBannerRow(
-  worksheet: ReturnType<Workbook['addWorksheet']>,
+  worksheet: ReturnType<ExcelWorkbook['addWorksheet']>,
   text: string,
   spanCols: number,
   height: number,
@@ -302,7 +322,7 @@ export async function generateProfessionalExcel(
   report: ReportItem,
   criteria?: ReportFilterCriteria
 ): Promise<Uint8Array> {
-  const workbook = new Workbook();
+  const workbook = new ExcelJS.Workbook();
   workbook.creator = 'SevaNest Admin Portal';
   workbook.lastModifiedBy = 'SevaNest Admin Portal';
   workbook.created = new Date();
@@ -374,16 +394,6 @@ export async function generateProfessionalExcel(
     bold: true,
     color: { argb: 'FF334155' },
   });
-
-  if (report.notes && report.notes.length > 0) {
-    const notesText = `Backend Data Scope Notes: ${report.notes.join(' | ')}`;
-    addMergedBannerRow(worksheet, notesText, bannerSpanCols, notesText.length > 110 ? 30 : 20, {
-      name: 'Calibri',
-      size: 9,
-      italic: true,
-      color: { argb: 'FF475569' },
-    });
-  }
 
   worksheet.addRow([]);
 

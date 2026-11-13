@@ -24,6 +24,14 @@ export interface ReportSupportedFilters {
   minRatings: boolean;
 }
 
+export interface ReportDetailDataset {
+  title: string;
+  columns: string[];
+  rows: Array<Record<string, string | number>>;
+  sourceEndpoint?: string;
+  missingFieldsNote?: string;
+}
+
 export interface ReportItem {
   id: string; // slug, e.g. 'new-customers' or 'top-rated-workers-repeat-customers'
   requirement: string; // e.g. 'FR-RPT-001'
@@ -31,10 +39,12 @@ export interface ReportItem {
   category: Exclude<ReportCategory, 'ALL'>;
   description: string;
   cadence: string; // e.g. 'Monthly / Cohort', 'Point-in-Time Snapshot', 'All-Time Ranked'
+  granularityLabel?: string;
   notes?: string[];
   metricsSummary: ReportMetricSummary[];
   previewColumns: string[];
   previewRows: Array<Record<string, string | number>>;
+  detailDataset?: ReportDetailDataset;
   from?: string | null;
   to?: string | null;
   interval?: ReportInterval;
@@ -60,6 +70,7 @@ export interface ReportFilterCriteria {
   search?: string;
   category?: ReportCategory;
   subTab?: string;
+  includeDetailedRecords?: boolean;
 }
 
 export interface ExportResult {

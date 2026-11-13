@@ -15,6 +15,7 @@ import {
   generateCleanCsv,
   getReportCanonicalFilename,
 } from '../utils/reportExportGenerator';
+import { enrichReportWithBackendRecords } from './reportDetailEnricher';
 
 export interface ReportMetaDefinition {
   slug: string;
@@ -824,22 +825,33 @@ async function executeReportExport(
   const columns = rep?.previewColumns || (rows.length > 0 ? Object.keys(rows[0]) : ['Metric', 'Value']);
   const effectiveSubTab = activeSubTab || rep?.activeSubTab;
 
+  const combinedSheets = [
+    ...(rep?.extraSheets || []),
+  ];
+
   // Include supplementary periodic series sheet for support-tickets Excel export when present
   if (format === 'XLSX' && rep && rep.id === 'support-tickets' && rep.trendSeries && rep.trendSeries.length > 0) {
-    rep = {
-      ...rep,
-      extraSheets: [
-        ...(rep.extraSheets || []),
-        {
-          sheetName: 'Periodic Volume',
-          columns: ['Reporting Period', 'Tickets Created'],
-          rows: rep.trendSeries.map((pt) => ({
-            'Reporting Period': pt.period,
-            'Tickets Created': pt.value,
-          })),
-        },
-      ],
-    };
+    combinedSheets.push({
+      sheetName: 'Periodic Volume',
+      columns: ['Reporting Period', 'Tickets Created'],
+      rows: rep.trendSeries.map((pt) => ({
+        'Reporting Period': pt.period,
+        'Tickets Created': pt.value,
+      })),
+    });
+  }
+
+  // Include record-level worksheet for Excel when backend operational records were retrieved
+  if (format === 'XLSX' && rep?.detailDataset) {
+    combinedSheets.push({
+      sheetName: rep.detailDataset.title,
+      columns: rep.detailDataset.columns,
+      rows: rep.detailDataset.rows,
+    });
+  }
+
+  if (rep && combinedSheets.length > 0) {
+    rep = { ...rep, extraSheets: combinedSheets };
   }
 
   const totalXlsxRows = rows.length + (rep?.extraSheets?.reduce((sum, s) => sum + s.rows.length, 0) ?? 0);
@@ -864,13 +876,14 @@ async function executeReportExport(
   const fileName = rep
     ? getReportCanonicalFilename(rep, 'csv', effectiveSubTab)
     : `FR-RPT_${reportId}.csv`;
-  const csvContent = generateCleanCsv(columns, rows);
+  const csvContent = generateCleanCsv(columns, rows, rep?.detailDataset);
+  const totalCsvRows = rows.length + (rep?.detailDataset?.rows.length ?? 0);
 
   return {
     fileName,
     csvContent,
     format: 'CSV',
-    rowCount: rows.length,
+    rowCount: totalCsvRows,
     generatedAt: new Date().toISOString(),
   };
 }
@@ -1052,51 +1065,54 @@ export class RealReportRepository implements IReportRepository {
 
       const parsed = parseBackendReportData(actualEndpointSlug, rawData);
 
-      if (isUnified12) {
-        const unifiedMeta = REPORT_DEFINITIONS['top-rated-workers-repeat-customers'];
-        return {
-          id: 'top-rated-workers-repeat-customers',
-          requirement: 'FR-RPT-012',
-          name: unifiedMeta.name,
-          category: unifiedMeta.category,
-          description: definition || unifiedMeta.defaultDescription,
-          cadence: unifiedMeta.cadence,
-          notes,
-          metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
-          previewColumns: parsed.previewColumns,
-          previewRows: parsed.previewRows,
-          from: (envelope?.from as string) || (params.from as string) || null,
-          to: (envelope?.to as string) || (params.to as string) || null,
-          interval: (params.interval as 'day' | 'week' | 'month') || undefined,
-          supportedFilters: actualEndpointSlug === 'top-rated-workers'
-            ? { dateRange: false, interval: false, minRatings: true }
-            : { dateRange: true, interval: false, minRatings: false },
-          trendSeries: parsed.trendSeries,
-          subTabs: [
-            { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
-            { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
-          ],
-          activeSubTab,
-        };
+      const baseReport: ReportItem = isUnified12
+        ? {
+            id: 'top-rated-workers-repeat-customers',
+            requirement: 'FR-RPT-012',
+            name: REPORT_DEFINITIONS['top-rated-workers-repeat-customers'].name,
+            category: REPORT_DEFINITIONS['top-rated-workers-repeat-customers'].category,
+            description: definition || REPORT_DEFINITIONS['top-rated-workers-repeat-customers'].defaultDescription,
+            cadence: REPORT_DEFINITIONS['top-rated-workers-repeat-customers'].cadence,
+            notes,
+            metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
+            previewColumns: parsed.previewColumns,
+            previewRows: parsed.previewRows,
+            from: (envelope?.from as string) || (params.from as string) || null,
+            to: (envelope?.to as string) || (params.to as string) || null,
+            interval: (params.interval as 'day' | 'week' | 'month') || undefined,
+            supportedFilters: actualEndpointSlug === 'top-rated-workers'
+              ? { dateRange: false, interval: false, minRatings: true }
+              : { dateRange: true, interval: false, minRatings: false },
+            trendSeries: parsed.trendSeries,
+            subTabs: [
+              { id: 'top-rated-workers', label: 'Top-Rated Domestic Workers', slug: 'top-rated-workers' },
+              { id: 'repeat-customers', label: 'Repeat Customer Retention', slug: 'repeat-customers' },
+            ],
+            activeSubTab,
+          }
+        : {
+            id: actualEndpointSlug,
+            requirement: meta.requirement,
+            name: meta.name,
+            category: meta.category,
+            description: definition,
+            cadence: meta.cadence,
+            notes,
+            metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
+            previewColumns: parsed.previewColumns,
+            previewRows: parsed.previewRows,
+            from: (envelope?.from as string) || (params.from as string) || null,
+            to: (envelope?.to as string) || (params.to as string) || null,
+            interval: (params.interval as 'day' | 'week' | 'month') || undefined,
+            supportedFilters: meta.supportedFilters,
+            trendSeries: parsed.trendSeries,
+          };
+
+      if (criteria?.includeDetailedRecords) {
+        return await enrichReportWithBackendRecords(actualEndpointSlug, baseReport, baseReport.from, baseReport.to);
       }
 
-      return {
-        id: actualEndpointSlug,
-        requirement: meta.requirement,
-        name: meta.name,
-        category: meta.category,
-        description: definition,
-        cadence: meta.cadence,
-        notes,
-        metricsSummary: parsed.metricsSummary.length > 0 ? parsed.metricsSummary : [{ label: 'Status', value: 'Live' }],
-        previewColumns: parsed.previewColumns,
-        previewRows: parsed.previewRows,
-        from: (envelope?.from as string) || (params.from as string) || null,
-        to: (envelope?.to as string) || (params.to as string) || null,
-        interval: (params.interval as 'day' | 'week' | 'month') || undefined,
-        supportedFilters: meta.supportedFilters,
-        trendSeries: parsed.trendSeries,
-      };
+      return baseReport;
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
