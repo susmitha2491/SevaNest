@@ -115,6 +115,8 @@ export interface IPaymentRepository {
     idempotencyKey?: string
   ): Promise<void>;
   reconcilePayment(paymentId: string): Promise<void>;
-  exportPaymentsCsv(from: string, to: string): Promise<string>;
+  exportPaymentsCsv(from?: string, to?: string, filter?: PaymentFilterCriteria): Promise<string>;
+  exportPaymentsExcel(filter?: PaymentFilterCriteria): Promise<Blob>;
+  getAllFilteredTransactions?(filter?: PaymentFilterCriteria): Promise<PaymentTransaction[]>;
 }
 

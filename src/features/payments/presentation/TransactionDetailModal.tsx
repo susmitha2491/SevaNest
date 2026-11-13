@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   X,
   Receipt,
@@ -10,6 +11,7 @@ import {
 import { PaymentTransaction } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { getCustomerPhone, fetchCustomerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
 import { paymentRepository } from '../data/paymentRepository';
 import { env } from '../../../core/config/env';
@@ -35,6 +37,8 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 }) => {
   const { user } = useAuthStore();
   const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
+  const canManagePayment = hasPermission(user?.permissions, PERMISSIONS.PAYMENT_MANAGE);
+  const canViewBookings = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
 
   const [resolvedContact, setResolvedContact] = useState<string | undefined>(() => {
     if (!transaction) return undefined;
@@ -163,7 +167,19 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
               <StatusBadge status={transaction.status} />
             </div>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              Linked Booking: <strong style={{ fontFamily: 'monospace' }}>{transaction.bookingRef}</strong> • Category: {transaction.serviceCategory}
+              Linked Booking:{' '}
+              {canViewBookings && transaction.bookingId ? (
+                <Link
+                  to={`/bookings?search=${encodeURIComponent(transaction.bookingRef)}`}
+                  style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-brand-600)', textDecoration: 'none' }}
+                  onClick={onClose}
+                >
+                  {transaction.bookingRef}
+                </Link>
+              ) : (
+                <strong style={{ fontFamily: 'monospace' }}>{transaction.bookingRef}</strong>
+              )}{' '}
+              • Category: {transaction.serviceCategory}
             </p>
           </div>
           <button
@@ -223,7 +239,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 <div><strong>Provider Order ID:</strong> <span style={{ fontFamily: 'monospace' }}>{transaction.providerOrderId}</span></div>
               )}
               <div><strong>Method:</strong> {transaction.paymentMethod}</div>
-              <div><strong>Recorded:</strong> {transaction.timestamp}</div>
+              <div><strong>Recorded:</strong> {formatDateTimeIST(transaction.paidAt || transaction.createdAt || transaction.timestamp)}</div>
             </div>
           </div>
 
@@ -256,9 +272,12 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 {transaction.customerName}
               </div>
               <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                Contact: <strong style={{ color: 'var(--color-brand-600)' }}>{displayContact}</strong>
+                Contact:{' '}
+                <strong style={{ color: 'var(--color-brand-600)' }}>
+                  {transaction.customerName === 'Customer Details Unavailable' ? '—' : displayContact}
+                </strong>
               </div>
-              {transaction.customerId && (
+              {transaction.customerName !== 'Customer Details Unavailable' && transaction.customerId && !transaction.customerId.startsWith('C-NA') && (
                 <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>
                   Customer Ref: {transaction.customerId}
                 </div>
@@ -389,7 +408,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            {onReconcile && (
+            {onReconcile && canManagePayment && (
               <button
                 type="button"
                 onClick={() => onReconcile(transaction)}

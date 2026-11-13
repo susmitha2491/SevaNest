@@ -3,8 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   RealPaymentRepository,
   isIdLike,
+  isInvalidCustomerName,
+  formatBookingReference,
   clearCustomerRegistryCache,
+  clearBookingRegistryCache,
 } from '../features/payments/data/paymentRepository';
+import { STATUS_MAPPINGS } from '../shared/constants/statusLabels';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
 import { httpClient } from '../core/api/httpClient';
@@ -13,6 +17,7 @@ describe('Payment Management Module — Enterprise Verification', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     clearCustomerRegistryCache();
+    clearBookingRegistryCache();
     useAuthStore.setState({
       user: {
         id: 'STAFF-OPS-01',
@@ -325,6 +330,214 @@ describe('Payment Management Module — Enterprise Verification', () => {
           headers: expect.objectContaining({ 'Idempotency-Key': 'idem_key_manual_999' }),
         })
       );
+    });
+  });
+
+  describe('Anti-Merchant Name Enforcement (PawGuard & Test Entities)', () => {
+    it('flags PawGuard and test placeholders as invalid customer names', () => {
+      expect(isInvalidCustomerName('PawGuard')).toBe(true);
+      expect(isInvalidCustomerName('pawguard')).toBe(true);
+      expect(isInvalidCustomerName('PawGuard Store')).toBe(true);
+      expect(isInvalidCustomerName('SevaNest')).toBe(true);
+      expect(isInvalidCustomerName('Merchant')).toBe(true);
+      expect(isInvalidCustomerName('Verified Test Customer')).toBe(true);
+    });
+
+    it('resolves PawGuard customer record to "Customer Details Unavailable" instead of displaying merchant brand', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/customers') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'cust-pawguard-id',
+                  userId: '01a192ee-1a73-7449-9822-da9ac3221ef2',
+                  name: 'PawGuard',
+                  email: 'pawguard@gmail.com',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: {
+              data: [],
+              meta: { total: 0, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              data: [
+                {
+                  id: '01a11ef9-pawguard-payment',
+                  bookingId: '01a17c40-97f6-72ef-bb5c-4046eeef51cb',
+                  status: 'SUCCEEDED',
+                  amountMinor: 50000,
+                  currency: 'INR',
+                  customerUserId: '01a192ee-1a73-7449-9822-da9ac3221ef2',
+                  feeCode: 'BOOKING_FEE',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
+            },
+          } as any;
+        }
+        return { data: {} } as any;
+      });
+
+      const repo = new RealPaymentRepository();
+      const res = await repo.getTransactions();
+
+      expect(res.items.length).toBe(1);
+      expect(res.items[0].customerName).toBe('Customer Details Unavailable');
+      expect(res.items[0].customerName).not.toContain('PawGuard');
+      expect(res.items[0].customerPhoneMasked).toBe('');
+    });
+  });
+
+  describe('Booking Reference & Service Category Resolution', () => {
+    it('formats UUID booking IDs into canonical BK-XXXXXXXX references', () => {
+      expect(formatBookingReference('01a17c40-97f6-72ef-bb5c-4046eeef51cb')).toBe('BK-EEEF51CB');
+      expect(formatBookingReference('01a11ef8-1111-2222-3333-da9ac3221ef2')).toBe('BK-C3221EF2');
+      expect(formatBookingReference(undefined)).toBe('BK-NA');
+    });
+
+    it('enriches service category from linked booking registry when raw payment lacks category', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/customers') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'c-1',
+                  userId: 'u-1',
+                  name: 'Rajesh Agarwal',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: {
+              data: [
+                {
+                  id: '01a17c40-97f6-72ef-bb5c-4046eeef51cb',
+                  category: { name: 'House Maid', code: 'HOUSE_MAID' },
+                  customerUserId: 'u-1',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'p-1',
+                  bookingId: '01a17c40-97f6-72ef-bb5c-4046eeef51cb',
+                  status: 'SUCCEEDED',
+                  amountMinor: 50000,
+                  currency: 'INR',
+                  feeCode: 'BOOKING_FEE',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
+            },
+          } as any;
+        }
+        return { data: {} } as any;
+      });
+
+      const repo = new RealPaymentRepository();
+      const res = await repo.getTransactions();
+
+      expect(res.items.length).toBe(1);
+      expect(res.items[0].serviceCategory).toBe('House Maid');
+      expect(res.items[0].bookingRef).toBe('BK-EEEF51CB');
+      expect(res.items[0].customerName).toBe('Rajesh Agarwal');
+    });
+  });
+
+  describe('Status Mappings & Export Generation', () => {
+    it('verifies status labels mapping covers all backend payment statuses', () => {
+      expect(STATUS_MAPPINGS['PAID']?.label).toBe('Paid');
+      expect(STATUS_MAPPINGS['SUCCEEDED']?.label).toBe('Paid');
+      expect(STATUS_MAPPINGS['FAILED']?.label).toBe('Payment failed');
+      expect(STATUS_MAPPINGS['PAYMENT_FAILED']?.label).toBe('Payment failed');
+      expect(STATUS_MAPPINGS['REFUND_PENDING']?.label).toBe('Refund pending');
+      expect(STATUS_MAPPINGS['REFUNDED']?.label).toBe('Refunded');
+      expect(STATUS_MAPPINGS['PARTIALLY_REFUNDED']?.label).toBe('Partially refunded');
+      expect(STATUS_MAPPINGS['REFUND_FAILED']?.label).toBe('Refund failed');
+    });
+
+    it('generates clean CSV and Excel blob exports with business metadata and headers', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/customers') {
+          return {
+            data: {
+              data: [
+                { id: 'c-1', userId: 'u-1', name: 'Divya Chowdary', phone: '+91 98765 43210' },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: {
+              data: [
+                { id: 'b-1', category: { name: 'Cook' }, customerUserId: 'u-1' },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              data: [
+                {
+                  id: '01a11ef9-export-payment',
+                  bookingId: 'b-1',
+                  bookingRef: 'BK-01A11EF2',
+                  status: 'SUCCEEDED',
+                  amountMinor: 50000,
+                  currency: 'INR',
+                  customerUserId: 'u-1',
+                  feeCode: 'BOOKING_FEE',
+                  createdAt: '2026-10-15T10:30:00Z',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        return { data: {} } as any;
+      });
+
+      const repo = new RealPaymentRepository();
+      const csv = await repo.exportPaymentsCsv();
+      expect(csv).toContain('Transaction ID');
+      expect(csv).toContain('Customer Name');
+      expect(csv).toContain('Booking Reference');
+      expect(csv).toContain('Service Category');
+      expect(csv).toContain('Divya Chowdary');
+      expect(csv).toContain('BK-01A11EF2');
+      expect(csv).toContain('Cook');
+      expect(csv).toContain('500.00');
+
+      const blob = await repo.exportPaymentsExcel();
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob.type).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      expect(blob.size).toBeGreaterThan(100);
     });
   });
 });
