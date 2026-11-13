@@ -54,6 +54,12 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
           PERMISSIONS.VERIFICATION_SIGNOFF,
           PERMISSIONS.BOOKINGS_VIEW,
           PERMISSIONS.BOOKINGS_MANAGE,
+          PERMISSIONS.ATTENDANCE_VIEW,
+          PERMISSIONS.ATTENDANCE_MANAGE,
+          PERMISSIONS.RATING_VIEW,
+          PERMISSIONS.RATING_MODERATE,
+          PERMISSIONS.ALERT_VIEW,
+          PERMISSIONS.ALERT_MANAGE,
           PERMISSIONS.PAYMENTS_VIEW,
           PERMISSIONS.REFUNDS_MANAGE,
           PERMISSIONS.SUPPORT_VIEW,
@@ -75,15 +81,17 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
 
       // Essential Operational KPI cards
       expect(screen.getAllByText('Total Bookings').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('Verified & Active Workers')).toBeInTheDocument();
-      expect(screen.getByText('Replacement Requests')).toBeInTheDocument();
-      expect(screen.getByText('Active Complaints')).toBeInTheDocument();
+      expect(screen.getByText('Available Workers')).toBeInTheDocument();
       expect(screen.getByText('Open Alerts')).toBeInTheDocument();
       expect(screen.getByText('Collections (MTD)')).toBeInTheDocument();
 
-      // Core Visualizations & Action Triggers
-      expect(screen.getByRole('heading', { name: 'Booking Status Distribution' })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: 'Alerts & Complaints Breakdown' })).toBeInTheDocument();
+      // Core Operational Sections & Action Triggers
+      expect(screen.getByRole('heading', { name: 'Booking Overview' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Customer Overview' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Worker Overview' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Unresolved Operational Alerts/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Replacement Overview' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Support Overview' })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Open Bookings/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Open Support/i })).toBeInTheDocument();
 
@@ -255,17 +263,23 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.getByText(/audit\.view/i)).toBeInTheDocument();
     });
 
-    it('renders exactly the 7 PRD-approved primary modules and hides Verification Management when unauthorized', async () => {
+    it('renders the 9 PRD-approved primary modules and hides Verification Management when unauthorized', async () => {
       renderWithProviders(<AppShell />);
 
-      // Operations Admin must see only the 7 authorized primary navigation modules
+      // Operations Admin sidebar navigation items
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customer Management')).toBeInTheDocument();
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
+      expect(screen.getByText('Attendance & Daily Logs')).toBeInTheDocument();
+      expect(screen.getByText('Ratings & Reviews')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
       expect(screen.getByText('Support Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();
+
+      // Alerts and Recent Activity belong inside Dashboard, never separate sidebar links
+      expect(screen.queryByRole('link', { name: /Operational Alerts/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /Recent Activity/i })).not.toBeInTheDocument();
 
       // Verification Management must NOT be visible for Operations Admin without verification.review
       expect(screen.queryByText('Verification Management')).not.toBeInTheDocument();
@@ -281,7 +295,7 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
       expect(screen.queryByText('Administrator Accounts')).not.toBeInTheDocument();
     });
 
-    it('displays all 7 authorized modules when authorized with backend-issued server permissions (Verification hidden)', async () => {
+    it('displays all 9 authorized modules when authorized with backend-issued server permissions (Verification hidden)', async () => {
       // Simulate exact backend-issued permission array returned by POST /api/v1/auth/admin/login
       useAuthStore.getState().setSession(
         {
@@ -322,11 +336,13 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
 
       renderWithProviders(<AppShell />);
 
-      // All 7 primary authorized modules must resolve to true based on backend-issued permissions
+      // All 9 primary authorized modules must resolve to true based on backend-issued permissions
       expect(screen.getByText('Dashboard')).toBeInTheDocument();
       expect(screen.getByText('Customer Management')).toBeInTheDocument();
       expect(screen.getByText('Worker Management')).toBeInTheDocument();
       expect(screen.getByText('Booking Management')).toBeInTheDocument();
+      expect(screen.getByText('Attendance & Daily Logs')).toBeInTheDocument();
+      expect(screen.getByText('Ratings & Reviews')).toBeInTheDocument();
       expect(screen.getByText('Payments Management')).toBeInTheDocument();
       expect(screen.getByText('Support Management')).toBeInTheDocument();
       expect(screen.getByText('Reports & Analytics')).toBeInTheDocument();

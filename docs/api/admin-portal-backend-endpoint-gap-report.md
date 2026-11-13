@@ -252,3 +252,141 @@ To enable full end-to-end live operation against the remote deployed environment
 3. **Verify Support Executive Role Permissions in Database:** Confirm that the database seed for `SUPPORT_EXECUTIVE` includes `customers.view` and `customers.reveal_pii` alongside `dashboard.view`, `worker.view`, `bookings.view`, `support.view`, and `support.manage`.
 4. **Implement Candidate Matching Endpoint:** Add `GET /api/v1/admin/bookings/{id}/candidates` returning verified worker profiles sorted by relevance.
 5. **Add Support Aggregations to Dashboard DTO:** Include `support` ticket counts on `GET /api/v1/admin/dashboard` to streamline dashboard loading.
+
+---
+
+### GAP-BE-013: Reports & Analytics Detail-Level Data & Backend Export Endpoint Gaps (Category B / C / D)
+- **Audit Date:** 2026-11-12 (Live probes against `/api/v1/admin/reports/*` and `/api/v1/admin/reports/export/*`)
+- **Module & Workflow:** Reports & Analytics (`FR-RPT-001` through `FR-RPT-012`)
+- **Findings from Live Audit:**
+  1. **Aggregate-Only Report Endpoints (`FR-RPT-001`–`FR-RPT-011`):**
+     - `GET /admin/reports/new-customers`, `worker-registrations`, `booking-funnel`, `demand-by-category`, `demand-by-area`, `worker-utilization`, `interview-conversion`, `cancellation-rate`, `replacement-rate`, `payment-collections`, and `support-tickets` return aggregated series/totals only and omit individual customer, worker, booking, payment, and ticket records.
+     - `GET /admin/reports/demand-by-category` returns `requests` only and omits confirmed booking counts per category.
+  2. **Backend CSV Export Limitations (`GET /api/v1/admin/reports/export/{report}`):**
+     - Per OpenAPI specification (`Aggregates only - no personal data beyond what the on-screen report shows`), `export/{report}` exports minimal aggregate CSV rows only (for example, `payment-collections` exports only `totalsByFeeType` and `support-tickets` exports only `status,count` without periodic trend or average resolution time).
+     - Live probes to `GET /api/v1/admin/reports/export/top-rated-workers` and `GET /api/v1/admin/reports/export/repeat-customers` returned **HTTP 502 Bad Gateway**.
+     - `GET /api/v1/admin/payments-export` returns IDs and gateway references only (`no customer name, mobile or card data`).
+  3. **List-vs-Detail Omissions & Masking on Secondary Operational Record Endpoints:**
+     - `GET /admin/bookings` list items **omit `customerUserId` completely** (`GET /admin/bookings/{id}` returns both `customerUserId` and `timeline` history), and list items may lack a dedicated `cancelledAt` timestamp (`updatedAt` / timeline entry must be used when `status` is cancelled).
+     - `GET /admin/customers` list items mask `mobile` (`+91******7410`) and omit `addresses`, whereas `GET /admin/customers/{id}` returns unmasked `mobile` (`+919638527410`) and `addresses` (`area`, `city`, `isDefault`).
+     - `GET /admin/workers` list items mask `mobile` (`+91******3210`) and omit `address`, whereas `GET /admin/workers/{id}` returns unmasked `mobile` (`+919685743210`) and `address` (`area`, `city`).
+     - `GET /admin/support/tickets` list items omit complainant/creator display names (only exposing `creatorUserId`, `creatorKind`, `category`, `priority` which may be `null`, `createdAt`, `closedAt`).
+     - `GET /admin/interviews`, `GET /admin/replacement-requests`, `GET /admin/payments`, and `GET /admin/support/tickets`: do not accept server-side `from`/`to` (`createdFrom`/`createdTo`) date query parameters in OpenAPI; client-side IST date filtering is required after paginated retrieval.
+     - `GET /admin/replacement-requests`: exposes `replacementBookingId` rather than replacement worker name directly.
+- **Safe Frontend Enrichment Implemented (`reportDetailEnricher.ts`):**
+  - When `includeDetailedRecords: true` is active in Report Detail View and Exports, `RealReportRepository` fetches paginated records (`limit=100`) from the documented OpenAPI endpoints, selectively enriches records via `GET /admin/customers/{id}`, `GET /admin/workers/{id}`, and `GET /admin/bookings/{id}` (with in-memory caching, bounded concurrency, and `phoneDirectory.ts` resolution) so authorized reports display unmasked `+91 XXXXX XXXXX` numbers (stored as Excel text `@`), real customer/worker names, localities, complainant names, and clean business worksheets without developer notes.
+- **Exact Action Required from Backend Team:**
+  1. Include `customerUserId`, `cancelledAt`, and customer summary on `GET /admin/bookings` list items so list callers do not need N+1 `GET /admin/bookings/{id}` hydration.
+  2. Fix HTTP `502` on `/api/v1/admin/reports/export/top-rated-workers` and `/api/v1/admin/reports/export/repeat-customers`.
+  3. Add `createdFrom`/`createdTo` date filters to `/admin/interviews`, `/admin/replacement-requests`, `/admin/payments`, and `/admin/support/tickets`, and include `creatorName` on `/admin/support/tickets`.
+  4. Add `confirmedCount` to `/api/v1/admin/reports/demand-by-category` and allow authorized list projections to include locality/city without N+1 detail fetches.
+
+---
+
+### GAP-BE-014: Operations Admin Server-Issued Permissions vs. Verification & Support Write Actions (Category D / F)
+- **Audit Date:** 2026-11-12 (Live probes with `OPERATIONS_ADMIN` credentials and `GET /api/v1/admin/roles`)
+- **Module & Workflow:** Operations Admin Role (`Worker Management`, `Payments Management`, `Support Management`)
+- **Live Server-Issued `OPERATIONS_ADMIN` Permissions (25 keys):**
+  `alert.manage`, `alert.view`, `area.manage`, `attendance.manage`, `attendance.view`, `booking.manage`, `booking.view`, `category.manage`, `customer.manage`, `customer.view`, `matching.run`, `notification.manage`, `payment.view`, `rating.moderate`, `rating.view`, `replacement.manage`, `replacement.view`, `report.view`, `support.view`, `user.view`, `verification.reassign`, `verification.signoff`, `worker.activate`, `worker.manage`, `worker.view`.
+- **Confirmed 403 Responses for `OPERATIONS_ADMIN` on Live Backend:**
+  - `GET /api/v1/admin/verification/queue` -> `403 Forbidden` (`verification.review` is NOT granted to `OPERATIONS_ADMIN`).
+  - `GET /api/v1/admin/workers/{id}/verification` -> `403 Forbidden` (requires `verification.review`).
+  - `GET /api/v1/admin/roles` -> `403 Forbidden` (`config.manage` is NOT granted).
+  - `GET /api/v1/admin/audit-logs` -> `403 Forbidden` (`audit.view` is NOT granted).
+  - Operations Admin also does NOT receive `payment.refund`, `payment.manage`, or `support.manage` in the live database seed.
+- **Frontend Alignment Implemented:**
+  - `WorkerDetailModal.tsx`: skips `/admin/workers/{id}/verification` dossier query when `verification.review` is absent so Ops Admin never triggers background `403` errors, while keeping `verification.signoff`, `worker.activate`, availability/category updates (`worker.manage`), and rating moderation (`rating.view`/`rating.moderate`) functional.
+  - `TransactionDetailModal.tsx`: gates `Reconcile with Gateway` on `payment.manage` (`PERMISSIONS.PAYMENT_MANAGE`), matching `Process Refund` (`payment.refund`).
+- **Exact Action Required from Backend Team:**
+  - Confirm whether `OPERATIONS_ADMIN` should receive `verification.review` (read-only dossier inspection) to view verification check prerequisites alongside `verification.signoff`, and whether `support.manage` / `payment.refund` are intentionally withheld per PRD/role-matrix or should be granted.
+
+---
+
+### GAP-BE-015: `GET /admin/bookings/{id}` & `GET /admin/workers/{id}` Response Omissions (Category D)
+- **Audit Date:** 2026-11-12 (Live API response audit)
+- **Module & Workflow:** Booking Management & Worker Management
+- **Observed Payload Omissions:**
+  1. `GET /api/v1/admin/bookings/{id}` does not return `allowedActions` (`undefined` in live payloads), so the frontend must derive allowed lifecycle transitions directly from the canonical backend `status` (`NEW_REQUEST` -> `/match` or `/schedule`, `MATCHED` -> `/schedule` or `/reopen-matching`, `INTERVIEW_TRIAL_SCHEDULED` -> `/interview-complete`, `INTERVIEW_TRIAL_COMPLETED` -> `/confirm-worker`, `CONFIRMED` -> `/start`, `ACTIVE` -> `/complete`).
+  2. `GET /api/v1/admin/workers/{id}` omits `signedOffAt`, `activatedAt`, and `verificationLevel` fields that are present in `GET /api/v1/admin/workers` list projections.
+- **Safe Frontend Handling Implemented:**
+  - `BookingsListPage.tsx` and `BookingDetailModal.tsx` enforce exact state-machine button transitions matching backend `@Post` endpoints (`/match`, `/schedule`, `/reopen-matching`, `/interview-complete`, `/confirm-worker`, `/start`, `/complete`).
+  - `RealBookingRepository.getCandidateSuggestions` extracts real `category.code`, `area.id` UUID, `availableFrom`, `availableTo`, and `engagement` (falling back to `/admin/service-areas` UUID lookup when `area.id` is absent) so `POST /admin/matching/candidates` succeeds without `422` validation failures.
+  - `WorkerDetailModal.tsx` evaluates `isSignedOff` and `isOnboarded` using fallback flags (`isFullyVerified`, `verificationStatus`, `status`) when detail payloads omit timestamps.
+
+---
+
+### GAP-BE-016: Customer Verification Governance Endpoint Confirmed (Category H — RESOLVED)
+- **Module & Workflow:** Customer Management (`CustomerDetailModal.tsx`)
+- **Verified Contract:** `PATCH /api/v1/admin/customers/{id}/verification-status` accepts `{ status: "PENDING" | "VERIFIED", note?: string }` with optimistic concurrency `If-Match` header.
+- **Frontend Alignment Implemented:** Added `updateCustomerVerificationStatus` in `customerRepository.ts` and verification status toggle action in `CustomerDetailModal.tsx` gated on `customer.manage` (`PERMISSIONS.CUSTOMERS_MANAGE`).
+
+---
+
+### GAP-BE-017: Operations Admin Dashboard — Activity Feed, Customer Section & Worker Definition Delta (Category A / D)
+- **Audit Date:** 2026-11-12 (Live probe to `GET /admin/dashboard`, `/admin/audit-logs`, `/admin/reports/worker-utilization`)
+- **Module & Workflow:** Operations Admin Dashboard (`/dashboard`, `OperationsAdminDashboard.tsx`)
+- **Expected PRD Behaviour:** Display recent operational activity updates, customer registration/verification summaries, and available/active worker counts on the Operations Command Console.
+- **Observed Backend Behaviour:**
+  1. `GET /api/v1/admin/audit-logs` returns `403 FORBIDDEN` for `OPERATIONS_ADMIN` (`audit.view` not granted), and OpenAPI defines no dedicated operational activity endpoint (`/admin/activity`).
+  2. `GET /api/v1/admin/dashboard` omits the `customers` section for `OPERATIONS_ADMIN` (only returning `bookings`, `workers`, `complaints`, `replacements`, `alerts`, `collections`).
+  3. `GET /api/v1/admin/dashboard` reports `sections.workers.verifiedAndActive: 28`, whereas `GET /api/v1/admin/reports/worker-utilization` reports `verifiedWorkers: 34` (`workersWithActiveBooking: 2`).
+- **Safe Frontend Handling:** Dashboard fetches `customersTotal`/`Verified`/`Pending` via permitted `GET /admin/customers?limit=1` filters, daily registrations via `GET /admin/reports/new-customers` & `worker-registrations`, available workers from `worker-utilization`, and displays an honest permission/unavailable notice for Recent Operational Activity when `audit.view` is absent without manufacturing fake logs.
+- **Exact Action Required from Backend Team:**
+  1. Expose a scoped `GET /api/v1/admin/activity` endpoint (or `recentActivity` inside `GET /api/v1/admin/dashboard`) permitted under `dashboard.view` for operational events (booking/attendance/replacement/alert changes) without granting full `audit.view`.
+  2. Include `customers` (`total`, `verified`, `pendingVerification`) inside `GET /api/v1/admin/dashboard` sections for Operations Admin and clarify the definition delta between `sections.workers.verifiedAndActive` and `worker-utilization.verifiedWorkers`.
+
+---
+
+### GAP-BE-018: Attendance & Daily Logs — Missing Global `GET /admin/attendance` Endpoint, Filters & Name Enrichment (Category A / B / D)
+- **Audit Date:** 2026-11-12 (OpenAPI & live probe across `/admin/bookings` & `/admin/attendance/*`)
+- **Module & Workflow:** Attendance & Daily Logs (`/attendance`, `AttendanceLogsPage.tsx`)
+- **Expected PRD Behaviour:** Operations Admin views platform-wide attendance logs directly on `/attendance` with summary totals (`Total Recorded`, `Present`, `Absent`, `Exceptions`), filters by `search`, `from`, `to`, and `status`, paginates reliably across all bookings, and records or corrects daily attendance.
+- **Backend Audit Findings:**
+  1. **Only Booking-Scoped Endpoints Exist:** OpenAPI defines `GET /api/v1/admin/attendance/bookings/{bookingId}`, `GET /api/v1/admin/attendance/bookings/{bookingId}/summary`, `POST /api/v1/admin/attendance/bookings/{bookingId}`, and `PATCH /api/v1/admin/attendance/{attendanceId}`. There is **no `GET /api/v1/admin/attendance`** global listing or **`GET /api/v1/admin/attendance/summary`** cross-booking summary endpoint.
+  2. **Scalability & Reliability Limit of Booking Fan-Out:** On live database inspection (`50` total bookings; `23` post-match bookings with `workerId`; `6` bookings holding `26` total attendance records, including `ACTIVE`, `COMPLETED`, and `CANCELLED` bookings), client-side N+1 aggregation (`GET /admin/bookings` pages + per-booking `/admin/attendance/bookings/{id}`) is temporarily bounded (`<= 80` started bookings), **but cannot reliably scale**: as bookings grow, N+1 fan-out hits rate limits (`429 RATE_LIMITED`), increases failure surface, and cannot provide server-side cross-booking pagination, sorting, or filtering.
+  3. **Missing Query Params & Response Enrichment:** `GET /admin/attendance/bookings/{bookingId}` supports `page`, `limit`, `from`, `to` only — lacking `status` and `search` query params — and omits `customerName`, `workerName`, and readable short booking references. Additionally, `GET /api/v1/admin/bookings` list items omit `customerUserId` and `customerName` (only `GET /api/v1/admin/bookings/{bookingId}` includes `customerUserId`), and `GET /api/v1/admin/customers/{id}` rejects `customerUserId` (`404 CUSTOMER_NOT_FOUND`), forcing extra detail calls plus full `/admin/customers` list lookup to resolve customer names on attendance rows.
+  4. **Timestamps & Concurrency:** `AdminRecordAttendanceDto` (`POST`) accepts `{ date, status, note? }` (`Idempotency-Key` optional header; `409 BOOKING_NOT_ACTIVE` for non-active bookings) without manual check-in/out inputs; `PATCH /admin/attendance/{attendanceId}` requires `{ status, note?, reason }` and does not declare `ETag` / `If-Match` concurrency headers in OpenAPI.
+- **Safe Frontend Handling:** `RealBookingRepository.getAllAttendanceOverview` paginates all `/admin/bookings`, `/admin/customers`, and `/admin/workers` pages (caching registries for 60s), batched `/admin/attendance/bookings/{id}` pages with an explicit safety limit (`80` started bookings) and failure counter (`isComplete` / `failedBookingsCount`), and lazily batch-enriches rendered/active bookings lacking `customerUserId` via `GET /admin/bookings/{id}` (`bookingDetailCache`) before resolving real customer names.
+- **Exact Action Required from Backend Team:**
+  1. Implement `GET /api/v1/admin/attendance` supporting query params: `page`, `limit`, `from` (`YYYY-MM-DD`), `to` (`YYYY-MM-DD`), `status` (`PRESENT | ABSENT | LATE | LEAVE | EXCEPTION`), `search` (booking ID/ref, customer name, worker name, note), and optional `bookingId`, returning `{ data: AdminGlobalAttendanceView[], meta: { page, limit, total } }` with inline `customerName` and `workerName`.
+  2. Include `customerUserId` (and optionally `customerName`) on `GET /api/v1/admin/bookings` list items to eliminate secondary per-booking detail fetches.
+  3. Implement `GET /api/v1/admin/attendance/summary` supporting `from`, `to`, `search` returning `{ totalRecorded, present, absent, exception, late, leave }`.
+  4. Optionally support `ETag` / `If-Match` on `PATCH /api/v1/admin/attendance/{attendanceId}`.
+
+---
+
+### GAP-BE-019: Ratings & Reviews — Missing Name Enrichment, Aggregate Summary & Filter Query Parameters (Category B / D)
+- **Audit Date:** 2026-11-12 (OpenAPI & live probe across `/admin/ratings/*`)
+- **Module & Workflow:** Ratings & Reviews (`/ratings`, `RatingsReviewsPage.tsx`)
+- **Expected PRD Behaviour:** Operations Admin views ratings overview (total, average, distribution, pending moderation), searches by worker/customer name, and filters by star rating, date range, and moderation status.
+- **Observed Backend Behaviour:**
+  1. `GET /api/v1/admin/ratings` supports `page`, `limit`, `status` (`VISIBLE|HIDDEN`), `workerId`, `bookingId`, but omits `score`, `from`/`to` date filters, and text `search`.
+  2. Items expose `workerId` and `customerUserId` without `workerName` or `customerName`.
+  3. Only per-worker summary (`GET /api/v1/admin/ratings/workers/{workerId}/summary`) exists; there is no platform-wide `GET /api/v1/admin/ratings/summary` aggregate endpoint or `PENDING_MODERATION` status enum (only `VISIBLE` and `HIDDEN`).
+- **Safe Frontend Handling:** `ratingRepository.ts` enriches names using cached `/admin/workers` and `/admin/customers` lists, obtains authoritative `VISIBLE`/`HIDDEN` counts via server `meta.total`, and loads complete pages before applying secondary score/date/search filters so partial-page distortion never occurs.
+- **Exact Action Required from Backend Team:**
+  1. Add `workerName` and `customerName` to `AdminRatingView` items on `GET /api/v1/admin/ratings` and `GET /api/v1/admin/ratings/{ratingId}`.
+  2. Add server-side `score`, `from`, `to`, and `search` query params to `GET /api/v1/admin/ratings`.
+  3. Expose `GET /api/v1/admin/ratings/summary` returning global `total`, `average`, `scaleMax`, and star distribution counts.
+
+---
+
+### GAP-BE-020: Payments Management — Missing Name & Category on `/admin/payments`, Merchant Entity in Customer Registry, and Raw Developer CSV Export (Category B / C / D)
+- **Audit Date:** 2026-11-13 (OpenAPI & live probe across `/admin/payments`, `/admin/payments-export`, `/admin/reports/payment-collections`, and `/admin/customers`)
+- **Module & Workflow:** Financial Transactions & Refunds (`/payments`, `PaymentsListPage.tsx`, `paymentRepository.ts`)
+- **Expected PRD Behaviour:** Operations Admin views transaction ledgers with authentic Customer Name, Customer Phone, Booking Reference, Service Category, Fee Classification, Amount, Method, Status, and Date. Filters by search, fee type, status, and exports complete filtered dataset to formatted Excel (.xlsx) and clean CSV with business headers.
+- **Backend Audit Findings:**
+  1. **Missing Name, Phone & Category on Payment Items:** `GET /api/v1/admin/payments` items return `customerUserId`, `bookingId`, `amountMinor`, `feeCode`, but omit `customerName`, `customerPhone`, `serviceCategory`, and readable short booking reference.
+  2. **Merchant / Test Placeholder Entity in Customer Registry:** Customer `01a192ee-1a73-7449-9822-da9ac3221ef2` has registered `name: "PawGuard"`, `email: "pawguard@gmail.com"`, which was appearing as the customer name for linked transactions instead of an authentic customer name.
+  3. **No Server-Side Text Search or FeeType Filter:** `GET /api/v1/admin/payments` only accepts `page`, `limit`, `status`, `bookingId`, `refunded`, `customerUserId`. It lacks `search` and `feeType` query parameters.
+  4. **Raw Developer CSV on `/admin/payments-export`:** `GET /api/v1/admin/payments-export` returns raw developer columns (`payment_id`, `provider_order_id`, `provider_payment_id`, `amount_minor`, `currency`, raw UTC timestamps) without resolved customer names, formatted booking references, service categories, or fee classifications.
+- **Safe Frontend Handling:**
+  1. `RealPaymentRepository` cross-references `customerUserId` and `bookingId` with pre-cached `/admin/customers` and `/admin/bookings` registries to resolve genuine customer names, formatted `BK-XXXXXXXX` booking references, and real service categories (`Cook`, `House Maid`, `Driver`, etc.).
+  2. `isInvalidCustomerName()` filters out merchant/test entities (`PawGuard`, `SevaNest`, `Merchant`, `Platform`, UUIDs, test placeholders), displaying `"Customer Details Unavailable"` instead of test brand names.
+  3. Multi-page pagination (`getAllFilteredTransactions`) fetches all payment pages (`limit: 100`) and applies text search and fee type filtering across the complete ledger, preventing page-1 truncation.
+  4. Client-side export generator creates structured Excel (.xlsx) with business metadata headers, IST dates, and formatted currency, and clean UTF-8 BOM CSV.
+- **Exact Action Required from Backend Team:**
+  1. Enrich `GET /api/v1/admin/payments` response items with `customerName`, `customerPhoneMasked`, and `serviceCategory` directly.
+  2. Clean up test customer `pawguard@gmail.com` in customer database or flag as internal test entity.
+  3. Add `search` and `feeType` query parameters to `GET /api/v1/admin/payments`.
+  4. Update `GET /api/v1/admin/payments-export` to output business-oriented columns (Customer Name, Booking Ref, Service Category, Fee Classification, Formatted Amount).

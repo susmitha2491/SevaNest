@@ -1,5 +1,6 @@
 /* global HTMLDivElement, HTMLTextAreaElement, KeyboardEvent */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
+import { UNSAFE_NavigationContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -52,8 +53,10 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   onOpenEscalate,
 }) => {
   const queryClient = useQueryClient();
+  const navigationContext = useContext(UNSAFE_NavigationContext);
   const user = useAuthStore((s) => s.user);
   const canManage = hasPermission(user?.permissions, PERMISSIONS.SUPPORT_MANAGE);
+  const canViewBookings = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
 
   const [messageText, setMessageText] = useState('');
   const [isInternalNote, setIsInternalNote] = useState(false);
@@ -631,9 +634,38 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 <Briefcase size={12} color="#64748b" />
                 <span>
                   Booking:{' '}
-                  <strong style={{ color: 'var(--color-text-primary, #0f172a)', fontFamily: 'monospace' }}>
-                    {ticket.bookingRef}
-                  </strong>
+                  {canViewBookings ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = `/bookings?search=${encodeURIComponent(ticket.bookingRef!)}`;
+                        onClose();
+                        if (navigationContext?.navigator) {
+                          navigationContext.navigator.push(target);
+                        } else if (typeof window !== 'undefined') {
+                          window.location.assign(target);
+                        }
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        padding: 0,
+                        color: 'var(--color-primary, #0f766e)',
+                        fontFamily: 'monospace',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                        fontSize: '12px',
+                      }}
+                      title="Open linked booking in Booking Management"
+                    >
+                      {ticket.bookingRef}
+                    </button>
+                  ) : (
+                    <strong style={{ color: 'var(--color-text-primary, #0f172a)', fontFamily: 'monospace' }}>
+                      {ticket.bookingRef}
+                    </strong>
+                  )}
                 </span>
               </div>
             )}

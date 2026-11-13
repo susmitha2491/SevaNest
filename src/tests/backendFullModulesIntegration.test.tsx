@@ -371,6 +371,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
           scheduleType: 'TRIAL',
           scheduledAt: '2026-10-15',
           workerId: 'W-10482',
+          note: 'Morning trial',
         },
         expect.objectContaining({
           headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
