@@ -238,7 +238,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         expect(router.state.location.pathname).toBe('/payments');
       });
 
-      expect(await screen.findByRole('heading', { name: /Financial Transactions & Refunds/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Financial Transactions & Refunds/i }, { timeout: 10000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
   });

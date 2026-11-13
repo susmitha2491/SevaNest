@@ -15,7 +15,8 @@ export const PublicLayout: React.FC = () => {
         boxSizing: 'border-box',
       }}
     >
-      <div
+      <header
+        role="banner"
         style={{
           marginBottom: '10px',
           display: 'flex',
@@ -45,9 +46,10 @@ export const PublicLayout: React.FC = () => {
         >
           Operations & Administration Portal
         </span>
-      </div>
+      </header>
 
-      <div
+      <main
+        role="main"
         style={{
           width: '100%',
           maxWidth: '460px',
@@ -60,13 +62,13 @@ export const PublicLayout: React.FC = () => {
         }}
       >
         <Outlet />
-      </div>
+      </main>
 
       <footer
         style={{
           marginTop: '10px',
           fontSize: 'var(--font-size-xs)',
-          color: 'var(--color-text-disabled)',
+          color: 'var(--color-text-secondary)',
           textAlign: 'center',
           lineHeight: 1.2,
         }}

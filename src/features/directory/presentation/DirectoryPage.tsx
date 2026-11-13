@@ -757,7 +757,11 @@ export const DirectoryPage: React.FC = () => {
                 </button>
               </div>
             ) : customers.length === 0 ? (
-              <div style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}>
+              <div
+                role="status"
+                data-testid="customers-empty-state"
+                style={{ padding: 'var(--space-12)', textAlign: 'center', color: 'var(--color-text-muted)' }}
+              >
                 <UserCheck size={40} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
                 <h3 style={{ margin: 0, fontSize: 'var(--font-size-base)', color: 'var(--color-text-primary)' }}>
                   No Customers Found

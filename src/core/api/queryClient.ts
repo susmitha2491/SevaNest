@@ -44,8 +44,11 @@ export const queryClient = new QueryClient({
         return failureCount < 1;
       },
       refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      networkMode: 'offlineFirst',
     },
     mutations: {
+      networkMode: 'offlineFirst',
       retry: false, // Disallow automatic retries on writes without idempotency
     },
   },

@@ -1335,7 +1335,9 @@ export const ReportsDashboardPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => setSelectedReportId(report.id)}
+                                  data-testid={`view-report-${report.id}`}
                                   aria-label={`View Report: ${report.name}`}
+                                  title={`View Report: ${report.name}`}
                                   style={{
                                     display: 'inline-flex',
                                     alignItems: 'center',

@@ -103,9 +103,9 @@ export const SignInPage: React.FC = () => {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       <div>
-        <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.2 }}>
+        <h1 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.2, margin: 0 }}>
           Staff Sign In
-        </h2>
+        </h1>
         <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', lineHeight: 1.3 }}>
           Enter your administrative credentials to access operations queues.
         </p>
@@ -169,7 +169,6 @@ export const SignInPage: React.FC = () => {
               style={{
                 backgroundColor: 'transparent',
                 border: 'none',
-                outline: 'none',
                 color: 'var(--color-text-primary)',
                 fontSize: '13px',
                 width: '100%',
@@ -177,7 +176,7 @@ export const SignInPage: React.FC = () => {
             />
           </div>
           {errors.email && (
-            <span style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
+            <span role="alert" aria-live="polite" style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
               {errors.email.message}
             </span>
           )}
@@ -216,7 +215,6 @@ export const SignInPage: React.FC = () => {
               style={{
                 backgroundColor: 'transparent',
                 border: 'none',
-                outline: 'none',
                 color: 'var(--color-text-primary)',
                 fontSize: '13px',
                 width: '100%',
@@ -245,7 +243,7 @@ export const SignInPage: React.FC = () => {
             </button>
           </div>
           {errors.password && (
-            <span style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
+            <span role="alert" aria-live="polite" style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
               {errors.password.message}
             </span>
           )}
@@ -254,6 +252,7 @@ export const SignInPage: React.FC = () => {
         <button
           type="submit"
           disabled={isSubmitting}
+          aria-label="Sign In to Operations Console"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -262,7 +261,8 @@ export const SignInPage: React.FC = () => {
             backgroundColor: isSubmitting ? 'var(--color-bg-disabled)' : 'var(--color-primary)',
             color: isSubmitting ? 'var(--color-text-disabled)' : '#ffffff',
             padding: '0 12px',
-            height: '38px',
+            height: '44px',
+            minHeight: '44px',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-base)',
             fontWeight: 600,
