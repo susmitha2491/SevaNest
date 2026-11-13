@@ -1,22 +1,30 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
+  Briefcase,
   CalendarCheck,
+  CheckCircle2,
   CreditCard,
+  ExternalLink,
   LifeBuoy,
   RefreshCw,
-  Shield,
   UserCheck,
+  UserPlus,
+  Users,
 } from 'lucide-react';
 import { dashboardRepository } from '../data/dashboardRepository';
+import { OperationalAlertItem } from '../domain/types';
 import { KPICard } from '../../../shared/components/KPICard/KPICard';
+import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
+import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
-import { DonutChart, DonutChartSegment } from './analytics/charts/DonutChart';
-import { HorizontalBarChart, HorizontalBarItem } from './analytics/charts/HorizontalBarChart';
+import { OperationalAlertsDrawer } from './OperationalAlertsDrawer';
+import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 
@@ -55,16 +63,14 @@ const headerActionBtnStyle: React.CSSProperties = {
 };
 
 const BOOKING_STATUS_META: Record<string, { label: string; color: string; order: number }> = {
-  NEW_REQUEST: { label: 'New Request', color: '#3B82F6', order: 1 },
-  REQUESTED: { label: 'New Request', color: '#3B82F6', order: 1 },
+  NEW_REQUEST: { label: 'Pending (New Request)', color: '#3B82F6', order: 1 },
+  REQUESTED: { label: 'Pending (New Request)', color: '#3B82F6', order: 1 },
   MATCHED: { label: 'Matched', color: '#6366F1', order: 2 },
   MATCHING_IN_PROGRESS: { label: 'Matched', color: '#6366F1', order: 2 },
   INTERVIEW_TRIAL_SCHEDULED: { label: 'Trial Scheduled', color: '#8B5CF6', order: 3 },
   INTERVIEW_SCHEDULED: { label: 'Trial Scheduled', color: '#8B5CF6', order: 3 },
   INTERVIEW_TRIAL_COMPLETED: { label: 'Trial Completed', color: '#0EA5E9', order: 4 },
-  TRIAL_ACTIVE: { label: 'Trial Completed', color: '#0EA5E9', order: 4 },
   PENDING_PAYMENT: { label: 'Pending Payment', color: '#F59E0B', order: 5 },
-  CUSTOMER_CONFIRMATION_PENDING: { label: 'Pending Payment', color: '#F59E0B', order: 5 },
   CONFIRMED: { label: 'Confirmed', color: '#14B8A6', order: 6 },
   ACTIVE: { label: 'Active', color: '#16A34A', order: 7 },
   SERVICE_ACTIVE: { label: 'Active', color: '#16A34A', order: 7 },
@@ -84,19 +90,57 @@ function formatStatusLabel(status: string): string {
 
 export const OperationsAdminDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const [isAlertsDrawerOpen, setIsAlertsDrawerOpen] = useState(false);
+  const [alertToResolve, setAlertToResolve] = useState<OperationalAlertItem | null>(null);
+  const [alertActionError, setAlertActionError] = useState<string | null>(null);
+  const [alertActionFeedback, setAlertActionFeedback] = useState<string | null>(null);
 
   const canViewDashboard = !user || hasPermission(user.permissions, PERMISSIONS.DASHBOARD_VIEW);
-  const canViewBookings = !user || hasPermission(user.permissions, PERMISSIONS.BOOKINGS_VIEW);
+  const canViewCustomers = !user || hasPermission(user.permissions, PERMISSIONS.CUSTOMER_VIEW);
   const canViewWorkers = !user || hasPermission(user.permissions, PERMISSIONS.WORKER_VIEW);
+  const canViewBookings = !user || hasPermission(user.permissions, PERMISSIONS.BOOKINGS_VIEW);
   const canViewSupport = !user || hasPermission(user.permissions, PERMISSIONS.SUPPORT_VIEW);
   const canViewPayments = !user || hasPermission(user.permissions, PERMISSIONS.PAYMENTS_VIEW);
-  const canReviewVerification = !user || hasPermission(user.permissions, PERMISSIONS.VERIFICATION_REVIEW);
+  const canViewAlerts = !user || hasPermission(user.permissions, PERMISSIONS.ALERT_VIEW);
+  const canManageAlerts = Boolean(user && hasPermission(user.permissions, PERMISSIONS.ALERT_MANAGE));
 
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard', 'operations-admin'],
     queryFn: () => dashboardRepository.getOperationsAdminDashboard(),
     enabled: canViewDashboard,
+  });
+
+  const acknowledgeMutation = useMutation({
+    mutationFn: async (alertId: string) => {
+      if (!dashboardRepository.acknowledgeAlert) return;
+      await dashboardRepository.acknowledgeAlert(alertId);
+    },
+    onSuccess: () => {
+      setAlertActionError(null);
+      setAlertActionFeedback('Alert acknowledged.');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (err: unknown) => {
+      setAlertActionError(err instanceof Error ? err.message : 'Unable to acknowledge alert.');
+    },
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: async ({ alertId, note }: { alertId: string; note: string }) => {
+      if (!dashboardRepository.resolveAlert) return;
+      await dashboardRepository.resolveAlert(alertId, note);
+    },
+    onSuccess: () => {
+      setAlertToResolve(null);
+      setAlertActionError(null);
+      setAlertActionFeedback('Alert resolved.');
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (err: unknown) => {
+      setAlertActionError(err instanceof Error ? err.message : 'Unable to resolve alert.');
+    },
   });
 
   if (!canViewDashboard) {
@@ -139,172 +183,62 @@ export const OperationsAdminDashboard: React.FC = () => {
     );
   }
 
-  const { kpis, sections } = data;
+  const { kpis, sections, operationsOverview, generatedAt } = data;
+  const byStatus = sections?.bookings?.byStatus ?? [];
+  const countStatus = (...names: string[]) =>
+    byStatus.filter((s) => names.includes(s.status)).reduce((sum, s) => sum + s.count, 0);
 
-  const hasBookingMetrics =
-    Boolean(sections?.bookings) ||
-    kpis.totalBookings != null ||
-    kpis.newBookingRequests != null;
+  const pendingBookingsCount = byStatus.length > 0
+    ? countStatus('NEW_REQUEST', 'REQUESTED', 'PENDING_PAYMENT')
+    : kpis.newBookingRequests ?? null;
+  const activeBookingsCount = byStatus.length > 0
+    ? countStatus('ACTIVE', 'SERVICE_ACTIVE')
+    : kpis.activeLiveEngagements ?? null;
+  const completedBookingsCount = byStatus.length > 0 ? countStatus('COMPLETED') : null;
 
   const totalBookingsVal = sections?.bookings
-    ? (sections.bookings.grossBookings ??
-      sections.bookings.byStatus.reduce((sum, item) => sum + item.count, 0))
-    : kpis.totalBookings ??
-      (hasBookingMetrics
-        ? (kpis.newBookingRequests ?? 0) +
-          (kpis.bookingsAwaitingMatching ?? 0) +
-          (kpis.scheduledTrialsToday ?? 0) +
-          (kpis.bookingsAwaitingConfirmation ?? 0) +
-          (kpis.activeLiveEngagements ?? 0)
-        : null);
+    ? (sections.bookings.grossBookings ?? byStatus.reduce((sum, item) => sum + item.count, 0))
+    : kpis.totalBookings ?? null;
 
-  const bookingSubtitleParts: string[] = [];
-  if (kpis.newBookingRequests != null) bookingSubtitleParts.push(`${kpis.newBookingRequests} new`);
-  if (kpis.scheduledTrialsToday != null) bookingSubtitleParts.push(`${kpis.scheduledTrialsToday} trials`);
-  if (kpis.activeLiveEngagements != null) bookingSubtitleParts.push(`${kpis.activeLiveEngagements} active`);
-
-  const verifiedWorkersVal =
-    sections?.workers?.verifiedAndActive ??
-    kpis.verifiedAndActiveWorkers ??
-    kpis.totalWorkers ??
-    null;
   const registeredWorkersVal = sections?.workers?.registered ?? kpis.totalWorkers ?? null;
-  const workerReadinessPct =
-    registeredWorkersVal && registeredWorkersVal > 0 && verifiedWorkersVal != null
-      ? Math.round((verifiedWorkersVal / registeredWorkersVal) * 100)
-      : null;
-
-  const showPendingKyc =
-    sections?.pendingKyc != null ||
-    (kpis.pendingVerificationCases != null && canReviewVerification);
-
-  const replacementsRequestedVal =
-    sections?.replacements?.requested ?? kpis.replacementRequests ?? null;
-
-  const activeComplaintsVal = sections?.complaints
-    ? sections.complaints.open + sections.complaints.inProgress + sections.complaints.escalated
-    : kpis.openDisputes ?? null;
+  const verifiedAndActiveWorkersVal =
+    sections?.workers?.verifiedAndActive ?? kpis.verifiedAndActiveWorkers ?? null;
+  const availableWorkersVal = operationsOverview?.availableWorkers ?? verifiedAndActiveWorkersVal;
 
   const alertsSection = sections?.alerts ?? null;
   const primaryCollection =
     sections?.collections && sections.collections.length > 0 ? sections.collections[0] : null;
 
-  // Merge equivalent legacy/canonical booking statuses in natural workflow order
-  const bookingSegmentMap = new Map<string, DonutChartSegment & { order: number }>();
-  if (sections?.bookings?.byStatus) {
-    for (const entry of sections.bookings.byStatus) {
-      if (!entry.status) continue;
-      const meta = BOOKING_STATUS_META[entry.status] ?? {
-        label: formatStatusLabel(entry.status),
-        color: '#94A3B8',
-        order: 99,
-      };
-      const existing = bookingSegmentMap.get(meta.label);
-      if (existing) {
-        existing.value += entry.count;
-      } else {
-        bookingSegmentMap.set(meta.label, {
-          id: entry.status,
-          label: meta.label,
-          value: entry.count,
-          color: meta.color,
-          order: meta.order,
-        });
-      }
-    }
-  } else if (hasBookingMetrics) {
-    const legacyCounts: Array<{ id: string; value: number | null | undefined }> = [
-      { id: 'NEW_REQUEST', value: kpis.newBookingRequests },
-      { id: 'MATCHED', value: kpis.bookingsAwaitingMatching },
-      { id: 'INTERVIEW_TRIAL_SCHEDULED', value: kpis.scheduledTrialsToday },
-      { id: 'CONFIRMED', value: kpis.bookingsAwaitingConfirmation },
-      { id: 'ACTIVE', value: kpis.activeLiveEngagements },
-    ];
-    for (const item of legacyCounts) {
-      if (item.value == null) continue;
-      const meta = BOOKING_STATUS_META[item.id];
-      bookingSegmentMap.set(meta.label, {
-        id: item.id,
-        label: meta.label,
-        value: item.value,
-        color: meta.color,
-        order: meta.order,
-      });
-    }
-  }
+  const bookingRows = (byStatus.length > 0
+    ? byStatus.map((entry) => {
+        const meta = BOOKING_STATUS_META[entry.status] ?? {
+          label: formatStatusLabel(entry.status),
+          color: '#64748B',
+          order: 99,
+        };
+        return { status: entry.status, count: entry.count, ...meta };
+      })
+    : [
+        { status: 'NEW_REQUEST', count: kpis.newBookingRequests ?? 0, ...BOOKING_STATUS_META.NEW_REQUEST },
+        { status: 'MATCHED', count: kpis.bookingsAwaitingMatching ?? 0, ...BOOKING_STATUS_META.MATCHED },
+        { status: 'CONFIRMED', count: kpis.bookingsAwaitingConfirmation ?? 0, ...BOOKING_STATUS_META.CONFIRMED },
+        { status: 'ACTIVE', count: kpis.activeLiveEngagements ?? 0, ...BOOKING_STATUS_META.ACTIVE },
+      ]
+  ).sort((a, b) => a.order - b.order);
 
-  const bookingStatusSegments: DonutChartSegment[] = Array.from(bookingSegmentMap.values())
-    .sort((a, b) => a.order - b.order)
-    .map(({ id, label, value, color }) => ({ id, label, value, color }));
-
-  const bookingDistributionTotal = bookingStatusSegments.reduce((sum, seg) => sum + seg.value, 0);
-
-  const operationalTriageItems: HorizontalBarItem[] = [];
-  if (alertsSection) {
-    operationalTriageItems.push(
-      {
-        id: 'CRITICAL_ALERTS',
-        title: 'Critical Alerts',
-        subtitle: 'Immediate operational attention',
-        value: alertsSection.critical,
-        formattedValue: `${alertsSection.critical}`,
-        color: 'var(--color-error)',
-      },
-      {
-        id: 'WARNING_ALERTS',
-        title: 'Warning Alerts',
-        subtitle: 'Monitoring required',
-        value: alertsSection.warning,
-        formattedValue: `${alertsSection.warning}`,
-        color: 'var(--color-warning)',
-      }
-    );
-  }
-  if (sections?.complaints) {
-    const { open, inProgress, escalated, unassigned } = sections.complaints;
-    operationalTriageItems.push(
-      {
-        id: 'UNASSIGNED_COMPLAINTS',
-        title: 'Unassigned Complaints',
-        subtitle: 'Awaiting owner assignment',
-        value: unassigned,
-        formattedValue: `${unassigned}`,
-        color: '#F97316',
-      },
-      {
-        id: 'ESCALATED_COMPLAINTS',
-        title: 'Escalated Complaints',
-        subtitle: 'Escalated to Operations',
-        value: escalated,
-        formattedValue: `${escalated}`,
-        color: '#DC2626',
-      },
-      {
-        id: 'OPEN_IN_PROGRESS_COMPLAINTS',
-        title: 'Open & In-Progress Complaints',
-        subtitle: `${open} open · ${inProgress} in progress`,
-        value: open + inProgress,
-        formattedValue: `${open + inProgress}`,
-        color: '#3B82F6',
-      }
-    );
-  } else if (kpis.openDisputes != null && kpis.openDisputes > 0) {
-    operationalTriageItems.push({
-      id: 'ACTIVE_COMPLAINTS',
-      title: 'Active Complaints',
-      subtitle: 'Open support grievances',
-      value: kpis.openDisputes,
-      formattedValue: `${kpis.openDisputes}`,
-      color: '#3B82F6',
-    });
-  }
-
-  const totalAttentionCount =
-    (alertsSection?.open ?? 0) + (activeComplaintsVal ?? 0);
+  const getAlertDeepLink = (alert: OperationalAlertItem): string | null => {
+    const t = (alert.entityType || '').toLowerCase();
+    const id = alert.entityId || '';
+    if (!id) return null;
+    if (t.includes('booking') && canViewBookings) return `/bookings?search=${encodeURIComponent(id)}`;
+    if (t.includes('ticket') && canViewSupport) return `/support?ticketId=${encodeURIComponent(id)}`;
+    if (t.includes('worker') && canViewWorkers) return `/workers?workerId=${encodeURIComponent(id)}`;
+    return null;
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
-      {/* 1. Dashboard Header */}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+      {/* Header */}
       <div
         style={{
           display: 'flex',
@@ -332,7 +266,8 @@ export const OperationsAdminDashboard: React.FC = () => {
               marginTop: 'var(--space-1)',
             }}
           >
-            Marketplace operations overview across bookings, active workers, replacements, complaints, and collections.
+            Daily marketplace operations snapshot
+            {generatedAt ? ` · Updated ${formatDateTimeIST(generatedAt)}` : ''}
           </p>
         </div>
 
@@ -356,206 +291,532 @@ export const OperationsAdminDashboard: React.FC = () => {
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw
-            size={14}
-            color="var(--color-primary)"
-            style={{ animation: isFetching ? 'spin 1s linear infinite' : undefined }}
-          />
+          <RefreshCw size={14} color="var(--color-primary)" />
           <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
-      {/* 2. Essential Operational KPI Cards */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 185px), 1fr))',
-          gap: 'var(--space-4)',
-        }}
-      >
-        {totalBookingsVal !== null && (
-          <KPICard
-            title="Total Bookings"
-            value={totalBookingsVal}
-            subtitle={bookingSubtitleParts.join(' · ') || 'Booking requests & active services'}
-            icon={CalendarCheck}
-            onClick={canViewBookings ? () => navigate('/bookings') : undefined}
-          />
+      {/* A. Daily Statistics (Meaningful KPI Row) */}
+      <section aria-label="Daily Statistics">
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 175px), 1fr))',
+            gap: 'var(--space-4)',
+          }}
+        >
+          {operationsOverview?.newCustomersToday != null && (
+            <KPICard
+              title="New Customers (Today)"
+              value={operationsOverview.newCustomersToday}
+              subtitle={`IST date: ${operationsOverview.reportingDateIST}`}
+              icon={UserPlus}
+              onClick={canViewCustomers ? () => navigate('/customers') : undefined}
+            />
+          )}
+
+          {operationsOverview?.newWorkersToday != null && (
+            <KPICard
+              title="New Workers (Today)"
+              value={operationsOverview.newWorkersToday}
+              subtitle={`IST date: ${operationsOverview.reportingDateIST}`}
+              icon={Briefcase}
+              onClick={canViewWorkers ? () => navigate('/workers') : undefined}
+            />
+          )}
+
+          {totalBookingsVal !== null && (
+            <KPICard
+              title="Total Bookings"
+              value={totalBookingsVal}
+              subtitle={`${pendingBookingsCount ?? 0} pending · ${activeBookingsCount ?? 0} active · ${completedBookingsCount ?? 0} completed`}
+              icon={CalendarCheck}
+              onClick={canViewBookings ? () => navigate('/bookings') : undefined}
+            />
+          )}
+
+          {availableWorkersVal !== null && (
+            <KPICard
+              title="Available Workers"
+              value={availableWorkersVal}
+              subtitle={
+                operationsOverview?.workersVerifiedCount != null
+                  ? `${operationsOverview.workersWithActiveBooking ?? 0} assigned of ${operationsOverview.workersVerifiedCount} verified`
+                  : `${registeredWorkersVal ?? 0} total registered`
+              }
+              icon={UserCheck}
+              onClick={canViewWorkers ? () => navigate('/workers') : undefined}
+            />
+          )}
+
+          {alertsSection && canViewAlerts && (
+            <KPICard
+              title="Open Alerts"
+              value={alertsSection.open}
+              subtitle={`${alertsSection.critical} critical · ${alertsSection.warning} warning`}
+              icon={AlertTriangle}
+              onClick={() => setIsAlertsDrawerOpen(true)}
+            />
+          )}
+
+          {primaryCollection && canViewPayments && (
+            <KPICard
+              title="Collections (MTD)"
+              value={primaryCollection.monthToDateFormatted}
+              subtitle={`Today: ${primaryCollection.todayFormatted}`}
+              icon={CreditCard}
+              onClick={() => navigate('/payments')}
+            />
+          )}
+        </div>
+      </section>
+
+      {/* B. Booking Overview */}
+      <section style={cardSurfaceStyle} aria-label="Booking Overview">
+        <div style={cardHeaderStyle}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
+              Booking Overview
+            </h2>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+              Live booking counts by backend lifecycle status
+            </p>
+          </div>
+          {canViewBookings && (
+            <button type="button" onClick={() => navigate('/bookings')} style={headerActionBtnStyle}>
+              <span>Open Bookings</span>
+              <ArrowRight size={12} />
+            </button>
+          )}
+        </div>
+
+        {bookingRows.length === 0 ? (
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+            No booking summary available.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 'var(--space-3)' }}>
+            {bookingRows.map((row) => (
+              <button
+                key={row.status}
+                type="button"
+                disabled={!canViewBookings}
+                onClick={() => canViewBookings && navigate(`/bookings?status=${encodeURIComponent(row.status === 'NEW_REQUEST' ? 'REQUESTED' : row.status === 'ACTIVE' ? 'SERVICE_ACTIVE' : row.status)}`)}
+                style={{
+                  textAlign: 'left',
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  cursor: canViewBookings ? 'pointer' : 'default',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}
+              >
+                <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                  {row.label}
+                </span>
+                <strong style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-navy)' }}>
+                  {row.count}
+                </strong>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* C. Customer Overview & D. Worker Overview */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 'var(--space-5)' }}>
+        {canViewCustomers && (
+          <section style={cardSurfaceStyle} aria-label="Customer Overview">
+            <div style={cardHeaderStyle}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Users size={16} color="var(--color-primary)" />
+                  <span>Customer Overview</span>
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                  Registered households and verification progress
+                </p>
+              </div>
+              <button type="button" onClick={() => navigate('/customers')} style={headerActionBtnStyle}>
+                <span>Open Customers</span>
+                <ArrowRight size={12} />
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Total Customers</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)', marginTop: '2px' }}>
+                  {operationsOverview?.customersTotal ?? kpis.totalCustomers ?? '—'}
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>Verified</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#15803d', marginTop: '2px' }}>
+                  {operationsOverview?.customersVerified ?? '—'}
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+                <div style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>Pending KYC</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#b45309', marginTop: '2px' }}>
+                  {operationsOverview?.customersPendingVerification ?? '—'}
+                </div>
+              </div>
+            </div>
+          </section>
         )}
 
-        {(verifiedWorkersVal !== null || registeredWorkersVal !== null) && (
-          <KPICard
-            title="Verified & Active Workers"
-            value={verifiedWorkersVal}
-            subtitle={
-              registeredWorkersVal != null
-                ? workerReadinessPct != null
-                  ? `${workerReadinessPct}% of ${registeredWorkersVal} registered`
-                  : `${registeredWorkersVal} registered workers`
-                : 'Active verified workforce'
-            }
-            icon={UserCheck}
-            onClick={canViewWorkers ? () => navigate('/workers') : undefined}
-          />
-        )}
+        {canViewWorkers && (
+          <section style={cardSurfaceStyle} aria-label="Worker Overview">
+            <div style={cardHeaderStyle}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Briefcase size={16} color="var(--color-primary)" />
+                  <span>Worker Overview</span>
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                  Registration, activation, and active deployment readiness
+                </p>
+              </div>
+              <button type="button" onClick={() => navigate('/workers')} style={headerActionBtnStyle}>
+                <span>Open Workers</span>
+                <ArrowRight size={12} />
+              </button>
+            </div>
 
-        {showPendingKyc && (
-          <KPICard
-            title="Pending KYC"
-            value={kpis.pendingVerificationCases}
-            subtitle={
-              sections?.pendingKyc
-                ? `${sections.pendingKyc.submitted} submitted · ${sections.pendingKyc.inReview} in review`
-                : 'Worker verification queue'
-            }
-            icon={Shield}
-            onClick={canReviewVerification ? () => navigate('/verification') : undefined}
-          />
-        )}
-
-        {replacementsRequestedVal !== null && (
-          <KPICard
-            title="Replacement Requests"
-            value={replacementsRequestedVal}
-            subtitle={
-              sections?.replacements
-                ? `${sections.replacements.approved} approved`
-                : 'Rematch requests'
-            }
-            icon={RefreshCw}
-            onClick={canViewBookings ? () => navigate('/bookings') : undefined}
-          />
-        )}
-
-        {activeComplaintsVal !== null && (
-          <KPICard
-            title="Active Complaints"
-            value={activeComplaintsVal}
-            subtitle={
-              sections?.complaints
-                ? `${sections.complaints.open} open · ${sections.complaints.escalated} escalated`
-                : 'Open support grievances'
-            }
-            icon={LifeBuoy}
-            onClick={canViewSupport ? () => navigate('/support') : undefined}
-          />
-        )}
-
-        {alertsSection && (
-          <KPICard
-            title="Open Alerts"
-            value={alertsSection.open}
-            subtitle={`${alertsSection.critical} critical · ${alertsSection.warning} warning`}
-            icon={AlertTriangle}
-          />
-        )}
-
-        {primaryCollection && canViewPayments && (
-          <KPICard
-            title="Collections (MTD)"
-            value={primaryCollection.monthToDateFormatted}
-            subtitle={`Today: ${primaryCollection.todayFormatted}`}
-            icon={CreditCard}
-            onClick={() => navigate('/payments')}
-          />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--space-3)' }}>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Registered</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-navy)', marginTop: '2px' }}>
+                  {registeredWorkersVal ?? '—'}
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>Verified &amp; Active</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#15803d', marginTop: '2px' }}>
+                  {verifiedAndActiveWorkersVal ?? '—'}
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                <div style={{ fontSize: '11px', color: '#1e40af', fontWeight: 600 }}>On Active Booking</div>
+                <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#1d4ed8', marginTop: '2px' }}>
+                  {operationsOverview?.workersWithActiveBooking ?? '—'}
+                </div>
+              </div>
+            </div>
+          </section>
         )}
       </div>
 
-      {/* 3. Operational Visualizations */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
-          gap: 'var(--space-5)',
-        }}
-      >
-        <section style={cardSurfaceStyle} aria-label="Booking Status Distribution">
+      {/* E. Unresolved Operational Alerts */}
+      {canViewAlerts && (
+        <section style={cardSurfaceStyle} aria-label="Operational Alerts">
           <div style={cardHeaderStyle}>
             <div>
-              <h2
-                style={{
-                  fontSize: 'var(--font-size-md)',
-                  fontWeight: 700,
-                  color: 'var(--color-navy)',
-                  margin: 0,
-                }}
-              >
-                Booking Status Distribution
+              <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <AlertTriangle size={16} color="#dc2626" />
+                <span>Unresolved Operational Alerts ({alertsSection?.open ?? operationsOverview?.openAlertsList?.length ?? 0})</span>
               </h2>
-              <p
-                style={{
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text-secondary)',
-                  marginTop: '4px',
-                }}
-              >
-                Breakdown of bookings across current operational lifecycle stages ({bookingDistributionTotal} total)
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                Latest open SLA and operational exceptions requiring triage
+              </p>
+            </div>
+            <button type="button" onClick={() => setIsAlertsDrawerOpen(true)} style={headerActionBtnStyle}>
+              <span>Triage All Alerts</span>
+              <ArrowRight size={12} />
+            </button>
+          </div>
+
+          {alertActionFeedback && (
+            <div style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-status-success-bg)', color: 'var(--color-status-success-text)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+              {alertActionFeedback}
+            </div>
+          )}
+          {alertActionError && (
+            <div style={{ padding: '6px 10px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-status-danger-bg)', color: 'var(--color-status-danger-text)', fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+              {alertActionError}
+            </div>
+          )}
+
+          {!operationsOverview?.openAlertsList || operationsOverview.openAlertsList.length === 0 ? (
+            <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+              No unresolved alerts found.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              {operationsOverview.openAlertsList.map((alert) => {
+                const deepLink = getAlertDeepLink(alert);
+                return (
+                  <div
+                    key={alert.id}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      border: '1px solid var(--color-border)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 'var(--space-3)',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: '220px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <StatusBadge status={alert.severity} />
+                        <strong style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)' }}>
+                          {alert.title}
+                        </strong>
+                        {alert.occurrences > 1 && (
+                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)' }}>
+                            ×{alert.occurrences}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '3px' }}>
+                        {alert.type} · Created {formatDateTimeIST(alert.createdAt)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                      {deepLink && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(deepLink)}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--color-border)',
+                            backgroundColor: '#fff',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <ExternalLink size={11} />
+                          <span>Inspect</span>
+                        </button>
+                      )}
+                      {canManageAlerts && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => acknowledgeMutation.mutate(alert.id)}
+                            disabled={acknowledgeMutation.isPending}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: '#fff',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Acknowledge
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAlertActionError(null);
+                              setAlertToResolve(alert);
+                            }}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: 'none',
+                              backgroundColor: 'var(--color-primary)',
+                              color: '#fff',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <CheckCircle2 size={11} />
+                            <span>Resolve</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* F. Replacement Overview & G. Support Overview */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))', gap: 'var(--space-5)' }}>
+        <section style={cardSurfaceStyle} aria-label="Replacement Overview">
+          <div style={cardHeaderStyle}>
+            <div>
+              <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <RefreshCw size={16} color="var(--color-primary)" />
+                <span>Replacement Overview</span>
+              </h2>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                Worker replacement requests and approvals
               </p>
             </div>
             {canViewBookings && (
               <button
                 type="button"
-                onClick={() => navigate('/bookings')}
+                onClick={() => navigate('/bookings?status=REPLACEMENT_REQUESTED')}
                 style={headerActionBtnStyle}
               >
-                <span>Open Bookings</span>
+                <span>Open Replacements</span>
                 <ArrowRight size={12} />
               </button>
             )}
           </div>
 
-          <DonutChart
-            segments={bookingStatusSegments}
-            centerLabel="Total Bookings"
-            emptyMessage="No booking records available"
-            ariaLabel="Booking Status Distribution Chart"
-          />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-3)' }}>
+            <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+              <div style={{ fontSize: '11px', color: '#92400e', fontWeight: 600 }}>Pending Requested</div>
+              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#b45309', marginTop: '2px' }}>
+                {sections?.replacements?.requested ?? kpis.replacementRequests ?? 0}
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px', borderRadius: 'var(--radius-md)', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+              <div style={{ fontSize: '11px', color: '#166534', fontWeight: 600 }}>Approved</div>
+              <div style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: '#15803d', marginTop: '2px' }}>
+                {sections?.replacements?.approved ?? 0}
+              </div>
+            </div>
+          </div>
         </section>
 
-        <section style={cardSurfaceStyle} aria-label="Alerts & Complaints Breakdown">
-          <div style={cardHeaderStyle}>
-            <div>
-              <h2
-                style={{
-                  fontSize: 'var(--font-size-md)',
-                  fontWeight: 700,
-                  color: 'var(--color-navy)',
-                  margin: 0,
-                }}
-              >
-                Alerts & Complaints Breakdown
-              </h2>
-              <p
-                style={{
-                  fontSize: 'var(--font-size-xs)',
-                  color: 'var(--color-text-secondary)',
-                  marginTop: '4px',
-                }}
-              >
-                Live operational alerts and support ticket workload ({totalAttentionCount} open items)
-              </p>
-            </div>
-            {canViewSupport && (
-              <button
-                type="button"
-                onClick={() => navigate('/support')}
-                style={headerActionBtnStyle}
-              >
+        {canViewSupport && (
+          <section style={cardSurfaceStyle} aria-label="Support Overview">
+            <div style={cardHeaderStyle}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <LifeBuoy size={16} color="var(--color-primary)" />
+                  <span>Support Overview</span>
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px' }}>
+                  Open, escalated, and unassigned customer support tickets
+                </p>
+              </div>
+              <button type="button" onClick={() => navigate('/support')} style={headerActionBtnStyle}>
                 <span>Open Support</span>
                 <ArrowRight size={12} />
               </button>
-            )}
-          </div>
+            </div>
 
-          <HorizontalBarChart
-            items={operationalTriageItems}
-            showRank={false}
-            maxItems={5}
-            emptyMessage="No open operational alerts or complaints recorded"
-            ariaLabel="Operational Alerts and Complaints Breakdown"
-          />
-        </section>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-2)' }}>
+              <div style={{ padding: '10px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-bg-subtle)', border: '1px solid var(--color-border)' }}>
+                <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>Open</div>
+                <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
+                  {sections?.complaints?.open ?? kpis.openDisputes ?? 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px', borderRadius: 'var(--radius-md)', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+                <div style={{ fontSize: '10px', color: '#1e40af', fontWeight: 600 }}>In Progress</div>
+                <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: '#1d4ed8' }}>
+                  {sections?.complaints?.inProgress ?? 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px', borderRadius: 'var(--radius-md)', backgroundColor: '#fef2f2', border: '1px solid #fecaca' }}>
+                <div style={{ fontSize: '10px', color: '#991b1b', fontWeight: 600 }}>Escalated</div>
+                <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: '#dc2626' }}>
+                  {sections?.complaints?.escalated ?? 0}
+                </div>
+              </div>
+              <div style={{ padding: '10px', borderRadius: 'var(--radius-md)', backgroundColor: '#fffbeb', border: '1px solid #fde68a' }}>
+                <div style={{ fontSize: '10px', color: '#92400e', fontWeight: 600 }}>Unassigned</div>
+                <div style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: '#b45309' }}>
+                  {sections?.complaints?.unassigned ?? 0}
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
       </div>
+
+      {/* H. Recent Operational Activity (only when permitted/supported by backend) */}
+      <section style={cardSurfaceStyle} aria-label="Recent Operational Activity">
+        <div style={cardHeaderStyle}>
+          <div>
+            <h2 style={{ fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Activity size={16} color="var(--color-primary)" />
+              <span>Recent Operational Activity</span>
+            </h2>
+          </div>
+        </div>
+
+        {operationsOverview?.activityAvailable && operationsOverview.recentActivity && operationsOverview.recentActivity.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {operationsOverview.recentActivity.map((act) => (
+              <div
+                key={act.id}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-subtle)',
+                  border: '1px solid var(--color-border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              >
+                <div>
+                  <strong>{act.action}</strong>
+                  {act.entityType && ` · ${act.entityType}`}
+                  {act.entityId && ` (${act.entityId})`}
+                  {act.actorName && ` · ${act.actorName}`}
+                </div>
+                <span style={{ color: 'var(--color-text-muted)' }}>{formatDateTimeIST(act.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            {operationsOverview?.activityUnavailableReason ||
+              'No dedicated recent operational activity feed is exposed by the backend for this role.'}
+          </div>
+        )}
+      </section>
+
+      <OperationalAlertsDrawer
+        isOpen={isAlertsDrawerOpen}
+        onClose={() => setIsAlertsDrawerOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(alertToResolve)}
+        title="Resolve Operational Alert"
+        description={`Close alert "${alertToResolve?.title || ''}" with an audited resolution note.`}
+        confirmLabel="Resolve Alert"
+        isDestructive={false}
+        requireRemarks={true}
+        remarksPlaceholder="Enter resolution note (what action was taken)..."
+        isLoading={resolveMutation.isPending}
+        errorMessage={alertActionError}
+        onConfirm={(note) => {
+          if (alertToResolve && note?.trim()) {
+            resolveMutation.mutate({ alertId: alertToResolve.id, note: note.trim() });
+          }
+        }}
+        onCancel={() => {
+          if (!resolveMutation.isPending) {
+            setAlertToResolve(null);
+            setAlertActionError(null);
+          }
+        }}
+      />
     </div>
   );
 };

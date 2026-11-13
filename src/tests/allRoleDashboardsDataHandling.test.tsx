@@ -97,6 +97,23 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
     });
 
     it('renders genuine empty queue state in UI without fabricating records', async () => {
+      useAuthStore.setState({
+        user: {
+          id: 'ops-empty-01',
+          name: 'Operations Manager',
+          email: 'operations.manager@sevanest.example.com',
+          role: 'OPERATIONS_ADMIN',
+          permissions: [
+            PERMISSIONS.DASHBOARD_VIEW,
+            PERMISSIONS.BOOKINGS_VIEW,
+            PERMISSIONS.ALERT_VIEW,
+            PERMISSIONS.SUPPORT_VIEW,
+          ],
+        },
+        isAuthenticated: true,
+        isInitialized: true,
+      });
+
       vi.spyOn(dashboardRepository, 'getOperationsAdminDashboard').mockResolvedValueOnce({
         kpis: {
           totalCustomers: 10,
@@ -128,7 +145,7 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
       renderWithClient(<OperationsAdminDashboard />);
 
       expect(await screen.findByRole('heading', { name: /Operations Command Console/i })).toBeInTheDocument();
-      expect(await screen.findByText(/No open operational alerts or complaints recorded/i)).toBeInTheDocument();
+      expect(await screen.findByText(/No unresolved alerts found\./i)).toBeInTheDocument();
       expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1);
     });
 
@@ -194,6 +211,7 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
             PERMISSIONS.DASHBOARD_VIEW,
             PERMISSIONS.BOOKINGS_VIEW,
             PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.ALERT_VIEW,
             PERMISSIONS.SUPPORT_VIEW,
             PERMISSIONS.PAYMENTS_VIEW,
           ],
@@ -266,11 +284,11 @@ describe('All Role Dashboards: Real Data Handling & Strict Contract Policy', () 
 
       expect(await screen.findByRole('heading', { name: 'Operations Command Console' })).toBeInTheDocument();
       expect(screen.getAllByText('50').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getByText('28')).toBeInTheDocument();
-      expect(screen.getByText('30')).toBeInTheDocument();
+      expect(screen.getAllByText('28').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('30').length).toBeGreaterThanOrEqual(1);
       expect(screen.getByText('₹3,500.00')).toBeInTheDocument();
-      expect(screen.getByText('Critical Alerts')).toBeInTheDocument();
-      expect(screen.getByText('Unassigned Complaints')).toBeInTheDocument();
+      expect(screen.getByText('2 critical · 20 warning')).toBeInTheDocument();
+      expect(screen.getByText('Unassigned')).toBeInTheDocument();
       expect(screen.queryByText('Pending KYC')).not.toBeInTheDocument();
     });
 

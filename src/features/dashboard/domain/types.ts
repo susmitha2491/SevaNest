@@ -331,11 +331,37 @@ export interface SuperAdminAnalyticsData {
   repeatCustomers: RepeatCustomerItem[] | null;
 }
 
+export interface OperationsActivityLogItem {
+  id: string;
+  action: string;
+  entityType?: string;
+  entityId?: string;
+  actorName?: string;
+  createdAt: string;
+}
+
+export interface OperationsDashboardOverviewExtension {
+  reportingDateIST: string;
+  newCustomersToday: number | null;
+  newWorkersToday: number | null;
+  customersTotal: number | null;
+  customersVerified: number | null;
+  customersPendingVerification: number | null;
+  availableWorkers: number | null;
+  workersVerifiedCount: number | null;
+  workersWithActiveBooking: number | null;
+  openAlertsList?: OperationalAlertItem[] | null;
+  recentActivity?: OperationsActivityLogItem[] | null;
+  activityAvailable: boolean;
+  activityUnavailableReason?: string;
+}
+
 export interface OperationsAdminDashboardData {
   generatedAt?: string;
   kpis: OperationsAdminKPIs;
   queues: Record<OperationsQueueTab, OperationsQueueItem[]>;
   sections?: SuperAdminDashboardSections;
+  operationsOverview?: OperationsDashboardOverviewExtension;
 }
 
 export interface VerificationAttentionApplication {
@@ -435,10 +461,45 @@ export interface SupportExecutiveDashboardData {
   analytics?: SupportExecutiveAnalyticsData;
 }
 
+export interface OperationalAlertItem {
+  id: string;
+  type: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL' | string;
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | string;
+  title: string;
+  entityType?: string;
+  entityId?: string;
+  detail?: Record<string, unknown>;
+  occurrences: number;
+  createdAt: string;
+  lastSeenAt?: string;
+  acknowledgedAt?: string | null;
+  resolvedAt?: string | null;
+  resolutionNote?: string | null;
+}
+
+export interface OperationalAlertFilter {
+  status?: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'ALL';
+  severity?: 'INFO' | 'WARNING' | 'CRITICAL' | 'ALL';
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginatedOperationalAlerts {
+  items: OperationalAlertItem[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 export interface IDashboardRepository {
   getSuperAdminDashboard(): Promise<SuperAdminDashboardData>;
   getSuperAdminAnalytics(from?: string, to?: string): Promise<SuperAdminAnalyticsData>;
   getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData>;
   getVerificationExecutiveDashboard(): Promise<VerificationExecutiveDashboardData>;
   getSupportExecutiveDashboard(): Promise<SupportExecutiveDashboardData>;
+  getOperationalAlerts?(filter?: OperationalAlertFilter): Promise<PaginatedOperationalAlerts>;
+  acknowledgeAlert?(alertId: string): Promise<void>;
+  resolveAlert?(alertId: string, note: string): Promise<void>;
 }

@@ -4,6 +4,11 @@ import {
   SuperAdminDashboardData,
   SuperAdminDashboardSections,
   OperationsAdminDashboardData,
+  OperationsActivityLogItem,
+  OperationsDashboardOverviewExtension,
+  OperationalAlertItem,
+  OperationalAlertFilter,
+  PaginatedOperationalAlerts,
   OperationsQueueItem,
   OperationsQueueTab,
   VerificationDashboardQueueItem,
@@ -36,6 +41,7 @@ import { httpClient } from '../../../core/api/httpClient';
 import { getWorkerName, getCustomerName } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
@@ -521,6 +527,33 @@ export class MockDashboardRepository implements IDashboardRepository {
           { id: 'TKT-8901', customerName: 'Priya Reddy (Dispute)', category: 'Cook Replacement Escalation', locality: 'Gachibowli', status: 'ESCALATED', submissionTime: 'Handoff from Support', dominantAction: 'Inspect Ticket', targetRoute: '/support' },
         ],
       },
+      operationsOverview: {
+        reportingDateIST: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }),
+        newCustomersToday: 4,
+        newWorkersToday: 2,
+        customersTotal: 128,
+        customersVerified: 96,
+        customersPendingVerification: 32,
+        availableWorkers: 86,
+        workersVerifiedCount: 142,
+        workersWithActiveBooking: 56,
+        openAlertsList: [
+          {
+            id: 'ALT-101',
+            type: 'SUPPORT_SLA_BREACH',
+            severity: 'CRITICAL',
+            status: 'OPEN',
+            title: 'Support ticket passed its resolution target',
+            entityType: 'support_ticket',
+            entityId: 'TKT-4921',
+            occurrences: 2,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        recentActivity: null,
+        activityAvailable: false,
+        activityUnavailableReason: 'Recent operational activity feed requires audit.view permission or a dedicated activity endpoint.',
+      },
     };
   }
 
@@ -674,6 +707,47 @@ export class MockDashboardRepository implements IDashboardRepository {
         recentActivity: buildRecentActivityFromQueueItems(allQueues),
       },
     };
+  }
+
+  async getOperationalAlerts(filter?: OperationalAlertFilter): Promise<PaginatedOperationalAlerts> {
+    const sample: OperationalAlertItem[] = [
+      {
+        id: 'ALT-101',
+        type: 'SUPPORT_SLA_BREACH',
+        severity: 'CRITICAL',
+        status: 'OPEN',
+        title: 'Support ticket passed its resolution target',
+        entityType: 'support_ticket',
+        entityId: 'TKT-4921',
+        occurrences: 2,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'ALT-102',
+        type: 'UNMATCHED_BOOKING_DELAY',
+        severity: 'WARNING',
+        status: 'OPEN',
+        title: 'New booking request awaiting worker matching',
+        entityType: 'booking',
+        entityId: 'B-84920',
+        occurrences: 1,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    const filtered = sample.filter((item) => {
+      if (filter?.status && filter.status !== 'ALL' && item.status !== filter.status) return false;
+      if (filter?.severity && filter.severity !== 'ALL' && item.severity !== filter.severity) return false;
+      return true;
+    });
+    return { items: filtered, total: filtered.length, page: 1, limit: 20, totalPages: 1 };
+  }
+
+  async acknowledgeAlert(_alertId: string): Promise<void> {
+    return;
+  }
+
+  async resolveAlert(_alertId: string, _note: string): Promise<void> {
+    return;
   }
 }
 
@@ -1260,9 +1334,156 @@ export class RealDashboardRepository implements IDashboardRepository {
     }
   }
 
+  private async fetchOperationsOverview(): Promise<OperationsDashboardOverviewExtension> {
+    const reportingDateIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const perms = useAuthStore.getState().user?.permissions;
+    const canReports = hasPermission(perms, PERMISSIONS.REPORTS_VIEW);
+    const canCustomers = hasPermission(perms, PERMISSIONS.CUSTOMER_VIEW);
+    const canAlerts = hasPermission(perms, PERMISSIONS.ALERT_VIEW);
+    const canAudit = hasPermission(perms, PERMISSIONS.AUDIT_VIEW);
+
+    const [
+      newCustRes,
+      workerRegRes,
+      workerUtilRes,
+      custAllRes,
+      custVerifiedRes,
+      custPendingRes,
+      alertsRes,
+      auditRes,
+    ] = await Promise.all([
+      canReports
+        ? httpClient
+            .get<Record<string, unknown>>('/admin/reports/new-customers', {
+              params: { interval: 'day', from: reportingDateIST, to: reportingDateIST },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      canReports
+        ? httpClient
+            .get<Record<string, unknown>>('/admin/reports/worker-registrations', {
+              params: { interval: 'day', from: reportingDateIST, to: reportingDateIST },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      canReports
+        ? httpClient.get<Record<string, unknown>>('/admin/reports/worker-utilization').catch(() => null)
+        : Promise.resolve(null),
+      canCustomers
+        ? httpClient.get<{ meta?: { total?: number } }>('/admin/customers', { params: { limit: 1 } }).catch(() => null)
+        : Promise.resolve(null),
+      canCustomers
+        ? httpClient
+            .get<{ meta?: { total?: number } }>('/admin/customers', {
+              params: { limit: 1, verificationStatus: 'VERIFIED' },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      canCustomers
+        ? httpClient
+            .get<{ meta?: { total?: number } }>('/admin/customers', {
+              params: { limit: 1, verificationStatus: 'PENDING' },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      canAlerts
+        ? httpClient
+            .get<{ data?: Array<Record<string, unknown>> }>('/admin/alerts', {
+              params: { status: 'OPEN', limit: 5 },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+      canAudit
+        ? httpClient
+            .get<{ data?: Array<Record<string, unknown>> }>('/admin/audit-logs', {
+              params: { limit: 5 },
+            })
+            .catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    const newCustData = asRecord(asRecord(newCustRes?.data)?.data);
+    const workerRegData = asRecord(asRecord(workerRegRes?.data)?.data);
+    const workerUtilData = asRecord(asRecord(workerUtilRes?.data)?.data);
+
+    const verifiedWorkers =
+      workerUtilData?.verifiedWorkers !== undefined ? Number(workerUtilData.verifiedWorkers) : null;
+    const activeBookingWorkers =
+      workerUtilData?.workersWithActiveBooking !== undefined
+        ? Number(workerUtilData.workersWithActiveBooking)
+        : null;
+    const availableWorkers =
+      verifiedWorkers !== null && activeBookingWorkers !== null
+        ? Math.max(0, verifiedWorkers - activeBookingWorkers)
+        : null;
+
+    const rawAlerts = Array.isArray(alertsRes?.data?.data) ? alertsRes.data.data : null;
+    const openAlertsList: OperationalAlertItem[] | null = rawAlerts
+      ? rawAlerts.map((item) => ({
+          id: String(item.id || ''),
+          type: String(item.type || ''),
+          severity: String(item.severity || 'INFO'),
+          status: String(item.status || 'OPEN'),
+          title: String(item.title || 'Operational Alert'),
+          entityType: item.entityType ? String(item.entityType) : undefined,
+          entityId: item.entityId ? String(item.entityId) : undefined,
+          detail:
+            item.detail && typeof item.detail === 'object'
+              ? (item.detail as Record<string, unknown>)
+              : undefined,
+          occurrences: Number(item.occurrences ?? 1),
+          createdAt: String(item.createdAt || ''),
+          lastSeenAt: item.lastSeenAt ? String(item.lastSeenAt) : undefined,
+          acknowledgedAt: item.acknowledgedAt ? String(item.acknowledgedAt) : null,
+          resolvedAt: item.resolvedAt ? String(item.resolvedAt) : null,
+          resolutionNote: item.resolutionNote ? String(item.resolutionNote) : null,
+        }))
+      : null;
+
+    const rawAudits = Array.isArray(auditRes?.data?.data) ? auditRes.data.data : null;
+    const recentActivity: OperationsActivityLogItem[] | null = rawAudits
+      ? rawAudits.map((a) => ({
+          id: String(a.id || ''),
+          action: String(a.action || a.summary || 'ADMIN_ACTION'),
+          entityType: a.entityType ? String(a.entityType) : undefined,
+          entityId: a.entityId ? String(a.entityId) : undefined,
+          actorName: a.actorEmail ? String(a.actorEmail) : a.actorName ? String(a.actorName) : undefined,
+          createdAt: String(a.createdAt || ''),
+        }))
+      : null;
+
+    return {
+      reportingDateIST,
+      newCustomersToday: newCustData?.total !== undefined ? Number(newCustData.total) : null,
+      newWorkersToday: workerRegData?.registered !== undefined ? Number(workerRegData.registered) : null,
+      customersTotal:
+        custAllRes?.data?.meta?.total !== undefined ? Number(custAllRes.data.meta.total) : null,
+      customersVerified:
+        custVerifiedRes?.data?.meta?.total !== undefined
+          ? Number(custVerifiedRes.data.meta.total)
+          : null,
+      customersPendingVerification:
+        custPendingRes?.data?.meta?.total !== undefined
+          ? Number(custPendingRes.data.meta.total)
+          : null,
+      availableWorkers,
+      workersVerifiedCount: verifiedWorkers,
+      workersWithActiveBooking: activeBookingWorkers,
+      openAlertsList,
+      recentActivity,
+      activityAvailable: canAudit && Boolean(recentActivity),
+      activityUnavailableReason: !canAudit
+        ? 'Recent operational activity feed is unavailable: this role does not hold audit.view and no standalone /admin/activity endpoint exists.'
+        : undefined,
+    };
+  }
+
   async getOperationsAdminDashboard(): Promise<OperationsAdminDashboardData> {
     try {
-      const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
+      const [res, operationsOverview] = await Promise.all([
+        httpClient.get<Record<string, unknown>>('/admin/dashboard'),
+        this.fetchOperationsOverview(),
+      ]);
       const root = res.data;
       if (!root || typeof root !== 'object') {
         throw new ServerFailureError('Invalid response received from dashboard API.');
@@ -1353,6 +1574,7 @@ export class RealDashboardRepository implements IDashboardRepository {
           },
           queues: (raw.queues && typeof raw.queues === 'object') ? (raw.queues as Record<OperationsQueueTab, OperationsQueueItem[]>) : emptyQueues,
           sections: sectionBreakdowns,
+          operationsOverview,
         };
       }
 
@@ -2455,6 +2677,74 @@ export class RealDashboardRepository implements IDashboardRepository {
       const { rawTickets, metaTotal } = await fetchAllSupportTickets();
 
       return buildSupportFromTickets(rawTickets, metaTotal, complaintsSection, rawQueues);
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getOperationalAlerts(filter?: OperationalAlertFilter): Promise<PaginatedOperationalAlerts> {
+    try {
+      const page = filter?.page || 1;
+      const limit = filter?.limit || 20;
+      const params: Record<string, string | number> = { page, limit };
+      if (filter?.status && filter.status !== 'ALL') params.status = filter.status;
+      if (filter?.severity && filter.severity !== 'ALL') params.severity = filter.severity;
+
+      const res = await httpClient.get<{
+        data?: Array<Record<string, unknown>>;
+        meta?: { page?: number; limit?: number; total?: number; totalPages?: number };
+      }>('/admin/alerts', { params });
+
+      const rawList = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? (res.data as unknown as Array<Record<string, unknown>>)
+        : [];
+      const meta = res.data?.meta;
+
+      const items: OperationalAlertItem[] = rawList.map((a) => ({
+        id: String(a.id || ''),
+        type: String(a.type || 'OPERATIONAL_ALERT'),
+        severity: String(a.severity || 'INFO'),
+        status: String(a.status || 'OPEN'),
+        title: String(a.title || a.type || 'Operational Alert'),
+        entityType: a.entityType ? String(a.entityType) : undefined,
+        entityId: a.entityId ? String(a.entityId) : undefined,
+        detail: a.detail && typeof a.detail === 'object' ? (a.detail as Record<string, unknown>) : undefined,
+        occurrences: Number(a.occurrences ?? 1),
+        createdAt: String(a.createdAt || ''),
+        lastSeenAt: a.lastSeenAt ? String(a.lastSeenAt) : undefined,
+        acknowledgedAt: a.acknowledgedAt ? String(a.acknowledgedAt) : null,
+        resolvedAt: a.resolvedAt ? String(a.resolvedAt) : null,
+        resolutionNote: a.resolutionNote ? String(a.resolutionNote) : null,
+      }));
+
+      const total = Number(meta?.total ?? items.length);
+      return {
+        items,
+        total,
+        page: Number(meta?.page ?? page),
+        limit: Number(meta?.limit ?? limit),
+        totalPages: Number(meta?.totalPages ?? Math.max(1, Math.ceil(total / limit))),
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async acknowledgeAlert(alertId: string): Promise<void> {
+    try {
+      await httpClient.post(`/admin/alerts/${encodeURIComponent(alertId)}/acknowledge`);
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async resolveAlert(alertId: string, note: string): Promise<void> {
+    try {
+      await httpClient.post(`/admin/alerts/${encodeURIComponent(alertId)}/resolve`, {
+        note: note.trim(),
+      });
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }

@@ -86,25 +86,25 @@ describe('Role-Based Operational Dashboards', () => {
             PERMISSIONS.CUSTOMERS_VIEW,
             PERMISSIONS.PAYMENTS_VIEW,
             PERMISSIONS.REFUNDS_MANAGE,
+            PERMISSIONS.ALERT_VIEW,
           ],
         },
         'ops-token'
       );
     });
 
-    it('renders Operations Command Console with essential operational KPIs and visualizations', async () => {
+    it('renders Operations Command Console with essential operational KPIs and overview sections', async () => {
       renderApp('/dashboard');
 
       expect(await screen.findByRole('heading', { name: 'Operations Command Console' })).toBeInTheDocument();
       expect(await screen.findAllByText('Total Bookings')).not.toHaveLength(0);
-      expect(await screen.findByText('Verified & Active Workers')).toBeInTheDocument();
-      expect(await screen.findByText('Replacement Requests')).toBeInTheDocument();
-      expect(await screen.findByText('Active Complaints')).toBeInTheDocument();
+      expect(await screen.findByText('Available Workers')).toBeInTheDocument();
       expect(await screen.findByText('Open Alerts')).toBeInTheDocument();
       expect(await screen.findByText('Collections (MTD)')).toBeInTheDocument();
 
-      expect(screen.getByRole('heading', { name: /Booking Status Distribution/i })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: /Alerts & Complaints Breakdown/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Booking Overview/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Customer Overview/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Worker Overview/i })).toBeInTheDocument();
       expect(screen.queryByRole('table')).not.toBeInTheDocument();
       expect(screen.queryByText('Pending Refunds')).not.toBeInTheDocument();
     });
