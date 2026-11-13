@@ -51,9 +51,13 @@ export const STATUS_MAPPINGS: Record<string, StatusDescriptor> = {
 
   // Payment Domain
   PAID: { label: 'Paid', variant: 'success' },
+  SUCCEEDED: { label: 'Paid', variant: 'success' },
   PAYMENT_FAILED: { label: 'Payment failed', variant: 'danger' },
+  FAILED: { label: 'Payment failed', variant: 'danger' },
   REFUND_PENDING: { label: 'Refund pending', variant: 'warning' },
   REFUNDED: { label: 'Refunded', variant: 'neutral' },
+  PARTIALLY_REFUNDED: { label: 'Partially refunded', variant: 'warning' },
+  REFUND_FAILED: { label: 'Refund failed', variant: 'danger' },
 
   // Support Ticket Domain
   CREATED: { label: 'Created', variant: 'neutral' },

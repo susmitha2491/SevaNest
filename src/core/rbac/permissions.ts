@@ -20,16 +20,30 @@ export const PERMISSIONS = {
   VERIFICATION_REVIEW: 'verification.review',
   VERIFICATION_DECIDE: 'verification.decide',
   VERIFICATION_SIGNOFF: 'verification.signoff',
+  VERIFICATION_REASSIGN: 'verification.reassign',
   VERIFICATION_DOCUMENT_VIEW: 'verification.document.view',
   DOCUMENTS_VIEW_RESTRICTED: 'verification.document.view', // Aliased to canonical verification.document.view
   BOOKINGS_VIEW: 'bookings.view',
   BOOKINGS_MANAGE: 'bookings.manage',
+  MATCHING_RUN: 'matching.run',
+  REPLACEMENT_VIEW: 'replacement.view',
+  REPLACEMENT_MANAGE: 'replacement.manage',
+  ATTENDANCE_VIEW: 'attendance.view',
+  ATTENDANCE_MANAGE: 'attendance.manage',
+  RATING_VIEW: 'rating.view',
+  RATING_MODERATE: 'rating.moderate',
+  ALERT_VIEW: 'alert.view',
+  ALERT_MANAGE: 'alert.manage',
   PAYMENTS_VIEW: 'payments.view',
+  PAYMENT_MANAGE: 'payment.manage',
   REFUNDS_MANAGE: 'refunds.manage',
   SUPPORT_VIEW: 'support.view',
   SUPPORT_MANAGE: 'support.manage',
   REPORTS_VIEW: 'reports.view',
   EXPORTS_GENERATE: 'exports.generate',
+  CATEGORY_MANAGE: 'category.manage',
+  AREA_MANAGE: 'area.manage',
+  NOTIFICATION_MANAGE: 'notification.manage',
   CONFIGURATION_MANAGE: 'configuration.manage',
   ROLES_MANAGE: 'roles.manage',
   AUDIT_VIEW: 'audit.view',
@@ -147,6 +161,13 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   if (
     (required === PERMISSIONS.ROLES_MANAGE || required === 'roles.manage' || required === 'role.manage') &&
     (userPermissions.includes('roles.manage') || userPermissions.includes('role.manage'))
+  ) {
+    return true;
+  }
+  // Support canonical config.manage and configuration.manage interchangeably
+  if (
+    (required === PERMISSIONS.CONFIGURATION_MANAGE || required === 'configuration.manage' || required === 'config.manage') &&
+    (userPermissions.includes('configuration.manage') || userPermissions.includes('config.manage'))
   ) {
     return true;
   }

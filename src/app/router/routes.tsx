@@ -37,6 +37,12 @@ const MyAccountPage = React.lazy(() =>
 const BookingsListPage = React.lazy(() =>
   import('../../features/bookings/presentation/BookingsListPage').then((m) => ({ default: m.BookingsListPage }))
 );
+const AttendanceLogsPage = React.lazy(() =>
+  import('../../features/attendance/presentation/AttendanceLogsPage').then((m) => ({ default: m.AttendanceLogsPage }))
+);
+const RatingsReviewsPage = React.lazy(() =>
+  import('../../features/ratings/presentation/RatingsReviewsPage').then((m) => ({ default: m.RatingsReviewsPage }))
+);
 const PaymentsListPage = React.lazy(() =>
   import('../../features/payments/presentation/PaymentsListPage').then((m) => ({ default: m.PaymentsListPage }))
 );
@@ -187,6 +193,26 @@ export const routes: RouteObject[] = [
           <ProtectedRoute permission={PERMISSIONS.BOOKINGS_VIEW}>
             <LazyRoute label="Loading booking management...">
               <BookingsListPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'attendance',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.ATTENDANCE_VIEW}>
+            <LazyRoute label="Loading attendance and daily logs...">
+              <AttendanceLogsPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'ratings',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.RATING_VIEW}>
+            <LazyRoute label="Loading ratings and reviews...">
+              <RatingsReviewsPage />
             </LazyRoute>
           </ProtectedRoute>
         ),

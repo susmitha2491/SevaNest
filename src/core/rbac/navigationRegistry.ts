@@ -1,4 +1,4 @@
-import { LucideIcon, LayoutDashboard, Users, Briefcase, UserCheck, CalendarCheck, CreditCard, LifeBuoy, BarChart3, Sliders, History } from 'lucide-react';
+import { LucideIcon, LayoutDashboard, Users, Briefcase, UserCheck, CalendarCheck, ClipboardCheck, Star, CreditCard, LifeBuoy, BarChart3, Sliders, History } from 'lucide-react';
 import { PERMISSIONS, hasPermission } from './permissions';
 import { AdminUser } from '../auth/authTypes';
 
@@ -210,6 +210,30 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
       path: '/bookings',
       icon: CalendarCheck,
       requiredPermission: PERMISSIONS.BOOKINGS_VIEW,
+      end: false,
+    });
+  }
+
+  // 5a. Attendance & Daily Logs
+  if (hasPermission(permissions, PERMISSIONS.ATTENDANCE_VIEW)) {
+    modules.push({
+      id: 'attendance',
+      name: 'Attendance & Daily Logs',
+      path: '/attendance',
+      icon: ClipboardCheck,
+      requiredPermission: PERMISSIONS.ATTENDANCE_VIEW,
+      end: false,
+    });
+  }
+
+  // 5b. Ratings & Reviews
+  if (hasPermission(permissions, PERMISSIONS.RATING_VIEW)) {
+    modules.push({
+      id: 'ratings',
+      name: 'Ratings & Reviews',
+      path: '/ratings',
+      icon: Star,
+      requiredPermission: PERMISSIONS.RATING_VIEW,
       end: false,
     });
   }
