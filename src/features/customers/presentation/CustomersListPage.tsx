@@ -14,10 +14,19 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { CustomerDetailModal } from './CustomerDetailModal';
+import { updateCustomerStatusInCache } from '../utils/customerCache';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+
+type CustomerSortField = 'registeredDate' | 'name' | 'id' | 'totalBookings';
+
+function parseRegisteredTimestamp(raw: string | undefined): number {
+  if (!raw) return NaN;
+  const ms = Date.parse(raw);
+  return Number.isNaN(ms) ? NaN : ms;
+}
 
 export const CustomersListPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -32,8 +41,8 @@ export const CustomersListPage: React.FC = () => {
     () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED') || 'ALL'
   );
   const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
-  const [sortField, setSortField] = useState<'name' | 'id' | 'totalBookings'>('name');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [sortField, setSortField] = useState<CustomerSortField>('registeredDate');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [detailModalId, setDetailModalId] = useState<string | null>(() => searchParams.get('customerId') || null);
@@ -184,7 +193,17 @@ export const CustomersListPage: React.FC = () => {
 
     result.sort((a, b) => {
       let comparison = 0;
-      if (sortField === 'name') {
+      if (sortField === 'registeredDate') {
+        const msA = parseRegisteredTimestamp(a.registeredDate);
+        const msB = parseRegisteredTimestamp(b.registeredDate);
+        if (!Number.isNaN(msA) && !Number.isNaN(msB)) {
+          comparison = msA - msB;
+        } else if (!Number.isNaN(msA) || !Number.isNaN(msB)) {
+          comparison = Number.isNaN(msA) ? -1 : 1;
+        } else {
+          return 0;
+        }
+      } else if (sortField === 'name') {
         comparison = a.name.localeCompare(b.name);
       } else if (sortField === 'id') {
         comparison = a.id.localeCompare(b.id);
@@ -274,7 +293,7 @@ export const CustomersListPage: React.FC = () => {
         selectedCustomer.id,
         remarks || 'Operational account suspension'
       );
-      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      updateCustomerStatusInCache(queryClient, selectedCustomer.id, 'SUSPENDED');
       setSuccessBanner(
         `Customer ${selectedCustomer.name} (${selectedCustomer.id}) has been successfully suspended.`
       );
@@ -294,7 +313,7 @@ export const CustomersListPage: React.FC = () => {
       setIsActionLoading(true);
       setActionError(null);
       await customerRepository.reactivateCustomer(selectedCustomer.id);
-      await queryClient.invalidateQueries({ queryKey: ['customers'] });
+      updateCustomerStatusInCache(queryClient, selectedCustomer.id, 'ACTIVE');
       setSuccessBanner(
         `Customer ${selectedCustomer.name} (${selectedCustomer.id}) has been successfully unsuspended.`
       );
@@ -491,18 +510,20 @@ export const CustomersListPage: React.FC = () => {
         <CustomSelect
           value={`${sortField}-${sortOrder}`}
           onChange={(val) => {
-            const [field, order] = val.split('-') as ['name' | 'id' | 'totalBookings', 'asc' | 'desc'];
+            const [field, order] = val.split('-') as [CustomerSortField, 'asc' | 'desc'];
             setSortField(field);
             setSortOrder(order);
           }}
           options={[
+            { value: 'registeredDate-desc', label: 'Sort: Latest Registered' },
+            { value: 'registeredDate-asc', label: 'Sort: Oldest Registered' },
             { value: 'name-asc', label: 'Sort: Name (A-Z)' },
             { value: 'name-desc', label: 'Sort: Name (Z-A)' },
             { value: 'totalBookings-desc', label: 'Sort: Most Bookings' },
             { value: 'id-asc', label: 'Sort: Customer ID' },
           ]}
           ariaLabel="Sort customer records"
-          minWidth="170px"
+          minWidth="190px"
         />
       </div>
 
@@ -771,7 +792,6 @@ export const CustomersListPage: React.FC = () => {
         <CustomerDetailModal
           customerId={detailModalId}
           onClose={handleCloseDetailModal}
-          onStatusChanged={() => refetch()}
         />
       )}
 

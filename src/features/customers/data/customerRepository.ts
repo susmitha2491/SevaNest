@@ -688,6 +688,27 @@ export class RealCustomerRepository implements ICustomerRepository {
     }
   }
 
+  async updateCustomerVerificationStatus(
+    customerId: string,
+    status: 'PENDING' | 'VERIFIED',
+    note?: string
+  ): Promise<void> {
+    try {
+      const customer = await this.getCustomerById(customerId).catch(() => null);
+      const ifMatchHeader = customer?.etag || '*';
+      await httpClient.patch(
+        `/admin/customers/${encodeURIComponent(customerId)}/verification-status`,
+        {
+          status,
+          ...(note?.trim() ? { note: note.trim() } : {}),
+        },
+        { headers: { 'If-Match': ifMatchHeader } }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
   async addCustomerNote(customerId: string, note: string): Promise<void> {
     try {
       if (!note || !note.trim()) {
@@ -780,6 +801,20 @@ export class MockCustomerRepository implements ICustomerRepository {
       customer.status = 'ACTIVE';
       customer.verificationStatus = 'VERIFIED';
       customer.notes.push('[REACTIVATED] Account restored by operations staff');
+    }
+  }
+
+  async updateCustomerVerificationStatus(
+    customerId: string,
+    status: 'PENDING' | 'VERIFIED',
+    note?: string
+  ): Promise<void> {
+    const customer = MOCK_CUSTOMERS.find((c) => c.id === customerId);
+    if (customer) {
+      customer.verificationStatus = status;
+      customer.notes.push(
+        `[VERIFICATION: ${status}]${note?.trim() ? ` ${note.trim()}` : ''}`
+      );
     }
   }
 

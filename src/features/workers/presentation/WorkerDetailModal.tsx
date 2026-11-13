@@ -54,6 +54,7 @@ import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmD
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
+import { WorkerAvailabilityCategoriesEditor, WorkerRatingsModerationCard } from './WorkerOperationsSections';
 
 export type WorkerModalWorkflowStep =
   | 'worker-info'
@@ -127,8 +128,12 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
   const canDecide = !readOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
-  const canSignOff = !readOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
+  const canSignOff = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
   const canActivate = hasPermission(user?.permissions, PERMISSIONS.WORKER_ACTIVATE);
+  const canManageWorker = hasPermission(user?.permissions, PERMISSIONS.WORKER_MANAGE);
+  const canViewRatings = hasPermission(user?.permissions, PERMISSIONS.RATING_VIEW);
+  const canModerateRatings = hasPermission(user?.permissions, PERMISSIONS.RATING_MODERATE);
+  const canFetchDossier = canReview || hasPermission(user?.permissions, '*');
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
     hasPermission(user?.permissions, PERMISSIONS.DOCUMENTS_VIEW_RESTRICTED);
@@ -369,7 +374,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   } = useQuery({
     queryKey: ['verification', 'dossier', workerId],
     queryFn: () => verificationRepository.getDossierById(workerId),
-    enabled: !!workerId,
+    enabled: !!workerId && canFetchDossier,
   });
 
   // Query signed document link for inspectingDoc
@@ -405,7 +410,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       queryClient.invalidateQueries({ queryKey: ['verification'] }),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
       refetchWorker(),
-      refetchDossier(),
+      ...(canFetchDossier ? [refetchDossier()] : []),
     ]);
     onStatusChanged?.();
   };
@@ -1296,7 +1301,12 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const approvedRequiredCount = requiredOpsChecks.filter((c) => c.approved).length;
   const pendingRequiredCount = requiredChecksCount - approvedRequiredCount;
 
-  const allMandatoryChecksApproved = otpPassed && (requiredChecksCount > 0 ? approvedRequiredCount === requiredChecksCount : true);
+  const hasDossierChecks = Boolean(dossier?.checks && Object.keys(dossier.checks).length > 0);
+  const allMandatoryChecksApproved = hasDossierChecks
+    ? otpPassed && (requiredChecksCount > 0 ? approvedRequiredCount === requiredChecksCount : true)
+    : !canFetchDossier && worker?.applicationStatus !== 'REJECTED' && worker?.verificationStatus !== 'REJECTED'
+      ? true
+      : otpPassed && (requiredChecksCount > 0 ? approvedRequiredCount === requiredChecksCount : true);
 
   // Distinguish non-terminal and terminal rejection
   const checksArray = Object.values(checksRecord);
@@ -2926,7 +2936,19 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     )}
                   </div>
                 </div>
+
+                <WorkerAvailabilityCategoriesEditor
+                  worker={worker}
+                  canManageWorker={canManageWorker}
+                  onUpdated={invalidateAll}
+                />
               </div>
+
+              <WorkerRatingsModerationCard
+                workerId={worker.id}
+                canViewRatings={canViewRatings}
+                canModerateRatings={canModerateRatings}
+              />
 
               {/* SECTION E: Application Information & System Lifecycle */}
               <div
@@ -4823,7 +4845,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                 </button>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  {readOnly ? (
+                  {readOnly && !canSignOff && !canActivate ? (
                     <>
                       {isSignedOff || worker.isFullyVerified || worker.verificationStatus === 'VERIFIED' ? (
                         <div
@@ -4929,7 +4951,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                           <XCircle size={15} />
                           <span>Worker Rejected</span>
                         </div>
-                      ) : (
+                      ) : canDecide ? (
                         <button
                           type="button"
                           id="stage4-bottom-reject-btn"
@@ -4958,7 +4980,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                           <XCircle size={16} />
                           <span>{rejectWorkerMutation.isPending ? 'Rejecting Worker...' : 'Reject Worker'}</span>
                         </button>
-                      )}
+                      ) : null}
 
                       {/* Approve Worker Action Button */}
                       {isSignedOff ? (

@@ -141,6 +141,12 @@ export interface BookingDetail {
   customerPhone?: string;
   customerEmail?: string;
   assignedWorkerPhone?: string;
+  categoryCode?: string;
+  areaId?: string;
+  availableFrom?: string;
+  availableTo?: string;
+  engagement?: string;
+  allowedActions?: string[];
   budgetMinMinor?: number;
   budgetMaxMinor?: number;
   budgetPeriod?: string;
@@ -296,14 +302,112 @@ export interface BookingHistoryData {
   rawBookingDetail?: Record<string, unknown>;
 }
 
+export type BackendAttendanceStatus = 'PRESENT' | 'ABSENT' | 'EXCEPTION' | 'LATE' | 'LEAVE';
+
+export interface BookingAttendanceHistoryItem {
+  id: string;
+  previousStatus?: string | null;
+  newStatus: string;
+  note?: string | null;
+  reason?: string | null;
+  changedByUserId?: string | null;
+  actorKind?: string | null;
+  changedAt: string;
+}
+
+export interface BookingAttendanceEntry {
+  id: string;
+  bookingId: string;
+  workerId: string;
+  date: string;
+  status: BackendAttendanceStatus | string;
+  checkInTime?: string | null;
+  checkOutTime?: string | null;
+  note?: string | null;
+  markedByRole?: string;
+  recordedByUserId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  etag?: string;
+  history?: BookingAttendanceHistoryItem[];
+}
+
+export interface BookingAttendancePage {
+  items: BookingAttendanceEntry[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export interface GlobalAttendanceOverview {
+  entries: BookingAttendanceEntry[];
+  bookings: BookingDetail[];
+  isComplete: boolean;
+  incompleteReason?: string;
+  failedBookingsCount: number;
+}
+
+export interface BookingAttendanceSummary {
+  bookingId: string;
+  month: string;
+  from?: string;
+  to?: string;
+  daysInMonth?: number;
+  recorded?: number;
+  presentDays: number;
+  absentDays: number;
+  lateDays: number;
+  exceptionDays: number;
+  leaveDays: number;
+  scheduledWindow?: { from?: string; to?: string } | null;
+}
+
+export interface RecordAttendanceInput {
+  date: string;
+  status: BackendAttendanceStatus;
+  note?: string;
+  idempotencyKey?: string;
+}
+
+export interface CorrectAttendanceInput {
+  status: BackendAttendanceStatus;
+  note?: string;
+  reason: string;
+  etag?: string;
+}
+
+export interface InterviewActionPayload {
+  scheduledAt?: string;
+  outcomeNote?: string;
+  reason?: string;
+  note?: string;
+  meetingLink?: string;
+  location?: string;
+}
+
 export interface IBookingRepository {
   getBookings(filter?: BookingFilterCriteria): Promise<PaginatedBookings>;
   getBookingById(id: string): Promise<BookingDetail | null>;
   getCandidateSuggestions(bookingId: string): Promise<CandidateMatch[]>;
   matchCandidates?(requirement: MatchRequirement): Promise<CandidateMatch[]>;
-  scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void>;
+  assignMatchedWorker?(bookingId: string, workerId: string, reason?: string): Promise<void>;
+  reopenMatching?(bookingId: string, reason: string): Promise<void>;
+  scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule & { scheduleType?: 'TRIAL' | 'INTERVIEW' }): Promise<void>;
   recordTrialOutcome(bookingId: string, outcome: TrialOutcome): Promise<void>;
-  confirmBooking(bookingId: string): Promise<void>;
+  confirmBooking(bookingId: string, startDate?: string): Promise<void>;
+  startService?(bookingId: string, note?: string): Promise<void>;
+  completeBooking?(bookingId: string, note?: string): Promise<void>;
+  respondSlotProposal?(bookingId: string, answer: 'accept' | 'reject', note?: string): Promise<void>;
+  performInterviewAction?(interviewId: string, action: 'confirm' | 'reschedule' | 'complete' | 'cancel', payload?: InterviewActionPayload): Promise<void>;
+  getBookingAttendance?(bookingId: string, params?: { from?: string; to?: string; page?: number; limit?: number }): Promise<BookingAttendanceEntry[]>;
+  getBookingAttendancePage?(bookingId: string, params?: { from?: string; to?: string; page?: number; limit?: number }): Promise<BookingAttendancePage>;
+  getAllAttendanceOverview?(params?: { from?: string; to?: string }): Promise<GlobalAttendanceOverview>;
+  getBookingAttendanceSummary?(bookingId: string, month: string): Promise<BookingAttendanceSummary | null>;
+  recordBookingAttendance?(bookingId: string, payload: RecordAttendanceInput): Promise<void>;
+  correctBookingAttendance?(attendanceId: string, payload: CorrectAttendanceInput): Promise<void>;
   processReplacement(bookingId: string, replacementWorkerId: string, remarks: string): Promise<void>;
   cancelBooking(bookingId: string, remarks: string, reasonCategory: string): Promise<void>;
   approveReplacement(requestId: string, remarks?: string, message?: string): Promise<void>;

@@ -9,6 +9,13 @@ import {
   MatchRequirement,
   BookingHistoryData,
   BookingCommunicationEvent,
+  BookingAttendanceEntry,
+  BookingAttendancePage,
+  BookingAttendanceSummary,
+  GlobalAttendanceOverview,
+  RecordAttendanceInput,
+  CorrectAttendanceInput,
+  InterviewActionPayload,
   ReplacementReasonCode,
   REPLACEMENT_REASONS,
   ReplacementStatus,
@@ -309,7 +316,34 @@ export class MockBookingRepository implements IBookingRepository {
     );
   }
 
-  async scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void> {
+  private mockAttendance: BookingAttendanceEntry[] = [];
+
+  async assignMatchedWorker(bookingId: string, workerId: string, reason?: string): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    const candidate = this.candidatesPool.find((c) => c.workerId === workerId);
+    if (booking) {
+      booking.assignedWorkerId = workerId;
+      if (candidate) booking.assignedWorkerName = candidate.workerName;
+      booking.status = 'MATCHED';
+      booking.internalNotes.push(`Worker ${candidate?.workerName || workerId} matched${reason ? `: ${reason}` : '.'}`);
+    }
+  }
+
+  async reopenMatching(bookingId: string, reason: string): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.assignedWorkerId = undefined;
+      booking.assignedWorkerName = undefined;
+      booking.status = 'REQUESTED';
+      booking.internalNotes.push(`Matching reopened: ${reason}`);
+    }
+  }
+
+  async scheduleTrial(
+    bookingId: string,
+    candidateWorkerId: string,
+    trial: TrialSchedule & { scheduleType?: 'TRIAL' | 'INTERVIEW' }
+  ): Promise<void> {
     const booking = this.bookings.find((b) => b.id === bookingId);
     const candidate = this.candidatesPool.find((c) => c.workerId === candidateWorkerId);
     if (booking && candidate) {
@@ -327,8 +361,8 @@ export class MockBookingRepository implements IBookingRepository {
     if (booking) {
       booking.trialOutcome = outcome;
       if (outcome.outcome === 'SUCCEEDED') {
-        booking.status = 'CONFIRMED';
-        booking.internalNotes.push(`Trial succeeded: Customer confirmed candidate.`);
+        booking.status = 'INTERVIEW_TRIAL_COMPLETED';
+        booking.internalNotes.push(`Trial succeeded: Ready for worker confirmation.`);
       } else {
         booking.status = 'REQUESTED';
         booking.assignedWorkerId = undefined;
@@ -338,12 +372,157 @@ export class MockBookingRepository implements IBookingRepository {
     }
   }
 
-  async confirmBooking(bookingId: string): Promise<void> {
+  async confirmBooking(bookingId: string, startDate?: string): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.status = 'CONFIRMED';
+      booking.serviceStartDate = startDate || new Date().toISOString().split('T')[0];
+      booking.internalNotes.push('Worker confirmed on booking.');
+    }
+  }
+
+  async startService(bookingId: string, note?: string): Promise<void> {
     const booking = this.bookings.find((b) => b.id === bookingId);
     if (booking) {
       booking.status = 'SERVICE_ACTIVE';
-      booking.serviceStartDate = 'Service Active';
-      booking.internalNotes.push('Booking confirmed and service marked active.');
+      booking.serviceStartDate = new Date().toISOString().split('T')[0];
+      booking.internalNotes.push(`Service started${note ? `: ${note}` : '.'}`);
+    }
+  }
+
+  async completeBooking(bookingId: string, note?: string): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.status = 'COMPLETED';
+      booking.internalNotes.push(`Service completed${note ? `: ${note}` : '.'}`);
+    }
+  }
+
+  async respondSlotProposal(bookingId: string, answer: 'accept' | 'reject', note?: string): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    if (booking) {
+      booking.proposedSlotAt = undefined;
+      booking.proposedSlotNote = undefined;
+      booking.internalNotes.push(`Slot proposal ${answer}ed${note ? `: ${note}` : '.'}`);
+    }
+  }
+
+  async performInterviewAction(
+    _interviewId: string,
+    _action: 'confirm' | 'reschedule' | 'complete' | 'cancel',
+    _payload?: InterviewActionPayload
+  ): Promise<void> { }
+
+  async getBookingAttendance(
+    bookingId: string,
+    params?: { from?: string; to?: string; page?: number; limit?: number }
+  ): Promise<BookingAttendanceEntry[]> {
+    const result = await this.getBookingAttendancePage(bookingId, params);
+    return result.items;
+  }
+
+  async getBookingAttendancePage(
+    bookingId: string,
+    params?: { from?: string; to?: string; page?: number; limit?: number }
+  ): Promise<BookingAttendancePage> {
+    let filtered = this.mockAttendance.filter((a) => a.bookingId === bookingId);
+    if (params?.from) {
+      filtered = filtered.filter((a) => a.date >= params.from!);
+    }
+    if (params?.to) {
+      filtered = filtered.filter((a) => a.date <= params.to!);
+    }
+    const page = params?.page || 1;
+    const limit = params?.limit || 20;
+    const total = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(total / limit));
+    const items = filtered.slice((page - 1) * limit, page * limit);
+    return {
+      items,
+      meta: { page, limit, total, totalPages },
+    };
+  }
+
+  async getAllAttendanceOverview(params?: { from?: string; to?: string }): Promise<GlobalAttendanceOverview> {
+    const bookingRes = await this.getBookings({ page: 1, pageSize: 1000 });
+    const bookings = bookingRes.items;
+    const candidates = bookings.filter(
+      (b) =>
+        Boolean(b.assignedWorkerId) &&
+        (Boolean(b.serviceStartDate) ||
+          ['SERVICE_ACTIVE', 'ACTIVE', 'COMPLETED', 'REPLACED', 'REPLACEMENT_REQUESTED'].includes(b.status))
+    );
+    const entries: BookingAttendanceEntry[] = [];
+    for (const b of candidates) {
+      const pageRes = await this.getBookingAttendancePage(b.id, {
+        from: params?.from,
+        to: params?.to,
+        page: 1,
+        limit: 100,
+      });
+      entries.push(...pageRes.items);
+    }
+    entries.sort((a, b) => b.date.localeCompare(a.date));
+    return {
+      entries,
+      bookings,
+      isComplete: true,
+      failedBookingsCount: 0,
+    };
+  }
+
+  async getBookingAttendanceSummary(bookingId: string, month: string): Promise<BookingAttendanceSummary | null> {
+    const entries = this.mockAttendance.filter((a) => a.bookingId === bookingId && a.date.startsWith(month));
+    return {
+      bookingId,
+      month,
+      daysInMonth: 30,
+      recorded: entries.length,
+      presentDays: entries.filter((e) => e.status === 'PRESENT').length,
+      absentDays: entries.filter((e) => e.status === 'ABSENT').length,
+      lateDays: entries.filter((e) => e.status === 'LATE').length,
+      exceptionDays: entries.filter((e) => e.status === 'EXCEPTION').length,
+      leaveDays: entries.filter((e) => e.status === 'LEAVE').length,
+      scheduledWindow: { from: '09:00', to: '17:00' },
+    };
+  }
+
+  async recordBookingAttendance(bookingId: string, payload: RecordAttendanceInput): Promise<void> {
+    const booking = this.bookings.find((b) => b.id === bookingId);
+    this.mockAttendance.unshift({
+      id: `att-${Date.now()}`,
+      bookingId,
+      workerId: booking?.assignedWorkerId || 'W-10482',
+      date: payload.date,
+      status: payload.status,
+      checkInTime: null,
+      checkOutTime: null,
+      note: payload.note || null,
+      markedByRole: 'ADMIN',
+      updatedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async correctBookingAttendance(attendanceId: string, payload: CorrectAttendanceInput): Promise<void> {
+    const target = this.mockAttendance.find((a) => a.id === attendanceId);
+    if (target) {
+      const prev = target.status;
+      target.status = payload.status;
+      target.note = payload.note ?? target.note;
+      target.updatedAt = new Date().toISOString();
+      target.history = [
+        ...(target.history || []),
+        {
+          id: `ah-${Date.now()}`,
+          previousStatus: prev,
+          newStatus: payload.status,
+          note: payload.note ?? null,
+          reason: payload.reason,
+          actorKind: 'ADMIN',
+          changedAt: new Date().toISOString(),
+        },
+      ];
     }
   }
 
@@ -445,36 +624,36 @@ export class MockBookingRepository implements IBookingRepository {
       ],
       interviews: booking?.trial
         ? [
-            {
-              id: `int-${booking.id}`,
-              type: 'TRIAL',
-              status: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'COMPLETED' : 'SCHEDULED',
-              statusLabel: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'Completed' : 'Scheduled',
-              requestedBy: 'CUSTOMER',
-              preferredAt: booking.trial.scheduledDate,
-              scheduledAt: booking.trial.scheduledDate,
-              outcomeNote: booking.trialOutcome?.feedbackRemarks,
-              note: booking.trial.notes,
-              createdAt: booking.createdAt,
-              timeline: [
-                { title: 'Requested', state: 'done', at: booking.createdAt },
-                { title: 'Confirmed', state: 'done', at: booking.createdAt },
-                { title: 'Scheduled', state: booking.trialOutcome ? 'done' : 'current', at: booking.trial.scheduledDate },
-              ],
-            },
-          ]
+          {
+            id: `int-${booking.id}`,
+            type: 'TRIAL',
+            status: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'COMPLETED' : 'SCHEDULED',
+            statusLabel: booking.trialOutcome?.outcome === 'SUCCEEDED' ? 'Completed' : 'Scheduled',
+            requestedBy: 'CUSTOMER',
+            preferredAt: booking.trial.scheduledDate,
+            scheduledAt: booking.trial.scheduledDate,
+            outcomeNote: booking.trialOutcome?.feedbackRemarks,
+            note: booking.trial.notes,
+            createdAt: booking.createdAt,
+            timeline: [
+              { title: 'Requested', state: 'done', at: booking.createdAt },
+              { title: 'Confirmed', state: 'done', at: booking.createdAt },
+              { title: 'Scheduled', state: booking.trialOutcome ? 'done' : 'current', at: booking.trial.scheduledDate },
+            ],
+          },
+        ]
         : [],
       replacementChain: booking?.replacement
         ? [
-            {
-              bookingId: booking.id,
-              position: 1,
-              status: booking.status,
-              workerId: booking.replacement.priorWorkerId,
-              createdAt: booking.replacement.requestedAt,
-              current: true,
-            },
-          ]
+          {
+            bookingId: booking.id,
+            position: 1,
+            status: booking.status,
+            workerId: booking.replacement.priorWorkerId,
+            createdAt: booking.replacement.requestedAt,
+            current: true,
+          },
+        ]
         : [],
       payments: [
         {
@@ -566,6 +745,82 @@ export function clearBookingDetailCache(): void {
   bookingDetailCache.clear();
 }
 
+export function clearBookingRegistryCaches(): void {
+  customerRegistryCache = null;
+  lastCustomerFetch = 0;
+  workerRegistryCache = null;
+  lastWorkerFetch = 0;
+}
+
+const isUnusablePersonName = (str: string): boolean => {
+  const trimmed = str.trim();
+  const lower = trimmed.toLowerCase();
+  return (
+    !trimmed ||
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ||
+    /^[0-9a-f]{20,}$/i.test(trimmed) ||
+    /^c-\d+$/i.test(trimmed) ||
+    /^cust[-_]\d*$/i.test(trimmed) ||
+    lower.startsWith('customer (') ||
+    lower === 'customer user' ||
+    lower === 'customer details unavailable' ||
+    lower === 'unknown customer' ||
+    lower === 'not provided'
+  );
+};
+
+async function fetchAllRegistryPages(
+  endpoint: '/admin/customers' | '/admin/workers',
+  altArrayKey: 'customers' | 'workers'
+): Promise<Record<string, unknown>[]> {
+  const items: Record<string, unknown>[] = [];
+  const limit = 100;
+  const MAX_PAGES = 25;
+  let page = 1;
+
+  while (page <= MAX_PAGES) {
+    const res = await httpClient.get<{
+      data?: Array<Record<string, unknown>>;
+      customers?: Array<Record<string, unknown>>;
+      workers?: Array<Record<string, unknown>>;
+      items?: Array<Record<string, unknown>>;
+      meta?: { page?: number; limit?: number; total?: number; totalPages?: number };
+    }>(endpoint, {
+      params: { page, limit },
+    });
+    const raw = res.data;
+    const list = Array.isArray(raw)
+      ? (raw as Record<string, unknown>[])
+      : Array.isArray(raw?.data)
+        ? (raw.data as Record<string, unknown>[])
+        : Array.isArray(raw?.[altArrayKey])
+          ? (raw[altArrayKey] as Record<string, unknown>[])
+          : Array.isArray(raw?.items)
+            ? (raw.items as Record<string, unknown>[])
+            : [];
+
+    items.push(...list);
+
+    const metaTotal = typeof raw?.meta?.total === 'number' ? raw.meta.total : undefined;
+    const metaTotalPages = typeof raw?.meta?.totalPages === 'number' ? raw.meta.totalPages : undefined;
+    const responseLimit = typeof raw?.meta?.limit === 'number' && raw.meta.limit > 0 ? raw.meta.limit : limit;
+
+    if (
+      list.length === 0 ||
+      (metaTotalPages !== undefined
+        ? page >= metaTotalPages
+        : metaTotal !== undefined
+          ? page * responseLimit >= metaTotal
+          : list.length < responseLimit)
+    ) {
+      break;
+    }
+    page++;
+  }
+
+  return items;
+}
+
 let isPrefetching = false;
 function scheduleBackgroundEnrichment(ids: string[]): void {
   if (isPrefetching || ids.length === 0) return;
@@ -601,28 +856,13 @@ export async function getCustomerRegistry(): Promise<Map<string, CachedCustomer>
     return customerRegistryCache;
   }
   try {
-    const res = await httpClient.get<{
-      data?: Array<Record<string, unknown>>;
-      items?: Array<Record<string, unknown>>;
-      customers?: Array<Record<string, unknown>>;
-    }>('/admin/customers', {
-      params: { limit: 100 },
-    });
-    const raw = res.data;
-    const list = Array.isArray(raw)
-      ? (raw as Record<string, unknown>[])
-      : Array.isArray(raw?.data)
-      ? (raw.data as Record<string, unknown>[])
-      : Array.isArray(raw?.customers)
-      ? (raw.customers as Record<string, unknown>[])
-      : Array.isArray(raw?.items)
-      ? (raw.items as Record<string, unknown>[])
-      : [];
+    const list = await fetchAllRegistryPages('/admin/customers', 'customers');
     const map = new Map<string, CachedCustomer>();
     for (const c of list) {
-      const id = String(c.id || c.customerId || '');
-      const userId = String(c.userId || '');
-      const name = String(c.name || c.fullName || '').trim();
+      const id = String(c.id || c.customerId || '').trim();
+      const userId = String(c.userId || '').trim();
+      const rawName = String(c.name || c.fullName || c.customerName || '').trim();
+      const name = isUnusablePersonName(rawName) ? '' : rawName;
       const mobile = String(c.mobile || c.phone || '').trim();
       const email = String(c.email || '').trim();
       const entry: CachedCustomer = { id, userId, name, mobile, email };
@@ -651,27 +891,11 @@ export async function getWorkerRegistry(): Promise<Map<string, CachedWorker>> {
     return workerRegistryCache;
   }
   try {
-    const res = await httpClient.get<{
-      data?: Array<Record<string, unknown>>;
-      workers?: Array<Record<string, unknown>>;
-      items?: Array<Record<string, unknown>>;
-    }>('/admin/workers', {
-      params: { limit: 100 },
-    });
-    const raw = res.data;
-    const list = Array.isArray(raw)
-      ? (raw as Record<string, unknown>[])
-      : Array.isArray(raw?.data)
-      ? (raw.data as Record<string, unknown>[])
-      : Array.isArray(raw?.workers)
-      ? (raw.workers as Record<string, unknown>[])
-      : Array.isArray(raw?.items)
-      ? (raw.items as Record<string, unknown>[])
-      : [];
+    const list = await fetchAllRegistryPages('/admin/workers', 'workers');
     const map = new Map<string, CachedWorker>();
     for (const w of list) {
-      const id = String(w.id || w.workerId || '');
-      const userId = String(w.userId || '');
+      const id = String(w.id || w.workerId || '').trim();
+      const userId = String(w.userId || '').trim();
       const name = String(w.name || w.fullName || '').trim();
       const mobile = String(w.mobile || w.phone || '').trim();
       const isFullyVerified = Boolean(w.isFullyVerified);
@@ -730,21 +954,18 @@ function mapBackendBookingToDomain(
   const rawWrkPhone = wrkObj?.mobile || raw.assignedWorkerPhone || raw.workerPhone || (raw.assignedWorkerPhoneMasked && !String(raw.assignedWorkerPhoneMasked).includes('*') ? raw.assignedWorkerPhoneMasked : undefined);
   const cleanWrkPhone = cachedWrkPhone || (rawWrkPhone ? formatPhoneNumber(String(rawWrkPhone)) : undefined);
 
-  const isIdLike = (str: string) =>
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str) ||
-    /^[0-9a-f]{20,}$/i.test(str) ||
-    str.toLowerCase().startsWith('customer (');
+  const isIdLike = (str: string) => isUnusablePersonName(str);
 
   let customerName = String(
     raw.customerName ||
-      customer?.fullName ||
-      customer?.name ||
-      custObj?.name ||
-      ''
+    customer?.fullName ||
+    customer?.name ||
+    custObj?.name ||
+    ''
   ).trim();
 
-  // Strictly eliminate generic `Customer (ID)` or substituted raw IDs
-  if (!customerName || isIdLike(customerName)) {
+  // Strictly eliminate generic `Customer (ID)`, placeholder labels, or substituted raw IDs
+  if (isIdLike(customerName)) {
     if (custObj?.name && !isIdLike(custObj.name)) {
       customerName = custObj.name;
     } else {
@@ -754,11 +975,11 @@ function mapBackendBookingToDomain(
 
   let assignedWorkerName = String(
     raw.assignedWorkerName ||
-      worker?.fullName ||
-      worker?.name ||
-      raw.workerName ||
-      wrkObj?.name ||
-      ''
+    worker?.fullName ||
+    worker?.name ||
+    raw.workerName ||
+    wrkObj?.name ||
+    ''
   ).trim();
 
   if (isIdLike(assignedWorkerName)) {
@@ -799,6 +1020,22 @@ function mapBackendBookingToDomain(
     customerPhone: cleanCustPhone || (rawCustPhone ? String(rawCustPhone) : undefined),
     customerEmail: (custObj?.email && !custObj.email.includes('*')) ? custObj.email : (raw.customerEmail ? String(raw.customerEmail) : undefined),
     assignedWorkerPhone: cleanWrkPhone || (rawWrkPhone ? String(rawWrkPhone) : undefined),
+    categoryCode:
+      typeof category === 'object' && category !== null && category.code
+        ? String(category.code)
+        : raw.categoryCode
+          ? String(raw.categoryCode)
+          : undefined,
+    areaId:
+      typeof area === 'object' && area !== null && area.id
+        ? String(area.id)
+        : raw.areaId
+          ? String(raw.areaId)
+          : undefined,
+    availableFrom: raw.availableFrom ? String(raw.availableFrom) : undefined,
+    availableTo: raw.availableTo ? String(raw.availableTo) : undefined,
+    engagement: raw.engagement ? String(raw.engagement) : undefined,
+    allowedActions: Array.isArray(raw.allowedActions) ? raw.allowedActions.map(String) : undefined,
     budgetMinMinor: raw.budgetMinMinor !== undefined && raw.budgetMinMinor !== null ? Number(raw.budgetMinMinor) : undefined,
     budgetMaxMinor: raw.budgetMaxMinor !== undefined && raw.budgetMaxMinor !== null ? Number(raw.budgetMaxMinor) : undefined,
     budgetPeriod: raw.budgetPeriod ? String(raw.budgetPeriod) : undefined,
@@ -815,13 +1052,13 @@ function mapBackendBookingToDomain(
     updatedAt: raw.updatedAt ? String(raw.updatedAt) : undefined,
     timeline: Array.isArray(raw.timeline)
       ? (raw.timeline as Array<Record<string, unknown>>).map((t) => ({
-          from: t.from !== undefined && t.from !== null ? String(t.from) : null,
-          to: String(t.to || ''),
-          by: String(t.by || ''),
-          note: t.note !== undefined && t.note !== null ? String(t.note) : null,
-          at: String(t.at || ''),
-          actorUserId: t.actorUserId !== undefined && t.actorUserId !== null ? String(t.actorUserId) : null,
-        }))
+        from: t.from !== undefined && t.from !== null ? String(t.from) : null,
+        to: String(t.to || ''),
+        by: String(t.by || ''),
+        note: t.note !== undefined && t.note !== null ? String(t.note) : null,
+        at: String(t.at || ''),
+        actorUserId: t.actorUserId !== undefined && t.actorUserId !== null ? String(t.actorUserId) : null,
+      }))
       : undefined,
   };
 }
@@ -835,19 +1072,14 @@ async function fetchRawBookings(filterStatus?: string): Promise<Record<string, u
     return Array.isArray((payload as { data?: { data?: Record<string, unknown>[] } })?.data?.data)
       ? (payload as { data: { data: Record<string, unknown>[] } }).data.data
       : Array.isArray((payload as { data?: Record<string, unknown>[] })?.data)
-      ? (payload as { data: Record<string, unknown>[] }).data
-      : Array.isArray(payload)
-      ? (payload as Record<string, unknown>[])
-      : [];
+        ? (payload as { data: Record<string, unknown>[] }).data
+        : Array.isArray(payload)
+          ? (payload as Record<string, unknown>[])
+          : [];
   }
   if (filterStatus === 'REQUESTED' || filterStatus === 'NEW_REQUEST') {
-    const [res1, res2] = await Promise.all([
-      httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/bookings', { params: { status: 'NEW_REQUEST', limit: 100 } }).catch(() => null),
-      httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/bookings', { params: { status: 'MATCHED', limit: 100 } }).catch(() => null),
-    ]);
-    const list1 = Array.isArray(res1?.data?.data) ? res1.data.data : Array.isArray(res1?.data) ? (res1.data as Record<string, unknown>[]) : [];
-    const list2 = Array.isArray(res2?.data?.data) ? res2.data.data : Array.isArray(res2?.data) ? (res2.data as Record<string, unknown>[]) : [];
-    return [...list1, ...list2];
+    const res = await httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/bookings', { params: { status: 'NEW_REQUEST', limit: 100 } }).catch(() => null);
+    return Array.isArray(res?.data?.data) ? res.data.data : Array.isArray(res?.data) ? (res.data as Record<string, unknown>[]) : [];
   }
   if (filterStatus === 'INTERVIEW_SCHEDULED' || filterStatus === 'INTERVIEW_TRIAL_SCHEDULED') {
     const res = await httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/bookings', { params: { status: 'INTERVIEW_TRIAL_SCHEDULED', limit: 100 } }).catch(() => null);
@@ -893,8 +1125,8 @@ export class RealBookingRepository implements IBookingRepository {
       const replList = Array.isArray(replRes?.data?.data)
         ? replRes.data.data
         : Array.isArray(replRes?.data)
-        ? (replRes.data as Record<string, unknown>[])
-        : [];
+          ? (replRes.data as Record<string, unknown>[])
+          : [];
       const replMap = new Map<string, Record<string, unknown>>();
       for (const r of replList) {
         if (r.bookingId) replMap.set(String(r.bookingId), r);
@@ -1195,17 +1427,48 @@ export class RealBookingRepository implements IBookingRepository {
 
       // For standard bookings, match candidates via documented requirement endpoint POST /admin/matching/candidates
       let engagement: MatchRequirement['engagement'] = 'FULL_TIME';
-      if (booking.engagementType === 'PART_TIME') engagement = 'PART_TIME';
+      const rawEng = booking.engagement?.toUpperCase();
+      if (
+        rawEng === 'FULL_TIME' ||
+        rawEng === 'PART_TIME' ||
+        rawEng === 'LIVE_IN' ||
+        rawEng === 'DAILY' ||
+        rawEng === 'HOURLY' ||
+        rawEng === 'SHIFT' ||
+        rawEng === 'ONE_TIME'
+      ) {
+        engagement = rawEng;
+      } else if (booking.engagementType === 'PART_TIME') engagement = 'PART_TIME';
       else if (booking.engagementType === 'FULL_TIME_LIVE_IN') engagement = 'LIVE_IN';
       else if (booking.engagementType === 'ONE_TIME') engagement = 'ONE_TIME';
 
+      let resolvedAreaId = booking.areaId;
+      if (!resolvedAreaId && booking.customerLocality) {
+        try {
+          const areasRes = await httpClient.get<{ data?: Array<Record<string, unknown>> }>('/admin/service-areas', {
+            params: { limit: 100 },
+          });
+          const areas = Array.isArray(areasRes.data?.data) ? areasRes.data.data : [];
+          const found = areas.find(
+            (a) => String(a.name || '').trim().toLowerCase() === booking.customerLocality.trim().toLowerCase()
+          );
+          if (found?.id) resolvedAreaId = String(found.id);
+        } catch {
+          // Leave unresolved if lookup fails
+        }
+      }
+
+      if (!resolvedAreaId) {
+        return [];
+      }
+
       try {
         const matched = await this.matchCandidates({
-          category: booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
-          areaId: booking.customerLocality,
+          category: booking.categoryCode || booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
+          areaId: resolvedAreaId,
           engagement,
-          availableFrom: '09:00',
-          availableTo: '17:00',
+          availableFrom: booking.availableFrom || '09:00',
+          availableTo: booking.availableTo || '17:00',
         });
         return matched;
       } catch {
@@ -1216,16 +1479,54 @@ export class RealBookingRepository implements IBookingRepository {
     }
   }
 
-  async scheduleTrial(bookingId: string, candidateWorkerId: string, trial: TrialSchedule): Promise<void> {
+  async assignMatchedWorker(bookingId: string, workerId: string, reason?: string): Promise<void> {
+    try {
+      bookingDetailCache.delete(bookingId);
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_match_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/match`,
+        {
+          workerId,
+          ...(reason ? { reason } : {}),
+        },
+        {
+          headers: { 'Idempotency-Key': key },
+        }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async reopenMatching(bookingId: string, reason: string): Promise<void> {
+    try {
+      bookingDetailCache.delete(bookingId);
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_reopen_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/reopen-matching`,
+        { reason },
+        { headers: { 'Idempotency-Key': key } }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async scheduleTrial(
+    bookingId: string,
+    candidateWorkerId: string,
+    trial: TrialSchedule & { scheduleType?: 'TRIAL' | 'INTERVIEW' }
+  ): Promise<void> {
     try {
       bookingDetailCache.delete(bookingId);
       const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await httpClient.post(
         `/admin/bookings/${bookingId}/schedule`,
         {
-          scheduleType: 'TRIAL',
+          scheduleType: trial.scheduleType || 'TRIAL',
           scheduledAt: trial.scheduledDate,
           workerId: candidateWorkerId,
+          ...(trial.notes ? { note: trial.notes } : {}),
         },
         {
           headers: { 'Idempotency-Key': key },
@@ -1254,18 +1555,399 @@ export class RealBookingRepository implements IBookingRepository {
     }
   }
 
-  async confirmBooking(bookingId: string): Promise<void> {
+  async confirmBooking(bookingId: string, startDate?: string): Promise<void> {
     try {
       bookingDetailCache.delete(bookingId);
       const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_conf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       await httpClient.post(
         `/admin/bookings/${bookingId}/confirm-worker`,
         {
-          startDate: new Date().toISOString().split('T')[0],
+          startDate: startDate || new Date().toISOString().split('T')[0],
         },
         {
           headers: { 'Idempotency-Key': key },
         }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async startService(bookingId: string, note?: string): Promise<void> {
+    try {
+      bookingDetailCache.delete(bookingId);
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_start_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/start`,
+        note ? { note } : {},
+        { headers: { 'Idempotency-Key': key } }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async completeBooking(bookingId: string, note?: string): Promise<void> {
+    try {
+      bookingDetailCache.delete(bookingId);
+      const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_comp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/bookings/${bookingId}/complete`,
+        note ? { note } : {},
+        { headers: { 'Idempotency-Key': key } }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async respondSlotProposal(bookingId: string, answer: 'accept' | 'reject', note?: string): Promise<void> {
+    try {
+      bookingDetailCache.delete(bookingId);
+      await httpClient.post(`/admin/bookings/${bookingId}/slot-proposal/${answer}`, note ? { note } : {});
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async performInterviewAction(
+    interviewId: string,
+    action: 'confirm' | 'reschedule' | 'complete' | 'cancel',
+    payload?: InterviewActionPayload
+  ): Promise<void> {
+    try {
+      await httpClient.post(`/admin/interviews/${encodeURIComponent(interviewId)}/${action}`, payload || {});
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getBookingAttendance(
+    bookingId: string,
+    params?: { from?: string; to?: string; page?: number; limit?: number }
+  ): Promise<BookingAttendanceEntry[]> {
+    const result = await this.getBookingAttendancePage(bookingId, params);
+    return result.items;
+  }
+
+  async getBookingAttendancePage(
+    bookingId: string,
+    params?: { from?: string; to?: string; page?: number; limit?: number }
+  ): Promise<BookingAttendancePage> {
+    try {
+      const requestedPage = params?.page ?? 1;
+      const requestedLimit = params?.limit ?? 100;
+      const res = await httpClient.get<{
+        data?: Array<Record<string, unknown>>;
+        meta?: { page?: number; limit?: number; total?: number; totalPages?: number };
+      }>(`/admin/attendance/bookings/${encodeURIComponent(bookingId)}`, {
+        params: {
+          page: requestedPage,
+          limit: requestedLimit,
+          ...(params?.from ? { from: params.from } : {}),
+          ...(params?.to ? { to: params.to } : {}),
+        },
+      });
+      const list = Array.isArray(res.data?.data)
+        ? res.data.data
+        : Array.isArray(res.data)
+        ? (res.data as Array<Record<string, unknown>>)
+        : [];
+      const responseEtag =
+        typeof (res as { headers?: Record<string, string> }).headers?.etag === 'string'
+          ? (res as { headers?: Record<string, string> }).headers?.etag
+          : undefined;
+      const items = list.map((item) => ({
+        id: String(item.id || ''),
+        bookingId: String(item.bookingId || bookingId),
+        workerId: String(item.workerId || ''),
+        date: String(item.date || ''),
+        status: String(item.status || 'PRESENT'),
+        checkInTime: item.checkInAt ? String(item.checkInAt) : item.checkInTime ? String(item.checkInTime) : null,
+        checkOutTime: item.checkOutAt ? String(item.checkOutAt) : item.checkOutTime ? String(item.checkOutTime) : null,
+        note: item.note ? String(item.note) : null,
+        markedByRole: item.recordedBy ? String(item.recordedBy) : item.markedByRole ? String(item.markedByRole) : undefined,
+        recordedByUserId: item.recordedByUserId ? String(item.recordedByUserId) : null,
+        createdAt: item.createdAt ? String(item.createdAt) : undefined,
+        updatedAt: item.updatedAt ? String(item.updatedAt) : undefined,
+        etag: item.etag ? String(item.etag) : responseEtag,
+        history: Array.isArray(item.history)
+          ? (item.history as Array<Record<string, unknown>>).map((h, idx) => ({
+              id: String(h.id || `${item.id || 'att'}-hist-${idx}`),
+              previousStatus:
+                h.from !== undefined && h.from !== null
+                  ? String(h.from)
+                  : h.previousStatus
+                  ? String(h.previousStatus)
+                  : null,
+              newStatus: String(h.to || h.newStatus || ''),
+              note: h.note !== undefined && h.note !== null ? String(h.note) : null,
+              reason: h.reason !== undefined && h.reason !== null ? String(h.reason) : null,
+              changedByUserId: h.actorUserId ? String(h.actorUserId) : h.changedByUserId ? String(h.changedByUserId) : null,
+              actorKind: h.actorKind ? String(h.actorKind) : null,
+              changedAt: String(h.at || h.changedAt || ''),
+            }))
+          : [],
+      }));
+      const rawMeta = res.data?.meta;
+      const total = typeof rawMeta?.total === 'number' ? rawMeta.total : items.length;
+      const limit = typeof rawMeta?.limit === 'number' ? rawMeta.limit : requestedLimit;
+      const page = typeof rawMeta?.page === 'number' ? rawMeta.page : requestedPage;
+      const totalPages =
+        typeof rawMeta?.totalPages === 'number'
+          ? Math.max(1, rawMeta.totalPages)
+          : Math.max(1, Math.ceil(total / limit));
+      return { items, meta: { page, limit, total, totalPages } };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  /**
+   * Aggregates attendance across all started bookings using booking-scoped endpoints.
+   * Paginates all booking pages and all attendance pages; never silently omits failed bookings
+   * or exceeds safe fan-out limits without setting `isComplete: false`.
+   */
+  async getAllAttendanceOverview(params?: { from?: string; to?: string }): Promise<GlobalAttendanceOverview> {
+    try {
+      const [customerMap, workerMap, firstPageRes] = await Promise.all([
+        getCustomerRegistry(),
+        getWorkerRegistry(),
+        httpClient.get<{
+          data?: Record<string, unknown>[];
+          meta?: { page?: number; limit?: number; total?: number };
+        }>('/admin/bookings', { params: { page: 1, limit: 100 } }),
+      ]);
+
+      const extractList = (payload: unknown): Record<string, unknown>[] => {
+        const obj = payload as { data?: unknown };
+        if (Array.isArray(obj?.data)) return obj.data as Record<string, unknown>[];
+        if (Array.isArray(payload)) return payload as Record<string, unknown>[];
+        return [];
+      };
+
+      const rawBookings = [...extractList(firstPageRes.data)];
+      const totalBookings = Number(firstPageRes.data?.meta?.total ?? rawBookings.length);
+      const totalBookingPages = Math.max(1, Math.ceil(totalBookings / 100));
+
+      if (totalBookingPages > 1) {
+        const pageNumbers = Array.from({ length: totalBookingPages - 1 }, (_, i) => i + 2);
+        const restResponses = await Promise.all(
+          pageNumbers.map((pageNum) =>
+            httpClient.get<{ data?: Record<string, unknown>[] }>('/admin/bookings', {
+              params: { page: pageNum, limit: 100 },
+            })
+          )
+        );
+        for (const res of restResponses) {
+          rawBookings.push(...extractList(res.data));
+        }
+      }
+
+      const mergeCachedBookingDetail = (raw: Record<string, unknown>): Record<string, unknown> => {
+        const id = String(raw.id || raw.bookingId || '');
+        const cached = id ? bookingDetailCache.get(id) : undefined;
+        return cached ? { ...raw, ...cached } : raw;
+      };
+
+      const rawBookingsWithCache = rawBookings.map(mergeCachedBookingDetail);
+      let bookings = rawBookingsWithCache.map((b) => mapBackendBookingToDomain(b, customerMap, workerMap));
+      const candidates = bookings.filter(
+        (b) =>
+          Boolean(b.assignedWorkerId) &&
+          (Boolean(b.serviceStartDate) ||
+            ['SERVICE_ACTIVE', 'ACTIVE', 'COMPLETED', 'REPLACED', 'REPLACEMENT_REQUESTED'].includes(b.status))
+      );
+
+      const MAX_SAFE_FANOUT_BOOKINGS = 80;
+      if (candidates.length > MAX_SAFE_FANOUT_BOOKINGS) {
+        return {
+          entries: [],
+          bookings,
+          isComplete: false,
+          failedBookingsCount: 0,
+          incompleteReason: `Unable to load all ${candidates.length} bookings cleanly via booking-scoped attendance endpoints. A global GET /admin/attendance endpoint is required.`,
+        };
+      }
+
+      const allEntries: BookingAttendanceEntry[] = [];
+      let failedBookingsCount = 0;
+
+      const fetchAllPagesForBooking = async (bookingId: string): Promise<BookingAttendanceEntry[]> => {
+        const firstAtt = await this.getBookingAttendancePage(bookingId, {
+          from: params?.from,
+          to: params?.to,
+          page: 1,
+          limit: 100,
+        });
+        const rows = [...firstAtt.items];
+        if (firstAtt.meta.totalPages > 1) {
+          const restAttPages = await Promise.all(
+            Array.from({ length: firstAtt.meta.totalPages - 1 }, (_, idx) =>
+              this.getBookingAttendancePage(bookingId, {
+                from: params?.from,
+                to: params?.to,
+                page: idx + 2,
+                limit: 100,
+              })
+            )
+          );
+          for (const p of restAttPages) {
+            rows.push(...p.items);
+          }
+        }
+        return rows;
+      };
+
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+        const batch = candidates.slice(i, i + BATCH_SIZE);
+        const settled = await Promise.allSettled(
+          batch.map((b) => fetchAllPagesForBooking(b.id))
+        );
+        for (const outcome of settled) {
+          if (outcome.status === 'fulfilled') {
+            allEntries.push(...outcome.value);
+          } else {
+            failedBookingsCount++;
+          }
+        }
+      }
+
+      // Enrich bookings that appear in attendance logs or active/started candidate rows when list payload omitted customerUserId
+      const entryBookingIds = new Set(allEntries.map((e) => e.bookingId));
+      const detailIdsToFetch = bookings
+        .filter((b) => {
+          const isRenderedOrActive =
+            entryBookingIds.has(b.id) ||
+            (['SERVICE_ACTIVE', 'ACTIVE', 'COMPLETED', 'REPLACED', 'REPLACEMENT_REQUESTED', 'CONFIRMED'].includes(b.status) &&
+              Boolean(b.assignedWorkerId));
+          if (!isRenderedOrActive) return false;
+          const missingCustomer = !b.customerUserId && !b.customerId && b.customerName === 'Customer Details Unavailable';
+          return missingCustomer && !bookingDetailCache.has(b.id);
+        })
+        .map((b) => b.id);
+
+      if (detailIdsToFetch.length > 0) {
+        for (let i = 0; i < detailIdsToFetch.length; i += BATCH_SIZE) {
+          const batch = detailIdsToFetch.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(
+            batch.map(async (id) => {
+              const detailRes = await httpClient.get<{ data?: Record<string, unknown> } | Record<string, unknown>>(
+                `/admin/bookings/${encodeURIComponent(id)}`
+              );
+              const payload = detailRes.data as { data?: unknown } | Record<string, unknown>;
+              const detailCandidate =
+                payload && typeof payload === 'object' && !Array.isArray(payload) && 'data' in payload
+                  ? payload.data
+                  : payload;
+              if (
+                detailCandidate &&
+                typeof detailCandidate === 'object' &&
+                !Array.isArray(detailCandidate) &&
+                ('customerUserId' in detailCandidate || 'customerId' in detailCandidate || 'id' in detailCandidate)
+              ) {
+                bookingDetailCache.set(id, detailCandidate as Record<string, unknown>);
+              }
+            })
+          );
+        }
+        bookings = rawBookingsWithCache
+          .map(mergeCachedBookingDetail)
+          .map((b) => mapBackendBookingToDomain(b, customerMap, workerMap));
+      }
+
+      allEntries.sort((a, b) => {
+        const dateCmp = b.date.localeCompare(a.date);
+        if (dateCmp !== 0) return dateCmp;
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      });
+
+      const isComplete = failedBookingsCount === 0;
+      return {
+        entries: allEntries,
+        bookings,
+        isComplete,
+        failedBookingsCount,
+        incompleteReason: isComplete
+          ? undefined
+          : `Failed to fetch attendance for ${failedBookingsCount} booking${failedBookingsCount === 1 ? '' : 's'}. Cross-booking completeness requires a dedicated GET /admin/attendance endpoint.`,
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getBookingAttendanceSummary(bookingId: string, month: string): Promise<BookingAttendanceSummary | null> {
+    try {
+      const res = await httpClient.get<{ data?: Record<string, unknown> }>(
+        `/admin/attendance/bookings/${encodeURIComponent(bookingId)}/summary`,
+        { params: { month } }
+      );
+      const raw = (
+        res.data?.data && typeof res.data.data === 'object' ? res.data.data : res.data
+      ) as Record<string, unknown> | undefined;
+      if (!raw || typeof raw !== 'object') return null;
+      const win =
+        raw.scheduledWindow && typeof raw.scheduledWindow === 'object'
+          ? (raw.scheduledWindow as Record<string, unknown>)
+          : null;
+      return {
+        bookingId: String(raw.bookingId || bookingId),
+        month: String(raw.month || month),
+        from: raw.from ? String(raw.from) : undefined,
+        to: raw.to ? String(raw.to) : undefined,
+        daysInMonth: raw.daysInMonth !== undefined ? Number(raw.daysInMonth) : undefined,
+        recorded: raw.recorded !== undefined ? Number(raw.recorded) : undefined,
+        presentDays: Number(raw.present ?? raw.presentDays ?? 0),
+        absentDays: Number(raw.absent ?? raw.absentDays ?? 0),
+        lateDays: Number(raw.late ?? raw.lateDays ?? 0),
+        exceptionDays: Number(raw.exception ?? raw.halfDays ?? 0),
+        leaveDays: Number(raw.leave ?? raw.leaveDays ?? 0),
+        scheduledWindow: win
+          ? {
+              from: win.from ? String(win.from) : undefined,
+              to: win.to ? String(win.to) : undefined,
+            }
+          : null,
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async recordBookingAttendance(bookingId: string, payload: RecordAttendanceInput): Promise<void> {
+    try {
+      const idempotencyKey =
+        payload.idempotencyKey && payload.idempotencyKey.length >= 8
+          ? payload.idempotencyKey
+          : typeof crypto !== 'undefined' && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `idem_att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      await httpClient.post(
+        `/admin/attendance/bookings/${encodeURIComponent(bookingId)}`,
+        {
+          date: payload.date,
+          status: payload.status,
+          ...(payload.note?.trim() ? { note: payload.note.trim() } : {}),
+        },
+        { headers: { 'Idempotency-Key': idempotencyKey } }
+      );
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async correctBookingAttendance(attendanceId: string, payload: CorrectAttendanceInput): Promise<void> {
+    try {
+      await httpClient.patch(
+        `/admin/attendance/${encodeURIComponent(attendanceId)}`,
+        {
+          status: payload.status,
+          ...(payload.note?.trim() ? { note: payload.note.trim() } : {}),
+          reason: payload.reason.trim(),
+        },
+        payload.etag ? { headers: { 'If-Match': payload.etag } } : undefined
       );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -1286,7 +1968,7 @@ export class RealBookingRepository implements IBookingRepository {
           if (activeReq.status === 'REQUESTED') {
             await httpClient.post(`/admin/replacement-requests/${activeReq.id}/approve`, {
               remarks: remarks || 'Eligibility approved by Operations Admin',
-            }).catch(() => {});
+            }).catch(() => { });
           }
           await httpClient.post(`/admin/replacement-requests/${activeReq.id}/select`, {
             workerId: replacementWorkerId,
@@ -1417,7 +2099,7 @@ export class RealBookingRepository implements IBookingRepository {
       const rawDetail = (detailRes?.data && typeof detailRes.data === 'object' && 'data' in detailRes.data ? (detailRes.data as { data?: Record<string, unknown> }).data : detailRes?.data) as Record<string, unknown> | undefined;
       const rawTimeline = Array.isArray(rawDetail?.timeline) ? rawDetail.timeline : [];
       let interviews = Array.isArray(interviewsRes?.data) ? interviewsRes.data : (Array.isArray((interviewsRes?.data as { data?: unknown[] })?.data) ? (interviewsRes?.data as { data: Array<Record<string, unknown>> }).data : []);
-      
+
       // Preserve interview & trial history from predecessor booking if current booking has no interviews logged
       if (rawDetail?.replacesBookingId && interviews.length === 0) {
         try {
@@ -1436,8 +2118,8 @@ export class RealBookingRepository implements IBookingRepository {
       const rawPayments = Array.isArray(paymentsRes?.data)
         ? paymentsRes.data
         : (Array.isArray((paymentsRes?.data as { data?: unknown[] })?.data)
-        ? (paymentsRes?.data as { data: Array<Record<string, unknown>> }).data
-        : []);
+          ? (paymentsRes?.data as { data: Array<Record<string, unknown>> }).data
+          : []);
 
       const payments = rawPayments.map((p: Record<string, unknown>) => ({
         id: String(p.id || ''),
@@ -1466,8 +2148,8 @@ export class RealBookingRepository implements IBookingRepository {
       const rawAudits = Array.isArray(auditRes?.data)
         ? auditRes.data
         : (Array.isArray((auditRes?.data as { data?: unknown[] })?.data)
-        ? (auditRes?.data as { data: Array<Record<string, unknown>> }).data
-        : []);
+          ? (auditRes?.data as { data: Array<Record<string, unknown>> }).data
+          : []);
 
       const auditLogs = rawAudits.map((a: Record<string, unknown>) => ({
         id: String(a.id || ''),

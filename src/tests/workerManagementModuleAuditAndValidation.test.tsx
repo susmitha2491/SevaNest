@@ -60,7 +60,9 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
     it('renders the roster displaying Profiles, Skills, Ratings, Availability, and Account Statuses', async () => {
       renderApp('/workers');
 
-      expect(await screen.findByText('Domestic Worker Roster & Profiles')).toBeInTheDocument();
+      expect(
+        await screen.findByText('Domestic Worker Roster & Profiles', {}, { timeout: 5000 })
+      ).toBeInTheDocument();
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
 

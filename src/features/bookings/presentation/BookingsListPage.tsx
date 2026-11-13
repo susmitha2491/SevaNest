@@ -19,6 +19,7 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { BookingDetail, REPLACEMENT_REASONS } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
+import { workerRepository } from '../../workers/data/workerRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
@@ -101,6 +102,23 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
 
   const canView = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
   const canManage = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_MANAGE);
+  const canMatch = canManage || hasPermission(user?.permissions, PERMISSIONS.MATCHING_RUN);
+  const canManageReplacement = canManage || hasPermission(user?.permissions, PERMISSIONS.REPLACEMENT_MANAGE);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const { data: categoriesCatalog = [] } = useQuery({
+    queryKey: ['bookings', 'catalog', 'categories'],
+    queryFn: () => workerRepository.getServiceCategoriesCatalog?.() ?? Promise.resolve([]),
+    enabled: canView,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: areasCatalog = [] } = useQuery({
+    queryKey: ['bookings', 'catalog', 'areas'],
+    queryFn: () => workerRepository.getServiceAreasCatalog?.() ?? Promise.resolve([]),
+    enabled: canView,
+    staleTime: 5 * 60 * 1000,
+  });
 
   // Query bookings with debounced search and keepPreviousData
   const { data: bookingsData, isLoading, isFetching, isError, refetch } = useQuery({
@@ -119,13 +137,51 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
     placeholderData: keepPreviousData,
   });
 
-  // Confirm booking mutation (activates service)
+  // Confirm worker mutation (INTERVIEW_TRIAL_COMPLETED -> CONFIRMED)
   const confirmBookingMutation = useMutation({
     mutationFn: async (bookingId: string) => {
+      setActionError(null);
       await bookingRepository.confirmBooking(bookingId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+    onError: (err: unknown) => {
+      setActionError(err instanceof Error ? err.message : 'Failed to confirm worker.');
+    },
+  });
+
+  // Start service mutation (CONFIRMED -> ACTIVE)
+  const startServiceMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      setActionError(null);
+      if (bookingRepository.startService) {
+        await bookingRepository.startService(bookingId);
+      } else {
+        await bookingRepository.confirmBooking(bookingId);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+    onError: (err: unknown) => {
+      setActionError(err instanceof Error ? err.message : 'Failed to start service.');
+    },
+  });
+
+  // Complete booking mutation (ACTIVE -> COMPLETED)
+  const completeBookingMutation = useMutation({
+    mutationFn: async (bookingId: string) => {
+      setActionError(null);
+      if (bookingRepository.completeBooking) {
+        await bookingRepository.completeBooking(bookingId);
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
+    onError: (err: unknown) => {
+      setActionError(err instanceof Error ? err.message : 'Failed to complete service.');
     },
   });
 
@@ -203,9 +259,12 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
           {[
             { key: 'ALL', label: 'All Bookings' },
             { key: 'REQUESTED', label: 'New Requests' },
+            { key: 'MATCHED', label: 'Matched' },
             { key: 'INTERVIEW_SCHEDULED', label: 'Trials Scheduled' },
+            { key: 'INTERVIEW_TRIAL_COMPLETED', label: 'Trial Completed' },
             { key: 'CONFIRMED', label: 'Confirmed' },
             { key: 'SERVICE_ACTIVE', label: 'Active Services' },
+            { key: 'COMPLETED', label: 'Completed' },
             { key: 'REPLACEMENT_REQUESTED', label: 'Replacements' },
             { key: 'CANCELLED', label: 'Cancelled' },
           ].map((tab) => (
@@ -245,7 +304,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
           />
 
           <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-            {/* Category Dropdown */}
+            {/* Category Dropdown (populated from backend catalog + loaded rows) */}
             <CustomSelect
               value={selectedCategory}
               onChange={(val) => {
@@ -254,17 +313,20 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               }}
               options={[
                 { value: 'ALL', label: 'All Categories' },
-                { value: 'House Maid', label: 'House Maid' },
-                { value: 'Cook', label: 'Cook' },
-                { value: 'Driver', label: 'Driver' },
-                { value: 'Babysitter', label: 'Babysitter' },
-                { value: 'Elderly Care Helper', label: 'Elderly Care Helper' },
+                ...Array.from(
+                  new Set([
+                    ...(categoriesCatalog.length > 0
+                      ? categoriesCatalog.map((c) => c.name)
+                      : ['House Maid', 'Cook', 'Driver', 'Babysitter', 'Elderly Care Helper']),
+                    ...(bookingsData?.items || []).map((b) => b.serviceCategory).filter(Boolean),
+                  ])
+                ).map((cat) => ({ value: cat, label: cat })),
               ]}
               ariaLabel="Filter by service category"
               minWidth="130px"
             />
 
-            {/* Locality Dropdown */}
+            {/* Locality Dropdown (populated from backend service areas + loaded rows) */}
             <CustomSelect
               value={selectedLocality}
               onChange={(val) => {
@@ -273,12 +335,14 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               }}
               options={[
                 { value: 'ALL', label: 'All Localities' },
-                { value: 'Kondapur', label: 'Kondapur' },
-                { value: 'Gachibowli', label: 'Gachibowli' },
-                { value: 'Madhapur', label: 'Madhapur' },
-                { value: 'Hitec City', label: 'Hitec City' },
-                { value: 'Jubilee Hills', label: 'Jubilee Hills' },
-                { value: 'Banjara Hills', label: 'Banjara Hills' },
+                ...Array.from(
+                  new Set([
+                    ...(areasCatalog.length > 0
+                      ? areasCatalog.map((a) => a.name)
+                      : ['Kondapur', 'Gachibowli', 'Madhapur', 'Hitec City', 'Jubilee Hills', 'Banjara Hills']),
+                    ...(bookingsData?.items || []).map((b) => b.customerLocality).filter(Boolean),
+                  ])
+                ).map((loc) => ({ value: loc, label: loc })),
               ]}
               ariaLabel="Filter by locality cluster"
               minWidth="130px"
@@ -286,6 +350,32 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
           </div>
         </div>
       </div>
+
+      {actionError && (
+        <div
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-status-danger-bg)',
+            border: '1px solid var(--color-status-danger-border)',
+            color: 'var(--color-status-danger-text)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
+        >
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            style={{ background: 'none', border: 'none', color: 'inherit', fontWeight: 700, cursor: 'pointer' }}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Bookings Table */}
       <div
@@ -532,8 +622,8 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                           <Eye size={13} /> View
                         </button>
 
-                        {/* Match Candidates (for REQUESTED state) */}
-                        {canManage && booking.status === 'REQUESTED' && (
+                        {/* Match Candidates (for REQUESTED or MATCHED state) */}
+                        {canMatch && (booking.status === 'REQUESTED' || booking.status === 'MATCHED') && (
                           <button
                             onClick={() => {
                               setSelectedBooking(booking);
@@ -553,7 +643,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                               gap: '4px',
                             }}
                           >
-                            <UserPlus size={13} /> Match Workers
+                            <UserPlus size={13} /> {booking.status === 'MATCHED' ? 'Schedule Trial' : 'Match Workers'}
                           </button>
                         )}
 
@@ -582,10 +672,34 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                           </button>
                         )}
 
-                        {/* Confirm Booking -> Active (for CONFIRMED state) */}
-                        {canManage && booking.status === 'CONFIRMED' && (
+                        {/* Confirm Worker (for INTERVIEW_TRIAL_COMPLETED -> CONFIRMED) */}
+                        {canManage && booking.status === 'INTERVIEW_TRIAL_COMPLETED' && (
                           <button
                             onClick={() => confirmBookingMutation.mutate(booking.id)}
+                            disabled={confirmBookingMutation.isPending}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-brand-600)',
+                              backgroundColor: 'var(--color-brand-50)',
+                              color: 'var(--color-brand-700)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Check size={13} /> Confirm Worker
+                          </button>
+                        )}
+
+                        {/* Start / Activate Service (for CONFIRMED -> ACTIVE) */}
+                        {canManage && booking.status === 'CONFIRMED' && (
+                          <button
+                            onClick={() => startServiceMutation.mutate(booking.id)}
+                            disabled={startServiceMutation.isPending}
                             style={{
                               padding: '4px 10px',
                               borderRadius: 'var(--radius-md)',
@@ -600,12 +714,35 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                               gap: '4px',
                             }}
                           >
-                            <Check size={13} /> Activate Service
+                            <Check size={13} /> Start Service
+                          </button>
+                        )}
+
+                        {/* Complete Service (for SERVICE_ACTIVE -> COMPLETED) */}
+                        {canManage && booking.status === 'SERVICE_ACTIVE' && (
+                          <button
+                            onClick={() => completeBookingMutation.mutate(booking.id)}
+                            disabled={completeBookingMutation.isPending}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: 'var(--color-surface)',
+                              color: 'var(--color-text-primary)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Check size={13} /> Complete
                           </button>
                         )}
 
                         {/* Process Replacement (for REPLACEMENT_REQUESTED state or active replacement case) */}
-                        {canManage && (booking.status === 'REPLACEMENT_REQUESTED' || booking.replacement) && (
+                        {canManageReplacement && (booking.status === 'REPLACEMENT_REQUESTED' || booking.replacement) && (
                           <button
                             onClick={() => {
                               setSelectedBooking(booking);

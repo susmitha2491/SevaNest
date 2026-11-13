@@ -69,6 +69,7 @@ export interface ICustomerRepository {
   revealPII(customerId: string, reason: string): Promise<{ phone: string; email: string }>;
   suspendCustomer(customerId: string, remarks: string): Promise<void>;
   reactivateCustomer(customerId: string): Promise<void>;
+  updateCustomerVerificationStatus(customerId: string, status: 'PENDING' | 'VERIFIED', note?: string): Promise<void>;
   addCustomerNote(customerId: string, note: string): Promise<void>;
 }
 

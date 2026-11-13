@@ -11,6 +11,9 @@ import {
   WorkerReferenceItem,
   WorkerAvailabilitySchedule,
   WorkerBlacklistInfo,
+  AdminWorkerRatingItem,
+  WorkerCatalogOption,
+  UpdateWorkerAvailabilityPayload,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName } from '../../../core/utils/phoneDirectory';
@@ -1974,6 +1977,109 @@ export class RealWorkerRepository implements IWorkerRepository {
       throw mapHttpErrorToDomainError(err);
     }
   }
+
+  async updateWorkerAvailability(
+    workerId: string,
+    payload: UpdateWorkerAvailabilityPayload
+  ): Promise<WorkerAvailabilitySchedule | null> {
+    try {
+      const response = await httpClient.patch<Record<string, unknown>>(
+        `/admin/workers/${encodeURIComponent(workerId)}/availability`,
+        payload
+      );
+      const raw = (response.data?.data && typeof response.data.data === 'object' ? response.data.data : response.data) as Record<string, unknown>;
+      if (!raw || typeof raw !== 'object') return null;
+      return {
+        engagementPreference: raw.engagementPreference ? String(raw.engagementPreference) : null,
+        areas: Array.isArray(raw.areas)
+          ? (raw.areas as Array<Record<string, unknown>>).map((a) => ({
+              id: String(a.id || ''),
+              name: String(a.name || ''),
+              city: String(a.city || 'Hyderabad'),
+              isEnabled: typeof a.isEnabled === 'boolean' ? a.isEnabled : true,
+            }))
+          : [],
+        timeWindows: Array.isArray(raw.timeWindows)
+          ? (raw.timeWindows as Array<Record<string, unknown>>).map((tw) => ({
+              start: String(tw.start || ''),
+              end: String(tw.end || ''),
+            }))
+          : [],
+      };
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getServiceCategoriesCatalog(): Promise<WorkerCatalogOption[]> {
+    try {
+      const res = await httpClient.get<{ data?: Array<Record<string, unknown>> }>('/admin/service-categories', {
+        params: { limit: 100 },
+      });
+      const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? (res.data as unknown as Array<Record<string, unknown>>) : [];
+      return list.map((c) => ({
+        id: String(c.id || ''),
+        code: String(c.code || ''),
+        name: String(c.name || ''),
+        isEnabled: typeof c.isEnabled === 'boolean' ? c.isEnabled : true,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async getServiceAreasCatalog(): Promise<WorkerCatalogOption[]> {
+    try {
+      const res = await httpClient.get<{ data?: Array<Record<string, unknown>> }>('/admin/service-areas', {
+        params: { limit: 100 },
+      });
+      const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? (res.data as unknown as Array<Record<string, unknown>>) : [];
+      return list.map((a) => ({
+        id: String(a.id || ''),
+        code: String(a.code || a.id || ''),
+        name: String(a.name || ''),
+        city: a.city ? String(a.city) : undefined,
+        isEnabled: typeof a.isEnabled === 'boolean' ? a.isEnabled : true,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async getWorkerRatings(workerId: string): Promise<AdminWorkerRatingItem[]> {
+    try {
+      const res = await httpClient.get<{ data?: Array<Record<string, unknown>> }>('/admin/ratings', {
+        params: { workerId, limit: 50 },
+      });
+      const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? (res.data as unknown as Array<Record<string, unknown>>) : [];
+      return list.map((r) => ({
+        id: String(r.id || ''),
+        bookingId: String(r.bookingId || ''),
+        workerId: String(r.workerId || workerId),
+        customerUserId: r.customerUserId ? String(r.customerUserId) : undefined,
+        score: Number(r.score || 0),
+        review: r.review ? String(r.review) : null,
+        tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+        status: String(r.status || 'VISIBLE'),
+        moderatedByUserId: r.moderatedByUserId ? String(r.moderatedByUserId) : null,
+        moderatedAt: r.moderatedAt ? String(r.moderatedAt) : null,
+        moderationReason: r.moderationReason ? String(r.moderationReason) : null,
+        createdAt: String(r.createdAt || ''),
+      }));
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async moderateRating(ratingId: string, action: 'hide' | 'unhide', reason: string): Promise<void> {
+    try {
+      await httpClient.post(`/admin/ratings/${encodeURIComponent(ratingId)}/${action}`, {
+        reason: reason.trim(),
+      });
+    } catch (err) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
 }
 
 export class MockWorkerRepository implements IWorkerRepository {
@@ -2173,6 +2279,62 @@ export class MockWorkerRepository implements IWorkerRepository {
       return { name: worker.emergencyContact.name, mobile: worker.emergencyContact.mobile };
     }
     return { name: 'Emergency Contact Person', mobile: '+91 98765 43211' };
+  }
+
+  async updateWorkerAvailability(
+    workerId: string,
+    payload: UpdateWorkerAvailabilityPayload
+  ): Promise<WorkerAvailabilitySchedule | null> {
+    const worker = MOCK_WORKERS.find((w) => w.id === workerId);
+    const updated: WorkerAvailabilitySchedule = {
+      engagementPreference: payload.engagementPreference || worker?.availabilitySchedule?.engagementPreference || 'FULL_TIME',
+      areas: worker?.availabilitySchedule?.areas || [],
+      timeWindows: payload.timeWindows || worker?.availabilitySchedule?.timeWindows || [],
+    };
+    if (worker) {
+      worker.availabilitySchedule = updated;
+    }
+    return updated;
+  }
+
+  async getServiceCategoriesCatalog(): Promise<WorkerCatalogOption[]> {
+    return [
+      { id: 'cat-maid', code: 'HOUSE_MAID', name: 'House Maid', isEnabled: true },
+      { id: 'cat-cook', code: 'COOK', name: 'Cook', isEnabled: true },
+      { id: 'cat-driver', code: 'DRIVER', name: 'Driver', isEnabled: true },
+      { id: 'cat-baby', code: 'BABYSITTER', name: 'Babysitter', isEnabled: true },
+      { id: 'cat-elder', code: 'ELDERLY_CARE', name: 'Elderly Care Helper', isEnabled: true },
+      { id: 'cat-clean', code: 'CLEANING_HELPER', name: 'Cleaning Helper', isEnabled: true },
+    ];
+  }
+
+  async getServiceAreasCatalog(): Promise<WorkerCatalogOption[]> {
+    return [
+      { id: 'area-bh', code: 'BANJARA_HILLS', name: 'Banjara Hills', city: 'Hyderabad', isEnabled: true },
+      { id: 'area-mad', code: 'MADHAPUR', name: 'Madhapur', city: 'Hyderabad', isEnabled: true },
+      { id: 'area-kon', code: 'KONDAPUR', name: 'Kondapur', city: 'Hyderabad', isEnabled: true },
+      { id: 'area-gach', code: 'GACHIBOWLI', name: 'Gachibowli', city: 'Hyderabad', isEnabled: true },
+      { id: 'area-hitec', code: 'HITEC_CITY', name: 'HITEC City', city: 'Hyderabad', isEnabled: true },
+    ];
+  }
+
+  async getWorkerRatings(workerId: string): Promise<AdminWorkerRatingItem[]> {
+    return [
+      {
+        id: 'RAT-101',
+        bookingId: 'B-84870',
+        workerId,
+        score: 5,
+        review: 'Punctual and thorough household work.',
+        tags: ['PUNCTUAL', 'TRUSTWORTHY'],
+        status: 'VISIBLE',
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+
+  async moderateRating(_ratingId: string, _action: 'hide' | 'unhide', _reason: string): Promise<void> {
+    return;
   }
 }
 

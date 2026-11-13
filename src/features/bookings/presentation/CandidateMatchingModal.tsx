@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -8,8 +8,9 @@ import {
   Calendar,
   CheckCircle,
   AlertCircle,
+  UserCheck,
 } from 'lucide-react';
-import { BookingDetail, CandidateMatch, TrialSchedule } from '../domain/types';
+import { BookingDetail, CandidateMatch, MatchRequirement, TrialSchedule } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 
@@ -18,6 +19,15 @@ interface CandidateMatchingModalProps {
   isOpen: boolean;
   onClose: () => void;
   onTrialScheduled?: () => void;
+}
+
+function getDefaultFutureDate(): string {
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  return tomorrow.toISOString().split('T')[0];
+}
+
+function getTodayDate(): string {
+  return new Date().toISOString().split('T')[0];
 }
 
 export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
@@ -29,44 +39,130 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
   const queryClient = useQueryClient();
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateMatch | null>(null);
 
-  // Trial form state
-  const [timeSlot, setTimeSlot] = useState('Morning (09:00 AM - 11:00 AM)');
+  // Schedule form state (uses genuine future date/time -> ISO 8601)
+  const [scheduleType, setScheduleType] = useState<'TRIAL' | 'INTERVIEW'>('TRIAL');
+  const [scheduledDateInput, setScheduledDateInput] = useState<string>(getDefaultFutureDate);
+  const [scheduledTimeInput, setScheduledTimeInput] = useState<string>('10:00');
   const [durationHours, setDurationHours] = useState(2);
   const [trialAddress, setTrialAddress] = useState('');
   const [trialNotes, setTrialNotes] = useState('');
   const [trialFee, setTrialFee] = useState(250);
 
-  // Query candidate suggestions
-  const { data: candidates, isLoading } = useQuery({
-    queryKey: ['bookings', 'candidates', booking?.id],
-    queryFn: () => (booking ? bookingRepository.getCandidateSuggestions(booking.id) : []),
+  // Optional candidate matching filters
+  const [languageFilter, setLanguageFilter] = useState('');
+  const [minExperienceMonths, setMinExperienceMonths] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const canDirectAssignOnly =
+    booking?.status === 'REQUESTED' || booking?.status === 'NEW_REQUEST';
+
+  const hasCustomFilter = Boolean(languageFilter.trim() || minExperienceMonths.trim());
+
+  // Query candidate suggestions (or filtered matching when areaId & filters present)
+  const { data: candidates, isLoading, isError: isCandidatesError } = useQuery({
+    queryKey: ['bookings', 'candidates', booking?.id, languageFilter.trim(), minExperienceMonths.trim()],
+    queryFn: async () => {
+      if (!booking) return [];
+      if (hasCustomFilter && booking.areaId && bookingRepository.matchCandidates) {
+        const rawEng = booking.engagement?.toUpperCase();
+        const engagement: MatchRequirement['engagement'] =
+          rawEng === 'FULL_TIME' ||
+          rawEng === 'PART_TIME' ||
+          rawEng === 'LIVE_IN' ||
+          rawEng === 'DAILY' ||
+          rawEng === 'HOURLY' ||
+          rawEng === 'SHIFT' ||
+          rawEng === 'ONE_TIME'
+            ? rawEng
+            : booking.engagementType === 'PART_TIME'
+            ? 'PART_TIME'
+            : booking.engagementType === 'FULL_TIME_LIVE_IN'
+            ? 'LIVE_IN'
+            : booking.engagementType === 'ONE_TIME'
+            ? 'ONE_TIME'
+            : 'FULL_TIME';
+        return bookingRepository.matchCandidates({
+          category: booking.categoryCode || booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
+          areaId: booking.areaId,
+          engagement,
+          availableFrom: booking.availableFrom || '09:00',
+          availableTo: booking.availableTo || '17:00',
+          ...(languageFilter.trim() ? { language: languageFilter.trim() } : {}),
+          ...(minExperienceMonths.trim() && Number(minExperienceMonths) > 0
+            ? { minExperienceMonths: Number(minExperienceMonths) }
+            : {}),
+        });
+      }
+      return bookingRepository.getCandidateSuggestions(booking.id);
+    },
     enabled: !!booking && isOpen,
   });
 
-  // Schedule trial mutation
+  const computedIsoSchedule = useMemo(() => {
+    if (!scheduledDateInput || !scheduledTimeInput) return null;
+    const parsed = new Date(`${scheduledDateInput}T${scheduledTimeInput}:00`);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+  }, [scheduledDateInput, scheduledTimeInput]);
+
+  // Assign matched worker only (NEW_REQUEST -> MATCHED)
+  const assignMatchMutation = useMutation({
+    mutationFn: async () => {
+      if (!booking || !selectedCandidate || !bookingRepository.assignMatchedWorker) return;
+      setActionError(null);
+      await bookingRepository.assignMatchedWorker(
+        booking.id,
+        selectedCandidate.workerId,
+        trialNotes.trim() || undefined
+      );
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bookings'] });
+      onTrialScheduled?.();
+      onClose();
+    },
+    onError: (err: unknown) => {
+      setActionError(err instanceof Error ? err.message : 'Failed to assign matched worker.');
+    },
+  });
+
+  // Schedule interview/trial mutation (NEW_REQUEST / MATCHED -> INTERVIEW_TRIAL_SCHEDULED)
   const scheduleMutation = useMutation({
     mutationFn: async () => {
       if (!booking || !selectedCandidate) return;
-      const trial: TrialSchedule = {
-        scheduledDate: 'Upcoming Slot',
-        timeSlot,
+      setActionError(null);
+      if (!computedIsoSchedule) {
+        throw new Error('Please choose a valid future date and time.');
+      }
+      if (new Date(computedIsoSchedule).getTime() <= Date.now()) {
+        throw new Error('Scheduled date and time must be in the future.');
+      }
+      const trial: TrialSchedule & { scheduleType?: 'TRIAL' | 'INTERVIEW' } = {
+        scheduledDate: computedIsoSchedule,
+        timeSlot: `${scheduledDateInput} ${scheduledTimeInput}`,
         durationHours,
         customerAddress: trialAddress || `${booking.customerLocality} Residential Address`,
         contactPerson: booking.customerName,
         contactPhone: booking.customerPhoneMasked,
         trialFeeAmount: trialFee,
         notes: trialNotes,
+        scheduleType,
       };
       await bookingRepository.scheduleTrial(booking.id, selectedCandidate.workerId, trial);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
-      if (onTrialScheduled) onTrialScheduled();
+      onTrialScheduled?.();
       onClose();
+    },
+    onError: (err: unknown) => {
+      setActionError(err instanceof Error ? err.message : 'Failed to schedule trial/interview.');
     },
   });
 
   if (!isOpen || !booking) return null;
+
+  const isBusy = scheduleMutation.isPending || assignMatchMutation.isPending;
 
   return (
     <div
@@ -167,11 +263,56 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
             </div>
             <div>
               <span style={{ color: 'var(--color-text-secondary)' }}>Shift: </span>
-              <strong>{booking.timingShift}</strong>
+              <strong>
+                {booking.availableFrom && booking.availableTo
+                  ? `${booking.availableFrom} - ${booking.availableTo}`
+                  : booking.timingShift}
+              </strong>
             </div>
             <div>
               <span style={{ color: 'var(--color-text-secondary)' }}>Max Budget: </span>
               <strong>{formatCurrencyINR(booking.salaryBudgetMax)}/mo</strong>
+            </div>
+          </div>
+
+          {/* Optional Matching Filters */}
+          <div style={{ display: 'flex', gap: 'var(--space-3)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div style={{ flex: '1 1 180px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                Filter by Language (Optional)
+              </label>
+              <input
+                type="text"
+                value={languageFilter}
+                onChange={(e) => setLanguageFilter(e.target.value)}
+                placeholder="e.g. Hindi, Telugu"
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
+            </div>
+            <div style={{ width: '200px' }}>
+              <label style={{ display: 'block', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                Min Experience (Months)
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={minExperienceMonths}
+                onChange={(e) => setMinExperienceMonths(e.target.value)}
+                placeholder="e.g. 12"
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              />
             </div>
           </div>
 
@@ -191,9 +332,25 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
           >
             <ShieldCheck size={16} />
             <span>
-              <strong>Verified Workforce Guarantee:</strong> Only domestic workers with all 6 verification checks completed (1 OTP pre-check + 5 operations checks) are surfaced for customer trials.
+              <strong>Verified Workforce Guarantee:</strong> Only active, verified workers matching the requirement&apos;s category, service area, and availability are surfaced.
             </span>
           </div>
+
+          {actionError && (
+            <div
+              style={{
+                padding: 'var(--space-3) var(--space-4)',
+                borderRadius: 'var(--radius-md)',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                border: '1px solid var(--color-status-danger-border)',
+                color: 'var(--color-status-danger-text)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+              }}
+            >
+              {actionError}
+            </div>
+          )}
 
           {/* Candidate Suggestions Grid */}
           <div>
@@ -203,6 +360,10 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 
             {isLoading ? (
               <div style={{ padding: 'var(--space-6)', textAlign: 'center' }}>Loading verified candidates...</div>
+            ) : isCandidatesError ? (
+              <div style={{ padding: 'var(--space-4)', color: 'var(--color-status-danger-text)', fontSize: 'var(--font-size-xs)' }}>
+                Unable to load matching candidates right now.
+              </div>
             ) : candidates?.length === 0 ? (
               <div
                 style={{
@@ -217,7 +378,7 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                   No Available Verified Candidates Found
                 </p>
                 <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                  There are no unassigned fully-verified workers in {booking.customerLocality} matching this category.
+                  There are no unassigned verified workers in {booking.customerLocality} matching this category and time window.
                 </p>
               </div>
             ) : (
@@ -227,7 +388,10 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                   return (
                     <div
                       key={cand.workerId}
-                      onClick={() => setSelectedCandidate(cand)}
+                      onClick={() => {
+                        setSelectedCandidate(cand);
+                        setActionError(null);
+                      }}
                       style={{
                         padding: 'var(--space-4)',
                         borderRadius: 'var(--radius-lg)',
@@ -278,9 +442,9 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                             <span>{cand.experienceYears} Yrs Exp</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <MapPin size={12} /> {cand.locality}
+                            <MapPin size={12} /> {cand.locality || booking.customerLocality}
                           </div>
-                          <div>Languages: {cand.languages.join(', ')}</div>
+                          <div>Languages: {cand.languages.length > 0 ? cand.languages.join(', ') : 'Not listed'}</div>
                         </div>
                       </div>
 
@@ -300,7 +464,7 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
             )}
           </div>
 
-          {/* Trial Configuration Form (Appears when candidate selected) */}
+          {/* Schedule Configuration Form (Appears when candidate selected) */}
           {selectedCandidate && (
             <div
               style={{
@@ -318,15 +482,39 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                 Coordinate Interview / Trial with {selectedCandidate.workerName}
               </h4>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 'var(--space-3)' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                    Time Slot:
+                    Schedule Format:
+                  </label>
+                  <select
+                    aria-label="Schedule Format"
+                    value={scheduleType}
+                    onChange={(e) => setScheduleType(e.target.value as 'TRIAL' | 'INTERVIEW')}
+                    style={{
+                      width: '100%',
+                      padding: 'var(--space-2)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      backgroundColor: 'var(--color-surface)',
+                      fontSize: 'var(--font-size-xs)',
+                    }}
+                  >
+                    <option value="TRIAL">In-Person Household Trial</option>
+                    <option value="INTERVIEW">Customer Interview</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
+                    Scheduled Date:
                   </label>
                   <input
-                    type="text"
-                    value={timeSlot}
-                    onChange={(e) => setTimeSlot(e.target.value)}
+                    type="date"
+                    aria-label="Scheduled Date"
+                    min={getTodayDate()}
+                    value={scheduledDateInput}
+                    onChange={(e) => setScheduledDateInput(e.target.value)}
                     style={{
                       width: '100%',
                       padding: 'var(--space-2)',
@@ -339,14 +527,13 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 
                 <div>
                   <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                    Trial Duration (Hours):
+                    Start Time:
                   </label>
                   <input
-                    type="number"
-                    min={1}
-                    max={8}
-                    value={durationHours}
-                    onChange={(e) => setDurationHours(Number(e.target.value))}
+                    type="time"
+                    aria-label="Start Time"
+                    value={scheduledTimeInput}
+                    onChange={(e) => setScheduledTimeInput(e.target.value)}
                     style={{
                       width: '100%',
                       padding: 'var(--space-2)',
@@ -359,20 +546,39 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 
                 <div>
                   <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                    Trial Fee (INR):
+                    Duration (Hours) &amp; Fee (INR):
                   </label>
-                  <input
-                    type="number"
-                    value={trialFee}
-                    onChange={(e) => setTrialFee(Number(e.target.value))}
-                    style={{
-                      width: '100%',
-                      padding: 'var(--space-2)',
-                      borderRadius: 'var(--radius-md)',
-                      border: '1px solid var(--color-border)',
-                      fontSize: 'var(--font-size-xs)',
-                    }}
-                  />
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="number"
+                      aria-label="Trial Duration Hours"
+                      min={1}
+                      max={8}
+                      value={durationHours}
+                      onChange={(e) => setDurationHours(Number(e.target.value))}
+                      style={{
+                        width: '50%',
+                        padding: 'var(--space-2)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    />
+                    <input
+                      type="number"
+                      aria-label="Trial Fee INR"
+                      min={0}
+                      value={trialFee}
+                      onChange={(e) => setTrialFee(Number(e.target.value))}
+                      style={{
+                        width: '50%',
+                        padding: 'var(--space-2)',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs)',
+                      }}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -383,7 +589,7 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                 <input
                   type="text"
                   placeholder="Enter full household address..."
-                  defaultValue={trialAddress || `${booking.customerLocality} Residential Address`}
+                  value={trialAddress || `${booking.customerLocality} Residential Address`}
                   onChange={(e) => setTrialAddress(e.target.value)}
                   style={{
                     width: '100%',
@@ -397,7 +603,7 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 
               <div>
                 <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                  Operational Notes for Worker & Customer App Notifications:
+                  Operational Notes for Worker &amp; Customer App Notifications:
                 </label>
                 <textarea
                   rows={2}
@@ -426,6 +632,8 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            gap: 'var(--space-2)',
+            flexWrap: 'wrap',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
@@ -445,22 +653,53 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
             Cancel
           </button>
 
-          <button
-            disabled={!selectedCandidate || scheduleMutation.isPending}
-            onClick={() => scheduleMutation.mutate()}
-            style={{
-              padding: 'var(--space-2) var(--space-5)',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              backgroundColor: !selectedCandidate ? 'var(--color-text-tertiary)' : 'var(--color-brand-600)',
-              color: '#ffffff',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 700,
-              cursor: !selectedCandidate ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {scheduleMutation.isPending ? 'Scheduling Trial...' : 'Confirm Trial Schedule'}
-          </button>
+          <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            {canDirectAssignOnly && (
+              <button
+                type="button"
+                disabled={!selectedCandidate || isBusy}
+                onClick={() => assignMatchMutation.mutate()}
+                style={{
+                  padding: 'var(--space-2) var(--space-4)',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-brand-600)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: !selectedCandidate ? 'var(--color-text-tertiary)' : 'var(--color-brand-700)',
+                  fontSize: 'var(--font-size-sm)',
+                  fontWeight: 700,
+                  cursor: !selectedCandidate || isBusy ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <UserCheck size={15} />
+                <span>{assignMatchMutation.isPending ? 'Assigning...' : 'Assign Matched Worker'}</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              disabled={!selectedCandidate || isBusy}
+              onClick={() => scheduleMutation.mutate()}
+              style={{
+                padding: 'var(--space-2) var(--space-5)',
+                borderRadius: 'var(--radius-md)',
+                border: 'none',
+                backgroundColor: !selectedCandidate ? 'var(--color-text-tertiary)' : 'var(--color-brand-600)',
+                color: '#ffffff',
+                fontSize: 'var(--font-size-sm)',
+                fontWeight: 700,
+                cursor: !selectedCandidate || isBusy ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {scheduleMutation.isPending
+                ? 'Scheduling...'
+                : scheduleType === 'INTERVIEW'
+                ? 'Confirm Interview Schedule'
+                : 'Confirm Trial Schedule'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

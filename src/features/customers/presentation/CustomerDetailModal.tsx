@@ -14,6 +14,7 @@ import {
   Languages,
 } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
+import { updateCustomerStatusInCache } from '../utils/customerCache';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
@@ -42,6 +43,8 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [activeTab, setActiveTab] = useState<'profile' | 'bookings' | 'complaints' | 'notes'>('profile');
   const [isSuspendOpen, setIsSuspendOpen] = useState(false);
   const [isActivateOpen, setIsActivateOpen] = useState(false);
+  const [isVerifyDialogOpen, setIsVerifyDialogOpen] = useState(false);
+  const [targetVerificationStatus, setTargetVerificationStatus] = useState<'PENDING' | 'VERIFIED'>('VERIFIED');
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -69,7 +72,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       await customerRepository.suspendCustomer(customerId, remarks || 'Operational account suspension');
       setIsSuspendOpen(false);
       await refetch();
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      updateCustomerStatusInCache(queryClient, customerId, 'SUSPENDED');
       onStatusChanged?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to suspend customer account.';
@@ -86,10 +89,31 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       await customerRepository.reactivateCustomer(customerId);
       setIsActivateOpen(false);
       await refetch();
-      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      updateCustomerStatusInCache(queryClient, customerId, 'ACTIVE');
       onStatusChanged?.();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to activate customer account.';
+      setActionError(msg);
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleVerificationConfirm = async (remarks?: string) => {
+    try {
+      setIsActionLoading(true);
+      setActionError(null);
+      await customerRepository.updateCustomerVerificationStatus(
+        customerId,
+        targetVerificationStatus,
+        remarks?.trim() || undefined
+      );
+      setIsVerifyDialogOpen(false);
+      await refetch();
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      onStatusChanged?.();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update customer verification status.';
       setActionError(msg);
     } finally {
       setIsActionLoading(false);
@@ -796,54 +820,86 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
           }}
         >
           {!readOnly ? (
-            <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
-              {customer.status === 'ACTIVE' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE}>
                 <button
-                  onClick={() => setIsSuspendOpen(true)}
-                  style={{
-                    padding: '6px 14px',
-                    borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-status-danger-bg)',
-                    color: 'var(--color-status-danger-text)',
-                    border: '1px solid var(--color-status-danger-text)',
-                    fontSize: 'var(--font-size-xs)',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <ShieldAlert size={14} />
-                  <span>Suspend Customer Account</span>
-                </button>
-              ) : (
-                <button
+                  type="button"
                   onClick={() => {
                     setActionError(null);
-                    setIsActivateOpen(true);
+                    setTargetVerificationStatus(customer.verificationStatus === 'VERIFIED' ? 'PENDING' : 'VERIFIED');
+                    setIsVerifyDialogOpen(true);
                   }}
                   disabled={isActionLoading}
                   style={{
                     padding: '6px 14px',
                     borderRadius: 'var(--radius-md)',
-                    backgroundColor: 'var(--color-status-success-bg)',
-                    color: 'var(--color-status-success-text)',
-                    border: '1px solid var(--color-status-success-text)',
+                    backgroundColor: customer.verificationStatus === 'VERIFIED' ? 'var(--color-status-warning-bg)' : 'var(--color-brand-50, #eff6ff)',
+                    color: customer.verificationStatus === 'VERIFIED' ? 'var(--color-status-warning-text)' : 'var(--color-brand-700, #1d4ed8)',
+                    border: customer.verificationStatus === 'VERIFIED' ? '1px solid var(--color-status-warning-border)' : '1px solid var(--color-brand-300, #93c5fd)',
                     fontSize: 'var(--font-size-xs)',
                     fontWeight: 600,
                     cursor: isActionLoading ? 'not-allowed' : 'pointer',
-                    opacity: isActionLoading ? 0.6 : 1,
                     display: 'inline-flex',
                     alignItems: 'center',
                     gap: '4px',
                   }}
                 >
-                  <CheckCircle size={14} />
-                  <span>Unsuspend Account</span>
+                  <ShieldCheck size={14} />
+                  <span>
+                    {customer.verificationStatus === 'VERIFIED' ? 'Mark Verification Pending' : 'Mark Customer Verified'}
+                  </span>
                 </button>
-              )}
-            </PermissionGate>
+              </PermissionGate>
+
+              <PermissionGate permission={PERMISSIONS.CUSTOMERS_MANAGE_STATUS}>
+                {customer.status === 'ACTIVE' ? (
+                  <button
+                    onClick={() => setIsSuspendOpen(true)}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-status-danger-bg)',
+                      color: 'var(--color-status-danger-text)',
+                      border: '1px solid var(--color-status-danger-text)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <ShieldAlert size={14} />
+                    <span>Suspend Customer Account</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setActionError(null);
+                      setIsActivateOpen(true);
+                    }}
+                    disabled={isActionLoading}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-status-success-bg)',
+                      color: 'var(--color-status-success-text)',
+                      border: '1px solid var(--color-status-success-text)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      cursor: isActionLoading ? 'not-allowed' : 'pointer',
+                      opacity: isActionLoading ? 0.6 : 1,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    <CheckCircle size={14} />
+                    <span>Unsuspend Account</span>
+                  </button>
+                )}
+              </PermissionGate>
+            </div>
           ) : (
             <div />
           )}
@@ -1003,6 +1059,33 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         onCancel={() => {
           if (!isActionLoading) {
             setIsActivateOpen(false);
+            setActionError(null);
+          }
+        }}
+      />
+      {/* Customer Verification Status Dialog */}
+      <ConfirmDialog
+        isOpen={isVerifyDialogOpen}
+        title={
+          targetVerificationStatus === 'VERIFIED'
+            ? `Verify Customer: ${customer.name}`
+            : `Mark Verification Pending: ${customer.name}`
+        }
+        description={
+          targetVerificationStatus === 'VERIFIED'
+            ? 'Confirm customer profile and residential verification check. Recorded in the backend audit log.'
+            : 'Reset customer verification status to PENDING pending additional checks. Recorded in the backend audit log.'
+        }
+        confirmLabel={targetVerificationStatus === 'VERIFIED' ? 'Confirm Verified' : 'Set Pending'}
+        isDestructive={false}
+        requireRemarks={true}
+        remarksPlaceholder="Enter operational verification note (recorded in audit log)..."
+        isLoading={isActionLoading}
+        errorMessage={actionError}
+        onConfirm={handleVerificationConfirm}
+        onCancel={() => {
+          if (!isActionLoading) {
+            setIsVerifyDialogOpen(false);
             setActionError(null);
           }
         }}

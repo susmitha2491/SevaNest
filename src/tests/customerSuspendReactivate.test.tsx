@@ -356,4 +356,106 @@ describe('SevaNest Admin Portal — Customer Suspension & Reactivation Action Wo
     expect(screen.getByText('B-81204')).toBeInTheDocument();
     expect(screen.getByText('B-79012')).toBeInTheDocument();
   });
+
+  it('12. Displays latest registered customers first and preserves exact chronological order across suspend and unsuspend without jumping', async () => {
+    setOpsAdminSession();
+
+    const getPageSpy = vi.spyOn(customerRepository, 'getCustomersPage').mockResolvedValueOnce({
+      items: [
+        {
+          id: 'C-MID',
+          name: 'Middle Zara',
+          maskedPhone: '+91 98**** **22',
+          maskedEmail: 'm****@example.com',
+          locality: 'Kondapur',
+          status: 'ACTIVE',
+          verificationStatus: 'VERIFIED',
+          totalBookings: 1,
+          registeredDate: '2026-11-05T10:00:00.000Z',
+        },
+        {
+          id: 'C-NEW',
+          name: 'Newest Aaron',
+          maskedPhone: '+91 98**** **11',
+          maskedEmail: 'n****@example.com',
+          locality: 'Gachibowli',
+          status: 'ACTIVE',
+          verificationStatus: 'VERIFIED',
+          totalBookings: 2,
+          registeredDate: '2026-11-12T04:37:21.270Z',
+        },
+        {
+          id: 'C-OLD',
+          name: 'Oldest Beta',
+          maskedPhone: '+91 98**** **33',
+          maskedEmail: 'o****@example.com',
+          locality: 'Madhapur',
+          status: 'SUSPENDED',
+          verificationStatus: 'PENDING',
+          totalBookings: 0,
+          registeredDate: '2026-10-15T05:03:33.820Z',
+        },
+      ],
+      total: 3,
+      page: 1,
+      limit: 20,
+      hasMore: false,
+    });
+
+    const suspendSpy = vi.spyOn(customerRepository, 'suspendCustomer').mockResolvedValueOnce();
+    const reactivateSpy = vi.spyOn(customerRepository, 'reactivateCustomer').mockResolvedValueOnce();
+
+    renderApp('/customers');
+
+    expect(await screen.findByText('Newest Aaron')).toBeInTheDocument();
+
+    const getRenderedNames = () =>
+      screen
+        .getAllByRole('button', { name: /^View profile for /i })
+        .map((row) => row.getAttribute('aria-label')?.replace(/^View profile for /, '') || '');
+
+    // Must default to registration date descending (Latest Registered first) regardless of name or status
+    expect(getRenderedNames()).toEqual([
+      'Newest Aaron (C-NEW)',
+      'Middle Zara (C-MID)',
+      'Oldest Beta (C-OLD)',
+    ]);
+
+    // Suspend the middle customer (Middle Zara)
+    fireEvent.click(screen.getByRole('button', { name: /Suspend customer Middle Zara/i }));
+    const remarksInput = await screen.findByPlaceholderText(/Enter mandatory operational reason/i);
+    fireEvent.change(remarksInput, { target: { value: 'Chargeback review required' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.click(screen.getByText('Confirm'));
+
+    // Wait for status & action button update in-place
+    const middleUnsuspendBtn = await screen.findByRole('button', { name: /Unsuspend customer Middle Zara/i });
+    expect(middleUnsuspendBtn).toBeInTheDocument();
+
+    // Order must remain completely unchanged (Middle Zara must NOT move to the top)
+    expect(getRenderedNames()).toEqual([
+      'Newest Aaron (C-NEW)',
+      'Middle Zara (C-MID)',
+      'Oldest Beta (C-OLD)',
+    ]);
+    // TanStack Query cache was updated in-place without triggering a list refetch
+    expect(getPageSpy).toHaveBeenCalledTimes(1);
+
+    // Now unsuspend Middle Zara -> action flips back to Suspend in the exact same row position
+    fireEvent.click(middleUnsuspendBtn);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: /^Unsuspend$/i }));
+
+    expect(await screen.findByRole('button', { name: /Suspend customer Middle Zara/i })).toBeInTheDocument();
+    expect(getRenderedNames()).toEqual([
+      'Newest Aaron (C-NEW)',
+      'Middle Zara (C-MID)',
+      'Oldest Beta (C-OLD)',
+    ]);
+    expect(getPageSpy).toHaveBeenCalledTimes(1);
+
+    suspendSpy.mockRestore();
+    reactivateSpy.mockRestore();
+    getPageSpy.mockRestore();
+  });
 });

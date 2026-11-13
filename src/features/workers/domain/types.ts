@@ -172,12 +172,46 @@ export interface WorkerPageResult {
   hasMore: boolean;
 }
 
+export interface AdminWorkerRatingItem {
+  id: string;
+  bookingId: string;
+  workerId: string;
+  customerUserId?: string;
+  score: number;
+  review?: string | null;
+  tags: string[];
+  status: 'VISIBLE' | 'HIDDEN' | string;
+  moderatedByUserId?: string | null;
+  moderatedAt?: string | null;
+  moderationReason?: string | null;
+  createdAt: string;
+}
+
+export interface WorkerCatalogOption {
+  id: string;
+  code: string;
+  name: string;
+  city?: string;
+  isEnabled?: boolean;
+}
+
+export interface UpdateWorkerAvailabilityPayload {
+  engagementPreference?: 'FULL_TIME' | 'PART_TIME' | 'LIVE_IN' | 'DAILY' | 'HOURLY' | 'SHIFT' | 'ONE_TIME';
+  areaIds?: string[];
+  timeWindows?: Array<{ start: string; end: string }>;
+}
+
 export interface IWorkerRepository {
   getWorkers(filter?: WorkerFilterCriteria): Promise<Worker[]>;
   getWorkersPage(filter?: WorkerFilterCriteria, page?: number, limit?: number): Promise<WorkerPageResult>;
   getWorkerById(id: string): Promise<WorkerDetail | null>;
   updateWorkerStatus(workerId: string, status: Worker['status'], remarks: string): Promise<void>;
   updateWorkerCategories(workerId: string, categoryCodes: string[]): Promise<void>;
+  updateWorkerAvailability?(workerId: string, payload: UpdateWorkerAvailabilityPayload): Promise<WorkerAvailabilitySchedule | null>;
+  getServiceCategoriesCatalog?(): Promise<WorkerCatalogOption[]>;
+  getServiceAreasCatalog?(): Promise<WorkerCatalogOption[]>;
+  getWorkerRatings?(workerId: string): Promise<AdminWorkerRatingItem[]>;
+  moderateRating?(ratingId: string, action: 'hide' | 'unhide', reason: string): Promise<void>;
   requestReVerification(workerId: string, checkTypes: string[], remarks: string): Promise<void>;
   activateWorker(workerId: string): Promise<WorkerDetail>;
   approveCheck(checkId: string, remarks?: string): Promise<void>;

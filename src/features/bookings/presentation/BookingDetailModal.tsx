@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   X,
   User,
@@ -23,6 +23,8 @@ import {
   ExternalLink,
   AlertCircle,
   Layers,
+  ClipboardCheck,
+  RotateCcw,
 } from 'lucide-react';
 import {
   BookingDetail,
@@ -33,9 +35,13 @@ import { bookingRepository } from '../data/bookingRepository';
 import { customerRepository } from '../../customers/data/customerRepository';
 import { workerRepository } from '../../workers/data/workerRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
+import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatPhoneNumber } from '../../../core/utils/phoneDirectory';
 import { formatDateTimeIST, formatDateIST } from '../../../shared/formatters/dateTime';
+import { useAuthStore } from '../../../core/auth/authStore';
+import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { BookingAttendanceSection } from './BookingAttendanceSection';
 
 interface BookingDetailModalProps {
   booking: BookingDetail | null;
@@ -57,7 +63,8 @@ export type SectionKey =
   | 'TIMELINE'
   | 'PAYMENTS'
   | 'REPLACEMENT'
-  | 'COMMUNICATIONS';
+  | 'COMMUNICATIONS'
+  | 'ATTENDANCE';
 
 interface TimelineDisplayEntry {
   to?: string;
@@ -81,6 +88,18 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onOpenCancel,
 }) => {
   const [filterSection, setFilterSection] = useState<SectionKey>('ALL');
+  const user = useAuthStore((s) => s.user);
+  const queryClient = useQueryClient();
+  const canManageBooking = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_MANAGE);
+  const canMatchBooking = canManageBooking || hasPermission(user?.permissions, PERMISSIONS.MATCHING_RUN);
+  const canViewAttendance = hasPermission(user?.permissions, PERMISSIONS.ATTENDANCE_VIEW);
+  const canManageAttendance = hasPermission(user?.permissions, PERMISSIONS.ATTENDANCE_MANAGE);
+
+  const [lifecycleError, setLifecycleError] = useState<string | null>(null);
+  const [isReopenDialogOpen, setIsReopenDialogOpen] = useState(false);
+  const [rescheduleTargetId, setRescheduleTargetId] = useState<string | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState(() => new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+  const [rescheduleTime, setRescheduleTime] = useState('11:00');
 
   const overviewRef = useRef<React.ElementRef<'div'> | null>(null);
   const customerRef = useRef<React.ElementRef<'div'> | null>(null);
@@ -90,6 +109,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   const paymentsRef = useRef<React.ElementRef<'div'> | null>(null);
   const replacementRef = useRef<React.ElementRef<'div'> | null>(null);
   const commsRef = useRef<React.ElementRef<'div'> | null>(null);
+  const attendanceRef = useRef<React.ElementRef<'div'> | null>(null);
 
   const scrollToSection = (key: SectionKey) => {
     setFilterSection(key);
@@ -106,6 +126,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         PAYMENTS: paymentsRef,
         REPLACEMENT: replacementRef,
         COMMUNICATIONS: commsRef,
+        ATTENDANCE: attendanceRef,
       };
       const target = map[key]?.current;
       if (target && typeof target.scrollIntoView === 'function') {
@@ -155,6 +176,86 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
       }
     },
     enabled: !!booking && isOpen && !!workerIdToFetch,
+  });
+
+  const invalidateBookings = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+  };
+
+  const lifecycleActionMutation = useMutation({
+    mutationFn: async (action: 'confirm' | 'start' | 'complete') => {
+      if (!booking) return;
+      setLifecycleError(null);
+      if (action === 'confirm') {
+        await bookingRepository.confirmBooking(booking.id);
+      } else if (action === 'start' && bookingRepository.startService) {
+        await bookingRepository.startService(booking.id);
+      } else if (action === 'complete' && bookingRepository.completeBooking) {
+        await bookingRepository.completeBooking(booking.id);
+      }
+    },
+    onSuccess: async () => {
+      await invalidateBookings();
+      onClose();
+    },
+    onError: (err: unknown) => {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to update booking state.');
+    },
+  });
+
+  const reopenMatchingMutation = useMutation({
+    mutationFn: async (reason: string) => {
+      if (!booking || !bookingRepository.reopenMatching) return;
+      setLifecycleError(null);
+      await bookingRepository.reopenMatching(booking.id, reason);
+    },
+    onSuccess: async () => {
+      setIsReopenDialogOpen(false);
+      await invalidateBookings();
+      onClose();
+    },
+    onError: (err: unknown) => {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to reopen matching.');
+    },
+  });
+
+  const slotProposalMutation = useMutation({
+    mutationFn: async (answer: 'accept' | 'reject') => {
+      if (!booking || !bookingRepository.respondSlotProposal) return;
+      setLifecycleError(null);
+      await bookingRepository.respondSlotProposal(booking.id, answer);
+    },
+    onSuccess: invalidateBookings,
+    onError: (err: unknown) => {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to respond to slot proposal.');
+    },
+  });
+
+  const interviewActionMutation = useMutation({
+    mutationFn: async ({
+      interviewId,
+      action,
+      scheduledAt,
+    }: {
+      interviewId: string;
+      action: 'confirm' | 'reschedule' | 'complete' | 'cancel';
+      scheduledAt?: string;
+    }) => {
+      if (!bookingRepository.performInterviewAction) return;
+      setLifecycleError(null);
+      await bookingRepository.performInterviewAction(
+        interviewId,
+        action,
+        scheduledAt ? { scheduledAt } : undefined
+      );
+    },
+    onSuccess: async () => {
+      setRescheduleTargetId(null);
+      await invalidateBookings();
+    },
+    onError: (err: unknown) => {
+      setLifecycleError(err instanceof Error ? err.message : 'Failed to update interview.');
+    },
   });
 
   if (!isOpen || !booking) return null;
@@ -285,6 +386,9 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     { key: 'PAYMENTS', label: 'Payments & Fees', icon: <DollarSign size={14} />, count: paymentsCount, testId: 'workspace-tab-payments' },
     { key: 'REPLACEMENT', label: 'Replacement History', icon: <RefreshCw size={14} />, count: replacementCount, testId: 'workspace-tab-replacements' },
     { key: 'COMMUNICATIONS', label: 'Communication History', icon: <MessageSquare size={14} />, count: commsCount, testId: 'workspace-tab-communications' },
+    ...(canViewAttendance
+      ? [{ key: 'ATTENDANCE' as SectionKey, label: 'Attendance & Logs', icon: <ClipboardCheck size={14} />, testId: 'workspace-tab-attendance' }]
+      : []),
   ];
 
   return (
@@ -395,8 +499,12 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           {/* Right: Actions */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
             {onOpenMatchWizard &&
+              canMatchBooking &&
+              booking.status !== 'CANCELLED' &&
+              booking.status !== 'COMPLETED' &&
               (booking.status === 'REQUESTED' ||
                 booking.status === 'NEW_REQUEST' ||
+                booking.status === 'MATCHED' ||
                 !booking.assignedWorkerId) && (
                 <button
                   onClick={() => onOpenMatchWizard(booking)}
@@ -421,6 +529,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               )}
 
             {onOpenTrialOutcome &&
+              canManageBooking &&
               booking.status === 'INTERVIEW_SCHEDULED' && (
                 <button
                   onClick={() => onOpenTrialOutcome(booking)}
@@ -444,7 +553,106 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 </button>
               )}
 
+            {canManageBooking && booking.status === 'INTERVIEW_TRIAL_COMPLETED' && (
+              <button
+                type="button"
+                onClick={() => lifecycleActionMutation.mutate('confirm')}
+                disabled={lifecycleActionMutation.isPending}
+                style={{
+                  padding: '4px 10px',
+                  height: '28px',
+                  backgroundColor: '#0284c7',
+                  color: '#ffffff',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <CheckCircle size={13} /> Confirm Worker
+              </button>
+            )}
+
+            {canManageBooking && booking.status === 'CONFIRMED' && (
+              <button
+                type="button"
+                onClick={() => lifecycleActionMutation.mutate('start')}
+                disabled={lifecycleActionMutation.isPending}
+                style={{
+                  padding: '4px 10px',
+                  height: '28px',
+                  backgroundColor: '#16a34a',
+                  color: '#ffffff',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <CheckCircle size={13} /> Start Service
+              </button>
+            )}
+
+            {canManageBooking && booking.status === 'SERVICE_ACTIVE' && (
+              <button
+                type="button"
+                onClick={() => lifecycleActionMutation.mutate('complete')}
+                disabled={lifecycleActionMutation.isPending}
+                style={{
+                  padding: '4px 10px',
+                  height: '28px',
+                  backgroundColor: '#0f766e',
+                  color: '#ffffff',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                }}
+              >
+                <CheckCircle size={13} /> Complete Service
+              </button>
+            )}
+
+            {canMatchBooking &&
+              (booking.status === 'MATCHED' ||
+                booking.status === 'INTERVIEW_SCHEDULED' ||
+                booking.status === 'INTERVIEW_TRIAL_COMPLETED') && (
+                <button
+                  type="button"
+                  onClick={() => setIsReopenDialogOpen(true)}
+                  style={{
+                    padding: '4px 10px',
+                    height: '28px',
+                    backgroundColor: '#fffbeb',
+                    color: '#b45309',
+                    borderRadius: '6px',
+                    border: '1px solid #fde68a',
+                    fontWeight: 600,
+                    fontSize: '12px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                  }}
+                >
+                  <RotateCcw size={13} /> Reopen Matching
+                </button>
+              )}
+
             {onOpenReplacement &&
+              (canManageBooking || hasPermission(user?.permissions, PERMISSIONS.REPLACEMENT_MANAGE)) &&
               booking.status === 'REPLACEMENT_REQUESTED' && (
                 <button
                   onClick={() => onOpenReplacement(booking)}
@@ -469,6 +677,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               )}
 
             {onOpenCancel &&
+              canManageBooking &&
               booking.status !== 'CANCELLED' &&
               booking.status !== 'COMPLETED' && (
                 <button
@@ -549,6 +758,80 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 Chain Depth: {historyData.replacementChain.length} Link{historyData.replacementChain.length > 1 ? 's' : ''}
               </span>
             )}
+          </div>
+        )}
+
+        {/* Proposed Slot Acceptance Banner */}
+        {booking.proposedSlotAt && canManageBooking && (
+          <div
+            style={{
+              padding: '8px 18px',
+              backgroundColor: '#fffbeb',
+              borderBottom: '1px solid #fde68a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px',
+              fontSize: '12px',
+              color: '#92400e',
+            }}
+          >
+            <div>
+              <strong>Worker Proposed Alternate Slot:</strong> {formatDateTimeIST(booking.proposedSlotAt)}
+              {booking.proposedSlotNote && ` — "${booking.proposedSlotNote}"`}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={() => slotProposalMutation.mutate('accept')}
+                disabled={slotProposalMutation.isPending}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  backgroundColor: '#16a34a',
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Accept Proposed Slot
+              </button>
+              <button
+                type="button"
+                onClick={() => slotProposalMutation.mutate('reject')}
+                disabled={slotProposalMutation.isPending}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#ffffff',
+                  color: '#dc2626',
+                  fontSize: '11px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Reject Proposal
+              </button>
+            </div>
+          </div>
+        )}
+
+        {lifecycleError && (
+          <div
+            style={{
+              padding: '8px 18px',
+              backgroundColor: '#fef2f2',
+              borderBottom: '1px solid #fecaca',
+              color: '#b91c1c',
+              fontSize: '12px',
+              fontWeight: 600,
+            }}
+          >
+            {lifecycleError}
           </div>
         )}
 
@@ -1574,6 +1857,79 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                           {iv.outcomeNote && <div>{iv.outcomeNote}</div>}
                         </div>
                       )}
+
+                      {/* Interview Governance Actions (Operations Admin / Bookings Manager) */}
+                      {canManageBooking && iv.id && !['COMPLETED', 'CANCELLED'].includes(iv.status.toUpperCase()) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                            {iv.status.toUpperCase() === 'REQUESTED' && (
+                              <button
+                                type="button"
+                                onClick={() => interviewActionMutation.mutate({ interviewId: iv.id, action: 'confirm' })}
+                                disabled={interviewActionMutation.isPending}
+                                style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#0284c7', color: '#ffffff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                              >
+                                Confirm Interview
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setRescheduleTargetId(rescheduleTargetId === iv.id ? null : iv.id)}
+                              disabled={interviewActionMutation.isPending}
+                              style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', color: '#334155', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Reschedule
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => interviewActionMutation.mutate({ interviewId: iv.id, action: 'complete' })}
+                              disabled={interviewActionMutation.isPending}
+                              style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#16a34a', color: '#ffffff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Mark Complete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => interviewActionMutation.mutate({ interviewId: iv.id, action: 'cancel' })}
+                              disabled={interviewActionMutation.isPending}
+                              style={{ padding: '4px 10px', borderRadius: '6px', border: '1px solid #fecaca', backgroundColor: '#fef2f2', color: '#dc2626', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Cancel Session
+                            </button>
+                          </div>
+
+                          {rescheduleTargetId === iv.id && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', padding: '8px', backgroundColor: '#f8fafc', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                              <input
+                                type="date"
+                                aria-label="Reschedule Date"
+                                min={new Date().toISOString().split('T')[0]}
+                                value={rescheduleDate}
+                                onChange={(e) => setRescheduleDate(e.target.value)}
+                                style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                              <input
+                                type="time"
+                                aria-label="Reschedule Time"
+                                value={rescheduleTime}
+                                onChange={(e) => setRescheduleTime(e.target.value)}
+                                style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '12px' }}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const iso = new Date(`${rescheduleDate}T${rescheduleTime}:00`).toISOString();
+                                  interviewActionMutation.mutate({ interviewId: iv.id, action: 'reschedule', scheduledAt: iso });
+                                }}
+                                disabled={interviewActionMutation.isPending}
+                                style={{ padding: '4px 10px', borderRadius: '6px', border: 'none', backgroundColor: '#0284c7', color: '#ffffff', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                              >
+                                Save New Slot
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -2271,6 +2627,19 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               )}
             </div>
           )}
+
+          {/* ====================================================== */}
+          {/* SECTION 9: SERVICE ATTENDANCE & DAILY LOGS             */}
+          {/* ====================================================== */}
+          {canViewAttendance && (filterSection === 'ALL' || filterSection === 'ATTENDANCE') && (
+            <div ref={attendanceRef}>
+              <BookingAttendanceSection
+                bookingId={booking.id}
+                canViewAttendance={canViewAttendance}
+                canManageAttendance={canManageAttendance}
+              />
+            </div>
+          )}
         </div>
 
         {/* ======================================================== */}
@@ -2328,6 +2697,22 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={isReopenDialogOpen}
+        title={`Reopen Candidate Matching: ${booking.id}`}
+        description="Reopen this booking for candidate matching? The current assignment or pending trial will be cleared."
+        confirmLabel={reopenMatchingMutation.isPending ? 'Reopening...' : 'Reopen Matching'}
+        isDestructive={true}
+        requireRemarks={true}
+        remarksPlaceholder="Enter operational reason for reopening candidate matching..."
+        isLoading={reopenMatchingMutation.isPending}
+        errorMessage={lifecycleError}
+        onConfirm={(remarks) => {
+          if (remarks) reopenMatchingMutation.mutate(remarks);
+        }}
+        onCancel={() => setIsReopenDialogOpen(false)}
+      />
     </div>
   );
 };
