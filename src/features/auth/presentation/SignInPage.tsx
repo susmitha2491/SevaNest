@@ -5,8 +5,10 @@ import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
-import { authRepository } from '../data/authRepository';
+import { authRepository, invalidateSessionOnServer } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
+import { queryClient } from '../../../core/api/queryClient';
+import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
 import { DomainError } from '../../../core/errors/DomainError';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 import { isQuickLoginEnabled } from '../../../core/config/env';
@@ -27,8 +29,6 @@ export const SignInPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const showQuickLogin = isQuickLoginEnabled();
-  const user = useAuthStore((state) => state.user);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
 
@@ -41,18 +41,33 @@ export const SignInPage: React.FC = () => {
           cleanState.usr = { ...cleanState.usr };
           delete cleanState.usr.from;
         }
-        window.history.replaceState(cleanState, document.title);
+        try {
+          window.history.replaceState(cleanState, document.title, window.location.href);
+        } catch {
+          // Ignore
+        }
       }
     }
   }, []);
 
-  // Redirect to role-authorized landing dashboard if already authenticated
+  // When Sign-In page is accessed (e.g. browser Back button from dashboard):
+  // Authoritatively invalidate any existing session on backend and frontend,
+  // clear query caches, and enforce fresh authentication.
   useEffect(() => {
-    if (isAuthenticated && user) {
-      const userLanding = getDefaultLandingRoute(user);
-      navigate(userLanding, { replace: true, state: null });
+    const hasActiveSession = useAuthStore.getState().isAuthenticated || Boolean(getStoredRefreshToken());
+    if (hasActiveSession) {
+      invalidateSessionOnServer().finally(() => {
+        useAuthStore.getState().clearSession(true);
+      });
+      useAuthStore.getState().clearSession(false);
+      try {
+        queryClient.cancelQueries();
+        queryClient.clear();
+      } catch {
+        // Ignore
+      }
     }
-  }, [isAuthenticated, user, navigate]);
+  }, []);
 
   const {
     register,
@@ -85,9 +100,9 @@ export const SignInPage: React.FC = () => {
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
       setSession(loggedInUser, accessToken, refreshToken);
       const userLanding = getDefaultLandingRoute(loggedInUser);
-      // Fresh sign-in must always navigate directly to the authenticated user's designated role dashboard,
-      // clearing any stale 'from' or 'returnTo' navigation state from earlier sessions.
-      navigate(userLanding, { replace: true, state: null });
+      // Fresh sign-in navigates to the authenticated user's designated role dashboard,
+      // creating a history entry so browser Back returns to the sign-in page.
+      navigate(userLanding, { replace: false, state: null });
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
       setAuthError(errorMessage);
@@ -135,24 +150,17 @@ export const SignInPage: React.FC = () => {
       )}
 
       {/* 1. Email and Password fields at the top */}
-      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <label htmlFor="admin-email" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+      <form noValidate onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        <div className="login-input-group">
+          <label htmlFor="admin-email" className="login-input-label">
             Admin Email Address <RequiredIndicator />
           </label>
           <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-1)',
-              backgroundColor: 'var(--color-bg-app)',
-              border: `1px solid ${errors.email ? 'var(--color-error)' : 'var(--color-border)'}`,
-              borderRadius: 'var(--radius-md)',
-              padding: '0 10px',
-              height: '36px',
-            }}
+            className={`login-input-wrapper ${errors.email ? 'has-error' : ''} ${isSubmitting ? 'is-disabled' : ''}`}
           >
-            <Mail size={15} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+            <div className="login-input-icon">
+              <Mail size={16} />
+            </div>
             <input
               id="admin-email"
               type="email"
@@ -166,39 +174,26 @@ export const SignInPage: React.FC = () => {
               })}
               disabled={isSubmitting}
               placeholder="name@sevanest.internal"
-              style={{
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: 'var(--color-text-primary)',
-                fontSize: '13px',
-                width: '100%',
-              }}
+              className="login-input-field"
             />
           </div>
           {errors.email && (
-            <span role="alert" aria-live="polite" style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
+            <span role="alert" aria-live="polite" className="login-input-error">
               {errors.email.message}
             </span>
           )}
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <label htmlFor="admin-password" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+        <div className="login-input-group">
+          <label htmlFor="admin-password" className="login-input-label">
             Password <RequiredIndicator />
           </label>
           <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-1)',
-              backgroundColor: 'var(--color-bg-app)',
-              border: `1px solid ${errors.password ? 'var(--color-error)' : 'var(--color-border)'}`,
-              borderRadius: 'var(--radius-md)',
-              padding: '0 10px',
-              height: '36px',
-            }}
+            className={`login-input-wrapper ${errors.password ? 'has-error' : ''} ${isSubmitting ? 'is-disabled' : ''}`}
           >
-            <Lock size={15} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+            <div className="login-input-icon">
+              <Lock size={16} />
+            </div>
             <input
               id="admin-password"
               type={showPassword ? 'text' : 'password'}
@@ -212,13 +207,7 @@ export const SignInPage: React.FC = () => {
               })}
               disabled={isSubmitting}
               placeholder="Enter password"
-              style={{
-                backgroundColor: 'transparent',
-                border: 'none',
-                color: 'var(--color-text-primary)',
-                fontSize: '13px',
-                width: '100%',
-              }}
+              className="login-input-field"
             />
             <button
               type="button"
@@ -226,24 +215,13 @@ export const SignInPage: React.FC = () => {
               aria-label={showPassword ? 'Hide password' : 'Show password'}
               title={showPassword ? 'Hide password' : 'Show password'}
               disabled={isSubmitting}
-              style={{
-                background: 'none',
-                border: 'none',
-                padding: 'var(--space-1)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-                color: 'var(--color-text-muted)',
-                borderRadius: 'var(--radius-sm)',
-                flexShrink: 0,
-              }}
+              className="login-password-toggle"
             >
-              {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
           {errors.password && (
-            <span role="alert" aria-live="polite" style={{ fontSize: '11px', color: 'var(--color-status-danger-text)' }}>
+            <span role="alert" aria-live="polite" className="login-input-error">
               {errors.password.message}
             </span>
           )}

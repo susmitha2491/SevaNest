@@ -53,18 +53,23 @@ httpClient.interceptors.request.use(
       config.headers['X-Correlation-ID'] = correlationId;
     }
 
-    // 2. Attach In-Memory Bearer Token
+    // 2. Remove artificial frontend timeout for admin login requests to accommodate cold-starts on serverless backend
+    if (config.url && config.url.includes('/auth/admin/login')) {
+      config.timeout = 0;
+    }
+
+    // 3. Attach In-Memory Bearer Token
     const token = useAuthStore.getState().accessToken;
     if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    // 3. Attach Idempotency Key if specified
+    // 4. Attach Idempotency Key if specified
     if (config.idempotencyKey) {
       config.headers['Idempotency-Key'] = config.idempotencyKey;
     }
 
-    // 4. Attach Optimistic Concurrency Version if specified
+    // 5. Attach Optimistic Concurrency Version if specified
     if (config.entityVersion !== undefined) {
       config.headers['If-Match'] = `"${config.entityVersion}"`;
     }

@@ -844,3 +844,23 @@ export function createAuthRepository(useMock: boolean = env.VITE_USE_MOCK_AUTH):
 
 export const authRepository = createAuthRepository();
 
+let serverLogoutPromise: Promise<void> | null = null;
+
+/**
+ * Deduplicated server-side session invalidation.
+ * Revokes the server-side session via POST /api/v1/auth/logout safely without throwing
+ * or executing duplicate concurrent requests.
+ */
+export async function invalidateSessionOnServer(): Promise<void> {
+  if (serverLogoutPromise) {
+    return serverLogoutPromise;
+  }
+  serverLogoutPromise = authRepository.logout().catch((err: unknown) => {
+    // Failure to reach server or server error must not prevent client session termination
+    console.warn('Backend logout notification failed during session invalidation, proceeding with client termination:', err);
+  }).finally(() => {
+    serverLogoutPromise = null;
+  });
+  return serverLogoutPromise;
+}
+

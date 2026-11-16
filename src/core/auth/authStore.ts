@@ -107,6 +107,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Storage access exception
     }
     try {
+      queryClient.cancelQueries();
       queryClient.clear();
     } catch {
       // Ignore query client clear error in environments without active provider

@@ -513,6 +513,33 @@ describe('SevaNest Backend Integration Foundation & Authentication', () => {
       expect(config.headers['X-Correlation-ID']).toBeDefined();
     });
 
+    it('removes artificial frontend timeout for admin login requests (sets timeout to 0)', async () => {
+      interface InterceptorManagerWithHandlers {
+        handlers: Array<{
+          fulfilled: (config: { headers: Record<string, string>; url?: string; timeout?: number }) => Promise<{ headers: Record<string, string>; url?: string; timeout?: number }>;
+          rejected: (error: unknown) => Promise<unknown>;
+        }>;
+      }
+      const reqManager = httpClient.interceptors.request as unknown as InterceptorManagerWithHandlers;
+      const requestInterceptor = reqManager.handlers[0].fulfilled;
+
+      const loginConfig = await requestInterceptor({
+        headers: {},
+        url: '/auth/admin/login',
+        timeout: 15000,
+      });
+
+      expect(loginConfig.timeout).toBe(0);
+
+      const otherConfig = await requestInterceptor({
+        headers: {},
+        url: '/admin/bookings',
+        timeout: 15000,
+      });
+
+      expect(otherConfig.timeout).toBe(15000);
+    });
+
     it('does not retry 401 on /auth/admin/login and propagates credentials rejection', async () => {
       interface ResInterceptorManagerWithHandlers {
         handlers: Array<{

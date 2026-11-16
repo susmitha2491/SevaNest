@@ -7,6 +7,7 @@ import { hasPermission, PermissionKey, getDefaultLandingRoute } from '../../core
 import { isRouteAccessibleForUser, getRequiredPermissionForRoute } from '../../core/rbac/navigationRegistry';
 import { NoAccessView } from '../../shared/components/NoAccessView/NoAccessView';
 import { isPopStateNavigation } from './popstateTracker';
+import { getStoredRefreshToken } from '../../core/auth/tokenStorage';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -128,7 +129,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, permis
 
   if (!isAuthenticated || !user) {
     const isRootOrAuth = location.pathname === '/' || location.pathname.startsWith('/auth');
-    return <Navigate to="/auth/login" state={isRootOrAuth ? undefined : { from: location }} replace />;
+    const shouldPreserveFrom = !isRootOrAuth && !isPopStateNavigation() && Boolean(getStoredRefreshToken());
+    return <Navigate to="/auth/login" state={shouldPreserveFrom ? { from: location } : undefined} replace />;
   }
 
   const isAccessible = isRouteAccessibleForUser(location.pathname, user);
