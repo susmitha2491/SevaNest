@@ -12,7 +12,7 @@ import {
   Eye,
   AlertTriangle,
 } from 'lucide-react';
-import { workerRepository } from '../data/workerRepository';
+import { workerRepository, resolveCategoryId } from '../data/workerRepository';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
@@ -204,7 +204,17 @@ export const WorkersListPage: React.FC = () => {
     let result = allWorkers.filter((w) => w.applicationStatus !== 'DRAFT' && w.onboardingStatus !== 'DRAFT');
 
     if (categoryFilter !== 'ALL') {
-      result = result.filter((w) => w.category === categoryFilter || (w.categories && w.categories.includes(categoryFilter)));
+      const filterUuid = resolveCategoryId(categoryFilter);
+      result = result.filter((w) => {
+        if (w.category === categoryFilter || (w.categories && w.categories.includes(categoryFilter))) {
+          return true;
+        }
+        if (filterUuid) {
+          if (resolveCategoryId(w.category) === filterUuid) return true;
+          if (w.categories?.some((c) => resolveCategoryId(c) === filterUuid)) return true;
+        }
+        return false;
+      });
     }
 
     if (verificationFilter !== 'ALL') {
@@ -257,12 +267,39 @@ export const WorkersListPage: React.FC = () => {
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedWorkers.length;
 
   const categories = useMemo(() => {
-    const set = new Set(allWorkers.map((w) => w.category));
+    const canonicalCategories = [
+      'House Maid',
+      'Driver',
+      'Cook',
+      'Babysitter',
+      'Elderly Care Helper',
+      'Cleaning Helper',
+    ];
+    const set = new Set<string>(canonicalCategories);
+    allWorkers.forEach((w) => {
+      if (w.category && w.category !== 'ALL') set.add(w.category);
+      w.categories?.forEach((c) => {
+        if (c && c !== 'ALL') set.add(c);
+      });
+    });
     return ['ALL', ...Array.from(set)];
   }, [allWorkers]);
 
   const localities = useMemo(() => {
-    const set = new Set(allWorkers.map((w) => w.locality));
+    const canonicalLocalities = [
+      'Banjara Hills',
+      'Gachibowli',
+      'HITEC City',
+      'Jubilee Hills',
+      'Kondapur',
+      'Kukatpally',
+      'Madhapur',
+      'Miyapur',
+    ];
+    const set = new Set<string>(canonicalLocalities);
+    allWorkers.forEach((w) => {
+      if (w.locality && w.locality !== 'ALL') set.add(w.locality);
+    });
     return ['ALL', ...Array.from(set)];
   }, [allWorkers]);
 

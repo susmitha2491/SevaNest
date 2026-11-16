@@ -17,24 +17,38 @@ export interface AuditLogItem {
   id: string;
   actorStaffId: string;
   actorName: string;
+  actorEmail?: string;
   actorRole: string;
+  actorType?: 'ADMIN' | 'CUSTOMER' | 'WORKER' | 'SYSTEM' | 'UNKNOWN' | string;
   actionType: Exclude<AuditActionType, 'ALL'>;
+  actionKey?: string;
   targetRecordId: string;
   targetEntityType: 'WORKER' | 'CUSTOMER' | 'BOOKING' | 'TRANSACTION' | 'SUPPORT_TICKET' | 'CONFIGURATION' | 'USER' | string;
+  targetEntityDisplay?: string;
 
   summary: string;
-  ipAddress: string;
+  ipAddress?: string;
   timestamp: string;
+  recordedAtUtc?: string;
   preMutationState?: Record<string, unknown>;
   postMutationState?: Record<string, unknown>;
-  operationalRemarks: string;
+  operationalRemarks?: string;
+  outcome?: 'SUCCESS' | 'DENIED' | 'BLOCKED' | 'REJECTED' | 'APPROVED' | 'RECORDED' | 'MUTATED' | 'QUERY' | string;
+  requestId?: string;
+  sessionId?: string;
+  metadata?: Record<string, unknown>;
+  changedFields?: string[];
 }
 
 export interface AuditFilterCriteria {
   actorStaffId?: string;
   actionType?: AuditActionType;
+  actionPrefix?: string;
+  entityType?: string;
   targetRecordId?: string;
   search?: string;
+  from?: string;
+  to?: string;
   page?: number;
   pageSize?: number;
 }

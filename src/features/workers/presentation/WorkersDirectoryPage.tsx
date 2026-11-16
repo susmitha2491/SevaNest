@@ -27,12 +27,13 @@ import { SearchInput } from '../../../components/common/SearchInput';
 
 const CATEGORY_OPTIONS = [
   { value: 'ALL', label: 'All Skill Categories' },
-  { value: 'COOKING', label: 'Cooking' },
-  { value: 'CLEANING', label: 'Cleaning' },
-  { value: 'ELDERLY_CARE', label: 'Elderly Care' },
+  { value: 'COOKING', label: 'Cook / Cooking' },
+  { value: 'CLEANING', label: 'Cleaning Helper' },
+  { value: 'DRIVER', label: 'Driver' },
+  { value: 'BABYSITTER', label: 'Babysitter' },
   { value: 'CHILDCARE', label: 'Childcare' },
-  { value: 'GARDENING', label: 'Gardening' },
-  { value: 'PET_CARE', label: 'Pet Care' },
+  { value: 'ELDERLY_CARE', label: 'Elderly Care Helper' },
+  { value: 'HOUSE_MAID', label: 'House Maid' },
 ];
 
 export const WorkersDirectoryPage: React.FC = () => {

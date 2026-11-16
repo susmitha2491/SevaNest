@@ -54,17 +54,27 @@ export const AuditTrailPage: React.FC = () => {
   }
 
   const actionTypes: { key: AuditActionType; label: string }[] = [
-    { key: 'ALL', label: 'All Action Types' },
-    { key: 'VERIF_APPROVE_DOC', label: 'Verification Approved' },
-    { key: 'VERIF_REJECT_DOC', label: 'Verification Rejected' },
+    { key: 'ALL', label: 'All Administrative Actions' },
+    { key: 'verification', label: 'KYC & Verifications (All)' },
+    { key: 'verification.approve', label: 'Verification Approved' },
+    { key: 'verification.reject', label: 'Verification Rejected' },
+    { key: 'worker', label: 'Worker Operations (All)' },
+    { key: 'worker.sensitive_view', label: 'Worker PII / Sensitive View' },
+    { key: 'worker.document_inspect', label: 'Worker Document Inspected' },
+    { key: 'ticket', label: 'Support Tickets (All)' },
+    { key: 'ticket.close', label: 'Support Ticket Closed' },
+    { key: 'attendance', label: 'Attendance Records (All)' },
+    { key: 'attendance.correct', label: 'Attendance Corrected' },
+    { key: 'payment', label: 'Payments & Financial Operations' },
+    { key: 'auth', label: 'Auth & Session Logins' },
+    { key: 'security', label: 'Security & Access Control' },
+    { key: 'user', label: 'User & Staff Management' },
+    // Mock / legacy compatibility options
     { key: 'CONFIG_PUBLISH_FEES', label: 'Fee Schedule Published' },
     { key: 'CONFIG_UPDATE_ROLE', label: 'Role Privileges Updated' },
     { key: 'REFUND_PROCESSED', label: 'Refund Processed' },
     { key: 'WORKER_SUSPEND', label: 'Worker Suspended' },
     { key: 'CUSTOMER_SUSPEND', label: 'Customer Suspended' },
-    { key: 'PII_REVEAL_CONTACT', label: 'PII Contact Revealed' },
-    { key: 'BOOKING_CANCEL', label: 'Booking Cancelled' },
-    { key: 'DISPUTE_ESCALATE', label: 'Dispute Escalated' },
   ];
 
   return (
@@ -212,39 +222,136 @@ export const AuditTrailPage: React.FC = () => {
                     }}
                     style={{ borderBottom: '1px solid var(--color-border)' }}
                   >
-                    <td style={{ padding: 'var(--space-4)', fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                      {log.id}
-                    </td>
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{log.actorName}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {log.actorRole} • {log.ipAddress}
-                      </div>
-                    </td>
-                    <td style={{ padding: 'var(--space-4)' }}>
+                    <td style={{ padding: 'var(--space-4)', whiteSpace: 'nowrap' }}>
                       <span
                         style={{
-                          padding: '2px 8px',
-                          borderRadius: 'var(--radius-sm)',
-                          backgroundColor: '#f1f5f9',
-                          color: '#334155',
-                          fontSize: 'var(--font-size-xs)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: '#f8fafc',
+                          border: '1px solid var(--color-border)',
                           fontWeight: 700,
-                          fontFamily: 'monospace',
+                          color: 'var(--color-brand-600)',
+                          fontFamily: 'ui-monospace, monospace',
+                          fontSize: '11px',
                         }}
+                        title={log.id}
                       >
-                        {log.actionType}
+                        {log.id.length > 20 ? `${log.id.slice(0, 8)}…${log.id.slice(-6)}` : log.id}
                       </span>
                     </td>
-                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{log.targetEntityType}: </span>
-                      {log.targetRecordId}
+                    <td style={{ padding: 'var(--space-4)', minWidth: '190px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}>
+                        {log.actorName}
+                      </div>
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px', marginTop: '3px' }}>
+                        <span
+                          style={{
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            fontFamily: 'ui-monospace, monospace',
+                            backgroundColor:
+                              log.actorRole === 'SUPER_ADMIN'
+                                ? '#eff6ff'
+                                : log.actorRole === 'OPERATIONS_ADMIN'
+                                ? '#f0fdfa'
+                                : log.actorRole?.includes('VERIFICATION')
+                                ? '#faf5ff'
+                                : log.actorRole?.includes('SUPPORT')
+                                ? '#fffbeb'
+                                : '#f1f5f9',
+                            color:
+                              log.actorRole === 'SUPER_ADMIN'
+                                ? '#1e40af'
+                                : log.actorRole === 'OPERATIONS_ADMIN'
+                                ? '#0f766e'
+                                : log.actorRole?.includes('VERIFICATION')
+                                ? '#6b21a8'
+                                : log.actorRole?.includes('SUPPORT')
+                                ? '#92400e'
+                                : '#334155',
+                            border: '1px solid rgba(0,0,0,0.08)',
+                          }}
+                        >
+                          {log.actorRole || 'SYSTEM'}
+                        </span>
+                        {log.actorEmail && (
+                          <span style={{ color: 'var(--color-text-tertiary)', fontSize: '11px' }}>
+                            {log.actorEmail}
+                          </span>
+                        )}
+                        {log.ipAddress && (
+                          <span style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)' }}>
+                            {log.ipAddress}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-4)', minWidth: '170px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <span
+                          style={{
+                            padding: '2px 8px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: '#f1f5f9',
+                            color: '#334155',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 600,
+                            fontFamily: 'monospace',
+                          }}
+                        >
+                          {log.actionType}
+                        </span>
+                        {log.outcome && (
+                          <span
+                            style={{
+                              padding: '1px 6px',
+                              borderRadius: '4px',
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.04em',
+                              backgroundColor:
+                                log.outcome === 'APPROVED' || log.outcome === 'SUCCESS' || log.outcome === 'UNBLACKLISTED'
+                                  ? '#dcfce7'
+                                  : log.outcome === 'DENIED' || log.outcome === 'BLOCKED' || log.outcome === 'BLACKLISTED'
+                                  ? '#fee2e2'
+                                  : log.outcome === 'REJECTED' || log.outcome === 'MUTATED'
+                                  ? '#fef3c7'
+                                  : '#e0f2fe',
+                              color:
+                                log.outcome === 'APPROVED' || log.outcome === 'SUCCESS' || log.outcome === 'UNBLACKLISTED'
+                                  ? '#15803d'
+                                  : log.outcome === 'DENIED' || log.outcome === 'BLOCKED' || log.outcome === 'BLACKLISTED'
+                                  ? '#b91c1c'
+                                  : log.outcome === 'REJECTED' || log.outcome === 'MUTATED'
+                                  ? '#b45309'
+                                  : '#0369a1',
+                            }}
+                          >
+                            {log.outcome}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', minWidth: '150px' }}>
+                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                        {log.targetEntityDisplay || log.targetEntityType || 'System'}
+                      </div>
+                      <div style={{ fontFamily: 'monospace', color: 'var(--color-text-tertiary)', marginTop: '2px' }} title={log.targetRecordId}>
+                        {log.targetRecordId && log.targetRecordId.length > 22
+                          ? `${log.targetRecordId.slice(0, 10)}…${log.targetRecordId.slice(-6)}`
+                          : (log.targetRecordId || 'N/A')}
+                      </div>
                     </td>
                     <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-primary)', fontSize: 'var(--font-size-sm)' }}>
                       {log.summary}
                     </td>
-                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-xs)' }}>
-                      {log.timestamp}
+                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', whiteSpace: 'nowrap' }}>
+                      <span title={log.recordedAtUtc ? `UTC: ${log.recordedAtUtc}` : undefined}>
+                        {log.timestamp}
+                      </span>
                     </td>
                     <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
                       <button

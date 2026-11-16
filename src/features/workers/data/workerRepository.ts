@@ -1281,6 +1281,99 @@ export function isWorkerIdFormat(term: string): boolean {
   return /^(W-\d+|APP-\d+)$/i.test(trimmed);
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const KNOWN_CATEGORY_UUIDS: Record<string, string> = {
+  // House Maid
+  'house maid': '01a11eec-fa69-7628-89b0-331f8591c795',
+  'house_maid': '01a11eec-fa69-7628-89b0-331f8591c795',
+  'maid': '01a11eec-fa69-7628-89b0-331f8591c795',
+  // Driver
+  'driver': '01a11eec-fae9-72c1-8f1b-380639cc4c86',
+  // Cook / Cooking
+  'cook': '01a11eec-fb65-75ad-8b35-2d45d8c985e2',
+  'cooking': '01a11eec-fb65-75ad-8b35-2d45d8c985e2',
+  // Babysitter / Childcare
+  'babysitter': '01a11eec-fbe1-754e-a00b-2767903cb9a3',
+  'childcare': '01a11eec-fbe1-754e-a00b-2767903cb9a3',
+  // Elderly Care Helper
+  'elderly care helper': '01a11eec-fc5c-7768-b326-062e424ee297',
+  'elderly care': '01a11eec-fc5c-7768-b326-062e424ee297',
+  'elderly_care': '01a11eec-fc5c-7768-b326-062e424ee297',
+  'elderly_care_helper': '01a11eec-fc5c-7768-b326-062e424ee297',
+  // Cleaning Helper
+  'cleaning helper': '01a11eec-fcdb-72b3-9c37-891513fcab2c',
+  'cleaning': '01a11eec-fcdb-72b3-9c37-891513fcab2c',
+  'cleaning_helper': '01a11eec-fcdb-72b3-9c37-891513fcab2c',
+};
+
+export const KNOWN_AREA_UUIDS: Record<string, string> = {
+  'banjara hills': '01a11ef1-4256-7358-a4ec-d040ae023c55',
+  'banjara_hills': '01a11ef1-4256-7358-a4ec-d040ae023c55',
+  'gachibowli': '01a11ef1-332a-772b-abde-71e625e89c0f',
+  'hitec city': '01a12ead-add8-75cf-b344-9a1e4e2c44cb',
+  'hitec_city': '01a12ead-add8-75cf-b344-9a1e4e2c44cb',
+  'jubilee hills': '01a11ef1-3ee0-720b-98e7-549c37d7023b',
+  'jubilee_hills': '01a11ef1-3ee0-720b-98e7-549c37d7023b',
+  'kondapur': '01a11ef1-2e11-71b9-9ed5-da7353bf7dcf',
+  'kukatpally': '01a11ef1-45df-7278-bc66-c31a43f9b6c5',
+  'madhapur': '01a11ef1-2a77-71e7-91a3-0522f8b9cfca',
+  'miyapur': '01a11ef1-495d-72cd-adf8-49248040d6fb',
+};
+
+const dynamicCategoryMap: Record<string, string> = {};
+const dynamicAreaMap: Record<string, string> = {};
+
+export function registerDynamicCategories(categories: Array<{ id: string; code?: string; name?: string }>): void {
+  categories.forEach((c) => {
+    if (c.id && UUID_REGEX.test(c.id)) {
+      if (c.code) dynamicCategoryMap[c.code.trim().toLowerCase()] = c.id;
+      if (c.name) dynamicCategoryMap[c.name.trim().toLowerCase()] = c.id;
+    }
+  });
+}
+
+export function registerDynamicAreas(areas: Array<{ id: string; code?: string; name?: string }>): void {
+  areas.forEach((a) => {
+    if (a.id && UUID_REGEX.test(a.id)) {
+      if (a.code) dynamicAreaMap[a.code.trim().toLowerCase()] = a.id;
+      if (a.name) dynamicAreaMap[a.name.trim().toLowerCase()] = a.id;
+    }
+  });
+}
+
+export function resolveCategoryId(input?: string): string | null | undefined {
+  if (!input || input === 'ALL') return undefined;
+  const trimmed = input.trim();
+  if (UUID_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+  const normalized = trimmed.toLowerCase();
+  if (KNOWN_CATEGORY_UUIDS[normalized]) {
+    return KNOWN_CATEGORY_UUIDS[normalized];
+  }
+  if (dynamicCategoryMap[normalized]) {
+    return dynamicCategoryMap[normalized];
+  }
+  return null;
+}
+
+export function resolveAreaId(input?: string): string | null | undefined {
+  if (!input || input === 'ALL') return undefined;
+  const trimmed = input.trim();
+  if (UUID_REGEX.test(trimmed)) {
+    return trimmed;
+  }
+  const normalized = trimmed.toLowerCase();
+  if (KNOWN_AREA_UUIDS[normalized]) {
+    return KNOWN_AREA_UUIDS[normalized];
+  }
+  if (dynamicAreaMap[normalized]) {
+    return dynamicAreaMap[normalized];
+  }
+  return null;
+}
+
 export class RealWorkerRepository implements IWorkerRepository {
   async getWorkers(filter?: WorkerFilterCriteria): Promise<Worker[]> {
     try {
@@ -1335,15 +1428,26 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
 
       if (filter?.category && filter.category !== 'ALL') {
-        params.categoryId = filter.category;
+        const catUuid = resolveCategoryId(filter.category);
+        if (catUuid) {
+          params.categoryId = catUuid;
+        } else {
+          // Unrecognized category returns empty list safely without triggering HTTP 400
+          return [];
+        }
       }
       if (filter?.accountStatus) {
-        params.accountStatus = filter.accountStatus;
+        if (filter.accountStatus === 'ACTIVE' || filter.accountStatus === 'SUSPENDED') {
+          params.accountStatus = filter.accountStatus;
+        }
       } else if (filter?.status === 'ACTIVE' || filter?.status === 'SUSPENDED') {
         params.accountStatus = filter.status;
       }
       if (filter?.locality && filter.locality !== 'ALL') {
-        params.areaId = filter.locality;
+        const areaUuid = resolveAreaId(filter.locality);
+        if (areaUuid) {
+          params.areaId = areaUuid;
+        }
       }
       if (filter?.page !== undefined) {
         params.page = filter.page;
@@ -1434,8 +1538,16 @@ export class RealWorkerRepository implements IWorkerRepository {
         });
       });
 
+      let filteredResult = mapped;
+      if (filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED') {
+        filteredResult = filteredResult.filter((w) => w.status === 'BLACKLISTED');
+      }
+      if (filter?.locality && filter.locality !== 'ALL' && !params.areaId) {
+        filteredResult = filteredResult.filter((w) => w.locality.toLowerCase().includes(filter.locality!.toLowerCase()));
+      }
+
       return verifiedParam === true
-        ? mapped.filter((w) => {
+        ? filteredResult.filter((w) => {
             const isVerified = Boolean(
               w.isFullyVerified ||
               w.verificationLevel === 'VERIFIED' ||
@@ -1455,7 +1567,7 @@ export class RealWorkerRepository implements IWorkerRepository {
               w.applicationStatus !== 'SUBMITTED';
             return isVerified && isNotRejected && isNotDraft && isNotUnderReview;
           })
-        : mapped.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
+        : filteredResult.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1559,15 +1671,32 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
 
       if (filter?.category && filter.category !== 'ALL') {
-        params.categoryId = filter.category;
+        const catUuid = resolveCategoryId(filter.category);
+        if (catUuid) {
+          params.categoryId = catUuid;
+        } else {
+          // Unrecognized category returns empty page safely without triggering HTTP 400
+          return {
+            items: [],
+            total: 0,
+            page,
+            limit,
+            hasMore: false,
+          };
+        }
       }
       if (filter?.accountStatus) {
-        params.accountStatus = filter.accountStatus;
+        if (filter.accountStatus === 'ACTIVE' || filter.accountStatus === 'SUSPENDED') {
+          params.accountStatus = filter.accountStatus;
+        }
       } else if (filter?.status === 'ACTIVE' || filter?.status === 'SUSPENDED') {
         params.accountStatus = filter.status;
       }
       if (filter?.locality && filter.locality !== 'ALL') {
-        params.areaId = filter.locality;
+        const areaUuid = resolveAreaId(filter.locality);
+        if (areaUuid) {
+          params.areaId = areaUuid;
+        }
       }
 
       const response = await httpClient.get<{
@@ -1671,9 +1800,22 @@ export class RealWorkerRepository implements IWorkerRepository {
           })
         : mappedItems.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
 
+      let pageItems = finalItems;
+      if (filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED') {
+        pageItems = pageItems.filter((w) => w.status === 'BLACKLISTED');
+      }
+      if (filter?.locality && filter.locality !== 'ALL' && !params.areaId) {
+        pageItems = pageItems.filter((w) => w.locality.toLowerCase().includes(filter.locality!.toLowerCase()));
+      }
+
+      const effectiveTotal =
+        filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED' || (filter?.locality && !params.areaId)
+          ? pageItems.length
+          : (verifiedParam === true ? (total > pageItems.length && list.length === total ? pageItems.length : total) : total);
+
       return {
-        items: finalItems,
-        total: verifiedParam === true ? (total > finalItems.length && list.length === total ? finalItems.length : total) : total,
+        items: pageItems,
+        total: effectiveTotal,
         page: currentPage,
         limit: currentLimit,
         hasMore,
@@ -2017,12 +2159,14 @@ export class RealWorkerRepository implements IWorkerRepository {
         params: { limit: 100 },
       });
       const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? (res.data as unknown as Array<Record<string, unknown>>) : [];
-      return list.map((c) => ({
+      const catalog = list.map((c) => ({
         id: String(c.id || ''),
         code: String(c.code || ''),
         name: String(c.name || ''),
         isEnabled: typeof c.isEnabled === 'boolean' ? c.isEnabled : true,
       }));
+      registerDynamicCategories(catalog);
+      return catalog;
     } catch {
       return [];
     }
@@ -2034,13 +2178,15 @@ export class RealWorkerRepository implements IWorkerRepository {
         params: { limit: 100 },
       });
       const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? (res.data as unknown as Array<Record<string, unknown>>) : [];
-      return list.map((a) => ({
+      const catalog = list.map((a) => ({
         id: String(a.id || ''),
         code: String(a.code || a.id || ''),
         name: String(a.name || ''),
         city: a.city ? String(a.city) : undefined,
         isEnabled: typeof a.isEnabled === 'boolean' ? a.isEnabled : true,
       }));
+      registerDynamicAreas(catalog);
+      return catalog;
     } catch {
       return [];
     }
@@ -2105,11 +2251,31 @@ export class MockWorkerRepository implements IWorkerRepository {
 
     if (filter?.category && filter.category !== 'ALL') {
       const targetCat = filter.category;
-      result = result.filter((w) => w.category === targetCat || (w.categories && w.categories.includes(targetCat)));
+      const targetUuid = resolveCategoryId(targetCat);
+      result = result.filter((w) => {
+        if (w.category === targetCat || (w.categories && w.categories.includes(targetCat))) {
+          return true;
+        }
+        if (targetUuid) {
+          const wUuid = resolveCategoryId(w.category);
+          if (wUuid && wUuid === targetUuid) return true;
+          if (w.categories?.some((c) => resolveCategoryId(c) === targetUuid)) return true;
+        }
+        return false;
+      });
     }
 
     if (filter?.locality && filter.locality !== 'ALL') {
-      result = result.filter((w) => w.locality === filter.locality);
+      const targetLoc = filter.locality;
+      const targetAreaUuid = resolveAreaId(targetLoc);
+      result = result.filter((w) => {
+        if (w.locality === targetLoc) return true;
+        if (targetAreaUuid) {
+          const wAreaUuid = resolveAreaId(w.locality);
+          if (wAreaUuid && wAreaUuid === targetAreaUuid) return true;
+        }
+        return false;
+      });
     }
 
     if (filter?.status && filter.status !== 'ALL') {
