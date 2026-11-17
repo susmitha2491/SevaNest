@@ -4,6 +4,8 @@ import {
   FeePlanItem,
   NotificationTemplateItem,
   RolePermissionDefinition,
+  AppSettingItem,
+  NotificationEventDefinition,
   IConfigurationRepository,
 } from '../domain/types';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
@@ -353,10 +355,10 @@ export class MockConfigurationRepository implements IConfigurationRepository {
     }
     const idx = this.categories.findIndex((c) => c.id === category.id);
     if (idx >= 0) {
-      this.categories[idx] = { ...category, status: 'ACTIVE' };
+      this.categories[idx] = { ...category, status: 'ACTIVE', etag: category.etag || `mock-etag-${Date.now()}` };
       return this.categories[idx];
     }
-    const newCat = { ...category, id: `CAT-${Date.now()}`, status: 'ACTIVE' as const };
+    const newCat = { ...category, id: `CAT-${Date.now()}`, status: 'ACTIVE' as const, etag: `mock-etag-${Date.now()}` };
     this.categories.push(newCat);
     return newCat;
   }
@@ -441,6 +443,88 @@ export class MockConfigurationRepository implements IConfigurationRepository {
     return JSON.parse(JSON.stringify(def));
   }
 
+  async createCategory(dto: { code: string; name: string; description?: string }): Promise<ServiceCategoryItem> {
+    if (!dto.name?.trim() || !dto.code?.trim()) {
+      throw new ValidationError('Category name and machine code are mandatory.');
+    }
+    const newCat: ServiceCategoryItem = {
+      id: dto.code.trim().toUpperCase(),
+      name: dto.name.trim(),
+      tagline: dto.description?.trim() || 'Household services',
+      iconName: 'Sparkles',
+      allowedEngagementTypes: ['Part-time', 'Full-time'],
+      skillsTaxonomy: ['Standard Skills'],
+      minExperienceMonths: 6,
+      status: 'ACTIVE',
+    };
+    this.categories.push(newCat);
+    return newCat;
+  }
+
+  async createOperationalArea(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
+    if (!dto.name?.trim() || !dto.city?.trim()) {
+      throw new ValidationError('Locality name and city are mandatory.');
+    }
+    const newArea: OperationalAreaItem = {
+      id: `AREA-${Date.now()}`,
+      cityName: dto.city.trim(),
+      clusterName: dto.name.trim(),
+      pincodes: ['500001'],
+      status: 'ACTIVE',
+      activeWorkersCount: 0,
+    };
+    this.operationalAreas.push(newArea);
+    return newArea;
+  }
+
+  async createNotificationTemplate(dto: { eventCode: string; channel: string; title: string; body: string; dltTemplateId?: string }): Promise<NotificationTemplateItem> {
+    if (!dto.eventCode?.trim() || !dto.channel?.trim() || !dto.body?.trim()) {
+      throw new ValidationError('Event trigger, channel, and message body are mandatory.');
+    }
+    const newTmpl: NotificationTemplateItem = {
+      id: `TMPL-${Date.now()}`,
+      channel: dto.channel.trim(),
+      eventTrigger: dto.eventCode.trim(),
+      titleTemplate: dto.title?.trim() || 'Notification',
+      bodyTemplate: dto.body.trim(),
+      allowedPlaceholders: [],
+      status: 'ACTIVE',
+      dltTemplateId: dto.dltTemplateId?.trim() || null,
+    };
+    this.notificationTemplates.push(newTmpl);
+    return newTmpl;
+  }
+
+  async getAppSettings(): Promise<AppSettingItem[]> {
+    return [
+      { key: 'maintenance', kind: 'boolean', description: 'True shows maintenance screen in both apps', value: false, source: 'DATABASE', updatedAt: new Date().toISOString() },
+      { key: 'supportPhone', kind: 'string', description: 'Support phone number shown in apps', value: '+91 98765 43210', source: 'DATABASE', updatedAt: new Date().toISOString() },
+      { key: 'supportEmail', kind: 'string', description: 'Support email address shown in apps', value: 'support@sevanest.in', source: 'DATABASE', updatedAt: new Date().toISOString() },
+      { key: 'customerMinVersion', kind: 'string', description: 'Oldest customer app version that may keep running', value: '1.0.0', source: 'DATABASE', updatedAt: new Date().toISOString() },
+      { key: 'workerMinVersion', kind: 'string', description: 'Oldest worker app version that may keep running', value: '1.0.0', source: 'DATABASE', updatedAt: new Date().toISOString() },
+    ];
+  }
+
+  async updateAppSetting(key: string, value: string | boolean): Promise<AppSettingItem> {
+    return {
+      key,
+      kind: typeof value === 'boolean' ? 'boolean' : 'string',
+      description: `Configured setting for ${key}`,
+      value,
+      source: 'DATABASE',
+      updatedAt: new Date().toISOString(),
+    };
+  }
+
+  async getNotificationEvents(): Promise<NotificationEventDefinition[]> {
+    return [
+      { eventCode: 'JOB_OPPORTUNITY', params: ['bookingId', 'category', 'area'] },
+      { eventCode: 'BOOKING_CONFIRMED', params: ['bookingId', 'startDate'] },
+      { eventCode: 'PAYMENT_SUCCEEDED', params: ['bookingId', 'paymentId', 'receiptNumber'] },
+      { eventCode: 'VERIFICATION_APPROVED', params: ['checkType'] },
+    ];
+  }
+
   async getPermissionCatalog(): Promise<string[]> {
     return Object.values(PERMISSIONS);
   }
@@ -458,6 +542,18 @@ export { RealConfigurationRepository as ConfigurationRepositoryImpl };
  * - GET /api/v1/admin/service-areas
  * - GET /api/v1/admin/fees
  */
+export const PRD_CATEGORY_SKILLS_TAXONOMY: Record<string, string[]> = {
+  BABYSITTER: ['Infant Feeding', 'Diapering & Hygiene', 'Toddler Engagement', 'Basic First Aid', 'Bedtime Routine'],
+  HOUSE_MAID: ['Deep Cleaning', 'Utensil Washing', 'Mopping & Sweeping', 'Ironing Clothes', 'Kitchen Prep Support'],
+  DRIVER: ['Manual Transmission', 'Automatic Transmission', 'City Navigation', 'Night Driving', 'Highway Transit'],
+  COOK: ['North Indian', 'South Indian', 'Continental', 'Vegetarian Specialized', 'Dietary/Low-Oil Prep'],
+  ELDERLY_CARE_HELPER: ['Mobility Support', 'Medication Reminders', 'Companionship', 'Nutritional Care', 'Assisted Bathing'],
+  CLEANING_HELPER: ['Deep Bathroom Scrubbing', 'Window Cleaning', 'Appliance Degreasing', 'Balcony Sanitation'],
+};
+
+// In-memory / session store for published category skills since backend ServiceCategory schema lacks skills column
+const categorySkillsStore = new Map<string, string[]>();
+
 export class RealConfigurationRepository implements IConfigurationRepository {
   async getRolePermissions(): Promise<RolePermissionDefinition[]> {
     try {
@@ -624,19 +720,27 @@ export class RealConfigurationRepository implements IConfigurationRepository {
       if (items.length > 0) {
         return items.map((cat, idx) => {
           const c = cat as Record<string, unknown>;
+          const code = String(c.code || '').toUpperCase();
+          const categoryId = String(c.id || c.code || `CAT-${idx + 1}`);
+          const storedSkills = categorySkillsStore.get(categoryId) || categorySkillsStore.get(code);
+          const prdSkills = PRD_CATEGORY_SKILLS_TAXONOMY[code] || ['Standard Skills'];
+          const skillsTaxonomy = storedSkills || (Array.isArray(c.skillsTaxonomy) ? (c.skillsTaxonomy as string[]).map(String) : prdSkills);
+
           return {
-            id: String(c.id || c.code || `CAT-${idx + 1}`),
+            id: categoryId,
+            code: String(c.code || ''),
             name: String(c.name || 'Unnamed Category'),
             tagline: String(c.tagline || c.description || 'Household services'),
             iconName: String(c.iconName || 'Sparkles'),
-            allowedEngagementTypes: Array.isArray(c.allowedEngagementTypes)
-              ? c.allowedEngagementTypes.map(String)
-              : ['Part-time', 'Full-time'],
-            skillsTaxonomy: Array.isArray(c.skillsTaxonomy)
-              ? c.skillsTaxonomy.map(String)
-              : ['Standard Skills'],
+            allowedEngagementTypes: Array.isArray(c.engagements || c.allowedEngagements)
+              ? ((c.engagements || c.allowedEngagements) as string[]).map(String)
+              : Array.isArray(c.allowedEngagementTypes)
+              ? (c.allowedEngagementTypes as string[]).map(String)
+              : ['PART_TIME', 'FULL_TIME'],
+            skillsTaxonomy,
             minExperienceMonths: typeof c.minExperienceMonths === 'number' ? c.minExperienceMonths : 6,
             status: c.isEnabled === false ? 'ARCHIVED' : 'ACTIVE',
+            etag: typeof c.etag === 'string' ? c.etag : undefined,
           };
         });
       }
@@ -648,8 +752,10 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async saveCategoryDraft(category: ServiceCategoryItem, rationale: string): Promise<ServiceCategoryItem> {
     try {
-      // Backend contract: PATCH /admin/service-categories/{categoryId} with UpdateServiceCategoryDto: { name, description?, isEnabled? }
-      const response = await httpClient.patch(
+      // 1. PATCH /admin/service-categories/{categoryId}
+      // Backend contract: UpdateServiceCategoryDto { name: string, description?: string | null, isEnabled?: boolean }
+      // OpenAPI mandates: If-Match header with ETag from GET or * to overwrite
+      const patchResponse = await httpClient.patch(
         `/admin/service-categories/${encodeURIComponent(category.id)}`,
         {
           name: category.name,
@@ -658,19 +764,79 @@ export class RealConfigurationRepository implements IConfigurationRepository {
         },
         {
           headers: {
+            'If-Match': category.etag || '*',
             'X-Audit-Reason': rationale.trim(),
           },
         }
       );
-      if (response.data && typeof response.data === 'object') {
-        const c = response.data as Record<string, unknown>;
-        return {
-          ...category,
-          id: String(c.id || category.id),
-          name: String(c.name || category.name),
-        };
+
+      // 2. PUT /admin/service-categories/{categoryId}/engagements
+      // Backend contract: SetCategoryEngagementsDto { engagements: string[] }
+      if (Array.isArray(category.allowedEngagementTypes) && category.allowedEngagementTypes.length > 0) {
+        const allowedEngagementsEnum = ['FULL_TIME', 'PART_TIME', 'LIVE_IN', 'DAILY', 'HOURLY', 'SHIFT', 'ONE_TIME', 'MONTHLY'];
+        const normalizedEngagements = Array.from(
+          new Set(
+            category.allowedEngagementTypes
+              .map((t) => t.toUpperCase().replace(/[-\s]/g, '_'))
+              .filter((t) => allowedEngagementsEnum.includes(t))
+          )
+        );
+
+        if (normalizedEngagements.length > 0) {
+          try {
+            await httpClient.put(
+              `/admin/service-categories/${encodeURIComponent(category.id)}/engagements`,
+              { engagements: normalizedEngagements },
+              {
+                headers: {
+                  'X-Audit-Reason': rationale.trim(),
+                },
+              }
+            );
+          } catch (putErr) {
+            console.warn('Failed to update allowed engagements on category', putErr);
+          }
+        }
       }
-      return category;
+
+      // 3. Post-mutation verification check from backend
+      let verifiedData = null;
+      let newEtag = (patchResponse.headers?.etag) || (patchResponse.headers?.['etag']);
+      try {
+        const verifyRes = await httpClient.get(`/admin/service-categories/${encodeURIComponent(category.id)}`);
+        if (verifyRes.data && typeof verifyRes.data === 'object') {
+          verifiedData = verifyRes.data;
+          newEtag = (verifyRes.headers?.etag) || (verifyRes.headers?.['etag']) || newEtag;
+        }
+      } catch {
+        if (patchResponse.data && typeof patchResponse.data === 'object') {
+          verifiedData = patchResponse.data;
+        }
+      }
+
+      // 4. Save published custom skills into categorySkillsStore
+      if (Array.isArray(category.skillsTaxonomy)) {
+        categorySkillsStore.set(category.id, category.skillsTaxonomy);
+        if (category.code) {
+          categorySkillsStore.set(category.code.toUpperCase(), category.skillsTaxonomy);
+        }
+      }
+
+      const mergedAllowedEngagements = verifiedData && Array.isArray(verifiedData.engagements || verifiedData.allowedEngagements)
+        ? (verifiedData.engagements || verifiedData.allowedEngagements).map(String)
+        : category.allowedEngagementTypes;
+
+      return {
+        ...category,
+        id: String(verifiedData?.id || category.id),
+        code: String(verifiedData?.code || category.code),
+        name: String(verifiedData?.name || category.name),
+        tagline: String(verifiedData?.description || category.tagline),
+        allowedEngagementTypes: mergedAllowedEngagements,
+        skillsTaxonomy: category.skillsTaxonomy,
+        status: verifiedData?.isEnabled === false ? 'ARCHIVED' : 'ACTIVE',
+        etag: newEtag || category.etag,
+      };
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -719,19 +885,24 @@ export class RealConfigurationRepository implements IConfigurationRepository {
         },
         {
           headers: {
+            'If-Match': area.etag || '*',
             'X-Audit-Reason': remarks.trim(),
           },
         }
       );
+      const newEtag = (response.headers?.etag as string) || (response.headers?.['etag'] as string);
       if (response.data && typeof response.data === 'object') {
         const a = response.data as Record<string, unknown>;
         return {
           ...area,
           id: String(a.id || area.id),
           clusterName: String(a.name || a.clusterName || area.clusterName),
+          cityName: String(a.city || a.cityName || area.cityName),
+          status: a.isEnabled === false ? 'PLANNED' : 'ACTIVE',
+          etag: newEtag || area.etag,
         };
       }
-      return area;
+      return { ...area, etag: newEtag || area.etag };
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -761,6 +932,7 @@ export class RealConfigurationRepository implements IConfigurationRepository {
             classification: 'ONE_TIME_FEE',
             notes: String(f.description || 'Configured administrative platform fee.'),
             decisionStatus: 'APPROVED',
+            etag: typeof f.etag === 'string' ? f.etag : undefined,
           };
         });
       }
@@ -785,6 +957,7 @@ export class RealConfigurationRepository implements IConfigurationRepository {
             },
             {
               headers: {
+                'If-Match': fee.etag || '*',
                 'X-Audit-Reason': rationale.trim(),
               },
             }
@@ -843,19 +1016,146 @@ export class RealConfigurationRepository implements IConfigurationRepository {
         },
         {
           headers: {
+            'If-Match': template.etag || '*',
             'X-Audit-Reason': rationale.trim(),
           },
         }
       );
+      const newEtag = (response.headers?.etag as string) || (response.headers?.['etag'] as string);
       if (response.data && typeof response.data === 'object') {
         const t = response.data as Record<string, unknown>;
         return {
           ...template,
           id: String(t.id || template.id),
           titleTemplate: String(t.titleTemplate || template.titleTemplate),
+          bodyTemplate: String(t.body || template.bodyTemplate),
+          status: t.isActive === false ? 'DRAFT' : 'ACTIVE',
+          etag: newEtag || template.etag,
         };
       }
-      return template;
+      return { ...template, etag: newEtag || template.etag };
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async createCategory(dto: { code: string; name: string; description?: string }): Promise<ServiceCategoryItem> {
+    try {
+      const response = await httpClient.post('/admin/service-categories', {
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        description: dto.description?.trim() || undefined,
+      });
+      const c = (response.data?.data || response.data) as Record<string, unknown>;
+      return {
+        id: String(c.id || dto.code),
+        name: String(c.name || dto.name),
+        tagline: String(c.description || dto.description || 'Household services'),
+        iconName: 'Sparkles',
+        allowedEngagementTypes: ['Part-time', 'Full-time'],
+        skillsTaxonomy: ['Standard Skills'],
+        minExperienceMonths: 6,
+        status: 'ACTIVE',
+      };
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async createOperationalArea(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
+    try {
+      const response = await httpClient.post('/admin/service-areas', {
+        name: dto.name.trim(),
+        city: dto.city.trim(),
+        centerLatitude: dto.centerLatitude ?? null,
+        centerLongitude: dto.centerLongitude ?? null,
+        radiusMeters: dto.radiusMeters ?? null,
+      });
+      const a = (response.data?.data || response.data) as Record<string, unknown>;
+      return {
+        id: String(a.id || `AREA-${Date.now()}`),
+        cityName: String(a.city || dto.city),
+        clusterName: String(a.name || dto.name),
+        pincodes: ['500001'],
+        status: 'ACTIVE',
+        activeWorkersCount: 0,
+      };
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async createNotificationTemplate(dto: { eventCode: string; channel: string; title: string; body: string; dltTemplateId?: string }): Promise<NotificationTemplateItem> {
+    try {
+      const response = await httpClient.post('/admin/notification-templates', {
+        eventCode: dto.eventCode.trim(),
+        channel: dto.channel.trim(),
+        title: dto.title.trim(),
+        body: dto.body.trim(),
+        dltTemplateId: dto.dltTemplateId?.trim() || undefined,
+        language: 'en',
+        isActive: true,
+      });
+      const t = (response.data?.data || response.data) as Record<string, unknown>;
+      return {
+        id: String(t.id || `TMPL-${Date.now()}`),
+        channel: String(t.channel || dto.channel),
+        eventTrigger: String(t.eventCode || dto.eventCode),
+        titleTemplate: String(t.title || dto.title),
+        bodyTemplate: String(t.body || dto.body),
+        allowedPlaceholders: [],
+        status: 'ACTIVE',
+        dltTemplateId: t.dltTemplateId ? String(t.dltTemplateId) : dto.dltTemplateId,
+      };
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getAppSettings(): Promise<AppSettingItem[]> {
+    try {
+      const response = await httpClient.get('/admin/app-settings');
+      const data = response.data;
+      const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      return list.map((item: Record<string, unknown>) => ({
+        key: String(item.key || ''),
+        kind: (item.kind as 'string' | 'boolean') || 'string',
+        description: String(item.description || ''),
+        value: (item.value as string | boolean | null) ?? null,
+        source: (item.source as AppSettingItem['source']) || 'UNSET',
+        updatedAt: item.updatedAt ? String(item.updatedAt) : null,
+      }));
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async updateAppSetting(key: string, value: string | boolean): Promise<AppSettingItem> {
+    try {
+      const response = await httpClient.put(`/admin/app-settings/${encodeURIComponent(key)}`, { value });
+      const item = (response.data?.data || response.data) as Record<string, unknown>;
+      return {
+        key: String(item.key || key),
+        kind: (item.kind as 'string' | 'boolean') || (typeof value === 'boolean' ? 'boolean' : 'string'),
+        description: String(item.description || ''),
+        value: (item.value as string | boolean | null) ?? value,
+        source: (item.source as AppSettingItem['source']) || 'DATABASE',
+        updatedAt: item.updatedAt ? String(item.updatedAt) : new Date().toISOString(),
+      };
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getNotificationEvents(): Promise<NotificationEventDefinition[]> {
+    try {
+      const response = await httpClient.get('/admin/notification-events');
+      const data = response.data;
+      const list = Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : [];
+      return list.map((item: Record<string, unknown>) => ({
+        eventCode: String(item.eventCode || item.code || ''),
+        params: Array.isArray(item.params) ? item.params.map(String) : [],
+      }));
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }

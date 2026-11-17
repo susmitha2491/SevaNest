@@ -125,7 +125,7 @@ describe('Super Admin Configuration & System Masters Workflows', () => {
     const confirmBtn = screen.getByRole('button', { name: /Confirm & Publish Category/i });
     await user.click(confirmBtn);
 
-    expect(await screen.findByText(/Service category taxonomy updated successfully/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Service category details and engagements successfully published and verified/i)).toBeInTheDocument();
   });
 
   it('displays NoAccessView when user lacks configuration.manage permission', async () => {
@@ -144,5 +144,34 @@ describe('Super Admin Configuration & System Masters Workflows', () => {
 
     expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
     expect(screen.getByText(/configuration\.manage/i)).toBeInTheDocument();
+  });
+
+  it('renders styled currency draft input fields with prefix, modified badge, and working reset action', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ConfigurationMastersPage />);
+
+    expect(await screen.findByRole('heading', { name: /Platform Configuration Masters/i })).toBeInTheDocument();
+
+    // Verify currency prefixes are rendered
+    const currencyPrefixes = screen.getAllByText('₹');
+    expect(currencyPrefixes.length).toBeGreaterThanOrEqual(1);
+
+    // Verify first spinbutton input
+    const feeInput = (await screen.findAllByRole('spinbutton'))[0] as HTMLInputElement;
+    expect(feeInput).toHaveClass('currency-draft-input');
+    const initialValue = feeInput.value;
+
+    // Modifying draft value should display Draft Modified badge and Reset button
+    await user.clear(feeInput);
+    await user.type(feeInput, '850');
+    expect(screen.getByText(/Draft Modified/i)).toBeInTheDocument();
+
+    const resetBtn = screen.getByRole('button', { name: /Reset .* to live value/i });
+    expect(resetBtn).toBeInTheDocument();
+
+    // Clicking Reset restores original value and removes Draft Modified badge
+    await user.click(resetBtn);
+    expect(feeInput.value).toBe(initialValue);
+    expect(screen.queryByText(/Draft Modified/i)).not.toBeInTheDocument();
   });
 });

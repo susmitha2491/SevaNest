@@ -2,22 +2,25 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
-  RotateCcw,
   Eye,
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
   IndianRupee,
   Receipt,
-  Download,
   CheckCircle2,
   RefreshCw,
+  RotateCcw,
+  Tag,
+  ArrowUpRight,
+  FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
-import { PaymentTransaction } from '../domain/types';
+import { PaymentTransaction, RefundDto } from '../domain/types';
 import { paymentRepository } from '../data/paymentRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -32,6 +35,15 @@ export const PaymentsListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
 
+  // Primary Module Tab state: 'transactions' | 'refunds' | 'fee-records'
+  const [activeTab, setActiveTab] = useState<'transactions' | 'refunds' | 'fee-records'>(() => {
+    const t = searchParams.get('tab');
+    if (t === 'refunds' || t === 'fees' || t === 'fee-records') {
+      return t === 'fees' ? 'fee-records' : (t as 'refunds' | 'fee-records');
+    }
+    return 'transactions';
+  });
+
   // Filter & Search state
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
@@ -40,6 +52,21 @@ export const PaymentsListPage: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<string>(() => searchParams.get('status') || 'ALL');
   const [selectedFeeType, setSelectedFeeType] = useState('ALL');
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Sync tab change to URL
+  const handleTabChange = (tab: 'transactions' | 'refunds' | 'fee-records') => {
+    setActiveTab(tab);
+    setCurrentPage(1);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      if (tab === 'transactions') {
+        next.delete('tab');
+      } else {
+        next.set('tab', tab === 'fee-records' ? 'fees' : tab);
+      }
+      return next;
+    }, { replace: true });
+  };
 
   // Reset page when debounced search term changes
   useEffect(() => {
@@ -63,7 +90,7 @@ export const PaymentsListPage: React.FC = () => {
     }
   }, [debouncedSearchTerm, setSearchParams]);
 
-  // Sync URL search param to state only when external change (e.g. back/forward navigation) occurs
+  // Sync URL search param to state only when external change occurs
   useEffect(() => {
     const searchParam = searchParams.get('search') || '';
     if (searchParam !== lastSyncedSearchRef.current) {
@@ -82,42 +109,139 @@ export const PaymentsListPage: React.FC = () => {
   // Modal states
   const [selectedTxn, setSelectedTxn] = useState<PaymentTransaction | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
-  const [isRefundOpen, setIsRefundOpen] = useState(false);
-  const [isReconciling, setIsReconciling] = useState(false);
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundTargetTxn, setRefundTargetTxn] = useState<PaymentTransaction | null>(null);
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false);
+
+  const [isVerifying, setIsVerifying] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportFormat, setExportFormat] = useState<'csv' | 'xlsx' | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [modalFeedback, setModalFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
 
   const queryClient = useQueryClient();
   const canView = hasPermission(user?.permissions, PERMISSIONS.PAYMENTS_VIEW);
   const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
+  const canManagePayment = hasPermission(user?.permissions, PERMISSIONS.PAYMENT_MANAGE);
+  const canManageConfig = hasPermission(user?.permissions, PERMISSIONS.CONFIGURATION_MANAGE);
   const canViewBookings = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
 
-  const handleReconcile = async (txn: PaymentTransaction) => {
+  const handleVerifyPaymentStatus = async (txn: PaymentTransaction) => {
+    if (isVerifying) return; // Prevent duplicate concurrent verification calls
     try {
-      setIsReconciling(true);
-      await paymentRepository.reconcilePayment(txn.id);
-      setActionFeedback(`Payment ${txn.id} successfully reconciled with gateway.`);
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      const refreshed = await paymentRepository.getTransactionById(txn.id);
-      if (refreshed) {
-        setSelectedTxn(refreshed);
+      setIsVerifying(true);
+      setModalFeedback(null);
+      const previousStatus = txn.status;
+      const verifiedTxn = await paymentRepository.reconcilePayment(txn.id);
+
+      // Compare gateway status with stored status and report exact outcome
+      let msg = '';
+      if (verifiedTxn.status !== previousStatus) {
+        msg = `Payment status verified: Status updated from ${previousStatus} to ${verifiedTxn.status} per gateway confirmation.`;
+      } else {
+        msg = `Payment status verified with gateway: Confirmed as ${verifiedTxn.status} (no status change).`;
       }
+
+      setActionFeedback(msg);
+      setModalFeedback({ type: 'success', message: msg });
+      setSelectedTxn(verifiedTxn);
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
     } catch (err: unknown) {
-      setActionFeedback(`Failed to reconcile payment: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const errorMsg = `Failed to verify payment status: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      setActionFeedback(errorMsg);
+      setModalFeedback({ type: 'error', message: errorMsg });
     } finally {
-      setIsReconciling(false);
+      setIsVerifying(false);
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
+  const handleInitiateRefundClick = (txn: PaymentTransaction) => {
+    setRefundTargetTxn(txn);
+    setIsRefundModalOpen(true);
+  };
+
+  const handleConfirmRefund = async (paymentId: string, dto: RefundDto) => {
+    if (isProcessingRefund) return; // Prevent duplicate refund submissions
+    try {
+      setIsProcessingRefund(true);
+      setModalFeedback(null);
+      const refundedTxn = await paymentRepository.processRefund(paymentId, dto);
+
+      // Determine feedback based on actual backend response status
+      let msg = '';
+      if (refundedTxn.refundStatus === 'REFUND_PENDING' || refundedTxn.status === 'REFUND_PENDING') {
+        msg = `Refund initiated and currently pending gateway settlement for transaction ${paymentId}.`;
+      } else if (refundedTxn.refundStatus === 'REFUND_FAILED' || refundedTxn.status === 'REFUND_FAILED') {
+        msg = `Refund request failed at payment gateway for transaction ${paymentId}.`;
+      } else {
+        msg = `Refund successfully processed and audited for transaction ${paymentId}.`;
+      }
+
+      setActionFeedback(msg);
+      setModalFeedback({
+        type: (refundedTxn.refundStatus === 'REFUND_FAILED' || refundedTxn.status === 'REFUND_FAILED') ? 'error' : 'success',
+        message: msg,
+      });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      setIsRefundModalOpen(false);
+      setRefundTargetTxn(null);
+      setSelectedTxn(refundedTxn);
+    } catch (err: unknown) {
+      const errorMsg = `Failed to process refund: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      setActionFeedback(errorMsg);
+      setModalFeedback({ type: 'error', message: errorMsg });
+      throw err;
+    } finally {
+      setIsProcessingRefund(false);
+      setTimeout(() => setActionFeedback(null), 5000);
+    }
+  };
+
+  // Export handlers
+  const handleExportCsv = async () => {
+    try {
+      setIsExporting(true);
+      setExportFormat('csv');
+      const currentYear = new Date().getFullYear();
+      const from = `${currentYear}-01-01`;
+      const to = new Date().toISOString().slice(0, 10);
+      const csvData = await paymentRepository.exportPaymentsCsv(from, to, {
+        status: activeTab === 'refunds' ? 'REFUNDED' : selectedStatus,
+        feeType: selectedFeeType,
+        searchTerm: debouncedSearchTerm,
+        refunded: activeTab === 'refunds',
+      });
+
+      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `SevaNest_Payments_Export_${to}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      setActionFeedback('Official backend CSV reference export generated successfully.');
+    } catch (err: unknown) {
+      setActionFeedback(`Failed to export CSV: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsExporting(false);
+      setExportFormat(null);
       setTimeout(() => setActionFeedback(null), 4000);
     }
   };
 
-  const handleExport = async () => {
+  const handleExportExcel = async () => {
     try {
       setIsExporting(true);
+      setExportFormat('xlsx');
       const now = new Date().toISOString().slice(0, 10);
       const filterCriteria = {
-        status: selectedStatus,
+        status: activeTab === 'refunds' ? 'REFUNDED' : selectedStatus,
         feeType: selectedFeeType,
         searchTerm: debouncedSearchTerm,
+        refunded: activeTab === 'refunds',
       };
 
       const blob = await paymentRepository.exportPaymentsExcel(filterCriteria);
@@ -131,28 +255,38 @@ export const PaymentsListPage: React.FC = () => {
         document.body.removeChild(link);
         window.URL.revokeObjectURL(url);
       }
-      setActionFeedback('Transactions ledger exported successfully.');
+      setActionFeedback('Formatted Excel transactions ledger exported successfully.');
     } catch (err: unknown) {
       setActionFeedback(`Failed to export transactions: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsExporting(false);
+      setExportFormat(null);
       setTimeout(() => setActionFeedback(null), 4000);
     }
   };
 
   // Query transactions with debounced search and keepPreviousData
   const { data: paymentsData, isLoading, isFetching, isError, refetch } = useQuery({
-    queryKey: ['payments', 'transactions', debouncedSearchTerm, selectedStatus, selectedFeeType, currentPage],
+    queryKey: ['payments', 'transactions', activeTab, debouncedSearchTerm, selectedStatus, selectedFeeType, currentPage],
     queryFn: () =>
       paymentRepository.getTransactions({
         searchTerm: debouncedSearchTerm,
-        status: selectedStatus,
+        status: activeTab === 'refunds' ? (selectedStatus === 'ALL' ? undefined : selectedStatus) : selectedStatus,
+        refunded: activeTab === 'refunds' ? true : undefined,
         feeType: selectedFeeType,
         page: currentPage,
         pageSize: 10,
       }),
-    enabled: canView,
+    enabled: canView && activeTab !== 'fee-records',
     placeholderData: keepPreviousData,
+  });
+
+  // Query fee records from backend
+  const { data: feeRecords, isLoading: isFeesLoading } = useQuery({
+    queryKey: ['payments', 'fee-records'],
+    queryFn: () => paymentRepository.getFeeRecords(),
+    enabled: canView && activeTab === 'fee-records',
+    staleTime: 60000,
   });
 
   // Query authoritative financial overview metrics from backend APIs
@@ -168,15 +302,12 @@ export const PaymentsListPage: React.FC = () => {
       ? financialOverview.grossSettledCollectionsINR
       : (paymentsData?.totalGrossCollectionsINR || 0);
 
-  const pendingRefundsCount =
-    financialOverview?.pendingRefundsCount !== undefined
-      ? financialOverview.pendingRefundsCount
-      : (paymentsData?.pendingRefundsCount || 0);
-
   const totalLedgerRecords =
     financialOverview?.totalLedgerRecords !== undefined
       ? financialOverview.totalLedgerRecords
       : (paymentsData?.totalCount || 0);
+
+  const totalRefundedINR = financialOverview?.totalRefundedINR ?? 0;
 
   if (!canView) {
     return <NoAccessView moduleName="Financial Transactions & Ledger" requiredPermission={PERMISSIONS.PAYMENTS_VIEW} />;
@@ -188,14 +319,62 @@ export const PaymentsListPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
           <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Financial Transactions & Refunds
+            Financial Transactions
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            Operational monitoring for booking fee collections, placement charges, replacement plans, and refund arbitration.
+            PRD commercial operations: transaction status tracking, fee records, refunds, and audited reference exports.
           </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          {/* Official Backend CSV Export */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={isExporting}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-brand-600)',
+              backgroundColor: 'var(--color-brand-50)',
+              color: 'var(--color-brand-700)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              cursor: isExporting ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            title="Export authoritative backend CSV reference report"
+          >
+            <FileText size={14} className={isExporting && exportFormat === 'csv' ? 'animate-spin' : ''} />
+            <span>{isExporting && exportFormat === 'csv' ? 'Exporting...' : 'Export CSV (Backend)'}</span>
+          </button>
+
+          {/* Formatted Excel Export */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={isExporting}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 'var(--radius-md)',
+              border: '1px solid var(--color-border)',
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              cursor: isExporting ? 'not-allowed' : 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            title="Download formatted Excel workbook"
+          >
+            <FileSpreadsheet size={14} className={isExporting && exportFormat === 'xlsx' ? 'animate-spin' : ''} />
+            <span>{isExporting && exportFormat === 'xlsx' ? 'Generating...' : 'Export Excel'}</span>
+          </button>
+
           <button
             type="button"
             onClick={async () => {
@@ -225,6 +404,29 @@ export const PaymentsListPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Action Feedback Banner */}
+      {actionFeedback && (
+        <div
+          role="status"
+          data-testid="action-feedback-banner"
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            backgroundColor: actionFeedback.includes('Failed') ? 'var(--color-status-danger-bg)' : 'var(--color-status-success-bg)',
+            border: `1px solid ${actionFeedback.includes('Failed') ? 'var(--color-status-danger-border)' : 'var(--color-status-success-border)'}`,
+            borderRadius: 'var(--radius-md)',
+            color: actionFeedback.includes('Failed') ? 'var(--color-status-danger-text)' : 'var(--color-status-success-text)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          {actionFeedback.includes('Failed') ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
+          <span>{actionFeedback}</span>
+        </div>
+      )}
 
       {/* Metric Summary Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--space-4)' }}>
@@ -265,15 +467,15 @@ export const PaymentsListPage: React.FC = () => {
             gap: 'var(--space-3)',
           }}
         >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-status-warning-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-status-warning-text)' }}>
-            <RotateCcw size={24} />
+          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-status-success-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-status-success-text)' }}>
+            <Receipt size={24} />
           </div>
           <div>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              Pending Refund Requests
+              Total Ledger Records
             </div>
-            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-warning-dark)' }}>
-              {pendingRefundsCount}
+            <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+              {totalLedgerRecords}
             </div>
           </div>
         </div>
@@ -290,446 +492,596 @@ export const PaymentsListPage: React.FC = () => {
             gap: 'var(--space-3)',
           }}
         >
-          <div style={{ padding: 'var(--space-3)', backgroundColor: 'var(--color-status-success-bg)', borderRadius: 'var(--radius-md)', color: 'var(--color-status-success-text)' }}>
-            <Receipt size={24} />
+          <div style={{ padding: 'var(--space-3)', backgroundColor: '#fff1f2', borderRadius: 'var(--radius-md)', color: '#e11d48' }}>
+            <RotateCcw size={24} />
           </div>
           <div>
             <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
-              Total Ledger Records
+              Total Settled Refunds
             </div>
             <div style={{ fontSize: 'var(--font-size-xl)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-              {totalLedgerRecords}
+              {formatCurrencyINR(totalRefundedINR)}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div
-        style={{
-          backgroundColor: 'var(--color-surface, #ffffff)',
-          padding: '16px',
-          borderRadius: 'var(--radius-lg, 12px)',
-          border: '1px solid var(--color-border, #e2e8f0)',
-          boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        {/* Status Quick-Filter Tabs */}
-        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '16px', borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)', scrollbarWidth: 'thin' }}>
-          {[
-            { key: 'ALL', label: 'All Transactions' },
-            { key: 'PAID', label: 'Paid' },
-            { key: 'REFUND_PENDING', label: 'Refund Pending' },
-            { key: 'REFUNDED', label: 'Refunded' },
-            { key: 'PAYMENT_FAILED', label: 'Failed' },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setSelectedStatus(tab.key);
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-full, 9999px)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
-                fontSize: 'var(--font-size-xs, 12px)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 150ms ease',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Search & Fee Type Dropdown */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
-          <SearchInput
-            value={searchTerm}
-            onChange={(val) => setSearchTerm(val)}
-            placeholder="Search by customer, booking ref, transaction ID..."
-            ariaLabel="Search transactions"
-            isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
-            containerStyle={{ flex: '1 1 300px', minWidth: 'min(100%, 240px)' }}
-          />
-
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <CustomSelect
-              value={selectedFeeType}
-              onChange={(val) => {
-                setSelectedFeeType(val);
-                setCurrentPage(1);
-              }}
-              options={[
-                { value: 'ALL', label: 'All Fee Classifications' },
-                { value: 'BOOKING_FEE', label: 'Booking / Matching Fee' },
-                { value: 'PLACEMENT_FEE', label: 'Placement Commission' },
-                { value: 'REPLACEMENT_PLAN', label: 'Replacement Guarantee Plan' },
-                { value: 'SUBSCRIPTION', label: 'Subscription / Membership' },
-              ]}
-              ariaLabel="Filter by fee classification"
-              minWidth="180px"
-            />
-
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={isExporting}
-              style={{
-                height: '38px',
-                padding: '0 14px',
-                borderRadius: 'var(--radius-md, 8px)',
-                border: '1px solid var(--color-brand-600, #0284c7)',
-                backgroundColor: 'var(--color-brand-50, #f0f9ff)',
-                color: 'var(--color-brand-700, #0369a1)',
-                fontSize: 'var(--font-size-xs, 12px)',
-                fontWeight: 600,
-                cursor: isExporting ? 'not-allowed' : 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                boxSizing: 'border-box',
-                transition: 'all 150ms ease',
-              }}
-              title="Export complete filtered transactions ledger"
-            >
-              <Download size={14} className={isExporting ? 'animate-spin' : ''} />
-              <span>{isExporting ? 'Exporting...' : 'Export'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {actionFeedback && (
-        <div
+      {/* Primary Module Tabs Navigation */}
+      <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid var(--color-border)', paddingBottom: '0px' }}>
+        <button
+          type="button"
+          onClick={() => handleTabChange('transactions')}
           style={{
-            padding: 'var(--space-3) var(--space-4)',
-            borderRadius: 'var(--radius-md)',
-            backgroundColor: actionFeedback.includes('Failed') ? 'var(--color-status-danger-bg)' : 'var(--color-status-success-bg)',
-            color: actionFeedback.includes('Failed') ? 'var(--color-status-danger-text)' : 'var(--color-status-success-text)',
+            padding: '10px 18px',
+            borderBottom: activeTab === 'transactions' ? '2px solid var(--color-brand-600)' : '2px solid transparent',
+            marginBottom: '-2px',
+            backgroundColor: 'transparent',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            color: activeTab === 'transactions' ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
+            fontWeight: activeTab === 'transactions' ? 700 : 500,
             fontSize: 'var(--font-size-sm)',
-            fontWeight: 600,
-            display: 'flex',
+            cursor: 'pointer',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: 'var(--space-2)',
-            border: `1px solid ${actionFeedback.includes('Failed') ? 'var(--color-status-danger-border)' : 'var(--color-status-success-border)'}`,
+            gap: '8px',
           }}
         >
-          {actionFeedback.includes('Failed') ? <AlertTriangle size={16} /> : <CheckCircle2 size={16} />}
-          <span>{actionFeedback}</span>
-        </div>
-      )}
+          <Receipt size={16} />
+          <span>Transactions Ledger</span>
+        </button>
 
-      {/* Transactions Table */}
-      <div
-        style={{
-          backgroundColor: 'var(--color-surface)',
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: 'var(--shadow-sm)',
-          overflow: 'hidden',
-          border: '1px solid var(--color-border)',
-        }}
-      >
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left' }}>
-            <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
-              <tr>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Transaction ID
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Customer Name
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Booking Reference
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Fee Classification
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Amount
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Payment Method
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Transaction Status
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                  Transaction Date
-                </th>
-                <th style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading && !paymentsData ? (
-                <tr>
-                  <td colSpan={9} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
-                    <LoadingSpinner message="Loading marketplace transaction ledgers..." />
-                  </td>
-                </tr>
-              ) : isError && !paymentsData ? (
-                <tr>
-                  <td colSpan={9} style={{ padding: 'var(--space-8)', textAlign: 'center' }}>
-                    <div style={{ color: 'var(--color-error-dark)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                      <AlertTriangle size={36} color="var(--color-error-dark)" />
-                      <div style={{ fontWeight: 600 }}>Failed to load transactions</div>
-                      <p style={{ color: 'var(--color-text-secondary)', margin: 0, fontSize: 'var(--font-size-xs)' }}>
-                        An error occurred while fetching payment ledgers.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => refetch()}
-                        style={{
-                          marginTop: 'var(--space-2)',
-                          padding: '6px 16px',
-                          backgroundColor: 'var(--color-brand-600)',
-                          color: '#fff',
-                          borderRadius: 'var(--radius-md)',
-                          border: 'none',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : paymentsData?.items.length === 0 ? (
-                <tr>
-                  <td colSpan={9} style={{ padding: 'var(--space-8)', textAlign: 'center', color: 'var(--color-text-secondary)' }}>
-                    No payment transactions found matching the selected criteria.
-                  </td>
-                </tr>
-              ) : (
-                paymentsData?.items.map((txn) => (
-                  <tr
-                    key={txn.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`View transaction details for ${txn.id}`}
-                    className="clickable-table-row"
-                    onClick={(e) => {
-                      const target = e.target as { closest?: (selector: string) => unknown };
-                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                        return;
-                      }
-                      setSelectedTxn(txn);
-                      setIsDetailOpen(true);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        const target = e.target as { closest?: (selector: string) => unknown };
-                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                          return;
-                        }
-                        e.preventDefault();
-                        setSelectedTxn(txn);
-                        setIsDetailOpen(true);
-                      }
-                    }}
-                    style={{ borderBottom: '1px solid var(--color-border)' }}
-                  >
-                    {/* Transaction ID */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
-                        {txn.id}
-                      </span>
-                    </td>
+        <button
+          type="button"
+          onClick={() => handleTabChange('refunds')}
+          style={{
+            padding: '10px 18px',
+            borderBottom: activeTab === 'refunds' ? '2px solid var(--color-brand-600)' : '2px solid transparent',
+            marginBottom: '-2px',
+            backgroundColor: 'transparent',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            color: activeTab === 'refunds' ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
+            fontWeight: activeTab === 'refunds' ? 700 : 500,
+            fontSize: 'var(--font-size-sm)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <RotateCcw size={16} />
+          <span>Refund Records</span>
+        </button>
 
-                    {/* Customer Name */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <div
-                        style={{
-                          fontWeight: 600,
-                          color: txn.customerName === 'Customer Details Unavailable' ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)',
-                          fontStyle: txn.customerName === 'Customer Details Unavailable' ? 'italic' : 'normal',
-                        }}
-                      >
-                        {txn.customerName}
-                      </div>
-                      {txn.customerName !== 'Customer Details Unavailable' && (txn.customerPhone || txn.customerPhoneMasked) && (
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                          {txn.customerPhone || txn.customerPhoneMasked}
-                        </div>
+        <button
+          type="button"
+          onClick={() => handleTabChange('fee-records')}
+          style={{
+            padding: '10px 18px',
+            borderBottom: activeTab === 'fee-records' ? '2px solid var(--color-brand-600)' : '2px solid transparent',
+            marginBottom: '-2px',
+            backgroundColor: 'transparent',
+            borderTop: 'none',
+            borderLeft: 'none',
+            borderRight: 'none',
+            color: activeTab === 'fee-records' ? 'var(--color-brand-600)' : 'var(--color-text-secondary)',
+            fontWeight: activeTab === 'fee-records' ? 700 : 500,
+            fontSize: 'var(--font-size-sm)',
+            cursor: 'pointer',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <Tag size={16} />
+          <span>Fee Records & Revenue Streams</span>
+        </button>
+      </div>
+
+      {/* Tab Content 1 & 2: Transactions or Refunds */}
+      {activeTab !== 'fee-records' && (
+        <div
+          style={{
+            backgroundColor: 'var(--color-surface, #ffffff)',
+            padding: '16px',
+            borderRadius: 'var(--radius-lg, 12px)',
+            border: '1px solid var(--color-border, #e2e8f0)',
+            boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '16px',
+          }}
+        >
+          {/* Status Quick-Filter Tabs */}
+          <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '16px', borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)', scrollbarWidth: 'thin' }}>
+            {activeTab === 'transactions' ? (
+              [
+                { key: 'ALL', label: 'All Transactions' },
+                { key: 'PAID', label: 'Paid' },
+                { key: 'PAYMENT_FAILED', label: 'Failed' },
+                { key: 'REFUNDED', label: 'Refunded' },
+                { key: 'REFUND_PENDING', label: 'Refund Pending' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    setSelectedStatus(tab.key);
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-full, 9999px)',
+                    border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
+                    color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                    fontSize: 'var(--font-size-xs, 12px)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 150ms ease',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))
+            ) : (
+              [
+                { key: 'ALL', label: 'All Audited Refunds' },
+                { key: 'REFUNDED', label: 'Settled Refunds' },
+                { key: 'REFUND_PENDING', label: 'Pending Settlement' },
+                { key: 'REFUND_FAILED', label: 'Refund Failed' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => {
+                    setSelectedStatus(tab.key);
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 'var(--radius-full, 9999px)',
+                    border: selectedStatus === tab.key ? '1px solid #e11d48' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: selectedStatus === tab.key ? '#e11d48' : 'var(--color-surface, #ffffff)',
+                    color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                    fontSize: 'var(--font-size-xs, 12px)',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    transition: 'all 150ms ease',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Search & Fee Type Dropdown */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', width: '100%' }}>
+            <SearchInput
+              value={searchTerm}
+              onChange={(val) => setSearchTerm(val)}
+              placeholder="Search by customer, booking ref, transaction ID..."
+              ariaLabel="Search transactions"
+              isLoading={isFetching && debouncedSearchTerm.trim().length > 0}
+              containerStyle={{ flex: '1 1 300px', minWidth: 'min(100%, 240px)' }}
+            />
+
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              <CustomSelect
+                value={selectedFeeType}
+                onChange={(val) => {
+                  setSelectedFeeType(val);
+                  setCurrentPage(1);
+                }}
+                options={[
+                  { value: 'ALL', label: 'All Fee Classifications' },
+                  { value: 'BOOKING_FEE', label: 'Booking / Matching Fee' },
+                  { value: 'PLACEMENT_FEE', label: 'Placement Commission' },
+                  { value: 'REPLACEMENT_PLAN', label: 'Replacement Guarantee Plan' },
+                  { value: 'SUBSCRIPTION', label: 'Subscription / Membership' },
+                ]}
+                ariaLabel="Filter by fee classification"
+                minWidth="180px"
+              />
+            </div>
+          </div>
+
+          {/* Transactions / Refunds Table */}
+          {isLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
+              <LoadingSpinner size={32} />
+            </div>
+          ) : isError ? (
+            <div
+              style={{
+                padding: 'var(--space-8)',
+                textAlign: 'center',
+                backgroundColor: 'var(--color-status-danger-bg)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px solid var(--color-status-danger-border)',
+              }}
+            >
+              <AlertTriangle size={32} color="var(--color-status-danger-text)" style={{ margin: '0 auto var(--space-2)' }} />
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, color: 'var(--color-status-danger-text)' }}>
+                Failed to load transactions
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-status-danger-text)', marginTop: 'var(--space-1)' }}>
+                The payment repository could not be reached. Please check backend connection.
+              </p>
+              <button
+                type="button"
+                onClick={() => refetch()}
+                style={{
+                  marginTop: 'var(--space-4)',
+                  padding: 'var(--space-2) var(--space-4)',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: 'var(--font-size-xs)',
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : !paymentsData || paymentsData.items.length === 0 ? (
+            <div
+              style={{
+                padding: 'var(--space-12)',
+                textAlign: 'center',
+                backgroundColor: 'var(--color-bg-subtle)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px dashed var(--color-border)',
+              }}
+            >
+              <Receipt size={36} color="var(--color-text-tertiary)" style={{ margin: '0 auto var(--space-2)' }} />
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                {activeTab === 'refunds' ? 'No refund records found' : 'No payment records found'}
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+                {debouncedSearchTerm || selectedStatus !== 'ALL' || selectedFeeType !== 'ALL'
+                  ? 'No payment transactions matched your active filters.'
+                  : 'No payment transactions are currently logged in the ledger.'}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)' }}>
+                <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
+                  <thead>
+                    <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Transaction Ref</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Booking</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Customer Payer</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Fee Type</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Amount</th>
+                      {activeTab === 'refunds' && (
+                        <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Refunded</th>
                       )}
-                    </td>
-
-                    {/* Booking Reference */}
-                    <td style={{ padding: 'var(--space-4)', fontFamily: 'monospace', fontWeight: 600 }}>
-                      {canViewBookings && txn.bookingId ? (
-                        <Link
-                          to={`/bookings?search=${encodeURIComponent(txn.bookingRef)}`}
-                          style={{
-                            color: 'var(--color-brand-600)',
-                            textDecoration: 'none',
-                          }}
-                          title={`Navigate to booking ${txn.bookingRef}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {txn.bookingRef}
-                        </Link>
-                      ) : (
-                        <span style={{ color: 'var(--color-brand-700)' }}>
-                          {txn.bookingRef}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Fee Classification */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                        {txn.feeType.replace(/_/g, ' ')}
-                      </div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        {txn.serviceCategory}
-                      </div>
-                    </td>
-
-                    {/* Amount */}
-                    <td style={{ padding: 'var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                      {formatCurrencyINR(txn.amountINR)}
-                    </td>
-
-                    {/* Method */}
-                    <td style={{ padding: 'var(--space-4)', color: 'var(--color-text-secondary)' }}>
-                      <span style={{ fontSize: 'var(--font-size-xs)', backgroundColor: '#f1f5f9', padding: '2px 6px', borderRadius: '4px' }}>
-                        {txn.paymentMethod}
-                      </span>
-                    </td>
-
-                    {/* Status */}
-                    <td style={{ padding: 'var(--space-4)' }}>
-                      <StatusBadge status={txn.status} />
-                    </td>
-
-                    {/* Transaction Date */}
-                    <td style={{ padding: 'var(--space-4)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
-                      {formatDateTimeIST(txn.paidAt || txn.createdAt || txn.timestamp)}
-                    </td>
-
-                    {/* Actions */}
-                    <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
-                        <button
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Payment Method</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Status</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Recorded Date</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)', textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paymentsData.items.map((txn) => {
+                      const isRefunded = txn.status === 'REFUNDED' || txn.status === 'REFUND_PENDING';
+                      return (
+                        <tr
+                          key={txn.id}
+                          className="clickable-table-row"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`View transaction details for ${txn.id}`}
                           onClick={() => {
                             setSelectedTxn(txn);
                             setIsDetailOpen(true);
                           }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setSelectedTxn(txn);
+                              setIsDetailOpen(true);
+                            }
+                          }}
                           style={{
-                            padding: '4px 8px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-border)',
-                            backgroundColor: 'var(--color-surface)',
-                            color: 'var(--color-text-primary)',
-                            fontSize: 'var(--font-size-xs)',
-                            fontWeight: 600,
+                            borderBottom: '1px solid var(--color-border)',
                             cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
+                            backgroundColor: 'var(--color-surface)',
+                            transition: 'background-color 150ms ease',
                           }}
                         >
-                          <Eye size={13} /> View
-                        </button>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'monospace', fontWeight: 600 }}>
+                            {txn.id}
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                            {canViewBookings && txn.bookingId ? (
+                              <Link
+                                to={`/bookings?search=${encodeURIComponent(txn.bookingRef)}`}
+                                style={{ color: 'var(--color-brand-600)', fontWeight: 600, textDecoration: 'none' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {txn.bookingRef}
+                              </Link>
+                            ) : (
+                              <strong>{txn.bookingRef}</strong>
+                            )}
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{txn.customerName}</div>
+                            <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px' }}>{txn.customerPhoneMasked}</div>
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                            <span style={{ fontWeight: 500 }}>{txn.feeType.replace(/_/g, ' ')}</span>
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                            {formatCurrencyINR(txn.amountINR)}
+                          </td>
+                          {activeTab === 'refunds' && (
+                            <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: '#e11d48' }}>
+                              {formatCurrencyINR(txn.refund?.refundAmountINR || txn.amountINR)}
+                            </td>
+                          )}
+                          <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-secondary)' }}>
+                            {txn.paymentMethod}
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                            <StatusBadge status={txn.status} />
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+                            {formatDateTimeIST(txn.paidAt || txn.createdAt || txn.timestamp)}
+                          </td>
+                          <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTxn(txn);
+                                  setIsDetailOpen(true);
+                                }}
+                                style={{
+                                  padding: '4px 8px',
+                                  borderRadius: 'var(--radius-sm)',
+                                  border: '1px solid var(--color-border)',
+                                  backgroundColor: 'var(--color-surface)',
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                <Eye size={12} />
+                                <span>View</span>
+                              </button>
 
-                        {canRefund && (txn.status === 'PAID' || txn.status === 'REFUND_PENDING') && (
-                          <button
-                            onClick={() => {
-                              setSelectedTxn(txn);
-                              setIsRefundOpen(true);
-                            }}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-warning-dark)',
-                              backgroundColor: 'var(--color-warning-bg)',
-                              color: 'var(--color-warning-dark)',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <RotateCcw size={12} /> Refund
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                              {/* Direct Refund Action for Super Admin with permission */}
+                              {canRefund && (txn.status === 'PAID' || txn.status === 'SUCCEEDED') && !isRefunded && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleInitiateRefundClick(txn)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    border: '1px solid #fecdd3',
+                                    backgroundColor: '#fff1f2',
+                                    color: '#e11d48',
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  <RotateCcw size={12} />
+                                  <span>Refund</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination Controls */}
+              {paymentsData.totalPages > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 'var(--space-3)', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                  <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                    Showing Page {paymentsData.page} of {paymentsData.totalPages} ({paymentsData.totalCount} total records)
+                  </span>
+                  <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                    <button
+                      type="button"
+                      disabled={paymentsData.page <= 1}
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-surface)',
+                        cursor: paymentsData.page <= 1 ? 'not-allowed' : 'pointer',
+                        opacity: paymentsData.page <= 1 ? 0.5 : 1,
+                        fontSize: 'var(--font-size-xs)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      <ChevronLeft size={14} /> Previous
+                    </button>
+                    <button
+                      type="button"
+                      disabled={paymentsData.page >= paymentsData.totalPages}
+                      onClick={() => setCurrentPage((p) => Math.min(paymentsData.totalPages, p + 1))}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-surface)',
+                        cursor: paymentsData.page >= paymentsData.totalPages ? 'not-allowed' : 'pointer',
+                        opacity: paymentsData.page >= paymentsData.totalPages ? 0.5 : 1,
+                        fontSize: 'var(--font-size-xs)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                      }}
+                    >
+                      Next <ChevronRight size={14} />
+                    </button>
+                  </div>
+                </div>
               )}
-            </tbody>
-          </table>
+            </>
+          )}
         </div>
+      )}
 
-        {/* Pagination Bar */}
-        {paymentsData && paymentsData.totalPages > 1 && (
+      {/* Tab Content 3: Fee Records & Revenue Streams (PRD Commercial Model) */}
+      {activeTab === 'fee-records' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* PRD Commercial Framework Notice */}
           <div
             style={{
-              padding: 'var(--space-3) var(--space-4)',
-              borderTop: '1px solid var(--color-border)',
+              padding: 'var(--space-4)',
+              backgroundColor: 'var(--color-bg-subtle)',
+              borderRadius: 'var(--radius-lg)',
+              border: '1px solid var(--color-border)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              backgroundColor: 'var(--color-bg-subtle)',
+              flexWrap: 'wrap',
+              gap: 'var(--space-3)',
             }}
           >
-            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              Page {paymentsData.page} of {paymentsData.totalPages} ({paymentsData.totalCount} transactions)
-            </span>
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-              <button
-                disabled={paymentsData.page <= 1}
-                onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: 'var(--color-surface)',
-                  cursor: paymentsData.page <= 1 ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  fontSize: 'var(--font-size-xs)',
-                }}
-              >
-                <ChevronLeft size={14} /> Prev
-              </button>
-              <button
-                disabled={paymentsData.page >= paymentsData.totalPages}
-                onClick={() => setCurrentPage((p) => Math.min(p + 1, paymentsData.totalPages))}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 'var(--radius-md)',
-                  border: '1px solid var(--color-border)',
-                  backgroundColor: 'var(--color-surface)',
-                  cursor: paymentsData.page >= paymentsData.totalPages ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  fontSize: 'var(--font-size-xs)',
-                }}
-              >
-                Next <ChevronRight size={14} />
-              </button>
+            <div>
+              <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
+                PRD Commercial Revenue Streams & Configured Rates
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px', margin: 0 }}>
+                As mandated by SevaNest PRD Section 10, commercial rates are flexible and configurable from the Admin Portal without rebuilding payment logic.
+              </p>
             </div>
+
+            {(canManagePayment || canManageConfig) && (
+              <Link
+                to="/configuration?tab=fees"
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-brand-600)',
+                  color: '#ffffff',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
+                  textDecoration: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <span>Configure in Pricing Plans</span>
+                <ArrowUpRight size={14} />
+              </Link>
+            )}
           </div>
-        )}
-      </div>
+
+          {/* Fee Records Table */}
+          {isFeesLoading ? (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: 'var(--space-12)' }}>
+              <LoadingSpinner size={32} />
+            </div>
+          ) : !feeRecords || feeRecords.length === 0 ? (
+            <div
+              style={{
+                padding: 'var(--space-12)',
+                textAlign: 'center',
+                backgroundColor: 'var(--color-surface)',
+                borderRadius: 'var(--radius-lg)',
+                border: '1px dashed var(--color-border)',
+              }}
+            >
+              <Tag size={36} color="var(--color-text-tertiary)" style={{ margin: '0 auto var(--space-2)' }} />
+              <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                No fee records configured
+              </h3>
+              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-tertiary)', marginTop: 'var(--space-1)' }}>
+                No active commercial fee entries were returned by the backend fee catalog.
+              </p>
+            </div>
+          ) : (
+            <div style={{ overflowX: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-surface)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'var(--font-size-xs)' }}>
+                <thead>
+                  <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)', textAlign: 'left' }}>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Fee Code</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Revenue Stream Kind</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Configured Rate</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Commercial Status</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Last Updated</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>PRD Model Policy</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {feeRecords.map((fee) => {
+                    const policyMap: Record<string, string> = {
+                      BOOKING: 'One-time platform fee for confirmed worker booking',
+                      PLACEMENT: 'Fee for successful monthly domestic staff placement',
+                      VERIFICATION: 'Optional background & police verification service',
+                      REPLACEMENT_PLAN: 'Extended replacement coverage plan',
+                      SUBSCRIPTION: 'Monthly/quarterly customer membership support plan',
+                      CANCELLATION: 'Cancellation policy terms & processing rate',
+                    };
+                    return (
+                      <tr key={fee.code} style={{ borderBottom: '1px solid var(--color-border)' }}>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontFamily: 'monospace', fontWeight: 700 }}>
+                          {fee.code}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 600 }}>
+                          {fee.kind.replace(/_/g, ' ')}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 800, color: 'var(--color-brand-700)', fontSize: 'var(--font-size-sm)' }}>
+                          {formatCurrencyINR(fee.amountINR)}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 'var(--radius-full)',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: fee.isActive ? 'var(--color-status-success-bg)' : 'var(--color-bg-subtle)',
+                              color: fee.isActive ? 'var(--color-status-success-text)' : 'var(--color-text-tertiary)',
+                              border: `1px solid ${fee.isActive ? 'var(--color-status-success-border)' : 'var(--color-border)'}`,
+                            }}
+                          >
+                            {fee.isActive ? 'ACTIVE' : 'INACTIVE'}
+                          </span>
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-secondary)' }}>
+                          {formatDateTimeIST(fee.updatedAt)}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', color: 'var(--color-text-secondary)' }}>
+                          {policyMap[fee.kind] || 'Commercial fee schedule'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Transaction Detail Modal */}
       <TransactionDetailModal
@@ -737,29 +1089,27 @@ export const PaymentsListPage: React.FC = () => {
         isOpen={isDetailOpen}
         onClose={() => {
           setIsDetailOpen(false);
-          setSelectedTxn(null);
+          setModalFeedback(null);
         }}
-        onInitiateRefund={(t) => {
-          setIsDetailOpen(false);
-          setSelectedTxn(t);
-          setIsRefundOpen(true);
-        }}
-        onReconcile={handleReconcile}
-        isReconciling={isReconciling}
+        onVerifyPaymentStatus={handleVerifyPaymentStatus}
+        onReconcile={handleVerifyPaymentStatus}
+        isVerifying={isVerifying}
+        isReconciling={isVerifying}
+        onProcessRefund={handleInitiateRefundClick}
+        onInitiateRefund={handleInitiateRefundClick}
+        feedback={modalFeedback}
       />
 
-      {/* Refund Processing Modal */}
+      {/* Audited Refund Processing Modal */}
       <RefundProcessingModal
-        transaction={selectedTxn}
-        isOpen={isRefundOpen}
+        transaction={refundTargetTxn}
+        isOpen={isRefundModalOpen}
         onClose={() => {
-          setIsRefundOpen(false);
-          setSelectedTxn(null);
+          setIsRefundModalOpen(false);
+          setRefundTargetTxn(null);
         }}
-        onRefundCompleted={() => {
-          setIsRefundOpen(false);
-          setSelectedTxn(null);
-        }}
+        onConfirmRefund={handleConfirmRefund}
+        isProcessing={isProcessingRefund}
       />
     </div>
   );

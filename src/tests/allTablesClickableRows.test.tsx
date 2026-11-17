@@ -80,7 +80,7 @@ describe('Portal-wide Clickable Table Rows Verification', () => {
   it('verifies clickable rows in Payments Ledger page', async () => {
     renderWithProviders(<PaymentsListPage />);
 
-    expect(await screen.findByRole('heading', { name: /Financial Transactions & Refunds/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Financial Transactions/i })).toBeInTheDocument();
 
     const paymentRows = await screen.findAllByRole('button', { name: /View transaction details for/i });
     expect(paymentRows.length).toBeGreaterThan(0);
@@ -130,7 +130,7 @@ describe('Portal-wide Clickable Table Rows Verification', () => {
     // Click row and confirm audit detail modal opens
     fireEvent.click(firstRow);
     await waitFor(() => {
-      expect(screen.getByText(/Target Entity:/i)).toBeInTheDocument();
+      expect(screen.getByText(/Target Entity/i)).toBeInTheDocument();
     });
   });
 });

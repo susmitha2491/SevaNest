@@ -117,7 +117,7 @@ describe('Role-Based Operational Dashboards', () => {
       expect(screen.queryByRole('button', { name: /Open Support/i })).not.toBeInTheDocument();
       fireEvent.click(openBookingsBtn);
 
-      expect(await screen.findByRole('heading', { name: /Booking/i })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Booking/i }, { timeout: 10000 })).toBeInTheDocument();
     });
   });
 

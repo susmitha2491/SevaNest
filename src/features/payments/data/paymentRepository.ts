@@ -3,8 +3,12 @@ import {
   PaginatedPayments,
   PaymentFilterCriteria,
   PaymentTransaction,
-  RefundReasonCategory,
   FinancialOverviewMetrics,
+  RefundDto,
+  RefundRecord,
+  FeeRecord,
+  FeeKind,
+  RefundStatus,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import {
@@ -50,14 +54,9 @@ export const isInvalidCustomerName = (str: string): boolean => {
     s === 'unknown customer' ||
     s === 'not provided' ||
     s === 'customer details unavailable' ||
-    s === 'pawguard' ||
-    s.includes('pawguard') ||
-    s === 'sevanest' ||
     s === 'merchant' ||
     s === 'platform' ||
-    s === 'verified test customer' ||
-    s === 'customer two' ||
-    s === 'test customer'
+    s === 'system'
   );
 };
 
@@ -131,18 +130,16 @@ export async function getCustomerRegistry(): Promise<Map<string, CachedCustomer>
         const mobile = c.phone || c.mobile ? String(c.phone || c.mobile) : undefined;
         const email = c.email ? String(c.email) : undefined;
 
-        if (name) {
-          const entry: CachedCustomer = { id, userId, name, mobile, email };
-          if (id) map.set(id, entry);
-          if (userId) map.set(userId, entry);
-          if (mobile) {
-            setCustomerPhone(id, mobile);
-            if (userId) setCustomerPhone(userId, mobile);
-          }
-          if (email) {
-            setCustomerEmail(id, email);
-            if (userId) setCustomerEmail(userId, email);
-          }
+        const entry: CachedCustomer = { id, userId, name, mobile, email };
+        if (id) map.set(id, entry);
+        if (userId) map.set(userId, entry);
+        if (mobile) {
+          setCustomerPhone(id, mobile);
+          if (userId) setCustomerPhone(userId, mobile);
+        }
+        if (email) {
+          setCustomerEmail(id, email);
+          if (userId) setCustomerEmail(userId, email);
         }
       }
 
@@ -241,7 +238,7 @@ export class MockPaymentRepository implements IPaymentRepository {
       amountINR: 499,
       paymentMethod: 'Credit Card (ICICI Visa)',
       gatewayRef: 'pay_P0912481m',
-      status: 'REFUND_PENDING',
+      status: 'PAID',
       timestamp: '2026-11-12 10:15:00',
       breakdown: {
         baseAmount: 422.88,
@@ -261,7 +258,7 @@ export class MockPaymentRepository implements IPaymentRepository {
       amountINR: 4500,
       paymentMethod: 'Credit Card (HDFC)',
       gatewayRef: 'pay_29QR87Lk11no9z',
-      status: 'REFUND_PENDING',
+      status: 'PAID',
       timestamp: '2026-11-12 11:20:45',
       breakdown: {
         baseAmount: 3813.56,
@@ -283,18 +280,19 @@ export class MockPaymentRepository implements IPaymentRepository {
       gatewayRef: 'pay_29QS44Aa00pp5x',
       status: 'REFUNDED',
       timestamp: '2026-11-11 16:45:00',
+      refundStatus: 'REFUNDED',
+      refundedAt: '2026-11-11 18:00:00',
+      refund: {
+        refundStatus: 'REFUNDED',
+        refundAmountINR: 2000,
+        refundReason: 'Candidate failed trial period. Customer requested full refund within 24 hours.',
+        refundedAt: '2026-11-11 18:00:00',
+        refundedByUserId: 'STAFF-OPS-01',
+      },
       breakdown: {
         baseAmount: 1694.92,
         gstAmount: 305.08,
         platformCommission: 1694.92,
-      },
-      refund: {
-        refundId: 'REF-00192',
-        refundAmountINR: 2000,
-        reasonCategory: 'UNSATISFACTORY_TRIAL',
-        remarks: 'Candidate failed trial period. Customer requested full refund within 24 hours.',
-        processedAt: '2026-11-11 18:00:00',
-        processedBy: 'Operations Admin (Auto-audit)',
       },
     },
     {
@@ -331,8 +329,6 @@ export class MockPaymentRepository implements IPaymentRepository {
       .filter((t) => t.status === 'PAID')
       .reduce((sum, t) => sum + t.amountINR, 0);
 
-    const pendingRefunds = this.transactions.filter((t) => t.status === 'REFUND_PENDING').length;
-
     return {
       items,
       totalCount: filtered.length,
@@ -340,7 +336,6 @@ export class MockPaymentRepository implements IPaymentRepository {
       pageSize,
       totalPages,
       totalGrossCollectionsINR: totalGross,
-      pendingRefundsCount: pendingRefunds,
     };
   }
 
@@ -349,50 +344,127 @@ export class MockPaymentRepository implements IPaymentRepository {
     return txn || null;
   }
 
-  async processRefund(
-    transactionId: string,
-    amount: number,
-    reasonCategory: RefundReasonCategory,
-    remarks: string,
-    idempotencyKey?: string
-  ): Promise<void> {
-    const txn = this.transactions.find((t) => t.id === transactionId);
-    if (!txn) throw new Error('Transaction not found in ledger.');
-
-    txn.status = 'REFUNDED';
-    txn.refund = {
-      refundId: `REF-${Math.floor(10000 + Math.random() * 90000)}`,
-      refundAmountINR: amount,
-      reasonCategory,
-      remarks,
-      processedAt: new Date().toISOString().replace('T', ' ').slice(0, 19),
-      processedBy: 'Operations Admin (Demo Session)',
-      idempotencyKey,
-      mockIdempotencyKey: idempotencyKey,
-    };
-  }
-
-  async reconcilePayment(paymentId: string): Promise<void> {
+  async reconcilePayment(paymentId: string): Promise<PaymentTransaction> {
     const txn = this.transactions.find((t) => t.id === paymentId);
-    if (txn && txn.status === 'PAYMENT_FAILED') {
+    if (!txn) {
+      throw new Error(`Payment transaction ${paymentId} not found.`);
+    }
+    if (txn.status === 'PAYMENT_FAILED' || txn.status === 'FAILED') {
       txn.status = 'PAID';
     }
+    return { ...txn };
+  }
+
+  async processRefund(paymentId: string, dto: RefundDto): Promise<PaymentTransaction> {
+    const txn = this.transactions.find((t) => t.id === paymentId);
+    if (!txn) {
+      throw new Error(`Payment transaction ${paymentId} not found.`);
+    }
+    txn.status = 'REFUNDED';
+    txn.refundStatus = 'REFUNDED';
+    txn.refundedAt = new Date().toISOString();
+    txn.refund = {
+      refundStatus: 'REFUNDED',
+      refundAmountINR: txn.amountINR,
+      refundedAt: txn.refundedAt,
+      refundReason: dto.reason,
+      refundedByUserId: 'STAFF-OPS-01',
+    };
+    return { ...txn };
+  }
+
+  async getFeeRecords(kind?: string): Promise<FeeRecord[]> {
+    const records: FeeRecord[] = [
+      {
+        code: 'BOOKING_FEE',
+        kind: 'BOOKING',
+        amountMinor: 50000,
+        amountINR: 500,
+        currency: 'INR',
+        isActive: true,
+        updatedAt: '2026-10-09T04:41:43.293Z',
+      },
+      {
+        code: 'CANCELLATION_FEE',
+        kind: 'CANCELLATION',
+        amountMinor: 0,
+        amountINR: 0,
+        currency: 'INR',
+        isActive: true,
+        updatedAt: '2026-10-16T07:11:54.406Z',
+      },
+      {
+        code: 'PLACEMENT_FEE',
+        kind: 'PLACEMENT',
+        amountMinor: 150000,
+        amountINR: 1500,
+        currency: 'INR',
+        isActive: false,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      },
+      {
+        code: 'VERIFICATION_FEE',
+        kind: 'VERIFICATION',
+        amountMinor: 30000,
+        amountINR: 300,
+        currency: 'INR',
+        isActive: false,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      },
+      {
+        code: 'REPLACEMENT_PLAN_FEE',
+        kind: 'REPLACEMENT_PLAN',
+        amountMinor: 99900,
+        amountINR: 999,
+        currency: 'INR',
+        isActive: false,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      },
+      {
+        code: 'SUBSCRIPTION_FEE',
+        kind: 'SUBSCRIPTION',
+        amountMinor: 49900,
+        amountINR: 499,
+        currency: 'INR',
+        isActive: false,
+        updatedAt: '2026-10-15T00:00:00.000Z',
+      },
+    ];
+    if (kind && kind !== 'ALL') {
+      return records.filter((r) => r.kind === kind);
+    }
+    return records;
   }
 
   async getFinancialOverview(): Promise<FinancialOverviewMetrics> {
     const grossSettledCollectionsINR = this.transactions
       .filter((t) => t.status === 'PAID')
       .reduce((sum, t) => sum + t.amountINR, 0);
-    const pendingRefundsCount = this.transactions.filter((t) => t.status === 'REFUND_PENDING').length;
+    const totalRefundedINR = this.transactions
+      .filter((t) => t.status === 'REFUNDED')
+      .reduce((sum, t) => sum + (t.refund?.refundAmountINR || t.amountINR), 0);
     const totalLedgerRecords = this.transactions.length;
     return {
       grossSettledCollectionsINR,
-      pendingRefundsCount,
       totalLedgerRecords,
+      totalRefundedINR,
     };
   }
 
-  async exportPaymentsCsv(_from?: string, _to?: string, filter?: PaymentFilterCriteria): Promise<string> {
+  async exportPaymentsCsv(from?: string, to?: string, filter?: PaymentFilterCriteria): Promise<string> {
+    const fromDate = from || '2026-01-01';
+    const toDate = to || new Date().toISOString().split('T')[0];
+    try {
+      const res = await httpClient.get<string>('/admin/payments-export', {
+        params: { from: fromDate, to: toDate },
+        responseType: 'text',
+      });
+      if (res.data && typeof res.data === 'string' && res.data.includes('payment_id')) {
+        return res.data;
+      }
+    } catch {
+      // Fallback to client-side formatted CSV if date range export fails
+    }
     const transactions = await this.getAllFilteredTransactions(filter);
     return generatePaymentsCsvString(transactions);
   }
@@ -412,6 +484,9 @@ export class MockPaymentRepository implements IPaymentRepository {
     let result = [...this.transactions];
     if (filter?.status && filter.status !== 'ALL') {
       result = result.filter((t) => t.status === filter.status);
+    }
+    if (filter?.refunded) {
+      result = result.filter((t) => t.status === 'REFUNDED' || t.status === 'REFUND_PENDING' || t.refundStatus !== null);
     }
     if (filter?.feeType && filter.feeType !== 'ALL') {
       result = result.filter((t) => t.feeType === filter.feeType);
@@ -437,7 +512,6 @@ export function mapBackendPaymentToDomain(
 ): PaymentTransaction {
   const customer = raw.customer as Record<string, unknown> | undefined;
   const breakdown = raw.breakdown as Record<string, unknown> | undefined;
-  const refund = raw.refund as Record<string, unknown> | undefined;
 
   const rawAmount = raw.amount ?? raw.amountINR;
   const amount =
@@ -456,19 +530,39 @@ export function mapBackendPaymentToDomain(
     status = 'PAID';
   } else if (rawStatus === 'FAILED' || rawStatus === 'PAYMENT_FAILED') {
     status = 'PAYMENT_FAILED';
-  } else if (rawStatus === 'REFUND_PENDING' || raw.refundStatus === 'REFUND_PENDING') {
-    status = 'REFUND_PENDING';
-  } else if (rawStatus === 'REFUNDED' || raw.refundStatus === 'REFUNDED') {
+  } else if (rawStatus === 'REFUNDED') {
     status = 'REFUNDED';
-  } else if (rawStatus === 'PARTIALLY_REFUNDED' || raw.refundStatus === 'PARTIALLY_REFUNDED') {
-    status = 'PARTIALLY_REFUNDED';
-  } else if (rawStatus === 'REFUND_FAILED' || raw.refundStatus === 'REFUND_FAILED') {
+  } else if (rawStatus === 'REFUND_PENDING') {
+    status = 'REFUND_PENDING';
+  } else if (rawStatus === 'REFUND_FAILED') {
     status = 'REFUND_FAILED';
   } else if (rawStatus === 'PENDING') {
     status = 'PENDING';
   } else if (rawStatus === 'CREATED') {
     status = 'CREATED';
   }
+
+  const rawRefundStatus = raw.refundStatus ? String(raw.refundStatus).toUpperCase() : undefined;
+  const refundStatus = (rawRefundStatus as RefundStatus) ||
+    (rawStatus === 'REFUNDED' || rawStatus === 'REFUND_PENDING' || rawStatus === 'REFUND_FAILED'
+      ? (rawStatus as RefundStatus)
+      : null);
+
+  const rawRefund = raw.refund as Record<string, unknown> | undefined;
+  const refund: RefundRecord | undefined =
+    refundStatus || raw.refundedAt || raw.refundReason || rawRefund
+      ? {
+          refundStatus: refundStatus || 'REFUNDED',
+          refundAmountINR: rawRefund?.refundAmountINR
+            ? Number(rawRefund.refundAmountINR)
+            : raw.refundAmountMinor !== undefined
+            ? Number(raw.refundAmountMinor) / 100
+            : amount,
+          refundedAt: raw.refundedAt ? String(raw.refundedAt) : rawRefund?.processedAt ? String(rawRefund.processedAt) : undefined,
+          refundReason: raw.refundReason ? String(raw.refundReason) : rawRefund?.remarks ? String(rawRefund.remarks) : undefined,
+          refundedByUserId: raw.refundedByUserId ? String(raw.refundedByUserId) : rawRefund?.processedBy ? String(rawRefund.processedBy) : undefined,
+        }
+      : undefined;
 
   const rawFeeType = String(raw.feeType || raw.feeCode || '');
   const feeType = (
@@ -548,27 +642,6 @@ export function mapBackendPaymentToDomain(
         '+91 98*** *****'
       : '';
 
-  const refundRecord =
-    refund
-      ? {
-          refundId: String(refund.refundId || `REF-${String(raw.id || '').slice(0, 8)}`),
-          refundAmountINR: Number(refund.refundAmountINR || amount),
-          reasonCategory: (refund.reasonCategory as RefundReasonCategory) || 'OTHER',
-          remarks: String(refund.remarks || refund.reason || raw.refundReason || 'Refund processed under platform policy'),
-          processedAt: String(refund.processedAt || raw.refundedAt || 'Recorded'),
-          processedBy: String(refund.processedBy || raw.refundedByUserId || 'Operations Admin'),
-        }
-      : status === 'REFUNDED' || status === 'REFUND_PENDING' || raw.refundedAt || raw.refundReason
-      ? {
-          refundId: String(raw.refundId || `REF-${String(raw.id || '').slice(0, 8)}`),
-          refundAmountINR: Number(raw.refundAmountINR || amount),
-          reasonCategory: (raw.refundReasonCategory as RefundReasonCategory) || 'OTHER',
-          remarks: String(raw.refundReason || raw.refundRemarks || 'Refund processed under platform policy'),
-          processedAt: String(raw.refundedAt || 'Recorded'),
-          processedBy: String(raw.refundedByUserId || 'Operations Admin'),
-        }
-      : undefined;
-
   const serviceCategory = String(
     linkedBooking?.categoryName ||
       raw.serviceCategory ||
@@ -578,7 +651,8 @@ export function mapBackendPaymentToDomain(
 
   return {
     id: String(raw.id || raw.paymentId || ''),
-    customerId: custObj?.id || rawCustId || rawCustUserId || custKey || 'C-NA',
+    customerId: custObj?.id || rawCustId || 'C-NA',
+    customerUserId: rawCustUserId,
     customerName,
     customerPhoneMasked: String(unmaskedCustPhone || fallbackMasked),
     customerPhone: unmaskedCustPhone,
@@ -586,14 +660,17 @@ export function mapBackendPaymentToDomain(
     bookingId: bookingIdStr,
     serviceCategory,
     feeType,
+    feeCode: String(raw.feeCode || rawFeeType || 'BOOKING_FEE'),
     feeDescription,
     amountINR: amount,
+    amountMinor: raw.amountMinor !== undefined ? Number(raw.amountMinor) : Math.round(amount * 100),
     paymentMethod: String(
       raw.paymentMethod ||
         raw.paymentMethodDetail ||
         raw.method ||
         (rawStatus === 'SUCCEEDED' ? 'Online / UPI' : 'Pending Gateway')
     ),
+    paymentMethodDetail: raw.paymentMethodDetail ? String(raw.paymentMethodDetail) : undefined,
     gatewayRef: String(
       raw.gatewayRef ||
         raw.providerPaymentId ||
@@ -606,18 +683,19 @@ export function mapBackendPaymentToDomain(
     timestamp: String(raw.paidAt || raw.createdAt || raw.timestamp || new Date().toISOString()),
     createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
     paidAt: raw.paidAt ? String(raw.paidAt) : undefined,
-    refundedAt: raw.refundedAt ? String(raw.refundedAt) : undefined,
     providerOrderId: raw.providerOrderId ? String(raw.providerOrderId) : undefined,
     providerPaymentId: raw.providerPaymentId ? String(raw.providerPaymentId) : undefined,
     receiptNumber: raw.receiptNumber ? String(raw.receiptNumber) : undefined,
     failureReason: raw.failureReason ? String(raw.failureReason) : undefined,
     failureCode: raw.failureCode ? String(raw.failureCode) : undefined,
+    refundStatus,
+    refundedAt: raw.refundedAt ? String(raw.refundedAt) : undefined,
+    refund,
     breakdown: {
       baseAmount,
       gstAmount,
       platformCommission: baseAmount,
     },
-    refund: refundRecord,
   };
 }
 
@@ -639,7 +717,6 @@ export class RealPaymentRepository implements IPaymentRepository {
         const totalGross = allTransactions
           .filter((t) => t.status === 'PAID')
           .reduce((sum, t) => sum + t.amountINR, 0);
-        const pendingRefunds = allTransactions.filter((t) => t.status === 'REFUND_PENDING').length;
 
         return {
           items,
@@ -648,7 +725,6 @@ export class RealPaymentRepository implements IPaymentRepository {
           pageSize,
           totalPages,
           totalGrossCollectionsINR: totalGross,
-          pendingRefundsCount: pendingRefunds,
         };
       }
 
@@ -667,6 +743,10 @@ export class RealPaymentRepository implements IPaymentRepository {
         if (filter.status === 'PAID') backendStatus = 'SUCCEEDED';
         else if (filter.status === 'PAYMENT_FAILED') backendStatus = 'FAILED';
         params.status = backendStatus;
+      }
+
+      if (filter?.refunded) {
+        params.refunded = true;
       }
 
       const res = await httpClient.get<{
@@ -694,7 +774,7 @@ export class RealPaymentRepository implements IPaymentRepository {
               const cust = uId ? customerMap.get(uId) : undefined;
               return cust?.id || (item.customerId ? String(item.customerId) : undefined);
             })
-            .filter((id): id is string => Boolean(id))
+            .filter((id): id is string => typeof id === 'string' && id.length > 0 && !id.startsWith('C-') && id !== 'C-NA')
         )
       );
 
@@ -742,7 +822,6 @@ export class RealPaymentRepository implements IPaymentRepository {
       const totalGross = mapped
         .filter((t: PaymentTransaction) => t.status === 'PAID')
         .reduce((sum: number, t: PaymentTransaction) => sum + t.amountINR, 0);
-      const pendingRefunds = mapped.filter((t: PaymentTransaction) => t.status === 'REFUND_PENDING').length;
 
       return {
         items: mapped,
@@ -751,7 +830,6 @@ export class RealPaymentRepository implements IPaymentRepository {
         pageSize,
         totalPages,
         totalGrossCollectionsINR: totalGross,
-        pendingRefundsCount: pendingRefunds,
       };
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -770,7 +848,7 @@ export class RealPaymentRepository implements IPaymentRepository {
 
       const custKey = String(raw.customerUserId || raw.customerId || '');
       const custObj = custKey ? customerMap.get(custKey) : undefined;
-      const cid = custObj?.id || (raw.customerId ? String(raw.customerId) : undefined);
+      const cid = custObj?.id || (raw.customerId && !String(raw.customerId).startsWith('C-') ? String(raw.customerId) : undefined);
 
       if (cid) {
         const cached = getCustomerPhone(cid);
@@ -797,22 +875,27 @@ export class RealPaymentRepository implements IPaymentRepository {
     }
   }
 
-  async getFinancialOverview(): Promise<FinancialOverviewMetrics> {
+  async getFinancialOverview(from?: string, to?: string): Promise<FinancialOverviewMetrics> {
     try {
       const currentYear = new Date().getFullYear();
+      const fromDate = from || `${currentYear}-01-01`;
+      const toDate = to || `${currentYear}-12-31`;
       let grossSettledCollectionsINR = 0;
+      let totalRefundedINR = 0;
 
-      // 1. Fetch Gross Collections from authoritative backend report
+      // 1. Fetch Gross Collections and Refunds from authoritative backend report
       try {
         const repRes = await httpClient.get<Record<string, unknown>>('/admin/reports/payment-collections', {
-          params: { from: `${currentYear}-01-01`, to: `${currentYear}-12-31` },
+          params: { from: fromDate, to: toDate },
         });
         const repData = (repRes.data as { data?: Record<string, unknown> })?.data || (repRes.data as Record<string, unknown>);
         const totals: Array<Record<string, unknown>> = Array.isArray(repData?.totalsByFeeType)
           ? (repData.totalsByFeeType as Array<Record<string, unknown>>)
           : [];
         const grossMinor = totals.reduce((sum: number, item: Record<string, unknown>) => sum + Number(item.grossMinor || 0), 0);
+        const refMinor = totals.reduce((sum: number, item: Record<string, unknown>) => sum + Number(item.refundedMinor || 0), 0);
         grossSettledCollectionsINR = Math.round(grossMinor / 100);
+        totalRefundedINR = Math.round(refMinor / 100);
       } catch {
         // Fallback: Query SUCCEEDED payments from ledger
         try {
@@ -827,20 +910,7 @@ export class RealPaymentRepository implements IPaymentRepository {
         }
       }
 
-      // 2. Fetch Pending Refund Requests count
-      let pendingRefundsCount = 0;
-      try {
-        const refRes = await httpClient.get<{
-          meta?: { total?: number };
-        }>('/admin/payments', {
-          params: { status: 'REFUND_PENDING', limit: 1 },
-        });
-        pendingRefundsCount = refRes.data?.meta?.total ?? 0;
-      } catch {
-        pendingRefundsCount = 0;
-      }
-
-      // 3. Fetch Total Ledger Records count
+      // 2. Fetch Total Ledger Records count
       let totalLedgerRecords = 0;
       try {
         const totRes = await httpClient.get<{
@@ -855,48 +925,69 @@ export class RealPaymentRepository implements IPaymentRepository {
 
       return {
         grossSettledCollectionsINR,
-        pendingRefundsCount,
         totalLedgerRecords,
+        totalRefundedINR,
       };
     } catch {
       return {
         grossSettledCollectionsINR: 0,
-        pendingRefundsCount: 0,
         totalLedgerRecords: 0,
+        totalRefundedINR: 0,
       };
     }
   }
 
-  async processRefund(
-    transactionId: string,
-    _amount: number,
-    reasonCategory: RefundReasonCategory,
-    remarks: string,
-    idempotencyKey?: string
-  ): Promise<void> {
+  async reconcilePayment(paymentId: string): Promise<PaymentTransaction> {
     try {
-      // Backend RefundDto allows only { reason: string }
-      const payload = {
-        reason: `${reasonCategory}: ${remarks}`,
-      };
-      const key =
-        idempotencyKey ||
-        (typeof crypto !== 'undefined' && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `idem_ref_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`);
-      await httpClient.post(`/admin/payments/${transactionId}/refund`, payload, {
-        headers: { 'Idempotency-Key': key },
-      });
+      const res = await httpClient.post<Record<string, unknown> | { data: Record<string, unknown> }>(
+        `/admin/payments/${encodeURIComponent(paymentId)}/reconcile`
+      );
+      const raw = (((res.data as Record<string, unknown>)?.data || res.data) || {}) as Record<string, unknown>;
+      const [customerMap, bookingMap] = await Promise.all([
+        getCustomerRegistry(),
+        getBookingRegistry(),
+      ]);
+      return mapBackendPaymentToDomain(raw, customerMap, bookingMap);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
   }
 
-  async reconcilePayment(paymentId: string): Promise<void> {
+  async processRefund(paymentId: string, dto: RefundDto): Promise<PaymentTransaction> {
     try {
-      await httpClient.post(`/admin/payments/${encodeURIComponent(paymentId)}/reconcile`);
+      const res = await httpClient.post<Record<string, unknown> | { data: Record<string, unknown> }>(
+        `/admin/payments/${encodeURIComponent(paymentId)}/refund`,
+        dto
+      );
+      const raw = (((res.data as Record<string, unknown>)?.data || res.data) || {}) as Record<string, unknown>;
+      const [customerMap, bookingMap] = await Promise.all([
+        getCustomerRegistry(),
+        getBookingRegistry(),
+      ]);
+      return mapBackendPaymentToDomain(raw, customerMap, bookingMap);
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getFeeRecords(kind?: string): Promise<FeeRecord[]> {
+    try {
+      const params: Record<string, unknown> = {};
+      if (kind && kind !== 'ALL') params.kind = kind;
+      const res = await httpClient.get<Array<Record<string, unknown>>>('/admin/fees', { params });
+      const items = Array.isArray(res.data) ? res.data : [];
+      return items.map((f) => ({
+        code: String(f.code || ''),
+        kind: f.kind as FeeKind,
+        amountMinor: Number(f.amountMinor || 0),
+        amountINR: Number(f.amountMinor || 0) / 100,
+        currency: String(f.currency || 'INR'),
+        isActive: Boolean(f.isActive),
+        updatedAt: String(f.updatedAt || ''),
+      }));
+    } catch (err) {
+      console.error('Failed to fetch fee records:', err);
+      return [];
     }
   }
 
@@ -914,6 +1005,10 @@ export class RealPaymentRepository implements IPaymentRepository {
         if (filter.status === 'PAID') backendStatus = 'SUCCEEDED';
         else if (filter.status === 'PAYMENT_FAILED') backendStatus = 'FAILED';
         params.status = backendStatus;
+      }
+
+      if (filter?.refunded) {
+        params.refunded = true;
       }
       const res = await httpClient.get<{
         data?: Array<Record<string, unknown>>;
@@ -952,7 +1047,20 @@ export class RealPaymentRepository implements IPaymentRepository {
     return filtered;
   }
 
-  async exportPaymentsCsv(_from?: string, _to?: string, filter?: PaymentFilterCriteria): Promise<string> {
+  async exportPaymentsCsv(from?: string, to?: string, filter?: PaymentFilterCriteria): Promise<string> {
+    const fromDate = from || '2026-01-01';
+    const toDate = to || new Date().toISOString().split('T')[0];
+    try {
+      const res = await httpClient.get<string>('/admin/payments-export', {
+        params: { from: fromDate, to: toDate },
+        responseType: 'text',
+      });
+      if (res.data && typeof res.data === 'string' && res.data.includes('payment_id')) {
+        return res.data;
+      }
+    } catch {
+      // Fallback to client-side formatted CSV if date range export fails
+    }
     const transactions = await this.getAllFilteredTransactions(filter);
     return generatePaymentsCsvString(transactions);
   }

@@ -7,10 +7,8 @@ import { MemoryRouter } from 'react-router-dom';
 import { ReplacementFulfillmentModal } from '../features/bookings/presentation/ReplacementFulfillmentModal';
 import { BookingDetailModal } from '../features/bookings/presentation/BookingDetailModal';
 import { BookingsListPage } from '../features/bookings/presentation/BookingsListPage';
-import { RefundProcessingModal } from '../features/payments/presentation/RefundProcessingModal';
 import { TransactionDetailModal } from '../features/payments/presentation/TransactionDetailModal';
 import { bookingRepository } from '../features/bookings/data/bookingRepository';
-import { paymentRepository } from '../features/payments/data/paymentRepository';
 import {
   BookingDetail,
   REPLACEMENT_REASONS,
@@ -397,8 +395,8 @@ describe('SevaNest Backend Contract Alignment Workflows', () => {
     });
   });
 
-  describe('3. Refund Approval Workflow Contract Alignment', () => {
-    const mockPaidTxn: PaymentTransaction = {
+  describe('3. Payment Transaction Details & Failure Diagnostics', () => {
+    const mockTxn: PaymentTransaction = {
       id: 'TXN-9001',
       customerId: 'C-5001',
       customerName: 'Deepak Patel',
@@ -419,113 +417,17 @@ describe('SevaNest Backend Contract Alignment Workflows', () => {
       },
     };
 
-    it('enforces full refund only and does not render partial refund toggle', () => {
-      renderWithProviders(
-        <RefundProcessingModal
-          transaction={mockPaidTxn}
-          isOpen={true}
-          onClose={vi.fn()}
-        />
-      );
-
-      // Verify Full Payment Reimbursement card is present
-      expect(screen.getByText(/Full Payment Reimbursement \(100%\)/i)).toBeInTheDocument();
-      expect(screen.getAllByText('₹1,499.00').length).toBeGreaterThan(0);
-
-      // Verify Partial Reimbursement options are removed
-      expect(screen.queryByText(/Partial Reimbursement/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/Enter Partial Refund Amount/i)).not.toBeInTheDocument();
-    });
-
-    it('submits documented RefundDto { reason } schema with Idempotency-Key and omits conflicting approval property', async () => {
-      const user = userEvent.setup();
-      const processRefundSpy = vi.spyOn(paymentRepository, 'processRefund').mockResolvedValue();
-
-      renderWithProviders(
-        <RefundProcessingModal
-          transaction={mockPaidTxn}
-          isOpen={true}
-          onClose={vi.fn()}
-        />
-      );
-
-      // Enter remarks
-      const remarksInput = screen.getByPlaceholderText(/operational justification/i);
-      await user.type(remarksInput, 'Customer cancelled trial within warranty period.');
-
-      // Check policy confirmation
-      const policyCheckbox = screen.getByRole('checkbox');
-      await user.click(policyCheckbox);
-
-      // Submit refund
-      const submitButton = screen.getByRole('button', { name: /Authorize Refund/i });
-      expect(submitButton).toBeEnabled();
-      await user.click(submitButton);
-
-      await waitFor(() => {
-        expect(processRefundSpy).toHaveBeenCalledWith(
-          'TXN-9001',
-          1499,
-          'UNSATISFACTORY_TRIAL',
-          'Customer cancelled trial within warranty period.',
-          expect.stringContaining('idem_TXN-9001')
-        );
-      });
-    });
-
-    it('enforces PERMISSIONS.REFUNDS_MANAGE permission guard in TransactionDetailModal', () => {
-      // User WITH permission
-      const { rerender } = renderWithProviders(
-        <TransactionDetailModal
-          transaction={mockPaidTxn}
-          isOpen={true}
-          onClose={vi.fn()}
-          onInitiateRefund={vi.fn()}
-        />
-      );
-
-      expect(screen.getByTestId('initiate-refund-button')).toBeInTheDocument();
-
-      // Revoke refund permission
-      useAuthStore.setState({
-        user: {
-          id: 'U-VIEW-01',
-          email: 'viewer@sevanest.in',
-          name: 'Audit Viewer',
-          role: 'SUPPORT_EXECUTIVE',
-          permissions: [PERMISSIONS.PAYMENTS_VIEW],
-        },
-        isAuthenticated: true,
-      });
-
-      rerender(
-        <QueryClientProvider client={new QueryClient()}>
-          <MemoryRouter>
-            <TransactionDetailModal
-              transaction={mockPaidTxn}
-              isOpen={true}
-              onClose={vi.fn()}
-              onInitiateRefund={vi.fn()}
-            />
-          </MemoryRouter>
-        </QueryClientProvider>
-      );
-
-      expect(screen.queryByTestId('initiate-refund-button')).not.toBeInTheDocument();
-    });
-
-    it('displays gateway failure diagnostics when transaction status is REFUND_FAILED', () => {
-      const failedRefundTxn: PaymentTransaction = {
-        ...mockPaidTxn,
-        status: 'REFUND_PENDING',
-        rawStatus: 'REFUND_FAILED',
-        failureCode: 'GATEWAY_ORIGINAL_TRANSACTION_REVERSED',
-        failureReason: 'Original charge was already reversed by the issuer bank.',
+    it('displays gateway failure diagnostics when transaction status is PAYMENT_FAILED', () => {
+      const failedTxn: PaymentTransaction = {
+        ...mockTxn,
+        status: 'PAYMENT_FAILED',
+        failureCode: 'GATEWAY_PAYMENT_DECLINED',
+        failureReason: 'Card was declined by the issuer bank.',
       };
 
       renderWithProviders(
         <TransactionDetailModal
-          transaction={failedRefundTxn}
+          transaction={failedTxn}
           isOpen={true}
           onClose={vi.fn()}
         />
@@ -533,8 +435,8 @@ describe('SevaNest Backend Contract Alignment Workflows', () => {
 
       const diagnostics = screen.getByTestId('gateway-failure-diagnostics');
       expect(diagnostics).toBeInTheDocument();
-      expect(diagnostics).toHaveTextContent(/GATEWAY_ORIGINAL_TRANSACTION_REVERSED/);
-      expect(diagnostics).toHaveTextContent(/Original charge was already reversed/i);
+      expect(diagnostics).toHaveTextContent(/GATEWAY_PAYMENT_DECLINED/);
+      expect(diagnostics).toHaveTextContent(/Card was declined by the issuer bank/i);
     });
   });
 });

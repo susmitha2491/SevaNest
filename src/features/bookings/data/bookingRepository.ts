@@ -32,6 +32,7 @@ import {
 } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
+import { ConflictError } from '../../../core/errors/DomainError';
 
 export class MockBookingRepository implements IBookingRepository {
   private bookings: BookingDetail[] = [
@@ -1520,19 +1521,40 @@ export class RealBookingRepository implements IBookingRepository {
     try {
       bookingDetailCache.delete(bookingId);
       const key = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `idem_sched_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // 1. Associate matched candidate worker with booking if not yet associated
+      try {
+        await httpClient.post(
+          `/admin/bookings/${encodeURIComponent(bookingId)}/match`,
+          { workerId: candidateWorkerId },
+          { headers: { 'Idempotency-Key': `match_${key}` } }
+        );
+      } catch {
+        // Continue if worker was already matched or transitioned
+      }
+
+      // 2. Authoritative OpenAPI endpoint: POST /admin/interviews
+      const preferredIso = new Date(trial.scheduledDate).toISOString();
       await httpClient.post(
-        `/admin/bookings/${bookingId}/schedule`,
+        '/admin/interviews',
         {
-          scheduleType: trial.scheduleType || 'TRIAL',
-          scheduledAt: trial.scheduledDate,
-          workerId: candidateWorkerId,
-          ...(trial.notes ? { note: trial.notes } : {}),
+          bookingId,
+          type: trial.scheduleType === 'INTERVIEW' ? 'INTERVIEW' : 'TRIAL',
+          preferredAt: preferredIso,
+          ...(trial.notes ? { note: trial.notes.slice(0, 300) } : {}),
         },
         {
           headers: { 'Idempotency-Key': key },
         }
       );
-    } catch (err) {
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: Record<string, unknown> } })?.response;
+      if (resp?.status === 409 || resp?.data?.code === 'INVALID_TRANSITION' || resp?.data?.code === 'CONFLICT') {
+        const detailMsg = (resp?.data?.message as string) || 'Booking already has an active interview or cannot transition at this stage.';
+        throw new ConflictError(
+          `Schedule Conflict (409): ${detailMsg}. Please check active interviews or cancel/complete existing requests before scheduling a new session.`
+        );
+      }
       throw mapHttpErrorToDomainError(err);
     }
   }

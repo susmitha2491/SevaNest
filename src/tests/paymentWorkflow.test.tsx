@@ -22,7 +22,7 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
-describe('Financial Transactions & Refund Workflows', () => {
+describe('Financial Transactions Workflows', () => {
   beforeEach(() => {
     useAuthStore.setState({
       user: {
@@ -33,7 +33,6 @@ describe('Financial Transactions & Refund Workflows', () => {
         permissions: [
           PERMISSIONS.DASHBOARD_VIEW,
           PERMISSIONS.PAYMENTS_VIEW,
-          PERMISSIONS.REFUNDS_MANAGE,
           PERMISSIONS.BOOKINGS_VIEW,
         ],
       },
@@ -45,11 +44,11 @@ describe('Financial Transactions & Refund Workflows', () => {
     renderWithProviders(<PaymentsListPage />);
 
     expect(
-      await screen.findByRole('heading', { name: /Financial Transactions & Refunds/i })
+      await screen.findByRole('heading', { name: /Financial Transactions/i })
     ).toBeInTheDocument();
 
     expect(screen.getByText(/Gross Settled Collections/i)).toBeInTheDocument();
-    expect(screen.getByText(/Pending Refund Requests/i)).toBeInTheDocument();
+    expect(screen.getByText(/Total Ledger Records/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/Search by customer, booking ref, transaction ID/i)).toBeInTheDocument();
 
     // Verify transaction records
@@ -73,30 +72,20 @@ describe('Financial Transactions & Refund Workflows', () => {
     expect(screen.getByText(/Applicable GST/i)).toBeInTheDocument();
   });
 
-  it('opens audited refund processing modal with reason category and mandatory remarks', async () => {
-    const user = userEvent.setup();
+  it('verifies that no refund action buttons exist on the payments ledger', async () => {
     renderWithProviders(<PaymentsListPage />);
 
-    const refundButtons = await screen.findAllByRole('button', { name: /^Refund$/i });
-    expect(refundButtons.length).toBeGreaterThan(0);
-    await user.click(refundButtons[0]);
+    expect(
+      await screen.findByRole('heading', { name: /Financial Transactions/i })
+    ).toBeInTheDocument();
 
-    // Check refund modal contents
-    expect(await screen.findByRole('heading', { name: /Audited Refund Authorization Workstation/i })).toBeInTheDocument();
-    expect(screen.getByText(/Refund Reason Category/i)).toBeInTheDocument();
-    expect(screen.getByText(/Simulated Idempotency Key:/i)).toBeInTheDocument();
+    // View buttons should be visible
+    const viewButtons = await screen.findAllByRole('button', { name: /View/i });
+    expect(viewButtons.length).toBeGreaterThan(0);
 
-    const submitBtn = screen.getByRole('button', { name: /Authorize Refund/i });
-    expect(submitBtn).toBeDisabled();
-
-    // Enter remarks and confirm policy
-    const remarksInput = screen.getByPlaceholderText(/Enter comprehensive operational justification/i);
-    await user.type(remarksInput, 'Customer cancelled trial due to family relocation.');
-
-    const checkbox = screen.getByRole('checkbox');
-    await user.click(checkbox);
-
-    expect(submitBtn).toBeEnabled();
+    // Refund buttons must NOT exist anywhere on the ledger
+    expect(screen.queryByRole('button', { name: /^Refund$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Initiate Audited Refund/i })).not.toBeInTheDocument();
   });
 
   it('displays NoAccessView when user lacks payments.view permission', async () => {

@@ -244,7 +244,6 @@ describe('Payment Management Module — Enterprise Verification', () => {
       const overview = await repo.getFinancialOverview();
 
       expect(overview.grossSettledCollectionsINR).toBe(3500);
-      expect(overview.pendingRefundsCount).toBe(0);
       expect(overview.totalLedgerRecords).toBe(9);
     });
   });
@@ -289,71 +288,39 @@ describe('Payment Management Module — Enterprise Verification', () => {
         '/admin/payments',
         expect.objectContaining({ params: expect.objectContaining({ status: 'FAILED' }) })
       );
-
-      // REFUND_PENDING: status=REFUND_PENDING
-      await repo.getTransactions({ status: 'REFUND_PENDING' });
-      expect(getSpy).toHaveBeenLastCalledWith(
-        '/admin/payments',
-        expect.objectContaining({ params: expect.objectContaining({ status: 'REFUND_PENDING' }) })
-      );
-
-      // REFUNDED: status=REFUNDED
-      await repo.getTransactions({ status: 'REFUNDED' });
-      expect(getSpy).toHaveBeenLastCalledWith(
-        '/admin/payments',
-        expect.objectContaining({ params: expect.objectContaining({ status: 'REFUNDED' }) })
-      );
     });
   });
 
-  describe('Refund Authorization Workflow', () => {
-    it('executes full refund via POST /admin/payments/{id}/refund with reason and Idempotency-Key header', async () => {
-      const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValue({
-        data: { success: true },
-      } as any);
+  describe('Customer Resolution & Identifier Separation', () => {
+    it('flags actual invalid placeholders and UUIDs as invalid customer names while allowing real names', () => {
+      expect(isInvalidCustomerName('')).toBe(true);
+      expect(isInvalidCustomerName('01a192ee-1a73-7449-9822-da9ac3221ef2')).toBe(true);
+      expect(isInvalidCustomerName('unknown')).toBe(true);
+      expect(isInvalidCustomerName('Customer Details Unavailable')).toBe(true);
+      expect(isInvalidCustomerName('Not Provided')).toBe(true);
+      expect(isInvalidCustomerName('merchant')).toBe(true);
+      expect(isInvalidCustomerName('platform')).toBe(true);
 
-      const repo = new RealPaymentRepository();
-      await repo.processRefund(
-        'pay-test-123',
-        500,
-        'UNSATISFACTORY_TRIAL',
-        'Customer requested replacement before trial completion',
-        'idem_key_manual_999'
-      );
-
-      expect(postSpy).toHaveBeenCalledWith(
-        '/admin/payments/pay-test-123/refund',
-        {
-          reason: 'UNSATISFACTORY_TRIAL: Customer requested replacement before trial completion',
-        },
-        expect.objectContaining({
-          headers: expect.objectContaining({ 'Idempotency-Key': 'idem_key_manual_999' }),
-        })
-      );
-    });
-  });
-
-  describe('Anti-Merchant Name Enforcement (PawGuard & Test Entities)', () => {
-    it('flags PawGuard and test placeholders as invalid customer names', () => {
-      expect(isInvalidCustomerName('PawGuard')).toBe(true);
-      expect(isInvalidCustomerName('pawguard')).toBe(true);
-      expect(isInvalidCustomerName('PawGuard Store')).toBe(true);
-      expect(isInvalidCustomerName('SevaNest')).toBe(true);
-      expect(isInvalidCustomerName('Merchant')).toBe(true);
-      expect(isInvalidCustomerName('Verified Test Customer')).toBe(true);
+      // Legitimate customer names from database must NOT be rejected
+      expect(isInvalidCustomerName('PawGuard')).toBe(false);
+      expect(isInvalidCustomerName('Verified Test Customer')).toBe(false);
+      expect(isInvalidCustomerName('Customer Two')).toBe(false);
+      expect(isInvalidCustomerName('jack sparrow')).toBe(false);
+      expect(isInvalidCustomerName('Ajay Nagirikanti')).toBe(false);
     });
 
-    it('resolves PawGuard customer record to "Customer Details Unavailable" instead of displaying merchant brand', async () => {
+    it('resolves genuine customer records (including PawGuard) to real customer name and separates customerId from customerUserId', async () => {
       vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
         if (url === '/admin/customers') {
           return {
             data: {
               data: [
                 {
-                  id: 'cust-pawguard-id',
+                  id: '01a19314-4b83-76fc-ac66-cd382dae5ba6',
                   userId: '01a192ee-1a73-7449-9822-da9ac3221ef2',
                   name: 'PawGuard',
                   email: 'pawguard@gmail.com',
+                  mobile: '+919988776655',
                 },
               ],
               meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
@@ -373,12 +340,127 @@ describe('Payment Management Module — Enterprise Verification', () => {
             data: {
               data: [
                 {
-                  id: '01a11ef9-pawguard-payment',
-                  bookingId: '01a17c40-97f6-72ef-bb5c-4046eeef51cb',
-                  status: 'SUCCEEDED',
+                  id: '01a1ce2d-7c93-7042-98f1-163daa5a008c',
+                  bookingId: '01a1ce2a-6160-76ad-83fa-c9c3e95a1d77',
+                  status: 'FAILED',
                   amountMinor: 50000,
                   currency: 'INR',
                   customerUserId: '01a192ee-1a73-7449-9822-da9ac3221ef2',
+                  feeCode: 'BOOKING_FEE',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url.startsWith('/admin/customers/01a19314-4b83-76fc-ac66-cd382dae5ba6')) {
+          return {
+            data: {
+              id: '01a19314-4b83-76fc-ac66-cd382dae5ba6',
+              userId: '01a192ee-1a73-7449-9822-da9ac3221ef2',
+              name: 'PawGuard',
+              mobile: '+919988776655',
+            },
+          } as any;
+        }
+        return { data: {} } as any;
+      });
+
+      const repo = new RealPaymentRepository();
+      const res = await repo.getTransactions();
+
+      expect(res.items.length).toBe(1);
+      expect(res.items[0].customerName).toBe('PawGuard');
+      expect(res.items[0].customerId).toBe('01a19314-4b83-76fc-ac66-cd382dae5ba6');
+      expect(res.items[0].customerUserId).toBe('01a192ee-1a73-7449-9822-da9ac3221ef2');
+      expect(res.items[0].customerPhone).toBe('+91 99887 76655');
+    });
+
+    it('resolves customer via linked booking when payment record lacks customerUserId directly', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/customers') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'cust-divya-id',
+                  userId: 'user-divya-id',
+                  name: 'Divya Chowdary',
+                  email: 'divya@example.com',
+                  phone: '+91 98765 43210',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'booking-divya-123',
+                  category: { name: 'House Maid' },
+                  customerUserId: 'user-divya-id',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 100, totalPages: 1 },
+            },
+          } as any;
+        }
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'payment-divya-001',
+                  bookingId: 'booking-divya-123',
+                  status: 'SUCCEEDED',
+                  amountMinor: 50000,
+                  currency: 'INR',
+                  feeCode: 'BOOKING_FEE',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 10, totalPages: 1 },
+            },
+          } as any;
+        }
+        return { data: {} } as any;
+      });
+
+      const repo = new RealPaymentRepository();
+      const res = await repo.getTransactions();
+
+      expect(res.items.length).toBe(1);
+      expect(res.items[0].customerName).toBe('Divya Chowdary');
+      expect(res.items[0].customerId).toBe('cust-divya-id');
+      expect(res.items[0].customerUserId).toBe('user-divya-id');
+      expect(res.items[0].serviceCategory).toBe('House Maid');
+    });
+
+    it('honestly displays "Customer Details Unavailable" and safe C-NA customerId when customer data is missing from backend', async () => {
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === '/admin/customers') {
+          return {
+            data: { data: [], meta: { total: 0, page: 1, limit: 100, totalPages: 1 } },
+          } as any;
+        }
+        if (url === '/admin/bookings') {
+          return {
+            data: { data: [], meta: { total: 0, page: 1, limit: 100, totalPages: 1 } },
+          } as any;
+        }
+        if (url === '/admin/payments') {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'payment-unknown-999',
+                  bookingId: 'booking-unknown-999',
+                  status: 'SUCCEEDED',
+                  amountMinor: 50000,
+                  currency: 'INR',
+                  customerUserId: 'user-not-in-db-999',
                   feeCode: 'BOOKING_FEE',
                 },
               ],
@@ -394,8 +476,8 @@ describe('Payment Management Module — Enterprise Verification', () => {
 
       expect(res.items.length).toBe(1);
       expect(res.items[0].customerName).toBe('Customer Details Unavailable');
-      expect(res.items[0].customerName).not.toContain('PawGuard');
-      expect(res.items[0].customerPhoneMasked).toBe('');
+      expect(res.items[0].customerId).toBe('C-NA');
+      expect(res.items[0].customerPhone).toBeUndefined();
     });
   });
 

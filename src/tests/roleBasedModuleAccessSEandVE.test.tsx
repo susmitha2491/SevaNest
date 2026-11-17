@@ -348,7 +348,6 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       pageSize: 10,
       totalPages: 0,
       totalGrossCollectionsINR: 0,
-      pendingRefundsCount: 0,
     });
   });
 

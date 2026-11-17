@@ -1,81 +1,68 @@
 import React, { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, RotateCcw, Key } from 'lucide-react';
-import { PaymentTransaction, RefundReasonCategory, REFUND_REASONS } from '../domain/types';
-import { paymentRepository } from '../data/paymentRepository';
+import { X, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import { PaymentTransaction, RefundDto } from '../domain/types';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
-import { env } from '../../../core/config/env';
-import { useAuthStore } from '../../../core/auth/authStore';
-import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
-import { CustomSelect } from '../../../components/common/CustomSelect';
-import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
   isOpen: boolean;
   onClose: () => void;
-  onRefundCompleted?: () => void;
+  onConfirmRefund: (paymentId: string, dto: RefundDto) => Promise<void>;
+  isProcessing?: boolean;
 }
 
 export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   transaction,
   isOpen,
   onClose,
-  onRefundCompleted,
+  onConfirmRefund,
+  isProcessing = false,
 }) => {
-  const queryClient = useQueryClient();
-  const { user } = useAuthStore();
-  const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
-
-  const [reasonCategory, setReasonCategory] = useState<RefundReasonCategory>('UNSATISFACTORY_TRIAL');
-  const [remarks, setRemarks] = useState('');
-  const [confirmedPolicy, setConfirmedPolicy] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  const idempotencyKey = React.useMemo(
-    () => (transaction ? `idem_${transaction.id}_${Date.now()}` : ''),
-    [transaction]
-  );
-
-  const refundMutation = useMutation({
-    mutationFn: async () => {
-      if (!transaction || !canRefund) return;
-      setErrorMessage(null);
-      // Strictly full-refund per backend contract specification: POST /api/v1/admin/payments/{id}/refund
-      await paymentRepository.processRefund(
-        transaction.id,
-        transaction.amountINR,
-        reasonCategory,
-        remarks.trim() || 'Full refund authorized by administrator.',
-        idempotencyKey
-      );
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['payments'] });
-      if (onRefundCompleted) onRefundCompleted();
-      onClose();
-    },
-    onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : 'Gateway refund processing failed.';
-      setErrorMessage(msg);
-    },
-  });
+  const [reason, setReason] = useState('');
+  const [hasConfirmedApproval, setHasConfirmedApproval] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen || !transaction) return null;
 
-  const currentRefundAmount = transaction.amountINR;
-  const isSubmitDisabled = !canRefund || !confirmedPolicy || !remarks.trim() || currentRefundAmount <= 0 || refundMutation.isPending;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      setError('An operational justification reason is mandatory to approve this refund.');
+      return;
+    }
+    if (trimmedReason.length < 5) {
+      setError('Reason must be at least 5 characters long explaining the refund justification.');
+      return;
+    }
+    if (!hasConfirmedApproval) {
+      setError('You must explicitly confirm the approval checkbox before submitting.');
+      return;
+    }
+
+    try {
+      await onConfirmRefund(transaction.id, {
+        approval: 'APPROVE',
+        reason: trimmedReason,
+      });
+      onClose();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to process refund request.');
+    }
+  };
 
   return (
     <div
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(15, 23, 42, 0.65)',
+        backgroundColor: 'rgba(15, 23, 42, 0.7)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: 1100,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
       }}
@@ -87,13 +74,12 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
-          maxWidth: '580px',
+          maxWidth: '540px',
           width: '100%',
-          maxHeight: 'min(90vh, calc(100vh - 32px))',
-          display: 'flex',
-          flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         {/* Header */}
@@ -104,68 +90,70 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            backgroundColor: 'var(--color-bg-subtle)',
-            flexShrink: 0,
+            backgroundColor: '#fff1f2', // Soft red warning
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <RotateCcw size={18} color="var(--color-warning-dark)" />
-            <div>
-              <h2
-                id="refund-modal-title"
-                style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: 'var(--color-text-primary)' }}
-              >
-                Audited Refund Authorization Workstation
-              </h2>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                Transaction: <strong style={{ fontFamily: 'monospace' }}>{transaction.id}</strong> • Booking: {transaction.bookingRef}
-              </p>
-            </div>
+            <AlertTriangle size={20} color="#e11d48" />
+            <h2
+              id="refund-modal-title"
+              style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#9f1239', margin: 0 }}
+            >
+              Approve & Initiate Full Refund
+            </h2>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary)',
-            }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
             aria-label="Close refund modal"
+            disabled={isProcessing}
           >
             <X size={20} />
           </button>
         </div>
 
-        {/* Modal Form */}
-        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto' }}>
-          {/* Transaction Summary Card */}
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+          {/* Target Summary Card */}
           <div
             style={{
               padding: 'var(--space-3) var(--space-4)',
-              backgroundColor: '#f8fafc',
+              backgroundColor: 'var(--color-bg-subtle)',
               borderRadius: 'var(--radius-md)',
               border: '1px solid var(--color-border)',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
               fontSize: 'var(--font-size-xs)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
             }}
           >
-            <div>
-              <div style={{ color: 'var(--color-text-secondary)' }}>Customer: <strong>{transaction.customerName}</strong></div>
-              <div style={{ color: 'var(--color-text-secondary)' }}>Fee Type: {transaction.feeType.replace(/_/g, ' ')}</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Payment Reference:</span>
+              <strong style={{ fontFamily: 'monospace' }}>{transaction.id}</strong>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ color: 'var(--color-text-secondary)' }}>Original Paid:</div>
-              <strong style={{ fontSize: 'var(--font-size-md)', color: 'var(--color-brand-700)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Linked Booking:</span>
+              <strong>{transaction.bookingRef}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Customer Payer:</span>
+              <strong>{transaction.customerName}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span style={{ color: 'var(--color-text-secondary)' }}>Refund Amount:</span>
+              <strong style={{ color: '#e11d48', fontSize: 'var(--font-size-sm)' }}>
                 {formatCurrencyINR(transaction.amountINR)}
               </strong>
             </div>
           </div>
 
-          {errorMessage && (
+          <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
+            In accordance with SevaNest PRD & backend governance, issuing a full refund is an audited administrative action.
+            The settlement instruction will be submitted to the payment gateway and recorded in the immutable audit trail.
+          </p>
+
+          {error && (
             <div
-              data-testid="refund-error-alert"
               style={{
                 padding: 'var(--space-3)',
                 backgroundColor: 'var(--color-status-danger-bg)',
@@ -175,177 +163,111 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
                 fontSize: 'var(--font-size-xs)',
               }}
             >
-              <strong>Gateway Refund Failed:</strong> {errorMessage}
+              {error}
             </div>
           )}
 
-          {/* Full Refund Specification Card */}
-          <div
-            style={{
-              padding: 'var(--space-3) var(--space-4)',
-              backgroundColor: '#eff6ff',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid #bfdbfe',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: 'var(--font-size-xs)',
-            }}
-          >
-            <div>
-              <div style={{ fontWeight: 700, color: '#1e40af' }}>Full Payment Reimbursement (100%)</div>
-              <div style={{ color: '#3b82f6' }}>Backend executes complete payment reversal via connected gateway</div>
-            </div>
-            <strong style={{ fontSize: 'var(--font-size-md)', color: '#1d4ed8' }}>
-              {formatCurrencyINR(transaction.amountINR)}
-            </strong>
-          </div>
-
-          {/* Reason Category Dropdown */}
-          <div>
-            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '2px', textTransform: 'uppercase' }}>
-              Refund Reason Category <RequiredIndicator />
-            </label>
-            <CustomSelect
-              value={reasonCategory}
-              onChange={(val) => setReasonCategory(val as RefundReasonCategory)}
-              options={REFUND_REASONS.map((r) => ({ value: r.key, label: r.label }))}
-              ariaLabel="Refund Reason Category"
-              width="100%"
-            />
-          </div>
-
-          {/* Operational Remarks */}
-          <div>
-            <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: '2px', textTransform: 'uppercase' }}>
-              Operational Remarks & Settlement Rationale <RequiredIndicator />
+          {/* Reason Input */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <label htmlFor="refund-reason" style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+              Operational Justification Reason <span style={{ color: '#e11d48' }}>*</span>
             </label>
             <textarea
+              id="refund-reason"
               rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Booking cancelled prior to trial start; candidate replacement mismatch approved by supervisor."
+              disabled={isProcessing}
               maxLength={1000}
-              placeholder="Enter comprehensive operational justification (max 1000 characters per backend contract)..."
-              value={remarks}
-              onChange={(e) => setRemarks(e.target.value)}
               style={{
                 width: '100%',
-                padding: 'var(--space-2)',
+                padding: 'var(--space-2) var(--space-3)',
                 borderRadius: 'var(--radius-md)',
                 border: '1px solid var(--color-border)',
                 fontSize: 'var(--font-size-xs)',
                 fontFamily: 'inherit',
+                resize: 'vertical',
               }}
             />
-          </div>
-
-          {/* Idempotency Key Info */}
-          <div
-            style={{
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: '#f8fafc',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '11px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--color-text-secondary)' }}>
-              <Key size={14} /> <span>{env.VITE_USE_MOCK_AUTH ? 'Simulated Idempotency Key:' : 'Idempotency Reference Key:'}</span>
-            </div>
-            <span style={{ fontFamily: 'monospace', color: 'var(--color-brand-600)' }}>
-              {idempotencyKey}
+            <span style={{ fontSize: '11px', color: 'var(--color-text-tertiary)', textAlign: 'right' }}>
+              {reason.length}/1000 characters
             </span>
           </div>
 
-          {/* Policy Confirmation Checkbox */}
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-primary)', cursor: 'pointer' }}>
+          {/* Approval Checkbox */}
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', cursor: 'pointer', fontSize: 'var(--font-size-xs)' }}>
             <input
               type="checkbox"
-              checked={confirmedPolicy}
-              onChange={(e) => setConfirmedPolicy(e.target.checked)}
+              checked={hasConfirmedApproval}
+              onChange={(e) => setHasConfirmedApproval(e.target.checked)}
+              disabled={isProcessing}
+              style={{ marginTop: '2px', cursor: 'pointer' }}
             />
-            <span>
-              I confirm that this refund complies with SevaNest Commercial Cancellation Policies and is recorded in platform ledgers.
+            <span style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>
+              I confirm that I have reviewed this booking and payment record, and I approve initiating this full refund (<code>APPROVE</code>).
             </span>
           </label>
-        </div>
 
-        {!canRefund && (
+          {/* Actions */}
           <div
             style={{
-              padding: 'var(--space-3) var(--space-6)',
-              backgroundColor: 'var(--color-danger-subtle)',
-              borderTop: '1px solid var(--color-danger-border)',
-              color: 'var(--color-danger)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: 'var(--space-3)',
+              marginTop: 'var(--space-2)',
             }}
           >
-            Permission Restricted: Your account does not have the required permission (<code>refunds.manage</code>) to authorize refunds.
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isProcessing}
+              style={{
+                padding: 'var(--space-2) var(--space-4)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-surface)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                cursor: isProcessing ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isProcessing || !hasConfirmedApproval || !reason.trim()}
+              style={{
+                padding: 'var(--space-2) var(--space-4)',
+                borderRadius: 'var(--radius-md)',
+                border: 'none',
+                backgroundColor: isProcessing || !hasConfirmedApproval || !reason.trim() ? '#fca5a5' : '#e11d48',
+                color: '#ffffff',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 700,
+                cursor: isProcessing || !hasConfirmedApproval || !reason.trim() ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              {isProcessing ? (
+                <>
+                  <RefreshCw size={14} className="animate-spin" />
+                  <span>Processing Refund...</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck size={14} />
+                  <span>Confirm & Authorize Refund</span>
+                </>
+              )}
+            </button>
           </div>
-        )}
-
-        {refundMutation.isError && (
-          <div
-            style={{
-              padding: 'var(--space-3) var(--space-6)',
-              backgroundColor: 'var(--color-status-danger-bg)',
-              borderTop: '1px solid var(--color-status-danger-border)',
-              color: 'var(--color-status-danger-text)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-            }}
-          >
-            Failed to authorize refund: {refundMutation.error instanceof Error ? refundMutation.error.message : 'Unknown backend processing error'}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div
-          style={{
-            padding: 'var(--space-4) var(--space-6)',
-            borderTop: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            backgroundColor: 'var(--color-bg-subtle)',
-          }}
-        >
-          <button
-            onClick={onClose}
-            style={{
-              padding: 'var(--space-2) var(--space-4)',
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--color-border)',
-              backgroundColor: 'var(--color-surface)',
-              color: 'var(--color-text-primary)',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Cancel
-          </button>
-
-          <button
-            disabled={isSubmitDisabled}
-            onClick={() => refundMutation.mutate()}
-            style={{
-              padding: 'var(--space-2) var(--space-5)',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              backgroundColor: isSubmitDisabled ? 'var(--color-text-tertiary)' : 'var(--color-warning-dark)',
-              color: '#ffffff',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 700,
-              cursor: isSubmitDisabled ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {refundMutation.isPending ? 'Processing Settlement...' : `Authorize Refund (${formatCurrencyINR(currentRefundAmount)})`}
-          </button>
-        </div>
+        </form>
       </div>
     </div>
   );
 };
+

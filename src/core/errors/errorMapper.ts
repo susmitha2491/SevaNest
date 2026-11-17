@@ -80,8 +80,16 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
     }
 
     switch (status) {
-      case 400:
-        return new ValidationError(serverMessage || 'Malformed request payload.', fieldErrors, correlationId);
+      case 400: {
+        let valMsg = serverMessage || 'Malformed request payload.';
+        if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+          const detailStr = Object.entries(fieldErrors)
+            .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
+            .join('; ');
+          valMsg = `${valMsg} (${detailStr})`;
+        }
+        return new ValidationError(valMsg, fieldErrors, correlationId);
+      }
       case 401:
         return new UnauthorizedError(serverMessage || 'Session expired or unauthenticated.', correlationId);
       case 403:

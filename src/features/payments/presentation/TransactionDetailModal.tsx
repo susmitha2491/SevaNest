@@ -7,6 +7,8 @@ import {
   RotateCcw,
   CreditCard,
   RefreshCw,
+  CheckCircle2,
+  AlertTriangle,
 } from 'lucide-react';
 import { PaymentTransaction } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -22,23 +24,35 @@ interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
   isOpen: boolean;
   onClose: () => void;
+  onProcessRefund?: (transaction: PaymentTransaction) => void;
   onInitiateRefund?: (transaction: PaymentTransaction) => void;
+  onVerifyPaymentStatus?: (transaction: PaymentTransaction) => Promise<void>;
   onReconcile?: (transaction: PaymentTransaction) => Promise<void>;
+  isVerifying?: boolean;
   isReconciling?: boolean;
+  feedback?: { type: 'success' | 'error' | 'info'; message: string } | null;
 }
 
 export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   transaction,
   isOpen,
   onClose,
+  onProcessRefund,
   onInitiateRefund,
+  onVerifyPaymentStatus,
   onReconcile,
+  isVerifying = false,
   isReconciling = false,
+  feedback = null,
 }) => {
   const { user } = useAuthStore();
   const canRefund = hasPermission(user?.permissions, PERMISSIONS.REFUNDS_MANAGE);
   const canManagePayment = hasPermission(user?.permissions, PERMISSIONS.PAYMENT_MANAGE);
   const canViewBookings = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_VIEW);
+
+  const verifyAction = onVerifyPaymentStatus || onReconcile;
+  const isVerifyingStatus = isVerifying || isReconciling;
+  const refundAction = onProcessRefund || onInitiateRefund;
 
   const [resolvedContact, setResolvedContact] = useState<string | undefined>(() => {
     if (!transaction) return undefined;
@@ -195,6 +209,50 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             <X size={20} />
           </button>
         </div>
+
+        {/* Verification / Action Feedback Banner inside Modal */}
+        {feedback && (
+          <div
+            role="status"
+            data-testid="modal-feedback-banner"
+            style={{
+              margin: 'var(--space-3) var(--space-6) 0',
+              padding: 'var(--space-2) var(--space-4)',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor:
+                feedback.type === 'error'
+                  ? 'var(--color-status-danger-bg)'
+                  : feedback.type === 'info'
+                  ? 'var(--color-brand-50)'
+                  : 'var(--color-status-success-bg)',
+              border: `1px solid ${
+                feedback.type === 'error'
+                  ? 'var(--color-status-danger-border)'
+                  : feedback.type === 'info'
+                  ? 'var(--color-brand-200)'
+                  : 'var(--color-status-success-border)'
+              }`,
+              color:
+                feedback.type === 'error'
+                  ? 'var(--color-status-danger-text)'
+                  : feedback.type === 'info'
+                  ? 'var(--color-brand-700)'
+                  : 'var(--color-status-success-text)',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+            }}
+          >
+            {feedback.type === 'error' ? (
+              <AlertTriangle size={15} />
+            ) : (
+              <CheckCircle2 size={15} />
+            )}
+            <span>{feedback.message}</span>
+          </div>
+        )}
 
         {/* Body */}
         <div
@@ -380,17 +438,21 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <strong style={{ color: 'var(--color-status-warning-text)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <RotateCcw size={14} /> Refund Settlement Audit Log: {transaction.refund.refundId}
+                  <RotateCcw size={14} /> Refund Settlement Audit Log{transaction.refund.refundId ? `: ${transaction.refund.refundId}` : ''}
                 </strong>
                 <span style={{ fontWeight: 700, color: 'var(--color-status-warning-text)' }}>
-                  {formatCurrencyINR(transaction.refund.refundAmountINR)} Refunded
+                  {formatCurrencyINR(transaction.refund.refundAmountINR || transaction.amountINR)} Refunded
                 </span>
               </div>
-              <div><strong>Reason Category:</strong> {transaction.refund.reasonCategory.replace(/_/g, ' ')}</div>
-              <div><strong>Operational Remarks:</strong> {transaction.refund.remarks}</div>
-              <div style={{ color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', paddingTop: 'var(--space-1)', borderTop: '1px dashed var(--color-border)' }}>
-                <span>Authorized by: <strong>{transaction.refund.processedBy}</strong> ({transaction.refund.processedAt})</span>
-                <span style={{ fontFamily: 'monospace' }}>Idempotency Key: {transaction.refund.idempotencyKey || transaction.refund.mockIdempotencyKey}</span>
+              <div>
+                <strong>Reason:</strong>{' '}
+                {transaction.refund.refundReason || transaction.refund.remarks || (transaction.refund.reasonCategory ? transaction.refund.reasonCategory.replace(/_/g, ' ') : 'Administrative Cancellation Refund')}
+              </div>
+              <div style={{ color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', paddingTop: 'var(--space-1)', borderTop: '1px dashed var(--color-border)', flexWrap: 'wrap', gap: '4px' }}>
+                <span>Authorized by: <strong>{transaction.refund.processedBy || transaction.refund.refundedByUserId || 'Admin Operator'}</strong> ({transaction.refund.processedAt || transaction.refund.refundedAt || formatDateTimeIST(new Date().toISOString())})</span>
+                {(transaction.refund.idempotencyKey || transaction.refund.mockIdempotencyKey) && (
+                  <span style={{ fontFamily: 'monospace' }}>Idempotency Key: {transaction.refund.idempotencyKey || transaction.refund.mockIdempotencyKey}</span>
+                )}
               </div>
             </div>
           )}
@@ -408,11 +470,12 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           }}
         >
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-            {onReconcile && canManagePayment && (
+            {verifyAction && canManagePayment && transaction.status !== 'REFUNDED' && (
               <button
                 type="button"
-                onClick={() => onReconcile(transaction)}
-                disabled={isReconciling}
+                data-testid="verify-payment-status-button"
+                onClick={() => verifyAction(transaction)}
+                disabled={isVerifyingStatus}
                 style={{
                   padding: 'var(--space-2) var(--space-4)',
                   borderRadius: 'var(--radius-md)',
@@ -421,23 +484,28 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   color: 'var(--color-text-primary)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
-                  cursor: isReconciling ? 'not-allowed' : 'pointer',
+                  cursor: isVerifyingStatus ? 'not-allowed' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '6px',
-                  opacity: isReconciling ? 0.7 : 1,
+                  opacity: isVerifyingStatus ? 0.7 : 1,
                 }}
+                title="Verify real-time payment status against payment gateway"
               >
-                <RefreshCw size={14} className={isReconciling ? 'animate-spin' : ''} />
-                {isReconciling ? 'Reconciling...' : 'Reconcile with Gateway'}
+                <RefreshCw size={14} className={isVerifyingStatus ? 'animate-spin' : ''} />
+                <span>{isVerifyingStatus ? 'Verifying...' : 'Verify Payment Status'}</span>
               </button>
             )}
 
-            {onInitiateRefund && (transaction.status === 'PAID' || transaction.status === 'SUCCEEDED') && canRefund ? (
+            {refundAction &&
+              (transaction.status === 'PAID' || transaction.status === 'SUCCEEDED') &&
+              transaction.refundStatus !== 'REFUNDED' &&
+              transaction.refundStatus !== 'REFUND_PENDING' &&
+              canRefund ? (
               <button
                 type="button"
-                data-testid="initiate-refund-button"
-                onClick={() => onInitiateRefund(transaction)}
+                data-testid="process-refund-button"
+                onClick={() => refundAction(transaction)}
                 style={{
                   padding: 'var(--space-2) var(--space-4)',
                   borderRadius: 'var(--radius-md)',
@@ -451,8 +519,10 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                   alignItems: 'center',
                   gap: '4px',
                 }}
+                title="Review booking and process audited refund"
               >
-                <RotateCcw size={14} /> Initiate Audited Refund
+                <RotateCcw size={14} />
+                <span>Process Refund</span>
               </button>
             ) : null}
           </div>

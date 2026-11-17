@@ -2,7 +2,10 @@ export type FeeClassification =
   | 'BOOKING_FEE'
   | 'PLACEMENT_FEE'
   | 'REPLACEMENT_PLAN'
-  | 'SUBSCRIPTION';
+  | 'SUBSCRIPTION'
+  | 'VERIFICATION_FEE'
+  | 'CANCELLATION_FEE'
+  | string;
 
 export type PaymentStatus =
   | 'PAID'
@@ -13,23 +16,47 @@ export type PaymentStatus =
   | 'PAYMENT_FAILED'
   | 'REFUND_PENDING'
   | 'REFUNDED'
-  | 'PARTIALLY_REFUNDED'
   | 'REFUND_FAILED';
 
-export type RefundReasonCategory =
-  | 'WORKER_NO_SHOW'
-  | 'UNSATISFACTORY_TRIAL'
-  | 'CANCELLATION_POLICY'
-  | 'OPERATIONAL_ERROR'
-  | 'OTHER';
+export type RefundStatus = 'REFUND_PENDING' | 'REFUNDED' | 'REFUND_FAILED';
 
-export const REFUND_REASONS: { key: RefundReasonCategory; label: string }[] = [
-  { key: 'WORKER_NO_SHOW', label: 'Worker No-Show / Attendance Breach' },
-  { key: 'UNSATISFACTORY_TRIAL', label: 'Unsatisfactory Trial / Customer Cancellation' },
-  { key: 'CANCELLATION_POLICY', label: 'Customer Cancellation Under Policy' },
-  { key: 'OPERATIONAL_ERROR', label: 'Operational or Billing Discrepancy' },
-  { key: 'OTHER', label: 'Other Specific Operational Rationale' },
-];
+export interface RefundDto {
+  approval: 'APPROVE';
+  reason: string;
+}
+
+export interface RefundRecord {
+  refundStatus: RefundStatus;
+  refundAmountINR: number;
+  refundedAt?: string;
+  refundReason?: string;
+  refundedByUserId?: string;
+  refundId?: string;
+  reasonCategory?: string;
+  remarks?: string;
+  processedBy?: string;
+  processedAt?: string;
+  idempotencyKey?: string;
+  mockIdempotencyKey?: string;
+}
+
+export type FeeKind =
+  | 'BOOKING'
+  | 'PLACEMENT'
+  | 'VERIFICATION'
+  | 'REPLACEMENT_PLAN'
+  | 'SUBSCRIPTION'
+  | 'CANCELLATION';
+
+export interface FeeRecord {
+  code: string;
+  kind: FeeKind;
+  amountMinor: number;
+  amountINR: number;
+  currency: string;
+  isActive: boolean;
+  updatedAt: string;
+}
 
 export interface FeeBreakdown {
   baseAmount: number;
@@ -37,20 +64,10 @@ export interface FeeBreakdown {
   platformCommission: number;
 }
 
-export interface RefundRecord {
-  refundId: string;
-  refundAmountINR: number;
-  reasonCategory: RefundReasonCategory;
-  remarks: string;
-  processedAt: string;
-  processedBy: string;
-  idempotencyKey?: string;
-  mockIdempotencyKey?: string;
-}
-
 export interface PaymentTransaction {
   id: string;
   customerId: string;
+  customerUserId?: string;
   customerName: string;
   customerPhoneMasked: string;
   customerPhone?: string;
@@ -58,22 +75,27 @@ export interface PaymentTransaction {
   bookingId?: string;
   serviceCategory: string;
   feeType: FeeClassification;
+  feeCode?: string;
+  feeKind?: FeeKind;
   feeDescription: string;
   amountINR: number;
+  amountMinor?: number;
   paymentMethod: string;
+  paymentMethodDetail?: string;
   gatewayRef: string;
   status: PaymentStatus;
   rawStatus?: string;
   timestamp: string;
   createdAt?: string;
   paidAt?: string;
-  refundedAt?: string;
   providerOrderId?: string;
   providerPaymentId?: string;
   receiptNumber?: string;
   failureReason?: string;
   failureCode?: string;
   breakdown: FeeBreakdown;
+  refundStatus?: RefundStatus | null;
+  refundedAt?: string | null;
   refund?: RefundRecord;
 }
 
@@ -85,6 +107,7 @@ export interface PaymentFilterCriteria {
   pageSize?: number;
   sortBy?: 'timestamp' | 'amountINR' | 'customerName' | 'status';
   sortOrder?: 'asc' | 'desc';
+  refunded?: boolean;
 }
 
 export interface PaginatedPayments {
@@ -94,29 +117,22 @@ export interface PaginatedPayments {
   pageSize: number;
   totalPages: number;
   totalGrossCollectionsINR: number;
-  pendingRefundsCount: number;
 }
 
 export interface FinancialOverviewMetrics {
   grossSettledCollectionsINR: number;
-  pendingRefundsCount: number;
   totalLedgerRecords: number;
+  totalRefundedINR?: number;
 }
 
 export interface IPaymentRepository {
   getTransactions(filter?: PaymentFilterCriteria): Promise<PaginatedPayments>;
   getTransactionById(id: string): Promise<PaymentTransaction | null>;
-  getFinancialOverview(): Promise<FinancialOverviewMetrics>;
-  processRefund(
-    transactionId: string,
-    amount: number,
-    reasonCategory: RefundReasonCategory,
-    remarks: string,
-    idempotencyKey?: string
-  ): Promise<void>;
-  reconcilePayment(paymentId: string): Promise<void>;
+  getFinancialOverview(from?: string, to?: string): Promise<FinancialOverviewMetrics>;
+  reconcilePayment(paymentId: string): Promise<PaymentTransaction>;
+  processRefund(paymentId: string, dto: RefundDto): Promise<PaymentTransaction>;
+  getFeeRecords(kind?: string): Promise<FeeRecord[]>;
   exportPaymentsCsv(from?: string, to?: string, filter?: PaymentFilterCriteria): Promise<string>;
   exportPaymentsExcel(filter?: PaymentFilterCriteria): Promise<Blob>;
   getAllFilteredTransactions?(filter?: PaymentFilterCriteria): Promise<PaymentTransaction[]>;
 }
-

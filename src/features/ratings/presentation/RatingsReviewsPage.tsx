@@ -9,6 +9,8 @@ import {
   RefreshCw,
   Star,
   X,
+  RotateCcw,
+  AlertTriangle,
 } from 'lucide-react';
 import { ratingRepository } from '../data/ratingRepository';
 import { RatingRecord } from '../domain/types';
@@ -44,7 +46,58 @@ export const RatingsReviewsPage: React.FC = () => {
   const [scoreFilter, setScoreFilter] = useState<string>('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [dateError, setDateError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+
+  const todayDateString = new Date().toISOString().split('T')[0];
+
+  const handleFromDateChange = (val: string) => {
+    if (val && val > todayDateString) {
+      setDateError('From date cannot be in the future.');
+      setFromDate(todayDateString);
+      return;
+    }
+    if (val && toDate && val > toDate) {
+      setDateError('From date cannot be later than To date.');
+    } else {
+      setDateError(null);
+    }
+    setFromDate(val);
+    setPage(1);
+  };
+
+  const handleToDateChange = (val: string) => {
+    if (val && val > todayDateString) {
+      setDateError('To date cannot be in the future.');
+      setToDate(todayDateString);
+      return;
+    }
+    if (val && fromDate && val < fromDate) {
+      setDateError('To date cannot be earlier than From date.');
+    } else {
+      setDateError(null);
+    }
+    setToDate(val);
+    setPage(1);
+  };
+
+  const hasActiveFilters = Boolean(
+    searchTerm.trim() ||
+    statusFilter !== 'ALL' ||
+    scoreFilter !== 'ALL' ||
+    fromDate ||
+    toDate
+  );
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('ALL');
+    setScoreFilter('ALL');
+    setFromDate('');
+    setToDate('');
+    setDateError(null);
+    setPage(1);
+  };
 
   const [detailRatingId, setDetailRatingId] = useState<string | null>(null);
   const [moderateTarget, setModerateTarget] = useState<{ item: RatingRecord; action: 'hide' | 'unhide' } | null>(null);
@@ -299,10 +352,8 @@ export const RatingsReviewsPage: React.FC = () => {
             type="date"
             aria-label="Filter from date"
             value={fromDate}
-            onChange={(e) => {
-              setFromDate(e.target.value);
-              setPage(1);
-            }}
+            max={toDate || todayDateString}
+            onChange={(e) => handleFromDateChange(e.target.value)}
             style={{
               padding: '5px 8px',
               borderRadius: 'var(--radius-md)',
@@ -318,10 +369,9 @@ export const RatingsReviewsPage: React.FC = () => {
             type="date"
             aria-label="Filter to date"
             value={toDate}
-            onChange={(e) => {
-              setToDate(e.target.value);
-              setPage(1);
-            }}
+            max={todayDateString}
+            min={fromDate || undefined}
+            onChange={(e) => handleToDateChange(e.target.value)}
             style={{
               padding: '5px 8px',
               borderRadius: 'var(--radius-md)',
@@ -330,7 +380,53 @@ export const RatingsReviewsPage: React.FC = () => {
             }}
           />
         </label>
+
+        {/* Clear Filters Action (BUG-010) */}
+        <button
+          type="button"
+          onClick={handleClearFilters}
+          disabled={!hasActiveFilters}
+          style={{
+            padding: '6px 12px',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--color-border)',
+            backgroundColor: hasActiveFilters ? 'var(--color-bg-subtle)' : 'transparent',
+            color: hasActiveFilters ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: hasActiveFilters ? 'pointer' : 'default',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
+            transition: 'all var(--transition-fast)',
+          }}
+          aria-label="Clear all applied filters"
+        >
+          <RotateCcw size={12} />
+          <span>Clear Filters</span>
+        </button>
       </div>
+
+      {dateError && (
+        <div
+          role="alert"
+          style={{
+            padding: '6px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-status-danger-bg, #fef2f2)',
+            border: '1px solid var(--color-status-danger-border, #fecaca)',
+            color: 'var(--color-status-danger-text, #991b1b)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+          }}
+        >
+          <AlertTriangle size={13} />
+          <span>{dateError}</span>
+        </div>
+      )}
 
       {/* B. Ratings & Reviews Table */}
       <div

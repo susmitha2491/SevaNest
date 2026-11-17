@@ -61,7 +61,6 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
           PERMISSIONS.ALERT_VIEW,
           PERMISSIONS.ALERT_MANAGE,
           PERMISSIONS.PAYMENTS_VIEW,
-          PERMISSIONS.REFUNDS_MANAGE,
           PERMISSIONS.SUPPORT_VIEW,
           PERMISSIONS.SUPPORT_MANAGE,
           PERMISSIONS.REPORTS_VIEW,
@@ -175,35 +174,25 @@ describe('Operations Admin Role — End-to-End Workflow & Boundary Suite', () =>
     });
   });
 
-  describe('5. Payments, Fees & Refund Authorizations', () => {
-    it('allows Operations Admin to view ledger and open refund authorization modal with policy check', async () => {
+  describe('5. Payments & Financial Transactions Ledger', () => {
+    it('allows Operations Admin to view financial transactions ledger without refund actions', async () => {
       const user = userEvent.setup();
       renderWithProviders(<PaymentsListPage />);
 
-      expect(await screen.findByText('Financial Transactions & Refunds')).toBeInTheDocument();
+      expect(await screen.findByText('Financial Transactions')).toBeInTheDocument();
       expect(await screen.findByText('TXN-892050')).toBeInTheDocument();
 
-      // Open refund modal
-      const refundButtons = await screen.findAllByRole('button', { name: /^Refund$/i });
-      expect(refundButtons.length).toBeGreaterThan(0);
-      await user.click(refundButtons[0]);
+      // View button exists
+      const viewButtons = await screen.findAllByRole('button', { name: /View/i });
+      expect(viewButtons.length).toBeGreaterThan(0);
+      await user.click(viewButtons[0]);
 
-      // Modal appears
-      expect(await screen.findByRole('heading', { name: /Audited Refund Authorization Workstation/i })).toBeInTheDocument();
-      expect(screen.getByText(/Commercial Cancellation Policies/i)).toBeInTheDocument();
+      // Transaction detail modal appears
+      expect(await screen.findByRole('heading', { name: /Transaction: TXN-/i })).toBeInTheDocument();
 
-      // Submit is initially disabled before policy confirmation and remarks
-      const submitBtn = screen.getByRole('button', { name: /Authorize Refund/i });
-      expect(submitBtn).toBeDisabled();
-
-      // Enter remarks and confirm checkbox
-      const remarksInput = screen.getByPlaceholderText(/Enter comprehensive operational justification/i);
-      await user.type(remarksInput, 'Approved trial refund per customer dissatisfaction report.');
-
-      const policyCheckbox = screen.getByRole('checkbox');
-      await user.click(policyCheckbox);
-
-      expect(submitBtn).toBeEnabled();
+      // Refund action buttons must not exist
+      expect(screen.queryByRole('button', { name: /^Refund$/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Initiate Audited Refund/i })).not.toBeInTheDocument();
     });
   });
 

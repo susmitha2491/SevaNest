@@ -1349,13 +1349,17 @@ export function resolveCategoryId(input?: string): string | null | undefined {
     return trimmed;
   }
   const normalized = trimmed.toLowerCase();
-  if (KNOWN_CATEGORY_UUIDS[normalized]) {
-    return KNOWN_CATEGORY_UUIDS[normalized];
-  }
-  if (dynamicCategoryMap[normalized]) {
-    return dynamicCategoryMap[normalized];
-  }
-  return null;
+  const underscore = normalized.replace(/[-\s]+/g, '_');
+  const spaced = normalized.replace(/[-_]+/g, ' ');
+  return (
+    KNOWN_CATEGORY_UUIDS[normalized] ||
+    KNOWN_CATEGORY_UUIDS[underscore] ||
+    KNOWN_CATEGORY_UUIDS[spaced] ||
+    dynamicCategoryMap[normalized] ||
+    dynamicCategoryMap[underscore] ||
+    dynamicCategoryMap[spaced] ||
+    null
+  );
 }
 
 export function resolveAreaId(input?: string): string | null | undefined {
@@ -1365,13 +1369,17 @@ export function resolveAreaId(input?: string): string | null | undefined {
     return trimmed;
   }
   const normalized = trimmed.toLowerCase();
-  if (KNOWN_AREA_UUIDS[normalized]) {
-    return KNOWN_AREA_UUIDS[normalized];
-  }
-  if (dynamicAreaMap[normalized]) {
-    return dynamicAreaMap[normalized];
-  }
-  return null;
+  const underscore = normalized.replace(/[-\s]+/g, '_');
+  const spaced = normalized.replace(/[-_]+/g, ' ');
+  return (
+    KNOWN_AREA_UUIDS[normalized] ||
+    KNOWN_AREA_UUIDS[underscore] ||
+    KNOWN_AREA_UUIDS[spaced] ||
+    dynamicAreaMap[normalized] ||
+    dynamicAreaMap[underscore] ||
+    dynamicAreaMap[spaced] ||
+    null
+  );
 }
 
 export class RealWorkerRepository implements IWorkerRepository {
@@ -1447,6 +1455,9 @@ export class RealWorkerRepository implements IWorkerRepository {
         const areaUuid = resolveAreaId(filter.locality);
         if (areaUuid) {
           params.areaId = areaUuid;
+        } else {
+          // Unrecognized locality returns empty list safely without triggering HTTP 400
+          return [];
         }
       }
       if (filter?.page !== undefined) {
@@ -1696,6 +1707,15 @@ export class RealWorkerRepository implements IWorkerRepository {
         const areaUuid = resolveAreaId(filter.locality);
         if (areaUuid) {
           params.areaId = areaUuid;
+        } else {
+          // Unrecognized locality returns empty page safely without triggering HTTP 400
+          return {
+            items: [],
+            total: 0,
+            page,
+            limit,
+            hasMore: false,
+          };
         }
       }
 

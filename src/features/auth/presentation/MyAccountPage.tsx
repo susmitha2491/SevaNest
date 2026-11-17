@@ -1781,22 +1781,26 @@ export const MyAccountPage: React.FC = () => {
             }}
           >
             {user.permissions && user.permissions.length > 0 ? (
-              user.permissions.map((perm) => (
-                <span
+              Array.from(new Set(user.permissions)).map((perm) => (
+                <div
                   key={perm}
                   style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
                     fontSize: '11px',
                     fontFamily: 'monospace',
                     fontWeight: 600,
-                    padding: '3px 8px',
-                    borderRadius: 'var(--radius-sm)',
+                    padding: '4px 10px',
+                    borderRadius: 'var(--radius-md)',
                     backgroundColor: 'var(--color-bg-subtle)',
                     color: 'var(--color-brand-800)',
                     border: '1px solid var(--color-border)',
                   }}
                 >
-                  {perm}
-                </span>
+                  <ShieldCheck size={12} style={{ color: 'var(--color-brand-600)' }} />
+                  <span>{perm === '*' ? 'Full Platform Super Admin Authority (*)' : perm}</span>
+                </div>
               ))
             ) : (
               <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
@@ -1809,3 +1813,5 @@ export const MyAccountPage: React.FC = () => {
     </div>
   );
 };
+
+export default MyAccountPage;

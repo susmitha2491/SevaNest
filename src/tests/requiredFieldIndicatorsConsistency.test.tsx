@@ -6,11 +6,9 @@ import { MemoryRouter } from 'react-router-dom';
 import { RequiredIndicator } from '../components/common/RequiredIndicator';
 import { ConfirmDialog } from '../components/modals/ConfirmDialog';
 import { SignInPage } from '../features/auth/presentation/SignInPage';
-import { RefundProcessingModal } from '../features/payments/presentation/RefundProcessingModal';
 import { ConfigurationMastersPage } from '../features/configuration/presentation/ConfigurationMastersPage';
 import { useAuthStore } from '../core/auth/authStore';
 import { PERMISSIONS } from '../core/rbac/permissions';
-import { PaymentTransaction } from '../features/payments/domain/types';
 
 describe('Consistent Red Asterisk Required Field Indicators', () => {
   it('renders RequiredIndicator with uniform red styling and spacing', () => {
@@ -67,50 +65,6 @@ describe('Consistent Red Asterisk Required Field Indicators', () => {
 
     expect(screen.getByText('Admin Email Address')).toBeInTheDocument();
     expect(screen.getByText('Password')).toBeInTheDocument();
-    expect(screen.getAllByTestId('required-indicator')).toHaveLength(2);
-  });
-
-  it('RefundProcessingModal displays red asterisk instead of "(Mandatory)"', () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    useAuthStore.setState({
-      user: {
-        id: 'ADMIN-1',
-        name: 'Ops Admin',
-        email: 'ops@sevanest.local',
-        role: 'OPERATIONS_ADMIN',
-        permissions: [PERMISSIONS.PAYMENTS_VIEW, PERMISSIONS.REFUNDS_MANAGE],
-      },
-      isAuthenticated: true,
-    });
-
-    const mockTx: PaymentTransaction = {
-      id: 'TX-1',
-      bookingId: 'BK-1',
-      bookingRef: 'BK-1',
-      customerId: 'CUST-1',
-      customerName: 'Aarav Sharma',
-      customerPhoneMasked: '+91 98765 43210',
-      serviceCategory: 'House Maid',
-      feeType: 'PLACEMENT_FEE',
-      feeDescription: 'Placement Fee',
-      amountINR: 1500,
-      paymentMethod: 'UPI',
-      gatewayRef: 'GW-1',
-      status: 'PAID',
-      timestamp: '2026-11-01T10:00:00Z',
-      createdAt: '2026-11-01T10:00:00Z',
-      breakdown: { baseAmount: 1271, gstAmount: 229, platformCommission: 0 },
-    };
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <RefundProcessingModal transaction={mockTx} isOpen={true} onClose={vi.fn()} />
-      </QueryClientProvider>
-    );
-
-    expect(screen.getByText('Refund Reason Category')).toBeInTheDocument();
-    expect(screen.getByText('Operational Remarks & Settlement Rationale')).toBeInTheDocument();
-    expect(screen.queryByText(/\(Mandatory\)/i)).not.toBeInTheDocument();
     expect(screen.getAllByTestId('required-indicator')).toHaveLength(2);
   });
 

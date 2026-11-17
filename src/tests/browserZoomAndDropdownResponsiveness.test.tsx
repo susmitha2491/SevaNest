@@ -11,10 +11,8 @@ import { BookingsListPage } from '../features/bookings/presentation/BookingsList
 import { PaymentsListPage } from '../features/payments/presentation/PaymentsListPage';
 import { AppShell } from '../app/layouts/AppShell';
 import { ConfirmDialog } from '../components/modals/ConfirmDialog';
-import { RefundProcessingModal } from '../features/payments/presentation/RefundProcessingModal';
 import { TrialOutcomeModal } from '../features/bookings/presentation/TrialOutcomeModal';
 import { BookingDetail } from '../features/bookings/domain/types';
-import { PaymentTransaction } from '../features/payments/domain/types';
 import fs from 'fs';
 import path from 'path';
 
@@ -94,28 +92,6 @@ const MOCK_BOOKING: BookingDetail = {
   platformFeePaid: true,
   platformFeeAmount: 500,
   internalNotes: [],
-};
-
-const MOCK_TRANSACTION: PaymentTransaction = {
-  id: 'TXN-2026-001',
-  bookingRef: 'BKG-2026-001',
-  customerId: 'CUST-001',
-  customerName: 'Priya Reddy',
-  customerPhoneMasked: '+91 98765 *****',
-  serviceCategory: 'House Maid',
-  feeDescription: 'Matching fee',
-  amountINR: 2500,
-  status: 'PAID',
-  feeType: 'BOOKING_FEE',
-  paymentMethod: 'UPI',
-  gatewayRef: 'PAY-UPI-123456',
-  timestamp: '2026-11-01T10:30:00Z',
-  createdAt: '2026-11-01T10:30:00Z',
-  breakdown: {
-    baseAmount: 2118,
-    gstAmount: 382,
-    platformCommission: 500,
-  },
 };
 
 describe('Browser Zoom & Dropdown Responsiveness Audit', () => {
@@ -284,14 +260,14 @@ describe('Browser Zoom & Dropdown Responsiveness Audit', () => {
       );
 
       await waitFor(() => {
-        expect(screen.getByText('Financial Transactions & Refunds')).toBeInTheDocument();
+        expect(screen.getByText('Financial Transactions')).toBeInTheDocument();
       });
 
       const feeSelect = screen.getByLabelText('Filter by fee classification');
       expect(feeSelect).toBeInTheDocument();
       expect(feeSelect.style.minWidth).toBe('180px');
 
-      const table = screen.getByRole('table');
+      const table = await screen.findByRole('table');
       expect(table).toBeInTheDocument();
       expect(table.style.minWidth).toBe('760px');
       expect(table.parentElement?.style.overflowX).toBe('auto');
@@ -352,23 +328,6 @@ describe('Browser Zoom & Dropdown Responsiveness Audit', () => {
       expect(modalCard).toBeInTheDocument();
       expect(modalCard.style.maxHeight).toBe('min(90vh, calc(100vh - 32px))');
       expect(modalCard.style.overflowY).toBe('auto');
-    });
-
-    it('verifies RefundProcessingModal has maxHeight constraint on modal card and overflowY on body', () => {
-      const queryClient = new QueryClient();
-      const { container } = render(
-        <QueryClientProvider client={queryClient}>
-          <RefundProcessingModal
-            isOpen={true}
-            transaction={MOCK_TRANSACTION}
-            onClose={() => {}}
-          />
-        </QueryClientProvider>
-      );
-
-      const modalCard = container.querySelector('[role="dialog"] > div') as HTMLElement;
-      expect(modalCard).toBeInTheDocument();
-      expect(modalCard.style.maxHeight).toBe('min(90vh, calc(100vh - 32px))');
     });
 
     it('verifies TrialOutcomeModal has maxHeight constraint on modal card and overflowY on body', () => {

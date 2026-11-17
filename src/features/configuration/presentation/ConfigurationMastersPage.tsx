@@ -19,7 +19,9 @@ import {
   Clock,
   ShieldAlert,
   RefreshCw,
+  RotateCcw,
   LucideIcon,
+  X,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
@@ -35,6 +37,7 @@ import {
   NotificationTemplateItem,
 } from '../domain/types';
 import { configurationRepository } from '../data/configurationRepository';
+import { workerRepository } from '../../workers/data/workerRepository';
 import { adminUserRepository } from '../../adminUsers/data/adminUserRepository';
 import { authRepository } from '../../auth/data/authRepository';
 import { AdminAccountItem } from '../../adminUsers/domain/types';
@@ -101,6 +104,32 @@ export const ConfigurationMastersPage: React.FC = () => {
   const user = useAuthStore((s) => s.user);
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Granular Administrative RBAC
+  const isSuperAdmin = user?.role === 'SUPER_ADMIN';
+  const canManageConfig = isSuperAdmin || hasPermission(user?.permissions, PERMISSIONS.CONFIGURATION_MANAGE);
+  const canManageCategories = canManageConfig || hasPermission(user?.permissions, PERMISSIONS.CATEGORY_MANAGE);
+  const canManageAreas = canManageConfig || hasPermission(user?.permissions, PERMISSIONS.AREA_MANAGE);
+  const canManageTemplates = canManageConfig || hasPermission(user?.permissions, PERMISSIONS.NOTIFICATION_MANAGE);
+  const canManageFees = canManageConfig;
+  const canManageRoles = canManageConfig || hasPermission(user?.permissions, PERMISSIONS.ROLES_MANAGE);
+  const canManageAdminUsers = canManageConfig;
+  const canManageSecurity = canManageConfig;
+  const hasAnyConfigAccess = canManageConfig || canManageCategories || canManageAreas || canManageTemplates;
+
+  // Filter visible tabs strictly based on authoritative permissions
+  const visibleSections = CONFIGURATION_SECTIONS.filter((section) => {
+    if (section.id === 'fees') return canManageFees;
+    if (section.id === 'categories') return canManageCategories;
+    if (section.id === 'areas') return canManageAreas;
+    if (section.id === 'templates') return canManageTemplates;
+    if (section.id === 'roles') return canManageRoles;
+    if (section.id === 'adminUsers') return canManageAdminUsers;
+    if (section.id === 'security') return canManageSecurity;
+    return false;
+  });
+
+  const defaultTab: ConfigurationTab = visibleSections[0]?.id || 'categories';
+
   const initialTabParam = searchParams.get('tab');
   const resolvedInitialTab: ConfigurationTab =
     initialTabParam === 'admins' || initialTabParam === 'adminUsers'
@@ -109,7 +138,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       ? 'security'
       : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers', 'security'].includes(initialTabParam as string)
         ? (initialTabParam as ConfigurationTab)
-        : 'fees');
+        : defaultTab);
 
   const [activeTab, setActiveTabState] = useState<ConfigurationTab>(resolvedInitialTab);
 
@@ -128,12 +157,12 @@ export const ConfigurationMastersPage: React.FC = () => {
           ? 'security'
           : (['fees', 'categories', 'areas', 'templates', 'roles', 'adminUsers', 'security'].includes(tabFromUrl)
             ? (tabFromUrl as ConfigurationTab)
-            : 'fees');
+            : defaultTab);
       if (normalized !== activeTab) {
         setActiveTabState(normalized);
       }
     }
-  }, [searchParams, activeTab]);
+  }, [searchParams, activeTab, defaultTab]);
 
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
@@ -150,7 +179,7 @@ export const ConfigurationMastersPage: React.FC = () => {
   } = useQuery({
     queryKey: ['activeSessions'],
     queryFn: () => authRepository.listSessions(),
-    enabled: activeTab === 'security',
+    enabled: canManageSecurity && activeTab === 'security',
   });
 
   const revokeSessionMutation = useMutation({
@@ -165,6 +194,95 @@ export const ConfigurationMastersPage: React.FC = () => {
       setTimeout(() => setErrorToast(null), 5000);
     },
   });
+
+  // App Settings Query & Mutation
+  const { data: appSettings = [], isLoading: loadingAppSettings } = useQuery({
+    queryKey: ['config', 'appSettings'],
+    queryFn: () => configurationRepository.getAppSettings?.() ?? Promise.resolve([]),
+    enabled: canManageSecurity && activeTab === 'security',
+  });
+
+  const [editingAppSetting, setEditingAppSetting] = useState<{ key: string; value: string; description: string } | null>(null);
+
+  const updateAppSettingMutation = useMutation({
+    mutationFn: ({ key, value }: { key: string; value: string | boolean }) =>
+      configurationRepository.updateAppSetting!(key, value),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'appSettings'] });
+      setEditingAppSetting(null);
+      setSuccessToast('Application runtime setting updated successfully.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setErrorToast(err instanceof Error ? err.message : 'Failed to update setting.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
+  });
+
+  // Notification Events Query
+  const { data: notificationEvents = [] } = useQuery({
+    queryKey: ['config', 'notificationEvents'],
+    queryFn: () => configurationRepository.getNotificationEvents?.() ?? Promise.resolve([]),
+    enabled: canManageTemplates && activeTab === 'templates',
+  });
+
+  // Create Category State & Mutation
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState(false);
+  const [createCategoryDraft, setCreateCategoryDraft] = useState({ code: '', name: '', description: '' });
+  const createCategoryMutation = useMutation({
+    mutationFn: (dto: { code: string; name: string; description?: string }) =>
+      configurationRepository.createCategory!(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'categories'] });
+      setIsCreateCategoryModalOpen(false);
+      setCreateCategoryDraft({ code: '', name: '', description: '' });
+      setSuccessToast('Service category provisioned successfully.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setErrorToast(err instanceof Error ? err.message : 'Failed to create category.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
+  });
+
+  // Create Area State & Mutation
+  const [isCreateAreaModalOpen, setIsCreateAreaModalOpen] = useState(false);
+  const [createAreaDraft, setCreateAreaDraft] = useState({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
+  const createAreaMutation = useMutation({
+    mutationFn: (dto: { name: string; city: string; radiusMeters?: number }) =>
+      configurationRepository.createOperationalArea!(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'areas'] });
+      setIsCreateAreaModalOpen(false);
+      setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
+      setSuccessToast('Operational area cluster provisioned successfully.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setErrorToast(err instanceof Error ? err.message : 'Failed to create operational area.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
+  });
+
+  // Create Notification Template State & Mutation
+  const [isCreateTemplateModalOpen, setIsCreateTemplateModalOpen] = useState(false);
+  const [createTemplateDraft, setCreateTemplateDraft] = useState({ eventCode: '', channel: 'PUSH', title: '', body: '', dltTemplateId: '' });
+  const createTemplateMutation = useMutation({
+    mutationFn: (dto: { eventCode: string; channel: string; title: string; body: string; dltTemplateId?: string }) =>
+      configurationRepository.createNotificationTemplate!(dto),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['config', 'templates'] });
+      setIsCreateTemplateModalOpen(false);
+      setCreateTemplateDraft({ eventCode: '', channel: 'PUSH', title: '', body: '', dltTemplateId: '' });
+      setSuccessToast('Notification template provisioned successfully.');
+      setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setErrorToast(err instanceof Error ? err.message : 'Failed to create notification template.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
+  });
+
 
   // Draft states for Fees
   const [editingFees, setEditingFees] = useState<FeePlanItem[] | null>(null);
@@ -181,6 +299,7 @@ export const ConfigurationMastersPage: React.FC = () => {
   const [isAreaModalOpen, setIsAreaModalOpen] = useState(false);
   const [areaDraft, setAreaDraft] = useState<OperationalAreaItem | null>(null);
   const [newPincodeInput, setNewPincodeInput] = useState('');
+  const [areaModalError, setAreaModalError] = useState<string | null>(null);
   const [isAreaPublishOpen, setIsAreaPublishOpen] = useState(false);
 
   // Template State
@@ -219,12 +338,44 @@ export const ConfigurationMastersPage: React.FC = () => {
   const { data: categories, isLoading: loadingCats } = useQuery({
     queryKey: ['config', 'categories'],
     queryFn: () => configurationRepository.getServiceCategories(),
+    enabled: canManageCategories,
   });
 
   const { data: operationalAreas, isLoading: loadingAreas } = useQuery({
     queryKey: ['config', 'areas'],
     queryFn: () => configurationRepository.getOperationalAreas(),
+    enabled: canManageAreas,
   });
+
+  const { data: workersForDensity } = useQuery({
+    queryKey: ['workers', 'for-cluster-density'],
+    queryFn: () => workerRepository.getWorkers({ status: 'ACTIVE' }),
+    enabled: canManageAreas,
+    staleTime: 60 * 1000,
+  });
+
+  const operationalAreasWithDensity = React.useMemo(() => {
+    if (!operationalAreas) return [];
+    if (!workersForDensity?.length) return operationalAreas;
+
+    return operationalAreas.map((area) => {
+      const areaClusterName = area.clusterName.toLowerCase().trim();
+      const areaId = area.id.toLowerCase().trim();
+
+      const matchedCount = workersForDensity.filter((w) => {
+        const workerLoc = (w.locality || '').toLowerCase().trim();
+        const workerAreaId = ((w as unknown as { areaId?: string }).areaId || '').toLowerCase().trim();
+        if (workerAreaId && (workerAreaId === areaId || workerAreaId === area.id)) return true;
+        if (workerLoc && (workerLoc === areaClusterName || areaClusterName.includes(workerLoc) || workerLoc.includes(areaClusterName))) return true;
+        return false;
+      }).length;
+
+      return {
+        ...area,
+        activeWorkersCount: Math.max(area.activeWorkersCount || 0, matchedCount),
+      };
+    });
+  }, [operationalAreas, workersForDensity]);
 
   const { isLoading: loadingFees } = useQuery({
     queryKey: ['config', 'fees'],
@@ -233,11 +384,13 @@ export const ConfigurationMastersPage: React.FC = () => {
       if (!editingFees) setEditingFees(fees);
       return fees;
     },
+    enabled: canManageFees,
   });
 
   const { data: templates, isLoading: loadingTemplates } = useQuery({
     queryKey: ['config', 'templates', selectedChannel],
     queryFn: () => configurationRepository.getNotificationTemplates(selectedChannel),
+    enabled: canManageTemplates,
   });
 
   const { data: roleDefinitions, isLoading: loadingRoles } = useQuery({
@@ -251,6 +404,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       setRolePermissionsDraft(initialMap);
       return defs;
     },
+    enabled: canManageRoles,
   });
 
   // Mutations
@@ -263,6 +417,11 @@ export const ConfigurationMastersPage: React.FC = () => {
       setSuccessToast('Commercial fee schedule published successfully and recorded in audit trail.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
+    onError: (err: unknown) => {
+      setIsPublishFeesOpen(false);
+      setErrorToast(err instanceof Error ? err.message : 'Failed to publish commercial fee schedule.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
   });
 
   const saveCategoryMutation = useMutation({
@@ -272,8 +431,13 @@ export const ConfigurationMastersPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'categories'] });
       setIsCategoryPublishOpen(false);
       setIsCategoryModalOpen(false);
-      setSuccessToast('Service category taxonomy updated successfully.');
+      setSuccessToast('Service category details and engagements successfully published and verified.');
       setTimeout(() => setSuccessToast(null), 4000);
+    },
+    onError: (err: unknown) => {
+      setIsCategoryPublishOpen(false);
+      setErrorToast(err instanceof Error ? err.message : 'Failed to publish service category.');
+      setTimeout(() => setErrorToast(null), 5000);
     },
   });
 
@@ -287,6 +451,11 @@ export const ConfigurationMastersPage: React.FC = () => {
       setSuccessToast('Operational cluster configuration updated successfully.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
+    onError: (err: unknown) => {
+      setIsAreaPublishOpen(false);
+      setErrorToast(err instanceof Error ? err.message : 'Failed to update operational area.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
   });
 
   const saveTemplateMutation = useMutation({
@@ -299,6 +468,11 @@ export const ConfigurationMastersPage: React.FC = () => {
       setSuccessToast('Notification template updated successfully.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
+    onError: (err: unknown) => {
+      setIsTemplatePublishOpen(false);
+      setErrorToast(err instanceof Error ? err.message : 'Failed to save notification template.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
   });
 
   const updateRoleMutation = useMutation({
@@ -310,6 +484,11 @@ export const ConfigurationMastersPage: React.FC = () => {
       setSuccessToast('Role permissions matrix updated successfully and synchronized.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
+    onError: (err: unknown) => {
+      setIsRoleSaveOpen(false);
+      setErrorToast(err instanceof Error ? err.message : 'Failed to update role permissions.');
+      setTimeout(() => setErrorToast(null), 5000);
+    },
   });
 
   // Admin Users Queries & Mutations
@@ -319,7 +498,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       adminUserRepository.getAdminUsers({
         status: adminUserFilter === 'ALL' ? undefined : adminUserFilter,
       }),
-    enabled: activeTab === 'adminUsers',
+    enabled: canManageAdminUsers && activeTab === 'adminUsers',
   });
 
   const createAdminMutation = useMutation({
@@ -373,9 +552,8 @@ export const ConfigurationMastersPage: React.FC = () => {
   });
 
 
-  // Permission Guard
-  const canManageConfig = hasPermission(user?.permissions, PERMISSIONS.CONFIGURATION_MANAGE);
-  if (!canManageConfig) {
+  // Authoritative Configuration Access Guard
+  if (!hasAnyConfigAccess) {
     return (
       <NoAccessView
         moduleName="System Configuration Masters"
@@ -384,7 +562,15 @@ export const ConfigurationMastersPage: React.FC = () => {
     );
   }
 
-  if (loadingCats || loadingAreas || loadingFees || loadingTemplates || loadingRoles) {
+  // Initial loading only waits on queries authorized for the current actor
+  const isInitialLoading =
+    (canManageCategories && loadingCats) ||
+    (canManageAreas && loadingAreas) ||
+    (canManageFees && loadingFees && !editingFees) ||
+    (canManageTemplates && loadingTemplates) ||
+    (canManageRoles && loadingRoles);
+
+  if (isInitialLoading) {
     return <LoadingSpinner message="Loading system configuration masters..." />;
   }
 
@@ -409,6 +595,16 @@ export const ConfigurationMastersPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      <style>{`
+        .hide-number-spinners::-webkit-outer-spin-button,
+        .hide-number-spinners::-webkit-inner-spin-button {
+          -webkit-appearance: none !important;
+          margin: 0 !important;
+        }
+        .hide-number-spinners {
+          -moz-appearance: textfield !important;
+        }
+      `}</style>
       {/* Page Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
@@ -465,13 +661,13 @@ export const ConfigurationMastersPage: React.FC = () => {
       <div
         data-testid="configuration-section-selector"
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+          display: 'flex',
+          flexWrap: 'wrap',
           gap: 'var(--space-3)',
           marginBottom: 'var(--space-2)',
         }}
       >
-        {CONFIGURATION_SECTIONS.map((section) => {
+        {visibleSections.map((section) => {
           const Icon = section.icon;
           const isActive = activeTab === section.id;
           return (
@@ -484,6 +680,8 @@ export const ConfigurationMastersPage: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'flex-start',
+                flex: '1 1 260px',
+                minWidth: '240px',
                 gap: 'var(--space-3)',
                 padding: 'var(--space-3) var(--space-4)',
                 borderRadius: 'var(--radius-lg, 8px)',
@@ -553,7 +751,9 @@ export const ConfigurationMastersPage: React.FC = () => {
       </div>
 
       {/* TAB 1: FEES & PRICING PLANS */}
-      {activeTab === 'fees' && (
+      {activeTab === 'fees' && (!canManageFees ? (
+        <NoAccessView moduleName="Commercial Pricing & Fee Schedule" requiredPermission={PERMISSIONS.CONFIGURATION_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           <div
             style={{
@@ -677,26 +877,106 @@ export const ConfigurationMastersPage: React.FC = () => {
                           {formatCurrencyINR(fee.liveValueINR)}
                         </td>
                         <td style={{ padding: 'var(--space-4)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                            <input
-                              type="number"
-                              min={0}
-                              value={fee.draftValueINR}
-                              onChange={(e) => handleFeeChange(fee.id, Number(e.target.value))}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                            <div
+                              className={`currency-input-group ${isChanged ? 'is-modified' : ''}`}
                               style={{
-                                width: '120px',
-                                padding: '6px 10px',
-                                borderRadius: 'var(--radius-md)',
-                                border: isChanged ? '2px solid var(--color-brand-600)' : '1px solid var(--color-border)',
-                                fontSize: 'var(--font-size-sm)',
-                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                position: 'relative',
+                                width: '130px',
+                                height: '36px',
+                                minHeight: '36px',
+                                backgroundColor: isChanged ? 'var(--color-primary-subtle, #f0fdfa)' : 'var(--color-bg-surface, #ffffff)',
+                                border: isChanged ? '1.5px solid var(--color-primary, #0f766e)' : '1px solid var(--color-border, #cbd5e1)',
+                                borderRadius: 'var(--radius-md, 8px)',
+                                boxSizing: 'border-box',
+                                boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
                               }}
-                              aria-label={`Draft value for ${fee.parameterName}`}
-                            />
-                            {isChanged && (
-                              <span style={{ fontSize: '11px', color: 'var(--color-brand-600)', fontWeight: 700 }}>
-                                (Draft Modified)
+                            >
+                              <span
+                                className="currency-input-prefix"
+                                style={{
+                                  position: 'absolute',
+                                  left: '10px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '13px',
+                                  fontWeight: 600,
+                                  color: isChanged ? 'var(--color-primary, #0f766e)' : 'var(--color-text-secondary, #64748b)',
+                                  pointerEvents: 'none',
+                                  userSelect: 'none',
+                                  lineHeight: 1,
+                                }}
+                              >
+                                ₹
                               </span>
+                              <input
+                                type="number"
+                                min={0}
+                                value={fee.draftValueINR}
+                                onChange={(e) => handleFeeChange(fee.id, Number(e.target.value))}
+                                className="currency-draft-input hide-number-spinners"
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  padding: '0 10px 0 26px',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  outline: 'none',
+                                  boxShadow: 'none',
+                                  fontFamily: 'inherit',
+                                  fontSize: 'var(--font-size-sm, 14px)',
+                                  fontWeight: 600,
+                                  color: 'var(--color-text-primary, #0f172a)',
+                                  boxSizing: 'border-box',
+                                }}
+                                aria-label={`Draft value for ${fee.parameterName}`}
+                              />
+                            </div>
+                            {isChanged && (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                <span
+                                  style={{
+                                    fontSize: '11px',
+                                    color: 'var(--color-brand-700, #0f766e)',
+                                    fontWeight: 700,
+                                    backgroundColor: 'var(--color-brand-50, #f0fdfa)',
+                                    padding: '2px 8px',
+                                    borderRadius: 'var(--radius-sm, 4px)',
+                                    border: '1px solid var(--color-brand-200, #99f6e4)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  (Draft Modified)
+                                </span>
+                                <button
+                                  type="button"
+                                  aria-label={`Reset ${fee.parameterName} to live value`}
+                                  title={`Reset to live value ₹${fee.liveValueINR}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleFeeChange(fee.id, fee.liveValueINR);
+                                  }}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    borderRadius: 'var(--radius-sm, 4px)',
+                                    border: '1px solid var(--color-border, #cbd5e1)',
+                                    backgroundColor: '#ffffff',
+                                    color: 'var(--color-text-secondary, #64748b)',
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  <RotateCcw size={12} />
+                                  Reset
+                                </button>
+                              </div>
                             )}
                           </div>
                         </td>
@@ -719,10 +999,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+      ))}
 
       {/* TAB 2: SERVICE CATEGORIES & SKILLS */}
-      {activeTab === 'categories' && (
+      {activeTab === 'categories' && (!canManageCategories ? (
+        <NoAccessView moduleName="Service Categories & Skills" requiredPermission={PERMISSIONS.CATEGORY_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -733,6 +1015,13 @@ export const ConfigurationMastersPage: React.FC = () => {
                 Configures allowed engagement contracts, required experience thresholds, and searchable skills.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={() => setIsCreateCategoryModalOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 12px', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-md, 6px)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, cursor: 'pointer' }}
+            >
+              <Plus size={14} /> Add Service Category
+            </button>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 'var(--space-4)' }}>
@@ -819,10 +1108,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             ))}
           </div>
         </div>
-      )}
+      ))}
 
       {/* TAB 3: OPERATIONAL AREAS & CLUSTERS */}
-      {activeTab === 'areas' && (
+      {activeTab === 'areas' && (!canManageAreas ? (
+        <NoAccessView moduleName="Operational Areas & Clusters" requiredPermission={PERMISSIONS.AREA_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -835,16 +1126,8 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
             <button
               onClick={() => {
-                const newArea: OperationalAreaItem = {
-                  id: '',
-                  cityName: 'Hyderabad',
-                  clusterName: '',
-                  pincodes: [],
-                  status: 'PILOT',
-                  activeWorkersCount: 0,
-                };
-                setAreaDraft(newArea);
-                setIsAreaModalOpen(true);
+                setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
+                setIsCreateAreaModalOpen(true);
               }}
               style={{
                 padding: '8px 14px',
@@ -897,7 +1180,7 @@ export const ConfigurationMastersPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {operationalAreas?.map((area) => (
+                {operationalAreasWithDensity.map((area) => (
                   <tr
                     key={area.id}
                     tabIndex={0}
@@ -986,10 +1269,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             </table>
           </div>
         </div>
-      )}
+      ))}
 
       {/* TAB 4: NOTIFICATION TEMPLATES */}
-      {activeTab === 'templates' && (
+      {activeTab === 'templates' && (!canManageTemplates ? (
+        <NoAccessView moduleName="Notification Templates" requiredPermission={PERMISSIONS.NOTIFICATION_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div>
@@ -1022,6 +1307,13 @@ export const ConfigurationMastersPage: React.FC = () => {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => setIsCreateTemplateModalOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 12px', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', border: 'none', borderRadius: 'var(--radius-md, 6px)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, cursor: 'pointer', marginLeft: 'var(--space-2)' }}
+            >
+              <Plus size={14} /> Add Notification Template
+            </button>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 'var(--space-4)' }}>
@@ -1090,10 +1382,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             ))}
           </div>
         </div>
-      )}
+      ))}
 
       {/* TAB 5: ROLES & PERMISSION MATRIX */}
-      {activeTab === 'roles' && (
+      {activeTab === 'roles' && (!canManageRoles ? (
+        <NoAccessView moduleName="Role-Based Access Control Governance Matrix" requiredPermission={PERMISSIONS.ROLES_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div>
@@ -1216,10 +1510,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
+      ))}
 
       {/* TAB 6: ADMIN USER ACCOUNTS & PERSONNEL */}
-      {activeTab === 'adminUsers' && (
+      {activeTab === 'adminUsers' && (!canManageAdminUsers ? (
+        <NoAccessView moduleName="Administrative Staff & Role Governance" requiredPermission={PERMISSIONS.CONFIGURATION_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
             <div>
@@ -1465,10 +1761,12 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
           )}
         </div>
-      )}
+      ))}
 
       {/* TAB 7: SESSION & SECURITY (GAP-SEC-01) */}
-      {activeTab === 'security' && (
+      {activeTab === 'security' && (!canManageSecurity ? (
+        <NoAccessView moduleName="Session & Security Policy" requiredPermission={PERMISSIONS.CONFIGURATION_MANAGE} />
+      ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
           {/* Section Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
@@ -1803,9 +2101,121 @@ export const ConfigurationMastersPage: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
-      )}
 
+
+          {/* Sub-card 4: Live Application Platform Settings */}
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              border: '1px solid var(--color-border, #e2e8f0)',
+              overflow: 'hidden',
+            }}
+          >
+            <div
+              style={{
+                padding: 'var(--space-4) var(--space-5)',
+                borderBottom: '1px solid var(--color-border, #e2e8f0)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm, 14px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)' }}>
+                  Platform Application Runtime Settings
+                </h3>
+                <p style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+                  Authoritative runtime configuration and service flags served via `/api/v1/admin/app-settings`.
+                </p>
+              </div>
+            </div>
+
+            {loadingAppSettings ? (
+              <div style={{ padding: 'var(--space-6)', display: 'flex', justifyContent: 'center' }}>
+                <LoadingSpinner message="Loading platform application settings..." />
+              </div>
+            ) : appSettings.length === 0 ? (
+              <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-secondary, #64748b)', fontSize: 'var(--font-size-xs, 12px)' }}>
+                No platform application settings found.
+              </div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+                  <thead style={{ backgroundColor: 'var(--color-bg-subtle, #f8fafc)', borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                    <tr>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>SETTING KEY</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>RUNTIME VALUE</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>DESCRIPTION</th>
+                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', textAlign: 'right' }}>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {appSettings.map((setting) => (
+                      <tr key={setting.key} style={{ borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary, #0f172a)' }}>
+                          {setting.key}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600 }}>
+                          <span
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 'var(--radius-sm, 4px)',
+                              fontSize: '11px',
+                              backgroundColor: setting.value === true || setting.value === 'true'
+                                ? 'var(--color-status-success-bg, #ecfdf5)'
+                                : setting.value === false || setting.value === 'false'
+                                ? 'var(--color-status-danger-bg, #fef2f2)'
+                                : 'var(--color-bg-subtle, #f1f5f9)',
+                              color: setting.value === true || setting.value === 'true'
+                                ? 'var(--color-status-success-text, #065f46)'
+                                : setting.value === false || setting.value === 'false'
+                                ? 'var(--color-status-danger-text, #991b1b)'
+                                : 'var(--color-text-primary, #0f172a)',
+                            }}
+                          >
+                            {String(setting.value)}
+                          </span>
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+                          {setting.description || 'Global administrative setting.'}
+                        </td>
+                        <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAppSetting({
+                                key: setting.key,
+                                value: String(setting.value),
+                                description: setting.description || '',
+                              });
+                            }}
+                            style={{
+                              padding: '4px 8px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: 'transparent',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Edit2 size={12} /> Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+        </div>
+      ))}
 
       {/* MODAL: Edit Service Category */}
       {isCategoryModalOpen && categoryDraft && (
@@ -1833,20 +2243,56 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: '90vh',
+              overflowY: 'auto',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              Edit Category: {categoryDraft.name}
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                Edit Category: {categoryDraft.name}
+              </h2>
+              <button
+                type="button"
+                aria-label="Close modal"
+                onClick={() => setIsCategoryModalOpen(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: '4px' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Display Tagline</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Category Name <RequiredIndicator />
+              </label>
+              <input
+                type="text"
+                value={categoryDraft.name}
+                onChange={(e) => setCategoryDraft({ ...categoryDraft, name: e.target.value })}
+                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Display Tagline / Description</label>
               <input
                 type="text"
                 value={categoryDraft.tagline}
                 onChange={(e) => setCategoryDraft({ ...categoryDraft, tagline: e.target.value })}
                 style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
               />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Catalog Status</label>
+              <select
+                value={categoryDraft.status}
+                onChange={(e) => setCategoryDraft({ ...categoryDraft, status: e.target.value as 'ACTIVE' | 'ARCHIVED' })}
+                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-surface)' }}
+              >
+                <option value="ACTIVE">Active (Available for customer booking)</option>
+                <option value="ARCHIVED">Archived / Disabled</option>
+              </select>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -1858,6 +2304,69 @@ export const ConfigurationMastersPage: React.FC = () => {
                 onChange={(e) => setCategoryDraft({ ...categoryDraft, minExperienceMonths: Number(e.target.value) })}
                 style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
               />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Allowed Engagement Types</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px' }}>
+                {[
+                  { value: 'FULL_TIME', label: 'Full-time' },
+                  { value: 'PART_TIME', label: 'Part-time' },
+                  { value: 'LIVE_IN', label: 'Live-in' },
+                  { value: 'DAILY', label: 'Daily' },
+                  { value: 'HOURLY', label: 'Hourly' },
+                  { value: 'SHIFT', label: 'Shift' },
+                  { value: 'ONE_TIME', label: 'One-time' },
+                  { value: 'MONTHLY', label: 'Monthly' },
+                ].map((opt) => {
+                  const currentEngs = Array.isArray(categoryDraft.allowedEngagementTypes) ? categoryDraft.allowedEngagementTypes : [];
+                  const isChecked = currentEngs.some(
+                    (e) => e.toUpperCase().replace(/[-\s]/g, '_') === opt.value
+                  );
+                  return (
+                    <label
+                      key={opt.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: 'var(--font-size-xs)',
+                        cursor: 'pointer',
+                        padding: '4px 6px',
+                        borderRadius: 'var(--radius-sm)',
+                        backgroundColor: isChecked ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                        border: isChecked ? '1px solid var(--color-brand-200, #bfdbfe)' : '1px solid transparent',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={(e) => {
+                          const updated = e.target.checked
+                            ? [...currentEngs, opt.value]
+                            : currentEngs.filter((item) => item.toUpperCase().replace(/[-\s]/g, '_') !== opt.value);
+                          setCategoryDraft({ ...categoryDraft, allowedEngagementTypes: updated });
+                        }}
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div
+              style={{
+                fontSize: '11px',
+                color: 'var(--color-brand-700, #1d4ed8)',
+                backgroundColor: 'var(--color-brand-50, #eff6ff)',
+                border: '1px solid var(--color-brand-200, #bfdbfe)',
+                borderRadius: 'var(--radius-md)',
+                padding: '8px 12px',
+                lineHeight: 1.4,
+              }}
+            >
+              ℹ️ Category name, tagline, and allowed engagements are synchronized with backend APIs and cross-app services. Skills taxonomy is governed by SevaNest Service Standards.
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
@@ -1894,6 +2403,8 @@ export const ConfigurationMastersPage: React.FC = () => {
                   >
                     {skill}
                     <button
+                      type="button"
+                      aria-label={`Remove ${skill} skill`}
                       onClick={() => {
                         const updated = categoryDraft.skillsTaxonomy.filter((_, i) => i !== idx);
                         setCategoryDraft({ ...categoryDraft, skillsTaxonomy: updated });
@@ -1953,9 +2464,48 @@ export const ConfigurationMastersPage: React.FC = () => {
               gap: 'var(--space-4)',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              {areaDraft.id ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Add New Operational Area'}
-            </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
+                {areaDraft.id ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Add New Operational Area'}
+              </h2>
+              <button
+                type="button"
+                aria-label="Close modal"
+                onClick={() => {
+                  setIsAreaModalOpen(false);
+                  setAreaModalError(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-secondary)',
+                  padding: '4px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {areaModalError && (
+              <div
+                role="alert"
+                style={{
+                  backgroundColor: 'var(--color-error-bg, #fef2f2)',
+                  border: '1px solid var(--color-error-border, #fecaca)',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  padding: '8px 12px',
+                  fontSize: 'var(--font-size-xs, 12px)',
+                  color: 'var(--color-error-text, #991b1b)',
+                  fontWeight: 600,
+                }}
+              >
+                {areaModalError}
+              </div>
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
@@ -1964,7 +2514,10 @@ export const ConfigurationMastersPage: React.FC = () => {
               <input
                 type="text"
                 value={areaDraft.clusterName}
-                onChange={(e) => setAreaDraft({ ...areaDraft, clusterName: e.target.value })}
+                onChange={(e) => {
+                  setAreaDraft({ ...areaDraft, clusterName: e.target.value });
+                  if (areaModalError) setAreaModalError(null);
+                }}
                 style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
               />
             </div>
@@ -1976,7 +2529,10 @@ export const ConfigurationMastersPage: React.FC = () => {
               <input
                 type="text"
                 value={areaDraft.cityName}
-                onChange={(e) => setAreaDraft({ ...areaDraft, cityName: e.target.value })}
+                onChange={(e) => {
+                  setAreaDraft({ ...areaDraft, cityName: e.target.value });
+                  if (areaModalError) setAreaModalError(null);
+                }}
                 style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
               />
             </div>
@@ -1992,6 +2548,7 @@ export const ConfigurationMastersPage: React.FC = () => {
                   style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
                 />
                 <button
+                  type="button"
                   onClick={() => {
                     if (newPincodeInput.trim()) {
                       setAreaDraft({
@@ -2015,6 +2572,7 @@ export const ConfigurationMastersPage: React.FC = () => {
                   >
                     {pin}
                     <button
+                      type="button"
                       onClick={() => {
                         const updated = areaDraft.pincodes.filter((_, i) => i !== idx);
                         setAreaDraft({ ...areaDraft, pincodes: updated });
@@ -2030,13 +2588,29 @@ export const ConfigurationMastersPage: React.FC = () => {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
               <button
-                onClick={() => setIsAreaModalOpen(false)}
+                type="button"
+                onClick={() => {
+                  setIsAreaModalOpen(false);
+                  setAreaModalError(null);
+                }}
                 style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
-                onClick={() => setIsAreaPublishOpen(true)}
+                type="button"
+                onClick={() => {
+                  if (!areaDraft.clusterName.trim()) {
+                    setAreaModalError('Cluster / Locality name is required.');
+                    return;
+                  }
+                  if (!areaDraft.cityName.trim()) {
+                    setAreaModalError('City name is required.');
+                    return;
+                  }
+                  setAreaModalError(null);
+                  setIsAreaPublishOpen(true);
+                }}
                 style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
               >
                 Save Area
@@ -2144,6 +2718,8 @@ export const ConfigurationMastersPage: React.FC = () => {
         confirmLabel="Confirm Area Update"
         requireRemarks={true}
         remarksPlaceholder="Enter mandatory operational rationale for cluster update..."
+        isLoading={saveAreaMutation.isPending}
+        errorMessage={saveAreaMutation.error instanceof Error ? saveAreaMutation.error.message : null}
         onConfirm={(remarks) => {
           if (areaDraft) {
             saveAreaMutation.mutate({ area: areaDraft, remarks: remarks || 'Cluster update.' });
@@ -2590,6 +3166,395 @@ export const ConfigurationMastersPage: React.FC = () => {
                   : newStatus === 'SUSPENDED'
                   ? 'Confirm Suspension'
                   : 'Confirm Reactivation'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create Service Category */}
+      {isCreateCategoryModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--space-4)',
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              maxWidth: '500px',
+              width: '100%',
+              padding: 'var(--space-6, 24px)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-4, 16px)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+              Add New Service Category
+            </h2>
+            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+              Provision an authoritative workforce domain role. Code must be unique.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Category Machine Code (e.g. COOK, CHEF)</label>
+              <input
+                type="text"
+                placeholder="COOK"
+                value={createCategoryDraft.code}
+                onChange={(e) => setCreateCategoryDraft({ ...createCategoryDraft, code: e.target.value.toUpperCase() })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Display Name</label>
+              <input
+                type="text"
+                placeholder="Cook & Chef"
+                value={createCategoryDraft.name}
+                onChange={(e) => setCreateCategoryDraft({ ...createCategoryDraft, name: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Description / Tagline</label>
+              <input
+                type="text"
+                placeholder="Professional meal prep and home chef services"
+                value={createCategoryDraft.description}
+                onChange={(e) => setCreateCategoryDraft({ ...createCategoryDraft, description: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+              <button
+                type="button"
+                onClick={() => setIsCreateCategoryModalOpen(false)}
+                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!createCategoryDraft.code.trim() || !createCategoryDraft.name.trim() || createCategoryMutation.isPending}
+                onClick={() => createCategoryMutation.mutate(createCategoryDraft)}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+              >
+                {createCategoryMutation.isPending ? 'Provisioning...' : 'Provision Category'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create Operational Area */}
+      {isCreateAreaModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--space-4)',
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              maxWidth: '500px',
+              width: '100%',
+              padding: 'var(--space-6, 24px)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-4, 16px)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+              Add New Operational Area
+            </h2>
+            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+              Define a new geographical cluster for service delivery.
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Locality / Cluster Name</label>
+              <input
+                type="text"
+                placeholder="e.g. Kondapur Hub"
+                value={createAreaDraft.name}
+                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, name: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>City</label>
+              <input
+                type="text"
+                placeholder="Hyderabad"
+                value={createAreaDraft.city}
+                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, city: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Coverage Radius (Meters)</label>
+              <input
+                type="number"
+                min={500}
+                value={createAreaDraft.radiusMeters}
+                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, radiusMeters: Number(e.target.value) })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+              <button
+                type="button"
+                onClick={() => setIsCreateAreaModalOpen(false)}
+                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!createAreaDraft.name.trim() || !createAreaDraft.city.trim() || createAreaMutation.isPending}
+                onClick={() => createAreaMutation.mutate(createAreaDraft)}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+              >
+                {createAreaMutation.isPending ? 'Provisioning...' : 'Provision Area'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Create Notification Template */}
+      {isCreateTemplateModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--space-4)',
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              maxWidth: '560px',
+              width: '100%',
+              padding: 'var(--space-6, 24px)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-4, 16px)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+              Add Notification Template
+            </h2>
+            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+              Configure transactional message copy for Push, SMS, or WhatsApp.
+            </p>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Trigger Event Code</label>
+                <input
+                  type="text"
+                  list="notification-events-list"
+                  placeholder="BOOKING_CONFIRMED"
+                  value={createTemplateDraft.eventCode}
+                  onChange={(e) => setCreateTemplateDraft({ ...createTemplateDraft, eventCode: e.target.value.toUpperCase() })}
+                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                />
+                <datalist id="notification-events-list">
+                  {notificationEvents.map((ev) => (
+                    <option key={ev.eventCode} value={ev.eventCode}>
+                      {ev.eventCode}
+                    </option>
+                  ))}
+                </datalist>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Delivery Channel</label>
+                <select
+                  value={createTemplateDraft.channel}
+                  onChange={(e) => setCreateTemplateDraft({ ...createTemplateDraft, channel: e.target.value })}
+                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                >
+                  <option value="PUSH">PUSH (FCM)</option>
+                  <option value="SMS">SMS</option>
+                  <option value="WHATSAPP">WHATSAPP</option>
+                  <option value="EMAIL">EMAIL</option>
+                  <option value="IN_APP">IN_APP</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Notification Title</label>
+              <input
+                type="text"
+                placeholder="Booking Confirmed!"
+                value={createTemplateDraft.title}
+                onChange={(e) => setCreateTemplateDraft({ ...createTemplateDraft, title: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Message Body</label>
+              <textarea
+                rows={3}
+                placeholder="Your booking #{{bookingId}} has been confirmed with {{workerName}}."
+                value={createTemplateDraft.body}
+                onChange={(e) => setCreateTemplateDraft({ ...createTemplateDraft, body: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)', fontFamily: 'sans-serif' }}
+              />
+            </div>
+
+            {createTemplateDraft.channel === 'SMS' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+                <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>DLT Template ID (Mandatory for SMS in India)</label>
+                <input
+                  type="text"
+                  placeholder="1107161234567890123"
+                  value={createTemplateDraft.dltTemplateId}
+                  onChange={(e) => setCreateTemplateDraft({ ...createTemplateDraft, dltTemplateId: e.target.value })}
+                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+              <button
+                type="button"
+                onClick={() => setIsCreateTemplateModalOpen(false)}
+                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!createTemplateDraft.eventCode.trim() || !createTemplateDraft.body.trim() || createTemplateMutation.isPending}
+                onClick={() => createTemplateMutation.mutate(createTemplateDraft)}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+              >
+                {createTemplateMutation.isPending ? 'Provisioning...' : 'Provision Template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Edit App Setting */}
+      {editingAppSetting && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 'var(--space-4)',
+          }}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 8px)',
+              maxWidth: '480px',
+              width: '100%',
+              padding: 'var(--space-6, 24px)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 'var(--space-4, 16px)',
+              boxShadow: 'var(--shadow-xl)',
+            }}
+          >
+            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+              Edit Setting: {editingAppSetting.key}
+            </h2>
+            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
+              {editingAppSetting.description || 'Global administrative setting.'}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Value</label>
+              {editingAppSetting.value === 'true' || editingAppSetting.value === 'false' ? (
+                <select
+                  value={editingAppSetting.value}
+                  onChange={(e) => setEditingAppSetting({ ...editingAppSetting, value: e.target.value })}
+                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                >
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={editingAppSetting.value}
+                  onChange={(e) => setEditingAppSetting({ ...editingAppSetting, value: e.target.value })}
+                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                />
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
+              <button
+                type="button"
+                onClick={() => setEditingAppSetting(null)}
+                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={updateAppSettingMutation.isPending}
+                onClick={() => {
+                  const val = editingAppSetting.value === 'true' ? true : editingAppSetting.value === 'false' ? false : editingAppSetting.value;
+                  updateAppSettingMutation.mutate({ key: editingAppSetting.key, value: val });
+                }}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+              >
+                {updateAppSettingMutation.isPending ? 'Saving...' : 'Save Setting'}
               </button>
             </div>
           </div>

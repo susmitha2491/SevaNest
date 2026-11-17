@@ -275,13 +275,27 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
   }
 
   // 9. Configuration
-  if (hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE)) {
+  const hasConfigAccess =
+    isSuperAdmin ||
+    hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE) ||
+    hasPermission(permissions, PERMISSIONS.CATEGORY_MANAGE) ||
+    hasPermission(permissions, PERMISSIONS.AREA_MANAGE) ||
+    hasPermission(permissions, PERMISSIONS.NOTIFICATION_MANAGE) ||
+    hasPermission(permissions, PERMISSIONS.ROLES_MANAGE);
+
+  if (hasConfigAccess) {
     modules.push({
       id: 'configuration',
       name: 'Configuration',
       path: '/configuration',
       icon: Sliders,
-      requiredPermission: PERMISSIONS.CONFIGURATION_MANAGE,
+      requiredPermission: hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE)
+        ? PERMISSIONS.CONFIGURATION_MANAGE
+        : hasPermission(permissions, PERMISSIONS.CATEGORY_MANAGE)
+        ? PERMISSIONS.CATEGORY_MANAGE
+        : hasPermission(permissions, PERMISSIONS.AREA_MANAGE)
+        ? PERMISSIONS.AREA_MANAGE
+        : PERMISSIONS.CONFIGURATION_MANAGE,
       end: false,
     });
   }
@@ -405,7 +419,13 @@ export function isRouteAccessibleForUser(
 
   // 9. Configuration
   if (normalized === '/configuration') {
-    return hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE);
+    return (
+      hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE) ||
+      hasPermission(permissions, PERMISSIONS.CATEGORY_MANAGE) ||
+      hasPermission(permissions, PERMISSIONS.AREA_MANAGE) ||
+      hasPermission(permissions, PERMISSIONS.NOTIFICATION_MANAGE) ||
+      hasPermission(permissions, PERMISSIONS.ROLES_MANAGE)
+    );
   }
 
   // 10. Audit

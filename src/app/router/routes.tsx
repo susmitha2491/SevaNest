@@ -32,7 +32,7 @@ const VerificationInsightsPage = React.lazy(() =>
   import('../../features/verification/presentation/VerificationInsightsPage').then((m) => ({ default: m.VerificationInsightsPage }))
 );
 const MyAccountPage = React.lazy(() =>
-  import('../../features/auth/presentation/MyAccountPage').then((m) => ({ default: m.MyAccountPage }))
+  import('../../features/auth/presentation/MyAccountPage').then((m) => ({ default: m.MyAccountPage || m.default }))
 );
 const BookingsListPage = React.lazy(() =>
   import('../../features/bookings/presentation/BookingsListPage').then((m) => ({ default: m.BookingsListPage }))
@@ -56,7 +56,7 @@ const ConfigurationMastersPage = React.lazy(() =>
   import('../../features/configuration/presentation/ConfigurationMastersPage').then((m) => ({ default: m.ConfigurationMastersPage }))
 );
 const AuditTrailPage = React.lazy(() =>
-  import('../../features/audit/presentation/AuditTrailPage').then((m) => ({ default: m.AuditTrailPage }))
+  import('../../features/audit/presentation/AuditTrailPage').then((m) => ({ default: m.AuditTrailPage || m.default }))
 );
 
 export const routes: RouteObject[] = [
@@ -350,7 +350,7 @@ export const routes: RouteObject[] = [
       {
         path: 'configuration',
         element: (
-          <ProtectedRoute permission={PERMISSIONS.CONFIGURATION_MANAGE}>
+          <ProtectedRoute>
             <LazyRoute label="Loading configuration masters...">
               <ConfigurationMastersPage />
             </LazyRoute>

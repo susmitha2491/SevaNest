@@ -9,6 +9,7 @@ export type ConfigurationTab =
 
 export interface ServiceCategoryItem {
   id: string;
+  code?: string;
   name: string;
   tagline: string;
   iconName: string;
@@ -16,6 +17,7 @@ export interface ServiceCategoryItem {
   skillsTaxonomy: string[];
   minExperienceMonths: number;
   status: 'ACTIVE' | 'DRAFT' | 'ARCHIVED';
+  etag?: string;
 }
 
 export interface OperationalAreaItem {
@@ -25,6 +27,7 @@ export interface OperationalAreaItem {
   pincodes: string[];
   status: 'ACTIVE' | 'PILOT' | 'PLANNED';
   activeWorkersCount: number;
+  etag?: string;
 }
 
 export interface FeePlanItem {
@@ -35,16 +38,33 @@ export interface FeePlanItem {
   classification: 'ONE_TIME_FEE' | 'MONTHLY_COMMISSION' | 'SUBSCRIPTION' | 'GUARANTEE_ADDON';
   notes: string;
   decisionStatus: 'APPROVED' | 'PENDING_DECISION';
+  etag?: string;
 }
 
 export interface NotificationTemplateItem {
   id: string;
-  channel: 'FCM_PUSH' | 'SMS' | 'WHATSAPP';
+  channel: 'PUSH' | 'FCM_PUSH' | 'SMS' | 'WHATSAPP' | 'EMAIL' | 'IN_APP' | string;
   eventTrigger: string;
   titleTemplate: string;
   bodyTemplate: string;
   allowedPlaceholders: string[];
   status: 'ACTIVE' | 'DRAFT';
+  dltTemplateId?: string | null;
+  etag?: string;
+}
+
+export interface AppSettingItem {
+  key: string;
+  kind: 'string' | 'boolean';
+  description: string;
+  value: string | boolean | null;
+  source: 'DATABASE' | 'ENVIRONMENT' | 'UNSET';
+  updatedAt: string | null;
+}
+
+export interface NotificationEventDefinition {
+  eventCode: string;
+  params: string[];
 }
 
 export interface RolePermissionDefinition {
@@ -85,16 +105,22 @@ export interface IReferenceDataRepository {
 
 export interface IConfigurationRepository {
   getServiceCategories(): Promise<ServiceCategoryItem[]>;
+  createCategory?(dto: { code: string; name: string; description?: string }): Promise<ServiceCategoryItem>;
   saveCategoryDraft(category: ServiceCategoryItem, rationale: string): Promise<ServiceCategoryItem>;
   getOperationalAreas(): Promise<OperationalAreaItem[]>;
+  createOperationalArea?(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem>;
   saveOperationalArea(area: OperationalAreaItem, remarks: string): Promise<OperationalAreaItem>;
   getFeePlans(): Promise<FeePlanItem[]>;
   publishFeeSchedule(fees: FeePlanItem[], rationale: string): Promise<FeePlanItem[]>;
   getNotificationTemplates(channel?: string): Promise<NotificationTemplateItem[]>;
+  createNotificationTemplate?(dto: { eventCode: string; channel: string; title: string; body: string; dltTemplateId?: string }): Promise<NotificationTemplateItem>;
   saveNotificationTemplate(template: NotificationTemplateItem, rationale: string): Promise<NotificationTemplateItem>;
   getRolePermissions(): Promise<RolePermissionDefinition[]>;
   getRolePermission?(roleCode: string): Promise<RolePermissionDefinition>;
   updateRolePermissions(role: string, permissions: string[], rationale: string): Promise<RolePermissionDefinition>;
   getPermissionCatalog?(): Promise<string[]>;
+  getAppSettings?(): Promise<AppSettingItem[]>;
+  updateAppSetting?(key: string, value: string | boolean): Promise<AppSettingItem>;
+  getNotificationEvents?(): Promise<NotificationEventDefinition[]>;
 }
 

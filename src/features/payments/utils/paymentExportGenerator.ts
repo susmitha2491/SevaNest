@@ -36,14 +36,6 @@ const formatStatusLabel = (status: string): string => {
     case 'SUCCEEDED':
     case 'PAID':
       return 'Paid';
-    case 'REFUND_PENDING':
-      return 'Refund Pending';
-    case 'REFUNDED':
-      return 'Refunded';
-    case 'PARTIALLY_REFUNDED':
-      return 'Partially Refunded';
-    case 'REFUND_FAILED':
-      return 'Refund Failed';
     case 'FAILED':
     case 'PAYMENT_FAILED':
       return 'Payment Failed';
@@ -87,14 +79,11 @@ export async function generatePaymentsExcelBlob(
   worksheet.addRow([`Filter Scope: Status: ${activeStatus} | Fee: ${activeFee} | Search: ${activeSearch}`]);
 
   const totalGrossSettled = transactions
-    .filter((t) => t.status === 'PAID' || t.status === 'SUCCEEDED' || t.status === 'REFUNDED' || t.status === 'REFUND_PENDING')
+    .filter((t) => t.status === 'PAID' || t.status === 'SUCCEEDED')
     .reduce((acc, t) => acc + (t.amountINR || 0), 0);
-  const totalRefunded = transactions
-    .filter((t) => t.status === 'REFUNDED')
-    .reduce((acc, t) => acc + (t.refund?.refundAmountINR || t.amountINR || 0), 0);
 
   worksheet.addRow([
-    `Total Records: ${transactions.length} | Gross Collections: ₹${totalGrossSettled.toFixed(2)} | Refunded: ₹${totalRefunded.toFixed(2)}`,
+    `Total Records: ${transactions.length} | Gross Collections: ₹${totalGrossSettled.toFixed(2)}`,
   ]);
 
   // Blank row separator
@@ -121,8 +110,6 @@ export async function generatePaymentsExcelBlob(
     { key: 'status', width: 18 },
     { key: 'createdAt', width: 22 },
     { key: 'paidAt', width: 22 },
-    { key: 'refundStatus', width: 18 },
-    { key: 'refundAmountINR', width: 18 },
     { key: 'gatewayRef', width: 24 },
     { key: 'receiptNumber', width: 24 },
   ];
@@ -141,8 +128,6 @@ export async function generatePaymentsExcelBlob(
     'Payment Status',
     'Created At (IST)',
     'Settled At (IST)',
-    'Refund Status',
-    'Refund Amount (INR)',
     'Gateway Reference',
     'Receipt Number',
   ];
@@ -168,20 +153,6 @@ export async function generatePaymentsExcelBlob(
 
   // Data Rows
   for (const txn of transactions) {
-    const refundStatusText =
-      txn.status === 'REFUNDED'
-        ? 'Refunded'
-        : txn.status === 'REFUND_PENDING'
-        ? 'Refund Pending'
-        : txn.status === 'REFUND_FAILED'
-        ? 'Refund Failed'
-        : 'None';
-
-    const refundAmountVal =
-      txn.status === 'REFUNDED'
-        ? Number(txn.refund?.refundAmountINR || txn.amountINR || 0)
-        : 0;
-
     const row = worksheet.addRow([
       txn.id,
       txn.bookingRef,
@@ -195,8 +166,6 @@ export async function generatePaymentsExcelBlob(
       formatStatusLabel(txn.status),
       txn.createdAt ? formatDateTimeIST(txn.createdAt) : txn.timestamp,
       txn.paidAt ? formatDateTimeIST(txn.paidAt) : '—',
-      refundStatusText,
-      refundAmountVal,
       txn.gatewayRef && txn.gatewayRef !== 'N/A' ? txn.gatewayRef : '—',
       txn.receiptNumber || '—',
     ]);
@@ -212,18 +181,18 @@ export async function generatePaymentsExcelBlob(
         right: { style: 'thin', color: { argb: 'FFF1F5F9' } },
       };
 
-      // Col 7 = Amount (INR), Col 14 = Refund Amount (INR)
-      if (colNumber === 7 || colNumber === 14) {
+      // Col 7 = Amount (INR)
+      if (colNumber === 7) {
         cell.numFmt = '₹#,##0.00';
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
-      } else if (colNumber === 2 || colNumber === 8 || colNumber === 10 || colNumber === 13) {
+      } else if (colNumber === 2 || colNumber === 8 || colNumber === 10) {
         cell.alignment = { horizontal: 'center', vertical: 'middle' };
       } else {
         cell.alignment = { horizontal: 'left', vertical: 'middle' };
       }
 
       // Explicit string format for identifiers to prevent scientific notation in Excel
-      if (colNumber === 1 || colNumber === 2 || colNumber === 15 || colNumber === 16) {
+      if (colNumber === 1 || colNumber === 2 || colNumber === 13 || colNumber === 14) {
         cell.numFmt = '@';
       }
     });
@@ -245,8 +214,6 @@ export async function generatePaymentsExcelBlob(
       '',
       '',
       '',
-      totalRefunded,
-      '',
       '',
     ]);
     summaryRow.height = 22;
@@ -261,7 +228,7 @@ export async function generatePaymentsExcelBlob(
         top: { style: 'double', color: { argb: 'FF94A3B8' } },
         bottom: { style: 'thin', color: { argb: 'FF94A3B8' } },
       };
-      if (colNumber === 7 || colNumber === 14) {
+      if (colNumber === 7) {
         cell.numFmt = '₹#,##0.00';
         cell.alignment = { horizontal: 'right', vertical: 'middle' };
       }
@@ -295,8 +262,6 @@ export function generatePaymentsCsvString(
     'Payment Status',
     'Transaction Date (IST)',
     'Settlement Date (IST)',
-    'Refund Status',
-    'Refund Amount (INR)',
     'Gateway Reference',
     'Receipt Number',
   ];
@@ -329,20 +294,6 @@ export function generatePaymentsCsvString(
 
   // Data rows
   for (const txn of transactions) {
-    const refundStatusText =
-      txn.status === 'REFUNDED'
-        ? 'Refunded'
-        : txn.status === 'REFUND_PENDING'
-        ? 'Refund Pending'
-        : txn.status === 'REFUND_FAILED'
-        ? 'Refund Failed'
-        : 'None';
-
-    const refundAmountVal =
-      txn.status === 'REFUNDED'
-        ? Number(txn.refund?.refundAmountINR || txn.amountINR || 0).toFixed(2)
-        : '0.00';
-
     const row = [
       txn.id,
       txn.bookingRef,
@@ -356,8 +307,6 @@ export function generatePaymentsCsvString(
       formatStatusLabel(txn.status),
       txn.createdAt ? formatDateTimeIST(txn.createdAt) : txn.timestamp,
       txn.paidAt ? formatDateTimeIST(txn.paidAt) : '—',
-      refundStatusText,
-      refundAmountVal,
       txn.gatewayRef && txn.gatewayRef !== 'N/A' ? txn.gatewayRef : '—',
       txn.receiptNumber || '—',
     ];
@@ -368,4 +317,3 @@ export function generatePaymentsCsvString(
   // Prepend UTF-8 BOM so Excel opens CSV without encoding errors
   return '\uFEFF' + rows.join('\r\n');
 }
-

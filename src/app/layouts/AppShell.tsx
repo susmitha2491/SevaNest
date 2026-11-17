@@ -7,7 +7,6 @@ import {
   X,
   User,
   ChevronDown,
-  Edit3,
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
@@ -26,7 +25,6 @@ export const AppShell: React.FC = () => {
   const clearSession = useAuthStore((state) => state.clearSession);
   const navigate = useNavigate();
   const location = useLocation();
-  const isProfileEditSupported = Boolean(authRepository.supportsProfileUpdate);
 
   const accessibleModules = getAccessibleNavigation(user);
 
@@ -473,24 +471,8 @@ export const AppShell: React.FC = () => {
                         className="header-profile-dropdown-item"
                       >
                         <User size={16} />
-                        <span>View Profile</span>
+                        <span>My Account</span>
                       </button>
-
-                      {isProfileEditSupported && (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          data-testid="profile-menu-edit"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            navigate('/account?mode=edit');
-                          }}
-                          className="header-profile-dropdown-item"
-                        >
-                          <Edit3 size={16} />
-                          <span>Edit Profile</span>
-                        </button>
-                      )}
 
                       <div style={{ height: '1px', backgroundColor: 'var(--color-border-subtle)', margin: 'var(--space-1) 0' }} />
 

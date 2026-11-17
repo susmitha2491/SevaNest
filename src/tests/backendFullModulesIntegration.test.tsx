@@ -424,25 +424,10 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
         return { data: [] } as any;
       });
 
-      const postSpy = vi.spyOn(httpClient, 'post').mockResolvedValueOnce({
-        data: { success: true },
-      } as any);
-
       const repo = new RealPaymentRepository();
       const list = await repo.getTransactions();
       expect(list.items[0].id).toBe('TXN-892104');
       expect(list.totalGrossCollectionsINR).toBe(499);
-
-      await repo.processRefund('TXN-892104', 499, 'OTHER', 'Cancellation before trial');
-      expect(postSpy).toHaveBeenCalledWith(
-        '/admin/payments/TXN-892104/refund',
-        {
-          reason: 'OTHER: Cancellation before trial',
-        },
-        expect.objectContaining({
-          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
-        })
-      );
     });
   });
 

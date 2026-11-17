@@ -331,13 +331,13 @@ export function mapBackendUserToAdminUser(data: unknown, emailFallback?: string)
   };
 
   let permissions: string[] = [];
-  if (role === 'SUPER_ADMIN') {
-    permissions = ['*'];
-  } else if (rawPermissionsList !== null) {
+  if (rawPermissionsList !== null && rawPermissionsList.length > 0) {
     // Authoritative server-issued permissions provided by backend
     permissions = rawPermissionsList
       .map(extractPermissionString)
       .filter((p) => p && p !== '[object Object]');
+  } else if (role === 'SUPER_ADMIN') {
+    permissions = ['*'];
   } else {
     // Fall back to role-defined baseline when server response omits permissions array
     permissions = getDefaultPermissionsForRole(role);
@@ -549,8 +549,21 @@ export class RealAuthRepository implements IAuthRepository {
    */
   async getAdminProfile(): Promise<AdminUser> {
     try {
-      const response = await httpClient.get('/admin/me/profile');
-      const user = mapBackendUserToAdminUser(response.data);
+      const [profileRes, meRes] = await Promise.allSettled([
+        httpClient.get('/admin/me/profile'),
+        httpClient.get('/users/me'),
+      ]);
+      const profileData = profileRes.status === 'fulfilled' ? (profileRes.value.data as Record<string, unknown>) : {};
+      const meData = meRes.status === 'fulfilled' ? (meRes.value.data as Record<string, unknown>) : {};
+      const merged: Record<string, unknown> = { ...meData, ...profileData };
+      if (Array.isArray(meData.permissions) && meData.permissions.length > 0) {
+        merged.permissions = meData.permissions;
+      }
+      const existingUser = useAuthStore.getState().user;
+      if (!merged.permissions && existingUser?.permissions?.length) {
+        merged.permissions = existingUser.permissions;
+      }
+      const user = mapBackendUserToAdminUser(merged);
       useAuthStore.getState().setUser(user);
       return user;
     } catch (err: unknown) {

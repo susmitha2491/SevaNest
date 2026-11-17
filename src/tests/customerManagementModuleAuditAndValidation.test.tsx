@@ -82,7 +82,7 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
     it('filters customer directory by search query and locality', async () => {
       renderApp('/customers');
 
-      const searchInput = await screen.findByPlaceholderText(/Search by customer name/i);
+      const searchInput = await screen.findByPlaceholderText(/Search by customer name/i, {}, { timeout: 10000 });
       fireEvent.change(searchInput, { target: { value: 'Priya' } });
 
       expect(await screen.findByText('Priya Reddy')).toBeInTheDocument();

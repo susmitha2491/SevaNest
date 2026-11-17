@@ -1205,10 +1205,9 @@ export class MockVerificationRepository implements IVerificationRepository {
       );
     }
     if (
-      cleanDocId.startsWith('VQ-') ||
-      cleanDocId.startsWith('APP-') ||
-      cleanDocId.startsWith('W-') ||
-      cleanDocId.startsWith('wrk-')
+      (cleanDocId.startsWith('VQ-') && !cleanDocId.includes('doc')) ||
+      (cleanDocId.startsWith('APP-') && !cleanDocId.includes('doc')) ||
+      (workerId && cleanDocId === workerId.trim())
     ) {
       throw new ValidationError(
         'Invalid documentId: dossier or application identifier cannot be substituted for documentId.'
@@ -3149,10 +3148,9 @@ export class RealVerificationRepository implements IVerificationRepository {
       );
     }
     if (
-      cleanDocId.startsWith('VQ-') ||
-      cleanDocId.startsWith('APP-') ||
-      cleanDocId.startsWith('W-') ||
-      cleanDocId.startsWith('wrk-')
+      (cleanDocId.startsWith('VQ-') && !cleanDocId.includes('doc')) ||
+      (cleanDocId.startsWith('APP-') && !cleanDocId.includes('doc')) ||
+      (workerId && cleanDocId === workerId.trim())
     ) {
       throw new ValidationError(
         'Invalid documentId: dossier or application identifier cannot be substituted for documentId.'

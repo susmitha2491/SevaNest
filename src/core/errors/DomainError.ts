@@ -71,6 +71,13 @@ export class ConcurrencyConflictError extends DomainError {
   }
 }
 
+export class ConflictError extends DomainError {
+  public readonly code = 'CONFLICT';
+  constructor(message = 'Resource state conflict occurred.', correlationId?: string, statusCode = 409) {
+    super(message, correlationId, statusCode);
+  }
+}
+
 export class ValidationError extends DomainError {
   public readonly code = 'VALIDATION_ERROR';
   public readonly fieldErrors?: Record<string, string[]>;

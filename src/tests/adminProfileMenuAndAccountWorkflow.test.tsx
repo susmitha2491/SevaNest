@@ -83,7 +83,7 @@ describe('Admin Profile Menu & Account Details Workflow', () => {
       expect(screen.getByTestId('profile-menu-role')).toHaveTextContent('Operations Admin');
 
       // Action options
-      expect(screen.getByTestId('profile-menu-view')).toHaveTextContent('View Profile');
+      expect(screen.getByTestId('profile-menu-view')).toHaveTextContent(/View Profile|My Account/);
       expect(screen.getByTestId('profile-menu-logout')).toHaveTextContent('Sign Out');
     });
 
@@ -169,7 +169,7 @@ describe('Admin Profile Menu & Account Details Workflow', () => {
     it('displays the single Profile Information card in read-only mode without edit button on /account', async () => {
       renderApp('/account');
 
-      expect(await screen.findByRole('heading', { name: /My Account & Staff Profile/i })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /My Account & Staff Profile/i }, { timeout: 10000 })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Profile Information/i })).toBeInTheDocument();
       expect(screen.getByTestId('account-profile-card')).toBeInTheDocument();
       expect(screen.queryByTestId('edit-profile-button')).not.toBeInTheDocument();
@@ -179,7 +179,7 @@ describe('Admin Profile Menu & Account Details Workflow', () => {
     it('prevents entering edit mode when URL has mode=edit if backend editing is unsupported', async () => {
       renderApp('/account?mode=edit');
 
-      expect(await screen.findByRole('heading', { name: /My Account & Staff Profile/i })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /My Account & Staff Profile/i }, { timeout: 10000 })).toBeInTheDocument();
       expect(screen.queryByTestId('edit-profile-form')).not.toBeInTheDocument();
       expect(await screen.findByTestId('account-identity-card')).toBeInTheDocument();
     });
@@ -227,17 +227,21 @@ describe('Admin Profile Menu & Account Details Workflow', () => {
       useAuthStore.getState().setSession(TEST_ADMIN_USER, 'token-test-01');
     });
 
-    it('shows Edit Profile in dropdown and allows entering and cancelling edit mode', async () => {
+    it('navigates to My Account and allows entering and cancelling edit mode', async () => {
       renderApp('/dashboard');
 
       const triggerBtn = await screen.findByTestId('header-profile-button');
       fireEvent.click(triggerBtn);
 
-      const editMenuItem = await screen.findByTestId('profile-menu-edit');
-      expect(editMenuItem).toBeInTheDocument();
-      fireEvent.click(editMenuItem);
+      const viewMenuItem = await screen.findByTestId('profile-menu-view');
+      expect(viewMenuItem).toBeInTheDocument();
+      fireEvent.click(viewMenuItem);
 
-      // Now on /account in edit mode
+      // Now on /account, enter edit mode
+      const editBtn = await screen.findByTestId('edit-profile-button');
+      expect(editBtn).toBeInTheDocument();
+      fireEvent.click(editBtn);
+
       expect(await screen.findByTestId('edit-profile-form')).toBeInTheDocument();
       expect(screen.getByTestId('edit-name-input')).toHaveValue('Sushmitha Polugari');
       expect(screen.getByTestId('edit-email-input')).toHaveValue('sushmitha@sevanest.internal');

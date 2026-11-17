@@ -382,6 +382,18 @@ export const ReportsDashboardPage: React.FC = () => {
     enabled: Boolean(selectedReportId && canViewReports && !dateRangeValidationError),
   });
 
+  const [refreshToast, setRefreshToast] = useState(false);
+
+  const handleRefreshReport = async () => {
+    try {
+      await Promise.all([refetchDetail(), refetchCatalog()]);
+      setRefreshToast(true);
+      setTimeout(() => setRefreshToast(false), 3000);
+    } catch (err) {
+      console.warn('Report refresh note:', err);
+    }
+  };
+
   const categories: ReportCategory[] = [
     'ALL',
     'Growth',
@@ -803,8 +815,8 @@ export const ReportsDashboardPage: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <button
                 type="button"
-                onClick={() => refetchDetail()}
-                disabled={isDetailFetching || Boolean(dateRangeValidationError)}
+                onClick={handleRefreshReport}
+                disabled={isDetailFetching || isCatalogFetching || Boolean(dateRangeValidationError)}
                 style={{
                   padding: '7px 12px',
                   borderRadius: 'var(--radius-md)',
@@ -813,15 +825,32 @@ export const ReportsDashboardPage: React.FC = () => {
                   color: 'var(--color-text-secondary)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
-                  cursor: isDetailFetching ? 'not-allowed' : 'pointer',
+                  cursor: isDetailFetching || isCatalogFetching ? 'not-allowed' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
                 }}
-                title="Refresh report data"
+                title="Refresh report data and catalog metrics"
               >
-                <RefreshCw size={13} className={isDetailFetching ? 'animate-spin' : ''} /> Refresh
+                <RefreshCw size={13} className={isDetailFetching || isCatalogFetching ? 'animate-spin' : ''} />
+                <span>{isDetailFetching || isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
               </button>
+              {refreshToast && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-status-success-text, #065f46)',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <CheckCircle2 size={12} /> Refreshed
+                </span>
+              )}
               {canExport && (
                 <ExportButton
                   ariaLabel="Export"

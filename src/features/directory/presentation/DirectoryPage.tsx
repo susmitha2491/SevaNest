@@ -83,9 +83,31 @@ export const DirectoryPage: React.FC = () => {
   const [workerSearch, setWorkerSearch] = useState('');
   const debouncedWorkerSearch = useDebounce(workerSearch, 400);
   const [workerCategory, setWorkerCategory] = useState('ALL');
-  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(() => searchParams.get('workerId'));
   const [workerPage, setWorkerPage] = useState(1);
   const workerPageSize = 25;
+
+  useEffect(() => {
+    const wid = searchParams.get('workerId');
+    if (wid !== selectedWorkerId) {
+      setSelectedWorkerId(wid);
+    }
+  }, [searchParams, selectedWorkerId]);
+
+  const handleSelectWorker = (id: string | null) => {
+    setSelectedWorkerId(id);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      if (id) {
+        next.set('workerId', id);
+      } else {
+        next.delete('workerId');
+        next.delete('workerTab');
+        next.delete('docId');
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setWorkerPage(1);
@@ -495,7 +517,7 @@ export const DirectoryPage: React.FC = () => {
                           if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                             return;
                           }
-                          setSelectedWorkerId(worker.id);
+                          handleSelectWorker(worker.id);
                         }}
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' || e.key === ' ') {
@@ -504,7 +526,7 @@ export const DirectoryPage: React.FC = () => {
                               return;
                             }
                             e.preventDefault();
-                            setSelectedWorkerId(worker.id);
+                            handleSelectWorker(worker.id);
                           }
                         }}
                         style={{
@@ -588,7 +610,7 @@ export const DirectoryPage: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedWorkerId(worker.id);
+                              handleSelectWorker(worker.id);
                             }}
                             style={{
                               padding: '6px 12px',
@@ -955,7 +977,7 @@ export const DirectoryPage: React.FC = () => {
       {selectedWorkerId && (
         <WorkerDirectoryModal
           workerId={selectedWorkerId}
-          onClose={() => setSelectedWorkerId(null)}
+          onClose={() => handleSelectWorker(null)}
         />
       )}
 

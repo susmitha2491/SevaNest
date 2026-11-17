@@ -448,15 +448,150 @@ select option {
   font-size: var(--font-size-xs);
 }
 
-/* Accessible Focus States */
-:focus-visible {
+/* Accessible Focus States for interactive buttons, links, tabs, and focusable items */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+[tabindex="0"]:focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-div:not(.search-input-wrapper):not(.login-input-wrapper):has(> input:focus) {
+/* Base form controls styling across the entire portal */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(.login-input-field):not(.currency-draft-input):not(.search-input-field),
+textarea {
+  outline: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-surface);
+  color: var(--color-text-primary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Polished focus ring applied directly to form inputs & textareas (no parent wrapper box) */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(.login-input-field):not(.currency-draft-input):not(.search-input-field):focus,
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(.login-input-field):not(.currency-draft-input):not(.search-input-field):focus-visible,
+textarea:focus,
+textarea:focus-visible {
   border-color: var(--color-primary) !important;
-  box-shadow: 0 0 0 1px var(--color-primary);
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15) !important;
+}
+
+/* Suppress unwanted focus outlines/shadows on parent container divs across all forms and modals */
+div:has(input),
+div:has(textarea),
+div:has(select) {
+  outline: none;
+}
+
+div:not(.login-input-wrapper):not(.currency-input-group):has(input:focus),
+div:not(.login-input-wrapper):not(.currency-input-group):has(textarea:focus),
+div:not(.login-input-wrapper):not(.currency-input-group):has(select:focus) {
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+/* Hover state on clean form inputs */
+input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not(.login-input-field):not(.currency-draft-input):not(.search-input-field):hover:not(:disabled):not(:focus),
+textarea:hover:not(:disabled):not(:focus) {
+  border-color: var(--color-border-muted);
+}
+
+/* Pricing Draft Currency Input */
+.currency-input-group {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  width: 130px;
+  height: 36px;
+  min-height: 36px;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), background-color var(--transition-fast);
+  box-sizing: border-box;
+}
+
+.currency-input-group:hover:not(.is-disabled) {
+  border-color: var(--color-border-muted);
+}
+
+.currency-input-group:focus-within:not(.is-disabled) {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15) !important;
+}
+
+.currency-input-group.is-modified {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary-subtle);
+}
+
+.currency-input-group.is-modified:focus-within {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.2) !important;
+}
+
+.currency-input-prefix {
+  position: absolute;
+  left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  pointer-events: none;
+  user-select: none;
+  line-height: 1;
+  transition: color var(--transition-fast);
+}
+
+.currency-input-group:focus-within .currency-input-prefix,
+.currency-input-group.is-modified .currency-input-prefix {
+  color: var(--color-primary);
+}
+
+.currency-draft-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 10px 0 24px;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: normal;
+  box-sizing: border-box;
+}
+
+.currency-draft-input:focus,
+.currency-draft-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+/* Hide native number input spin buttons across browsers */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button,
+.currency-draft-input::-webkit-outer-spin-button,
+.currency-draft-input::-webkit-inner-spin-button,
+.hide-number-spinners::-webkit-outer-spin-button,
+.hide-number-spinners::-webkit-inner-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type='number'],
+.currency-draft-input[type='number'],
+.hide-number-spinners[type='number'] {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
 }
 
 /* Global Tables Styling */

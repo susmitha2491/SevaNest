@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   X,
@@ -34,14 +34,25 @@ interface WorkerDirectoryModalProps {
 
 export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ workerId, onClose }) => {
   const navigate = useNavigate();
+  const [, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'details' | 'work' | 'documents'>('details');
   const [inspectingDoc, setInspectingDoc] = useState<{
     id: string;
     title: string;
     checkType: VerificationCheckType;
+    url?: string;
   } | null>(null);
   const [docZoom, setDocZoom] = useState(100);
   const [docRotation, setDocRotation] = useState(0);
+
+  // Lock background body scroll while modal is active (BUG-003)
+  useEffect(() => {
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   // 1. Fetch complete worker profile
   const {
@@ -118,7 +129,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
           submittedAt: doc.submittedAt,
           verifiedAt: doc.verifiedAt,
           checkType,
-          url: doc.signedUrl,
+          url: doc.signedUrl || (doc as unknown as { url?: string }).url,
         });
       }
     });
@@ -139,6 +150,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
               status: check.status || 'VERIFIED',
               submittedAt: d.submittedAt || d.createdAt,
               checkType: cType as VerificationCheckType,
+              url: (d as { signedUrl?: string; url?: string; fileUrl?: string }).signedUrl || (d as { url?: string }).url || (d as { fileUrl?: string }).fileUrl,
             });
           }
         });
@@ -147,13 +159,29 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
   }
 
   // Handle document inspection click
-  const handleInspectDoc = (doc: { id: string; documentTypeName: string; checkType: VerificationCheckType }) => {
+  const handleInspectDoc = (doc: { id: string; documentTypeName: string; checkType: VerificationCheckType; url?: string }) => {
     setDocZoom(100);
     setDocRotation(0);
     setInspectingDoc({
       id: doc.id,
       title: doc.documentTypeName,
       checkType: doc.checkType,
+      url: doc.url,
+    });
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.set('workerTab', 'documents');
+      next.set('docId', doc.id);
+      return next;
+    });
+  };
+
+  const handleCloseInspectDoc = () => {
+    setInspectingDoc(null);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.delete('docId');
+      return next;
     });
   };
 
@@ -1052,7 +1080,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
                           )}
                           <button
                             type="button"
-                            onClick={() => setInspectingDoc(null)}
+                            onClick={handleCloseInspectDoc}
                             style={{
                               padding: '4px 10px',
                               borderRadius: '4px',
@@ -1081,9 +1109,9 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
                           padding: '16px',
                         }}
                       >
-                        {isDocLoading ? (
+                        {isDocLoading && !docUrl ? (
                           <LoadingSpinner message="Retrieving authorized document from storage..." />
-                        ) : isDocError ? (
+                        ) : isDocError && !docUrl ? (
                           <div style={{ textAlign: 'center', color: 'var(--color-error)' }}>
                             <AlertCircle size={28} style={{ margin: '0 auto 6px' }} />
                             <p style={{ margin: 0, fontSize: '12px' }}>

@@ -120,6 +120,7 @@ export const CustomersListPage: React.FC = () => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetching,
   } = useInfiniteQuery({
     queryKey: ['customers', 'infinite', debouncedSearchTerm, statusFilter, localityFilter],
     queryFn: async ({ pageParam = 1 }) => {
@@ -372,7 +373,14 @@ export const CustomersListPage: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={() => refetch()}
+          type="button"
+          onClick={async () => {
+            await refetch();
+            setSuccessBanner('Customer directory refreshed successfully with latest records.');
+            setTimeout(() => setSuccessBanner(null), 3000);
+          }}
+          disabled={isFetching}
+          aria-label="Refresh customer directory"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -384,12 +392,13 @@ export const CustomersListPage: React.FC = () => {
             fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
-            cursor: 'pointer',
+            cursor: isFetching ? 'not-allowed' : 'pointer',
             boxShadow: 'var(--shadow-sm)',
+            opacity: isFetching ? 0.7 : 1,
           }}
         >
-          <RefreshCw size={13} color="var(--color-primary)" />
-          <span>Refresh Directory</span>
+          <RefreshCw size={13} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
+          <span>{isFetching ? 'Refreshing...' : 'Refresh Directory'}</span>
         </button>
       </div>
 

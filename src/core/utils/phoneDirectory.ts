@@ -42,7 +42,7 @@ export function getCustomerPhone(idOrUserId?: string): string | undefined {
 }
 
 export async function fetchCustomerUnmaskedPhone(idOrUserId: string): Promise<string | undefined> {
-  if (!idOrUserId) return undefined;
+  if (!idOrUserId || idOrUserId === 'C-NA' || idOrUserId.startsWith('C-')) return undefined;
   const existing = customerPhoneMap.get(idOrUserId);
   if (existing && !existing.includes('*')) {
     return existing;

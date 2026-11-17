@@ -30,6 +30,20 @@ function createMockAxiosError(status: number, data: Record<string, unknown>, hea
 }
 
 describe('HTTP-to-Domain Error Mapper', () => {
+  it('maps HTTP 400 with details to ValidationError with field detail messages', () => {
+    const error = createMockAxiosError(400, {
+      code: 'VALIDATION_FAILED',
+      message: 'Request validation failed',
+      details: [
+        { field: 'approval', messages: ['approval must be one of the following values: APPROVE'] },
+      ],
+    });
+    const domainError = mapHttpErrorToDomainError(error);
+    expect(domainError).toBeInstanceOf(ValidationError);
+    expect(domainError.code).toBe('VALIDATION_ERROR');
+    expect(domainError.message).toContain('approval must be one of the following values: APPROVE');
+  });
+
   it('maps HTTP 401 to UnauthorizedError', () => {
     const error = createMockAxiosError(401, { message: 'Token expired' }, { 'x-correlation-id': 'corr-123' });
     const domainError = mapHttpErrorToDomainError(error);

@@ -56,6 +56,7 @@ export const WorkersListPage: React.FC = () => {
   const [detailModalId, setDetailModalId] = useState<string | null>(
     () => searchParams.get('workerId') || searchParams.get('applicationId') || null
   );
+  const [refreshToast, setRefreshToast] = useState(false);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -137,6 +138,7 @@ export const WorkersListPage: React.FC = () => {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isFetching,
   } = useInfiniteQuery({
     queryKey: [
       'workers',
@@ -372,26 +374,56 @@ export const WorkersListPage: React.FC = () => {
           </p>
         </div>
         <button
-          onClick={() => refetch()}
+          type="button"
+          onClick={async () => {
+            await refetch();
+            setRefreshToast(true);
+            setTimeout(() => setRefreshToast(false), 3000);
+          }}
+          disabled={isFetching}
+          aria-label="Refresh domestic worker roster"
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-2)',
-            padding: '5px 10px',
+            padding: '6px 12px',
             borderRadius: 'var(--radius-md)',
             backgroundColor: 'var(--color-bg-surface)',
             color: 'var(--color-text-primary)',
             fontSize: 'var(--font-size-xs)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
-            cursor: 'pointer',
+            cursor: isFetching ? 'not-allowed' : 'pointer',
             boxShadow: 'var(--shadow-sm)',
+            opacity: isFetching ? 0.7 : 1,
           }}
         >
-          <RefreshCw size={12} color="var(--color-primary)" />
-          <span>Refresh Roster</span>
+          <RefreshCw size={13} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
+          <span>{isFetching ? 'Refreshing...' : 'Refresh Roster'}</span>
         </button>
       </div>
+
+      {refreshToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            padding: '8px 14px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-status-success-bg, #ecfdf5)',
+            border: '1px solid var(--color-status-success-border, #a7f3d0)',
+            color: 'var(--color-status-success-text, #065f46)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <CheckCircle2 size={14} />
+          <span>Worker roster successfully refreshed with latest server data.</span>
+        </div>
+      )}
 
       {/* Operational Scope Tabs */}
       <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)', flexWrap: 'wrap' }}>

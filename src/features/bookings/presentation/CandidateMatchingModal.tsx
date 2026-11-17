@@ -390,6 +390,11 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                       key={cand.workerId}
                       onClick={() => {
                         setSelectedCandidate(cand);
+                        if (cand.dailyRateEstimate) {
+                          setTrialFee(Math.max(150, Math.round((cand.dailyRateEstimate / 8) * durationHours)));
+                        } else {
+                          setTrialFee(durationHours * 150);
+                        }
                         setActionError(null);
                       }}
                       style={{
@@ -544,40 +549,61 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                   />
                 </div>
 
-                <div>
-                  <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '2px' }}>
-                    Duration (Hours) &amp; Fee (INR):
-                  </label>
-                  <div style={{ display: 'flex', gap: '6px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-3)' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Duration (Hours):
+                    </label>
                     <input
                       type="number"
                       aria-label="Trial Duration Hours"
                       min={1}
                       max={8}
                       value={durationHours}
-                      onChange={(e) => setDurationHours(Number(e.target.value))}
+                      onChange={(e) => {
+                        const h = Math.max(1, Math.min(8, Number(e.target.value) || 1));
+                        setDurationHours(h);
+                        if (selectedCandidate?.dailyRateEstimate) {
+                          setTrialFee(Math.max(150, Math.round((selectedCandidate.dailyRateEstimate / 8) * h)));
+                        } else {
+                          setTrialFee(h * 150);
+                        }
+                      }}
                       style={{
-                        width: '50%',
+                        width: '100%',
                         padding: 'var(--space-2)',
                         borderRadius: 'var(--radius-md)',
                         border: '1px solid var(--color-border)',
                         fontSize: 'var(--font-size-xs)',
+                        boxSizing: 'border-box',
                       }}
                     />
-                    <input
-                      type="number"
-                      aria-label="Trial Fee INR"
-                      min={0}
-                      value={trialFee}
-                      onChange={(e) => setTrialFee(Number(e.target.value))}
-                      style={{
-                        width: '50%',
-                        padding: 'var(--space-2)',
-                        borderRadius: 'var(--radius-md)',
-                        border: '1px solid var(--color-border)',
-                        fontSize: 'var(--font-size-xs)',
-                      }}
-                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                      Calculated Fee (INR):
+                    </label>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                      <span style={{ position: 'absolute', left: '10px', color: 'var(--color-text-secondary)', fontSize: 'var(--font-size-xs)', fontWeight: 700 }}>
+                        ₹
+                      </span>
+                      <input
+                        type="number"
+                        aria-label="Trial Fee INR"
+                        min={0}
+                        value={trialFee}
+                        onChange={(e) => setTrialFee(Math.max(0, Number(e.target.value) || 0))}
+                        style={{
+                          width: '100%',
+                          padding: 'var(--space-2)',
+                          paddingLeft: '24px',
+                          borderRadius: 'var(--radius-md)',
+                          border: '1px solid var(--color-border)',
+                          fontSize: 'var(--font-size-xs)',
+                          boxSizing: 'border-box',
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
