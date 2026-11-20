@@ -102,7 +102,10 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
             </p>
           </div>
           <button
+            type="button"
             onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -114,12 +117,13 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
               fontSize: 'var(--font-size-sm)',
               fontWeight: 600,
               border: '1px solid var(--color-border)',
-              cursor: 'pointer',
+              cursor: isFetching ? 'not-allowed' : 'pointer',
+              opacity: isFetching ? 0.7 : 1,
               boxShadow: 'var(--shadow-sm)',
             }}
           >
-            <RefreshCw size={14} color="var(--color-primary)" />
-            <span>Refresh History</span>
+            <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       )}
@@ -291,7 +295,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                         if (onSelectDossier) {
                           onSelectDossier(item.workerId || item.id);
                         } else {
-                          navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                          navigate(`/verification/history?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
                         }
                       }}
                       onKeyDown={(e) => {
@@ -304,7 +308,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                           if (onSelectDossier) {
                             onSelectDossier(item.workerId || item.id);
                           } else {
-                            navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                            navigate(`/verification/history?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
                           }
                         }
                       }}
@@ -350,7 +354,7 @@ export const VerificationHistoryPage: React.FC<VerificationHistoryPageProps> = (
                             if (onSelectDossier) {
                               onSelectDossier(item.workerId || item.id);
                             } else {
-                              navigate(`/verification?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
+                              navigate(`/verification/history?search=${encodeURIComponent(item.workerId)}&dossierId=${encodeURIComponent(item.id)}`);
                             }
                           }}
                           style={{

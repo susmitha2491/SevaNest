@@ -44,7 +44,7 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
   });
 
   describe('Login & Default Landing Routing', () => {
-    it('redirects Verification Executive to their authorized workstation (/verification) upon sign-in', async () => {
+    it('redirects Verification Executive to the Dashboard (/dashboard) upon sign-in', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/auth/login');
 
@@ -61,18 +61,16 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
         expect(useAuthStore.getState().isAuthenticated).toBe(true);
       });
 
-      // Verification Executive must land on /verification, NOT /dashboard
+      // Verification Executive must land on /dashboard
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      // Ensure sidebar displays Verification Review and Workers, but NOT Dashboard
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
-      expect(screen.queryByText(/Required permission: dashboard.view/i)).not.toBeInTheDocument();
     });
 
-    it('redirects already-authenticated Verification Executive to /verification when visiting /auth/login', async () => {
+    it('redirects already-authenticated Verification Executive to /dashboard when visiting /auth/login', async () => {
       useAuthStore.getState().setSession(
         {
           id: 'adm-003',
@@ -91,11 +89,11 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
       const { router } = renderApp('/auth/login');
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
     });
 
-    it('redirects root route (/) to /verification for Verification Executive', async () => {
+    it('redirects root route (/) to /dashboard for Verification Executive', async () => {
       useAuthStore.getState().setSession(
         {
           id: 'adm-003',
@@ -114,7 +112,7 @@ describe('Verification Executive Dashboard Access & Landing Experience', () => {
       const { router } = renderApp('/');
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
     });
 

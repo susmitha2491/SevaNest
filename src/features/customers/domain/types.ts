@@ -1,3 +1,25 @@
+export interface CustomerAddress {
+  id: string;
+  line: string;
+  line2?: string | null;
+  area: string;
+  city: string;
+  state?: string | null;
+  pincode: string;
+  label?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+export interface CustomerNote {
+  id: string;
+  authorId: string;
+  note: string;
+  createdAt: string;
+}
+
 export interface CustomerBookingSummary {
   bookingId: string;
   category: string;
@@ -38,12 +60,13 @@ export interface CustomerDetail extends Customer {
   unmaskedPhone?: string;
   unmaskedEmail?: string;
   fullAddress: string;
+  addresses?: CustomerAddress[];
   activeBookings: number;
   totalSpendINR: number;
   openGrievances: number;
   bookings: CustomerBookingSummary[];
   complaints?: CustomerComplaintSummary[];
-  notes: string[];
+  notes: Array<string | CustomerNote>;
 }
 
 export interface CustomerPageResult {
@@ -57,6 +80,7 @@ export interface CustomerPageResult {
 export interface CustomerFilterCriteria {
   searchTerm?: string;
   status?: 'ALL' | 'ACTIVE' | 'SUSPENDED';
+  verificationStatus?: 'ALL' | 'PENDING' | 'VERIFIED';
   locality?: string;
   page?: number;
   limit?: number;
@@ -66,6 +90,7 @@ export interface ICustomerRepository {
   getCustomers(filter?: CustomerFilterCriteria): Promise<Customer[]>;
   getCustomersPage(filter?: CustomerFilterCriteria, page?: number, limit?: number): Promise<CustomerPageResult>;
   getCustomerById(id: string): Promise<CustomerDetail | null>;
+  getCustomerNotes(customerId: string): Promise<CustomerNote[]>;
   revealPII(customerId: string, reason: string): Promise<{ phone: string; email: string }>;
   suspendCustomer(customerId: string, remarks: string): Promise<void>;
   reactivateCustomer(customerId: string): Promise<void>;

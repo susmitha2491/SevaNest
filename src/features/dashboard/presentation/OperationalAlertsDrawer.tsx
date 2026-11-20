@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -27,6 +28,8 @@ interface OperationalAlertsDrawerProps {
 }
 
 export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = ({ isOpen, onClose }) => {
+  useBodyScrollLock(isOpen);
+
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
@@ -117,6 +120,7 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -125,6 +129,7 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
         justifyContent: 'flex-end',
         zIndex: 1000,
         backdropFilter: 'blur(2px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
@@ -132,6 +137,7 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
       onClick={onClose}
     >
       <div
+        className="modal-content"
         style={{
           width: 'min(680px, 100vw)',
           height: '100vh',
@@ -145,31 +151,28 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-5)',
             borderBottom: '1px solid var(--color-border)',
             backgroundColor: 'var(--color-bg-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 'var(--space-3)',
           }}
         >
-          <div>
-            <h2 id="operational-alerts-title" style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <ShieldAlert size={18} color="#dc2626" />
-              Operational Alerts Triage Queue
+          <div className="modal-header-content">
+            <h2 id="operational-alerts-title" style={{ margin: 0, fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-navy)', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <ShieldAlert size={18} color="#dc2626" style={{ flexShrink: 0 }} />
+              <span>Operational Alerts Triage Queue</span>
             </h2>
-            <p style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+            <p style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', wordBreak: 'break-word' }}>
               Live operational exceptions, SLA breaches, and unattended marketplace items ({data?.total ?? 0} total)
             </p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button
               type="button"
               onClick={() => refetch()}
               disabled={isFetching}
-              aria-label="Refresh alerts"
+              aria-label="Refresh"
               style={{
                 padding: '6px 10px',
                 borderRadius: 'var(--radius-md)',
@@ -184,15 +187,17 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
                 gap: '4px',
               }}
             >
-              <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} /> Refresh
+              <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
+              <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
             </button>
             <button
               type="button"
               onClick={onClose}
               aria-label="Close alerts queue"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-muted)', padding: '4px' }}
+              title="Close alerts queue"
+              className="modal-close-btn"
             >
-              <X size={20} />
+              <X size={18} />
             </button>
           </div>
         </div>
@@ -206,6 +211,7 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
             gap: 'var(--space-3)',
             flexWrap: 'wrap',
             alignItems: 'center',
+            flexShrink: 0,
           }}
         >
           <CustomSelect
@@ -257,7 +263,19 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
         )}
 
         {/* Body */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--space-4) var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            padding: 'var(--space-4) var(--space-5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-3)',
+          }}
+        >
           {isLoading ? (
             <LoadingSpinner message="Loading live operational alerts..." />
           ) : isError ? (
@@ -433,6 +451,7 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
               alignItems: 'center',
               backgroundColor: 'var(--color-bg-subtle)',
               fontSize: 'var(--font-size-xs)',
+              flexShrink: 0,
             }}
           >
             <span>

@@ -616,7 +616,7 @@ describe('Super Admin Dashboard: Real Data Handling & Zero Dummy Policy', () => 
       expect(screen.queryByText('LIVE-VQ')).not.toBeInTheDocument();
     });
 
-    it('triggers refetch when Refresh Metrics button is clicked', async () => {
+    it('triggers refetch when Refresh button is clicked', async () => {
       const getSpy = vi.spyOn(dashboardRepository, 'getSuperAdminDashboard').mockResolvedValue({
         kpis: {
           grossBookings: 100,
@@ -637,7 +637,7 @@ describe('Super Admin Dashboard: Real Data Handling & Zero Dummy Policy', () => 
       expect(await screen.findByText('100')).toBeInTheDocument();
       expect(getSpy).toHaveBeenCalledTimes(1);
 
-      const refreshBtn = screen.getByRole('button', { name: /Refresh Metrics/i });
+      const refreshBtn = screen.getByRole('button', { name: /^Refresh$/i });
       await userEvent.click(refreshBtn);
 
       // Verify that getSuperAdminDashboard was refetched

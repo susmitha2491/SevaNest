@@ -140,7 +140,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 2: Customer Details Dossier', () => {
     it('renders complete customer dossier with unmasked phone and email for authorized Operations Admin', () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="CUSTOMER" />
       );
 
       expect(screen.getByRole('heading', { name: /Customer Profile/i })).toBeInTheDocument();
@@ -157,7 +157,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
       };
 
       renderWithProviders(
-        <BookingDetailModal booking={missingCustBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={missingCustBooking} isOpen={true} onClose={vi.fn()} initialSection="CUSTOMER" />
       );
 
       expect(screen.getByText('Customer Details Unavailable')).toBeInTheDocument();
@@ -167,7 +167,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 3: Assigned Domestic Worker Details', () => {
     it('renders assigned worker dossier with unmasked phone, experience, and verification badges', () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="WORKER" />
       );
 
       expect(screen.getByRole('heading', { name: /Assigned Domestic Worker Allocation/i })).toBeInTheDocument();
@@ -187,6 +187,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
           isOpen={true}
           onClose={vi.fn()}
           onOpenMatchWizard={matchSpy}
+          initialSection="WORKER"
         />
       );
 
@@ -199,7 +200,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 4: Interview & Trial Coordination Details', () => {
     it('renders scheduled trial details, duration, fee, and recorded outcome notes', async () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="INTERVIEWS" />
       );
 
       expect(screen.getByRole('heading', { name: /Interview & Trial Details/i })).toBeInTheDocument();
@@ -214,7 +215,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 5: Customer and Worker Communication History', () => {
     it('displays fallback message when no communication history exists and never shows technical notices', () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="COMMUNICATIONS" />
       );
 
       expect(screen.getByRole('heading', { name: /Customer and Worker Communication History/i })).toBeInTheDocument();
@@ -240,7 +241,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
       };
 
       renderWithProviders(
-        <BookingDetailModal booking={bookingWithComms} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={bookingWithComms} isOpen={true} onClose={vi.fn()} initialSection="COMMUNICATIONS" />
       );
 
       expect(screen.getByText('Schedule Change Request')).toBeInTheDocument();
@@ -254,7 +255,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 6: Complete Booking Lifecycle Timeline', () => {
     it('renders full chronological timeline with status progression header and actor badges', async () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="TIMELINE" />
       );
 
       expect(screen.getByRole('heading', { name: /Booking Lifecycle History & Timeline/i })).toBeInTheDocument();
@@ -267,7 +268,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 7: Payment & Platform Fee Details', () => {
     it('renders platform fee breakdown (net, GST, total) and gateway transaction record', () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="PAYMENTS" />
       );
 
       expect(screen.getByRole('heading', { name: /Payment & Platform Fee Details/i })).toBeInTheDocument();
@@ -281,7 +282,7 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   describe('Section 8: Replacement History & Active Case', () => {
     it('renders active replacement request case with stated reason, explanation, and eligibility', () => {
       renderWithProviders(
-        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="REPLACEMENT" />
       );
 
       expect(screen.getByRole('heading', { name: /Placement Replacement History/i })).toBeInTheDocument();
@@ -300,17 +301,78 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
         <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={closeSpy} />
       );
 
+      // Default section is Overview
+      expect(screen.getByRole('heading', { name: /Booking Overview & Service Engagement/i })).toBeInTheDocument();
+      // Customer profile should NOT be visible when in Overview section
+      expect(screen.queryByRole('heading', { name: /Customer Profile/i })).not.toBeInTheDocument();
+
+      // Click Customer Details tab
+      const customerTab = screen.getByRole('tab', { name: /Customer Details/i });
+      await user.click(customerTab);
+
+      // Verify that Customer Profile is now visible and Overview is hidden
+      expect(screen.getByRole('heading', { name: /Customer Profile/i })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Booking Overview & Service Engagement/i })).not.toBeInTheDocument();
+
       // Click Payments & Fees tab
       const paymentsTab = screen.getByRole('tab', { name: /Payments & Fees/i });
       await user.click(paymentsTab);
 
-      // Verify that payments heading remains visible
+      // Verify that payments heading is now visible
       expect(screen.getByRole('heading', { name: /Payment & Platform Fee Details/i })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Customer Profile/i })).not.toBeInTheDocument();
 
       // Click Close button in footer
       const closeBtn = screen.getByRole('button', { name: /^Close$/i });
       await user.click(closeBtn);
       expect(closeSpy).toHaveBeenCalled();
+    });
+
+    it('renders all 9 section tabs in left navigation and supports Attendance tab navigation', async () => {
+      const user = userEvent.setup();
+
+      useAuthStore.setState({
+        user: {
+          id: 'STAFF-OPS-01',
+          name: 'Operations Officer',
+          email: 'ops@sevanest.in',
+          role: 'OPERATIONS_ADMIN',
+          permissions: [
+            PERMISSIONS.BOOKINGS_VIEW,
+            PERMISSIONS.BOOKINGS_MANAGE,
+            PERMISSIONS.ATTENDANCE_VIEW,
+            PERMISSIONS.ATTENDANCE_MANAGE,
+          ],
+        },
+        isAuthenticated: true,
+        isLoading: false,
+      });
+
+      renderWithProviders(
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} />
+      );
+
+      expect(screen.getByTestId('workspace-tab-overview')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-customer')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-worker')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-interviews')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-timeline')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-payments')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-replacements')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-communications')).toBeInTheDocument();
+      expect(screen.getByTestId('workspace-tab-attendance')).toBeInTheDocument();
+
+      // Click Attendance tab
+      await user.click(screen.getByTestId('workspace-tab-attendance'));
+
+      // Verify Attendance section is displayed with 6 summary cards
+      expect(screen.getByRole('heading', { name: /Service Attendance & Daily Logs/i })).toBeInTheDocument();
+      expect(screen.getByText('Recorded')).toBeInTheDocument();
+      expect(screen.getByText('Present')).toBeInTheDocument();
+      expect(screen.getByText('Absent')).toBeInTheDocument();
+      expect(screen.getByText('Late')).toBeInTheDocument();
+      expect(screen.getByText('Leave')).toBeInTheDocument();
+      expect(screen.getByText('Exceptions')).toBeInTheDocument();
     });
   });
 });

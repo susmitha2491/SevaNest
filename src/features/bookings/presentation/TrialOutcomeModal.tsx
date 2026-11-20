@@ -4,6 +4,7 @@ import { X, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { BookingDetail, TrialOutcome } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface TrialOutcomeModalProps {
   booking: BookingDetail | null;
@@ -20,6 +21,9 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const [outcome, setOutcome] = useState<'SUCCEEDED' | 'REJECTED' | 'NO_SHOW'>('SUCCEEDED');
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(booking));
   const [feedbackRemarks, setFeedbackRemarks] = useState('');
   const [customerConfirmed, setCustomerConfirmed] = useState(true);
 
@@ -44,6 +48,7 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -54,12 +59,14 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
         zIndex: 1000,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="trial-outcome-modal-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
@@ -70,47 +77,54 @@ export const TrialOutcomeModal: React.FC<TrialOutcomeModalProps> = ({
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
-            flexShrink: 0,
           }}
         >
-          <div>
+          <div className="modal-header-content">
             <h2
               id="trial-outcome-modal-title"
-              style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}
+              style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}
             >
               Record Trial Outcome
             </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               Booking <strong>{booking.id}</strong> • Candidate: <strong>{booking.assignedWorkerName}</strong>
             </p>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary)',
-            }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close trial outcome modal"
+            title="Close trial outcome modal"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Form Body */}
-        <div style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', overflowY: 'auto' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-4)',
+            overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
+            overscrollBehavior: 'contain',
+          }}
+        >
           <div>
             <label style={{ display: 'block', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)', textTransform: 'uppercase' }}>
               Trial Result <RequiredIndicator />

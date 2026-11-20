@@ -157,7 +157,7 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       // Authorized items must be present in navigation (strictly Verification and Workers Management when dashboard.view is absent)
       expect(await screen.findByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
-      expect(await screen.findByRole('tab', { name: /Verification Queue/i }, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: /^All Applications$/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Dashboard$/i })).not.toBeInTheDocument();
 
       // Prohibited / removed items MUST NOT be rendered in navigation
@@ -195,7 +195,7 @@ describe('SevaNest Admin Portal: Verification Executive Role Audit & Identity Ve
       expect(await screen.findByRole('link', { name: /Dashboard/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
-      expect(await screen.findByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
+      expect(await screen.findByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Customers/i })).not.toBeInTheDocument();
     });

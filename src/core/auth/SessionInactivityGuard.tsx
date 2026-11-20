@@ -5,6 +5,7 @@ import { AlertTriangle, Clock, LogOut, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from './authStore';
 import { useSessionSecurityStore } from './sessionSecurityStore';
 import { requestTokenRefresh } from './tokenRefreshCoordinator';
+import { useBodyScrollLock } from '../../shared/hooks/useBodyScrollLock';
 
 export const SessionInactivityGuard: React.FC = () => {
   const navigate = useNavigate();
@@ -19,6 +20,8 @@ export const SessionInactivityGuard: React.FC = () => {
 
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(warningDurationSeconds);
+
+  useBodyScrollLock(isAuthenticated && showWarningModal);
 
   const lastEventThrottleRef = useRef<number>(Date.now());
   const isTerminatingRef = useRef<boolean>(false);
@@ -177,6 +180,7 @@ export const SessionInactivityGuard: React.FC = () => {
       aria-modal="true"
       aria-labelledby="inactivity-warning-title"
       data-testid="session-inactivity-warning-modal"
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -187,9 +191,11 @@ export const SessionInactivityGuard: React.FC = () => {
         justifyContent: 'center',
         zIndex: 99999,
         padding: 'var(--space-4)',
+        overscrollBehavior: 'contain',
       }}
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface, #ffffff)',
           borderRadius: 'var(--radius-xl, 12px)',
@@ -210,6 +216,7 @@ export const SessionInactivityGuard: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             gap: 'var(--space-3)',
+            flexShrink: 0,
           }}
         >
           <div
@@ -252,7 +259,7 @@ export const SessionInactivityGuard: React.FC = () => {
         </div>
 
         {/* Content Body */}
-        <div style={{ padding: 'var(--space-6)' }}>
+        <div className="modal-scrollable-body" style={{ padding: 'var(--space-6)', overscrollBehavior: 'contain' }}>
           <p
             style={{
               fontSize: 'var(--font-size-sm, 14px)',
@@ -315,6 +322,7 @@ export const SessionInactivityGuard: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'flex-end',
             gap: 'var(--space-3)',
+            flexShrink: 0,
           }}
         >
           <button

@@ -64,10 +64,10 @@ describe('SevaNest Admin Portal: Authentication & Permission Persistence Across 
       });
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/Required permission: worker.view/i)).not.toBeInTheDocument();
     });

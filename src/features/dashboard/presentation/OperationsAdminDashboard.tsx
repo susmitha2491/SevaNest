@@ -275,6 +275,7 @@ export const OperationsAdminDashboard: React.FC = () => {
           type="button"
           onClick={() => refetch()}
           disabled={isFetching}
+          aria-label="Refresh"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -291,7 +292,7 @@ export const OperationsAdminDashboard: React.FC = () => {
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
+          <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
           <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
@@ -299,6 +300,7 @@ export const OperationsAdminDashboard: React.FC = () => {
       {/* A. Daily Statistics (Meaningful KPI Row) */}
       <section aria-label="Daily Statistics">
         <div
+          className="kpi-grid"
           style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 175px), 1fr))',

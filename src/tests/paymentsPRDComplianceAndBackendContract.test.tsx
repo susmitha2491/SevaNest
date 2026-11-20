@@ -131,8 +131,9 @@ describe('Payments Module — PRD Compliance & Backend Contract Verification', (
       const feeTab = screen.getByRole('button', { name: /Fee Records & Revenue Streams/i });
       await user.click(feeTab);
 
-      // Verify PRD revenue stream framework details
-      expect(await screen.findByText(/PRD Commercial Revenue Streams & Configured Rates/i)).toBeInTheDocument();
+      // Verify revenue stream framework details
+      expect(await screen.findByText(/Commercial Revenue Streams & Configured Rates/i)).toBeInTheDocument();
+      expect(screen.queryByText(/PRD Commercial Revenue Streams/i)).not.toBeInTheDocument();
       expect(screen.getByText(/Configure in Pricing Plans/i)).toBeInTheDocument();
 
       // Verify fee items

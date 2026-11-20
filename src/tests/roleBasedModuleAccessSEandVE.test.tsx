@@ -548,6 +548,7 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
 
       // Authorized modules visible
       expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /Workers Management/i })).toBeInTheDocument();
       expect(screen.getByRole('link', { name: /^Dashboard$/i })).toBeInTheDocument();
 
@@ -560,7 +561,6 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       expect(screen.queryByRole('link', { name: /Reports/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Configuration/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /Audit/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Directory$/i })).not.toBeInTheDocument();
     });
 
     it('allows direct navigation to /verification and loads verification queue', async () => {
@@ -602,10 +602,11 @@ describe('Role-Based Module Access Audit & Correction: Support Executive & Verif
       expect(paymentRepository.getTransactions).not.toHaveBeenCalled();
     });
 
-    it('blocks direct navigation to /directory for Verification Executive and displays NoAccessView', async () => {
+    it('allows direct navigation to /directory for Verification Executive and displays Directory', async () => {
       renderFullPortal('/directory');
 
-      expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /^Directory$/i })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Workers/i })).toBeInTheDocument();
     });
   });
 

@@ -422,6 +422,7 @@ export const AttendanceLogsPage: React.FC = () => {
           type="button"
           onClick={() => refetch()}
           disabled={isFetching}
+          aria-label="Refresh"
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -438,7 +439,7 @@ export const AttendanceLogsPage: React.FC = () => {
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
+          <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
           <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>

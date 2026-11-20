@@ -103,11 +103,11 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
-      // Verify default module opens: /verification
+      // Verify default module opens: /dashboard
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
 
       // 2. Navigate to another module: /verification/rechecks
       await act(async () => {
@@ -134,11 +134,11 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
-      // 5. Verify default module opens (/verification) instead of previously visited /verification/rechecks
+      // 5. Verify default module opens (/dashboard) instead of previously visited /verification/rechecks
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('OPERATIONS_ADMIN: logs in to /dashboard, navigates to /bookings, logs out, logs in again to /dashboard', async () => {
@@ -247,7 +247,7 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
   });
 
   describe('2. Direct Login Without Previous Session', () => {
-    it('direct login for Verification Executive opens /verification immediately without prior session', async () => {
+    it('direct login for Verification Executive opens /dashboard immediately without prior session', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/auth/login');
 
@@ -259,9 +259,9 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('direct login for Operations Admin opens /dashboard immediately without prior session', async () => {
@@ -363,14 +363,14 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       expect(await screen.findByRole('heading', { name: /Access Restricted/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.getByText(/Required permission: configuration\.manage/i)).toBeInTheDocument();
 
-      const returnLink = screen.getByRole('link', { name: /Return to Primary Workstation/i });
+      const returnLink = screen.getByRole('link', { name: /Return to Dashboard/i });
       expect(returnLink).toBeInTheDocument();
-      expect(returnLink).toHaveAttribute('href', '/verification');
+      expect(returnLink).toHaveAttribute('href', '/dashboard');
     });
   });
 
   describe('6. Role Switching Across Logout', () => {
-    it('User A (Operations Admin) on /workers logs out; User B (Verification Executive) logs in and lands on /verification', async () => {
+    it('User A (Operations Admin) on /workers logs out; User B (Verification Executive) logs in and lands on /dashboard', async () => {
       const user = userEvent.setup();
 
       // User A (Operations Admin) active on /workers
@@ -404,11 +404,11 @@ describe('Logout & Post-Login Navigation Behavior Across All Roles', () => {
       const submitBtn = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn);
 
-      // User B must land on /verification, NOT retain User A's /workers
+      // User B must land on /dashboard, NOT retain User A's /workers
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
   });
 });

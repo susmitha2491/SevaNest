@@ -19,7 +19,7 @@ interface ApiErrorPayload {
   details?: Array<{ field?: string; messages?: string[] }>;
 }
 
-function readHeaderValue(headers: unknown, targetName: string): string | undefined {
+export function readHeaderValue(headers: unknown, targetName: string): string | undefined {
   if (!headers || typeof headers !== 'object') return undefined;
   const maybeGet = (headers as { get?: (name: string) => unknown }).get;
   if (typeof maybeGet === 'function') {

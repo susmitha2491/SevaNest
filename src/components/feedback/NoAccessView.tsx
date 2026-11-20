@@ -2,7 +2,7 @@ import React from 'react';
 import { ShieldAlert, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuthStore } from '../../core/auth/authStore';
-import { getDefaultLandingRoute } from '../../core/rbac/permissions';
+import { getDefaultLandingRoute, PERMISSIONS } from '../../core/rbac/permissions';
 
 interface NoAccessViewProps {
   requiredPermission?: string;
@@ -11,7 +11,23 @@ interface NoAccessViewProps {
 
 export const NoAccessView: React.FC<NoAccessViewProps> = ({ requiredPermission, moduleName }) => {
   const user = useAuthStore((state) => state.user);
-  const landingRoute = getDefaultLandingRoute(user);
+  let landingRoute = getDefaultLandingRoute(user);
+
+  // If the user was denied access specifically to the Dashboard, provide fallback to their authorized workstation
+  if (landingRoute === '/dashboard' && (requiredPermission === PERMISSIONS.DASHBOARD_VIEW || requiredPermission === 'dashboard.view')) {
+    if (user?.permissions?.includes(PERMISSIONS.VERIFICATION_REVIEW) || user?.role === 'VERIFICATION_EXECUTIVE') {
+      landingRoute = '/verification';
+    } else if (user?.permissions?.includes(PERMISSIONS.SUPPORT_VIEW) || user?.role === 'SUPPORT_EXECUTIVE') {
+      landingRoute = '/support';
+    } else if (user?.permissions?.includes(PERMISSIONS.BOOKINGS_VIEW)) {
+      landingRoute = '/bookings';
+    } else if (user?.permissions?.includes(PERMISSIONS.WORKER_VIEW)) {
+      landingRoute = '/workers';
+    } else {
+      landingRoute = '/account';
+    }
+  }
+
   const returnLabel = landingRoute === '/dashboard' ? 'Return to Dashboard' : 'Return to Primary Workstation';
   return (
     <div

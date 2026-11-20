@@ -151,7 +151,7 @@ describe('Quick Login — Four Admin Roles Workflows & Validation', () => {
     await waitFor(() => {
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
       expect(useAuthStore.getState().user?.role).toBe('VERIFICATION_EXECUTIVE');
-      expect(router.state.location.pathname).toBe('/verification');
+      expect(router.state.location.pathname).toBe('/dashboard');
     });
   });
 

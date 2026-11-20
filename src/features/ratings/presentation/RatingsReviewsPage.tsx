@@ -22,6 +22,7 @@ import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessVi
 import { SearchInput } from '../../../components/common/SearchInput';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import { formatDateIST, formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -103,6 +104,8 @@ export const RatingsReviewsPage: React.FC = () => {
   const [moderateTarget, setModerateTarget] = useState<{ item: RatingRecord; action: 'hide' | 'unhide' } | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  useBodyScrollLock(Boolean(detailRatingId));
 
   const {
     data: ratingsData,
@@ -213,8 +216,9 @@ export const RatingsReviewsPage: React.FC = () => {
             border: '1px solid var(--color-border)',
             cursor: isFetching ? 'not-allowed' : 'pointer',
           }}
+          aria-label="Refresh"
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
+          <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
           <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
@@ -667,6 +671,7 @@ export const RatingsReviewsPage: React.FC = () => {
           aria-modal="true"
           aria-labelledby="rating-detail-title"
           onClick={() => setDetailRatingId(null)}
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -676,44 +681,62 @@ export const RatingsReviewsPage: React.FC = () => {
             justifyContent: 'center',
             padding: 'var(--space-4)',
             zIndex: 1000,
+            overscrollBehavior: 'contain',
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
+            className="modal-content"
             style={{
               backgroundColor: 'var(--color-bg-surface)',
               borderRadius: 'var(--radius-xl)',
               maxWidth: '580px',
               width: '100%',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              display: 'flex',
+              flexDirection: 'column',
               border: '1px solid var(--color-border)',
               boxShadow: 'var(--shadow-xl)',
               overflow: 'hidden',
             }}
           >
             <div
+              className="modal-header-container"
               style={{
                 padding: 'var(--space-4) var(--space-5)',
                 borderBottom: '1px solid var(--color-border)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
                 backgroundColor: 'var(--color-bg-subtle)',
               }}
             >
-              <h2 id="rating-detail-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
-                Review Details
-              </h2>
+              <div className="modal-header-content">
+                <h2 id="rating-detail-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', wordBreak: 'break-word' }}>
+                  Review Details
+                </h2>
+              </div>
               <button
                 type="button"
                 onClick={() => setDetailRatingId(null)}
                 aria-label="Close review details"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+                title="Close review details"
+                className="modal-close-btn"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div
+              className="modal-scrollable-body"
+              style={{
+                padding: 'var(--space-5)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 'var(--space-4)',
+                flex: 1,
+                minHeight: 0,
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+              }}
+            >
               {isDetailLoading || !detailRating ? (
                 <LoadingSpinner message="Loading review details..." />
               ) : (

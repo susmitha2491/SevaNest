@@ -95,29 +95,48 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       });
     });
 
-    it('renders the 4 working sections as internal views/tabs within the Verification module', async () => {
+    it('renders the 4 canonical sections as expandable submenus under Verification in the left sidebar', async () => {
       renderApp('/verification');
 
       expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
-      expect(screen.getByRole('tablist', { name: 'Verification Sections' })).toBeInTheDocument();
 
-      // All 4 required sub-sections
-      expect(screen.getByRole('tab', { name: /Verification Queue/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /Document Review/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /Check Status/i })).toBeInTheDocument();
-      expect(screen.getByRole('tab', { name: /Expiry & Re-check/i })).toBeInTheDocument();
+      // Horizontal tabs on Verification page must be completely removed
+      expect(screen.queryByRole('tablist', { name: 'Verification Sections' })).not.toBeInTheDocument();
 
-      // Switching to Document Review view
-      fireEvent.click(screen.getByRole('tab', { name: /Document Review/i }));
-      expect(await screen.findByText(/Document Review Workstation/i)).toBeInTheDocument();
+      // Verification in sidebar is automatically expanded on verification routes and displays all 4 submenus
+      expect(screen.getByRole('link', { name: /^Verification$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
 
-      // Switching to Check Status view
-      fireEvent.click(screen.getByRole('tab', { name: /Check Status/i }));
-      expect(await screen.findByText(/Discrete Check Status Matrix/i)).toBeInTheDocument();
+      // Removed tabs: My Reviews and legacy tabs must NOT be present
+      expect(screen.queryByRole('link', { name: /My Reviews/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('tab', { name: /My Reviews/i })).not.toBeInTheDocument();
 
-      // Switching to Expiry & Re-check view
-      fireEvent.click(screen.getByRole('tab', { name: /Expiry & Re-check/i }));
-      expect(await screen.findByRole('tab', { name: /Expiry & Re-check/i })).toHaveAttribute('aria-selected', 'true');
+      // Clicking Rechecks & Expiry submenu navigates to /verification/rechecks
+      fireEvent.click(screen.getByRole('link', { name: /^Rechecks & Expiry$/i }));
+      expect(await screen.findByRole('heading', { name: /Rechecks & Credential Expiry/i })).toBeInTheDocument();
+
+      // Clicking Corrections Required submenu navigates to /verification/corrections
+      fireEvent.click(screen.getByRole('link', { name: /^Corrections Required$/i }));
+      expect(await screen.findByRole('heading', { name: /Corrections Required Workstation/i })).toBeInTheDocument();
+
+      // Clicking Review History submenu navigates to /verification/history
+      fireEvent.click(screen.getByRole('link', { name: /^Review History$/i }));
+      expect(await screen.findByRole('heading', { name: /Authoritative Review History & Audit/i })).toBeInTheDocument();
+
+      // Clicking All Applications submenu navigates to /verification
+      fireEvent.click(screen.getByRole('link', { name: /^All Applications$/i }));
+      expect(await screen.findByRole('heading', { name: /Worker Verification & Trust Operations/i })).toBeInTheDocument();
+
+      // Clicking parent Verification toggles collapse/expand
+      fireEvent.click(screen.getByRole('link', { name: /^Verification$/i }));
+      expect(screen.queryByRole('link', { name: /^All Applications$/i })).not.toBeInTheDocument();
+
+      // Clicking parent Verification again expands submenus
+      fireEvent.click(screen.getByRole('link', { name: /^Verification$/i }));
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
     });
 
     it('strictly hides unauthorized platform modules from the Verification Executive sidebar', async () => {

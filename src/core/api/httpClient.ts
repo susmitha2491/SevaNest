@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { env } from '../config/env';
 import { useAuthStore } from '../auth/authStore';
-import { mapHttpErrorToDomainError } from '../errors/errorMapper';
+import { mapHttpErrorToDomainError, readHeaderValue } from '../errors/errorMapper';
 import { logger } from '../logging/logger';
 import { getStoredRefreshToken } from '../auth/tokenStorage';
 import { requestTokenRefresh } from '../auth/tokenRefreshCoordinator';
@@ -11,6 +11,7 @@ declare module 'axios' {
     idempotencyKey?: string;
     entityVersion?: number | string;
     _retry?: boolean;
+    _wakeRetryCount?: number;
   }
 }
 
@@ -139,6 +140,26 @@ httpClient.interceptors.response.use(
         return httpClient(originalRequest);
       } catch (refreshErr) {
         return Promise.reject(mapHttpErrorToDomainError(refreshErr));
+      }
+    }
+
+    // Auto-retry on Render 502/503/504 hibernate-wake-error for non-login endpoints (login has dedicated UI progress retry)
+    const status = error.response?.status;
+    const isWakeError =
+      (status === 502 || status === 503 || status === 504) &&
+      (readHeaderValue(error.response?.headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error' ||
+       !error.response?.data?.message);
+
+    const isTestEnv = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
+    if (isWakeError && originalRequest && !originalRequest.url?.includes('/auth/admin/login') && !isTestEnv) {
+      const maxRetries = 8;
+      originalRequest._wakeRetryCount = (originalRequest._wakeRetryCount || 0) + 1;
+      if (originalRequest._wakeRetryCount <= maxRetries) {
+        logger.warn(
+          `Render backend is waking up. Retrying request to ${originalRequest.url} (${originalRequest._wakeRetryCount}/${maxRetries})...`
+        );
+        await new Promise((r) => setTimeout(r, 2500));
+        return httpClient(originalRequest);
       }
     }
 

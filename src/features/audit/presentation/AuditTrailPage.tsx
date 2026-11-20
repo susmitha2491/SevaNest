@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
-import { Eye, ChevronLeft, ChevronRight, Info } from 'lucide-react';
+import { Eye, ChevronLeft, ChevronRight, Info, RefreshCw } from 'lucide-react';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { auditRepository } from '../data/auditRepository';
 import { AuditLogItem, AuditActionType } from '../domain/types';
@@ -31,7 +31,7 @@ export const AuditTrailPage: React.FC = () => {
 
   const canViewAudit = hasPermission(user?.permissions, PERMISSIONS.AUDIT_VIEW);
 
-  const { data: auditData, isLoading, isFetching } = useQuery({
+  const { data: auditData, isLoading, isFetching, refetch } = useQuery({
     queryKey: ['audit', 'logs', selectedActionType, debouncedSearchTerm, currentPage],
     queryFn: () =>
       auditRepository.getAuditLogs({
@@ -89,21 +89,51 @@ export const AuditTrailPage: React.FC = () => {
             Immutable, chronological oversight of administrative actions, KYC decisions, fee publishes, and PII reveal events.
           </p>
         </div>
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-status-info-bg)',
-            border: '1px solid var(--color-status-info-border)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-status-info-text)',
-          }}
-        >
-          <Info size={16} />
-          <span>{env.VITE_USE_MOCK_AUTH ? 'Strictly Read-Only — Simulated Immutability Log' : 'Strictly Read-Only — Immutable Platform Audit Trail'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: '1px solid var(--color-border)',
+              cursor: isFetching ? 'not-allowed' : 'pointer',
+              opacity: isFetching ? 0.7 : 1,
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <RefreshCw
+              size={14}
+              color="var(--color-primary)"
+              className={isFetching ? 'animate-spin' : ''}
+            />
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
+              backgroundColor: 'var(--color-status-info-bg)',
+              border: '1px solid var(--color-status-info-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-status-info-text)',
+            }}
+          >
+            <Info size={16} />
+            <span>{env.VITE_USE_MOCK_AUTH ? 'Strictly Read-Only — Simulated Immutability Log' : 'Strictly Read-Only — Immutable Platform Audit Trail'}</span>
+          </div>
         </div>
       </div>
 

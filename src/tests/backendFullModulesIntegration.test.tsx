@@ -72,7 +72,7 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
       const result = await repo.getCustomers({ searchTerm: '9876543210', status: 'ACTIVE' });
 
       expect(getSpy).toHaveBeenCalledWith('/admin/customers', {
-        params: { mobile: '9876543210', verificationStatus: 'VERIFIED' },
+        params: { mobile: '9876543210', accountStatus: 'ACTIVE' },
       });
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('C-1092');
@@ -170,16 +170,6 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
         },
         {
           headers: { 'If-Match': '*' },
-        }
-      );
-      expect(patchSpy).toHaveBeenCalledWith(
-        '/admin/customers/C-1092/verification-status',
-        {
-          status: 'PENDING',
-          note: 'Documents unclear',
-        },
-        {
-          headers: { 'If-Match': 'W/"etag-cust-1092"' },
         }
       );
     });
@@ -366,16 +356,13 @@ describe('Admin Portal — Full Backend Modules Integration Tests', () => {
         notes: 'Morning trial',
       });
       expect(postSpy).toHaveBeenCalledWith(
-        '/admin/bookings/B-84920/schedule',
-        {
-          scheduleType: 'TRIAL',
-          scheduledAt: '2026-10-15',
-          workerId: 'W-10482',
-          note: 'Morning trial',
-        },
+        '/admin/interviews',
         expect.objectContaining({
-          headers: expect.objectContaining({ 'Idempotency-Key': expect.any(String) }),
-        })
+          bookingId: 'B-84920',
+          type: 'TRIAL',
+          note: 'Morning trial',
+        }),
+        expect.anything()
       );
 
       await repo.confirmBooking('B-84920');

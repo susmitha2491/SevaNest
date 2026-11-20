@@ -1,3 +1,4 @@
+/* global HTMLElement */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -513,5 +514,123 @@ describe('Worker Verification & Onboarding Wizard (5 Steps & Progress Bubbles)',
 
     // Since historically verified, completed checkmarks are shown across steps
     expect(screen.queryByRole('button', { name: /Approve Verification Worker/i })).not.toBeInTheDocument();
+  });
+
+  it('clicking Step 4 or Step 5 only navigates without marking steps completed or triggering mutations', async () => {
+    const user = userEvent.setup();
+    const claimSpy = vi.spyOn(verificationRepository, 'claimCheck');
+    const approveSpy = vi.spyOn(verificationRepository, 'approveCheck');
+    const rejectSpy = vi.spyOn(verificationRepository, 'rejectCheck');
+    const signOffSpy = vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker');
+
+    // Dossier with checks passed but NOT approved or signed off yet
+    const readyForFinalApprovalDossier: VerificationDossier = {
+      ...mockDossierAllApproved,
+      status: 'PENDING_REVIEW',
+    };
+
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(
+      JSON.parse(JSON.stringify(readyForFinalApprovalDossier))
+    );
+
+    renderModal({ dossierId: 'W-10482', initialDossier: readyForFinalApprovalDossier });
+
+    await screen.findByRole('dialog');
+
+    // Click on Step 4 bubble
+    const step4Bubble = screen.getByTestId('step-bubble-4');
+    await user.click(step4Bubble);
+
+    expect(await screen.findByText(/Step 4 — Verification Summary/i)).toBeInTheDocument();
+
+    // Step 4 is active (shows 4, not a checkmark)
+    const step4Circle = within(step4Bubble).getByText('4');
+    expect(step4Circle).toBeInTheDocument();
+
+    // Click on Step 5 bubble
+    const step5Bubble = screen.getByTestId('step-bubble-5');
+    await user.click(step5Bubble);
+
+    expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+
+    // Step 5 is active (shows 5, not a checkmark)
+    const step5Circle = within(step5Bubble).getByText('5');
+    expect(step5Circle).toBeInTheDocument();
+
+    // Step 4 must NOT be marked completed because supervisor sign-off has not occurred on backend
+    expect(step4Bubble).toHaveAttribute('title', expect.stringContaining('(In Review)'));
+
+    // Navigating must NEVER have triggered any backend mutations
+    expect(claimSpy).not.toHaveBeenCalled();
+    expect(approveSpy).not.toHaveBeenCalled();
+    expect(rejectSpy).not.toHaveBeenCalled();
+    expect(signOffSpy).not.toHaveBeenCalled();
+  });
+
+  it('accurately displays rejected state for rejected dossiers instead of false completion checkmarks', async () => {
+    const user = userEvent.setup();
+    const rejectedDossier: VerificationDossier = {
+      ...mockDossierPending,
+      status: 'REJECTED',
+      applicationStatus: 'REJECTED',
+    };
+
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(
+      JSON.parse(JSON.stringify(rejectedDossier))
+    );
+
+    renderModal({ dossierId: 'W-10482', initialDossier: rejectedDossier });
+
+    await screen.findByRole('dialog');
+
+    // Step 3, 4, 5 bubbles have rejected titles and do not show completed checkmarks
+    const step3Bubble = screen.getByTestId('step-bubble-3');
+    const step4Bubble = screen.getByTestId('step-bubble-4');
+    const step5Bubble = screen.getByTestId('step-bubble-5');
+
+    expect(step3Bubble).toHaveAttribute('title', 'Step 3: KYC Verification (Rejected)');
+    expect(step4Bubble).toHaveAttribute('title', 'Step 4: Summary (Rejected)');
+    expect(step5Bubble).toHaveAttribute('title', 'Step 5: Final Approval (Rejected)');
+
+    // Navigate to Step 5
+    await user.click(step5Bubble);
+    expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+
+    // Step 5 does not show completed checkmark
+    expect(within(step5Bubble).getByText('5')).toBeInTheDocument();
+  });
+
+  it('enforces popup layout structure: responsive dialog sizing, pinned header/stepper/footer, and scrollable content', async () => {
+    renderModal({ dossierId: 'W-10482', initialDossier: mockDossierPending });
+
+    const dialog = await screen.findByRole('dialog');
+    const modalContent = dialog.querySelector('.verification-dossier-modal-content') as HTMLElement;
+    expect(modalContent).toBeInTheDocument();
+
+    // Content dialog has flex column and responsive sizing
+    expect(modalContent.style.display).toBe('flex');
+    expect(modalContent.style.flexDirection).toBe('column');
+    expect(modalContent.style.width).toBe('min(96vw, 1050px)');
+    expect(modalContent.style.overflow).toBe('hidden');
+
+    // Header has flexShrink: 0
+    const header = modalContent.children[0] as HTMLElement;
+    expect(header.style.flexShrink).toBe('0');
+
+    // Progress stepper has flexShrink: 0 and horizontal scroll capability
+    const navStepper = modalContent.querySelector('nav[aria-label="Verification Progress"]') as HTMLElement;
+    expect(navStepper).toBeInTheDocument();
+    expect(navStepper.style.flexShrink).toBe('0');
+    expect(navStepper.style.overflowX).toBe('auto');
+
+    // Scrollable content area has flex: 1 1 auto, minHeight: 0, and overflowY: auto
+    const scrollableContent = modalContent.children[2] as HTMLElement;
+    expect(scrollableContent.style.flex).toBe('1 1 auto');
+    expect(scrollableContent.style.minHeight).toBe('0');
+    expect(scrollableContent.style.overflowY).toBe('auto');
+
+    // Footer navigation has flexShrink: 0
+    const footer = modalContent.children[3] as HTMLElement;
+    expect(footer.style.flexShrink).toBe('0');
   });
 });

@@ -359,10 +359,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 
@@ -541,11 +541,11 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        // User B must land on /verification, NOT retain User A's /workers
-        expect(router.state.location.pathname).toBe('/verification');
+        // User B must land on /dashboard, NOT retain User A's /workers
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('9. Unauthorized dashboard destinations follow existing RBAC fallback behavior', async () => {

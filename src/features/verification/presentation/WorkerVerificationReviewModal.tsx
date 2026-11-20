@@ -22,9 +22,12 @@ import {
   Award,
   Eye,
   RotateCcw,
+  History,
 } from 'lucide-react';
+import { ValidationError } from '../../../core/errors/DomainError';
 import { evaluateVerificationWorkflow, VerificationStepDefinition } from '../domain/verificationWorkflow';
 import { formatDocumentVaultError } from '../domain/documentVaultErrorFormatter';
+import { formatDocumentSize, isSuspiciousMinimalDocument, isEmptyDocument } from '../domain/documentUtils';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
@@ -44,12 +47,14 @@ import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 export interface WorkerVerificationReviewModalProps {
   dossierId: string;
   initialDossier?: VerificationDossier;
   onClose: () => void;
   triggerElement?: { focus: () => void } | null;
+  readOnly?: boolean;
 }
 
 type WizardStep = 1 | 2 | 3 | 4 | 5;
@@ -67,20 +72,32 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   initialDossier,
   onClose,
   triggerElement,
+  readOnly = false,
 }) => {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
 
-  // RBAC permissions strictly derived from server-issued permissions
-  const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
+  // Strict read-only mode for historical decision records in Review History
+  const isReadOnly = Boolean(
+    readOnly ||
+    (typeof window !== 'undefined' && (
+      window.location?.pathname?.includes('/history') ||
+      window.location?.hash?.includes('/history') ||
+      window.location?.search?.includes('tab=history')
+    ))
+  );
 
-  const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
+  // RBAC permissions strictly derived from server-issued permissions (and guarded by read-only mode)
+  const canReview = !isReadOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
 
-  const canApproveWorker = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
+  const canDecide = !isReadOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
+
+  const canApproveWorker = !isReadOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
 
   const canRejectApplication =
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
-    hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
+    !isReadOnly &&
+    (hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
+      hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF));
 
   const canViewDocuments =
     hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DOCUMENT_VIEW) ||
@@ -88,7 +105,6 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   // Wizard navigation state
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
-  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(new Set([1]));
   const [inspectedDocIds, setInspectedDocIds] = useState<Set<string>>(new Set());
 
   // Document inspection state for Step 2
@@ -555,6 +571,17 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     );
   }, [dossier?.status, allMandatoryPassed, dossier?.contractInconsistency, hasPendingOrInReviewChecks]);
 
+  // Authoritative approved status strictly determined from backend response
+  const isApprovedDossier = useMemo(() => {
+    return Boolean(
+      dossier?.status === 'APPROVED' ||
+      dossier?.applicationStatus === 'APPROVED' ||
+      dossier?.applicationStatus === 'VERIFIED' ||
+      isHistoricallyVerified ||
+      isOnboardedSuccess
+    );
+  }, [dossier?.status, dossier?.applicationStatus, isHistoricallyVerified, isOnboardedSuccess]);
+
   const isApplicationRejected = useMemo(() => {
     return Boolean(
       dossier?.status === 'REJECTED' ||
@@ -575,49 +602,126 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   }, [dossier?.checks, dossier?.rejectionHistory]);
 
   const canReconsiderApplication = useMemo(() => {
-    return isApplicationRejected && !isTerminalDisqualified;
-  }, [isApplicationRejected, isTerminalDisqualified]);
+    return !isReadOnly && isApplicationRejected && !isTerminalDisqualified;
+  }, [isReadOnly, isApplicationRejected, isTerminalDisqualified]);
 
-  // Derived wizard step completion states
+  // Derived wizard step completion states — strictly determined from authoritative backend records
   const isApplicationValid = useMemo(() => {
     if (!dossier) return false;
     if (dossier.applicationStatus === 'DRAFT') return false;
     return Boolean(dossier.submissionTime || dossier.applicationSubmittedAt || dossier.workerName);
   }, [dossier]);
 
+  // Step 1: Completed if valid worker application details exist on backend
   const isApplicationStepCompleted = useMemo(() => {
-    if (!isApplicationValid) return false;
-    return currentStep > 1 || visitedSteps.has(2) || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5);
-  }, [isApplicationValid, currentStep, visitedSteps]);
+    return isApplicationValid;
+  }, [isApplicationValid]);
 
+  // Step 2: Completed if documents are approved or all submitted documents are satisfied/inspected
   const isDocumentsStepCompleted = useMemo(() => {
-    if (submittedDocs.length === 0) {
-      return currentStep > 2 || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5);
-    }
-    const allDocsSatisfied = submittedDocs.every((doc) => {
+    if (isHistoricallyVerified || isOnboardedSuccess) return true;
+    if (isApplicationRejected) return true;
+    if (submittedDocs.length === 0) return isApplicationValid;
+    return submittedDocs.every((doc) => {
       const docId = doc.documentId || doc.id;
       const relatedCheck = doc.checkType ? dossier?.checks?.[doc.checkType] : undefined;
       return (docId && inspectedDocIds.has(docId)) || relatedCheck?.status === 'APPROVED';
     });
-    return (allDocsSatisfied || isHistoricallyVerified || isApplicationRejected) && (currentStep > 2 || visitedSteps.has(3) || visitedSteps.has(4) || visitedSteps.has(5));
-  }, [isHistoricallyVerified, isApplicationRejected, submittedDocs, currentStep, visitedSteps, inspectedDocIds, dossier?.checks]);
+  }, [isHistoricallyVerified, isOnboardedSuccess, isApplicationRejected, submittedDocs, isApplicationValid, inspectedDocIds, dossier?.checks]);
 
+  // Step 3: Completed ONLY if all mandatory KYC checks have passed in authoritative records
   const isKycStepCompleted = useMemo(() => {
-    return (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) && (currentStep > 3 || isOnboardedSuccess || visitedSteps.has(4) || visitedSteps.has(5));
-  }, [isHistoricallyVerified, isApplicationRejected, allMandatoryPassed, hasRejectedCheck, currentStep, isOnboardedSuccess, visitedSteps]);
+    return Boolean(allMandatoryPassed || isHistoricallyVerified || isOnboardedSuccess);
+  }, [allMandatoryPassed, isHistoricallyVerified, isOnboardedSuccess]);
 
+  // Step 4: Summary is completed ONLY if KYC checks passed AND supervisor sign-off / approval is recorded
   const isSummaryStepCompleted = useMemo(() => {
-    if (!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected) return false;
-    return currentStep > 4 || isOnboardedSuccess || visitedSteps.has(5);
-  }, [isHistoricallyVerified, isApplicationRejected, allMandatoryPassed, hasRejectedCheck, currentStep, isOnboardedSuccess, visitedSteps]);
+    return Boolean(
+      (isApprovedDossier || isHistoricallyVerified || isOnboardedSuccess || dossier?.status === 'APPROVED') &&
+      allMandatoryPassed
+    );
+  }, [isApprovedDossier, isHistoricallyVerified, isOnboardedSuccess, dossier?.status, allMandatoryPassed]);
 
+  // Step 5: Final Approval is completed ONLY if worker is actually approved in backend records
   const isFinalApprovalStepCompleted = useMemo(() => {
-    return isOnboardedSuccess || isApplicationRejected;
-  }, [isOnboardedSuccess, isApplicationRejected]);
+    return Boolean(
+      isApprovedDossier ||
+      dossier?.status === 'APPROVED' ||
+      isOnboardedSuccess ||
+      isHistoricallyVerified
+    );
+  }, [isApprovedDossier, dossier?.status, isOnboardedSuccess, isHistoricallyVerified]);
+
+  type StepVerificationState = 'COMPLETED' | 'IN_REVIEW' | 'REJECTED' | 'PENDING';
+
+  const getStepStatus = useCallback((stepNum: WizardStep): StepVerificationState => {
+    if (!dossier) return 'PENDING';
+
+    switch (stepNum) {
+      case 1:
+        if (dossier.applicationStatus === 'DRAFT') return 'PENDING';
+        return isApplicationStepCompleted ? 'COMPLETED' : 'PENDING';
+
+      case 2:
+        if (isHistoricallyVerified || isOnboardedSuccess) return 'COMPLETED';
+        if (isApplicationRejected) {
+          const hasDocRejection = submittedDocs.some(
+            (doc) => doc.checkType && dossier.checks?.[doc.checkType]?.status === 'REJECTED'
+          );
+          return hasDocRejection ? 'REJECTED' : 'COMPLETED';
+        }
+        if (isDocumentsStepCompleted) return 'COMPLETED';
+        if (submittedDocs.some((d) => d.checkType && dossier.checks?.[d.checkType]?.status === 'IN_REVIEW')) {
+          return 'IN_REVIEW';
+        }
+        return 'PENDING';
+
+      case 3:
+        if (isKycStepCompleted) return 'COMPLETED';
+        if (hasRejectedCheck || isApplicationRejected) return 'REJECTED';
+        if (hasPendingOrInReviewChecks || dossier.status === 'IN_REVIEW') {
+          const anyInReview = Object.values(dossier.checks || {}).some((c) => c.status === 'IN_REVIEW');
+          return anyInReview ? 'IN_REVIEW' : 'PENDING';
+        }
+        return 'PENDING';
+
+      case 4:
+        if (isSummaryStepCompleted) return 'COMPLETED';
+        if (isApplicationRejected || hasRejectedCheck) return 'REJECTED';
+        if (allMandatoryPassed) return 'IN_REVIEW';
+        return 'PENDING';
+
+      case 5:
+        if (isFinalApprovalStepCompleted) return 'COMPLETED';
+        if (isApplicationRejected || dossier.status === 'REJECTED') return 'REJECTED';
+        if (dossier.status === 'IN_REVIEW') return 'IN_REVIEW';
+        return 'PENDING';
+
+      default:
+        return 'PENDING';
+    }
+  }, [
+    dossier,
+    isApplicationStepCompleted,
+    isHistoricallyVerified,
+    isOnboardedSuccess,
+    isApplicationRejected,
+    submittedDocs,
+    isDocumentsStepCompleted,
+    isKycStepCompleted,
+    hasRejectedCheck,
+    hasPendingOrInReviewChecks,
+    isSummaryStepCompleted,
+    allMandatoryPassed,
+    isFinalApprovalStepCompleted,
+  ]);
 
   // Start review mutation (claims check and transitions SUBMITTED / PENDING -> IN_REVIEW)
   const startReviewMutation = useMutation({
     mutationFn: async ({ checkId }: { checkId: string; checkType?: VerificationCheckType }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       try {
         await verificationRepository.claimCheck(checkId);
       } catch (err: unknown) {
@@ -652,6 +756,24 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     },
   });
 
+  // Release review mutation (returns claimed check to queue pool)
+  const releaseReviewMutation = useMutation({
+    mutationFn: async (checkId: string) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
+      await verificationRepository.releaseReview(checkId);
+    },
+    onSuccess: () => {
+      invalidateRelated();
+      setFeedbackMessage('Check review released back to the queue pool.');
+      setTimeout(() => setFeedbackMessage(null), 4000);
+    },
+    onError: (err: Error) => {
+      setFeedbackMessage(`Failed to release review: ${err.message || 'Server error occurred'}.`);
+    },
+  });
+
   // Approve single check mutation
   const approveCheckMutation = useMutation({
     mutationFn: async ({
@@ -665,6 +787,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       notes?: string;
       metadata?: { referenceNumber?: string; expiresOn?: string; callNotes?: string; recheckAt?: string };
     }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       const currentCheck = checkType ? dossier?.checks?.[checkType] : undefined;
       const currentStatus = currentCheck?.status;
       if (currentStatus === 'SUBMITTED' || currentStatus === 'PENDING') {
@@ -745,6 +870,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       category: RejectionReasonCategory;
       remarks: string;
     }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       if (checkType && dossier?.checks?.[checkType]) {
         const currentCheck = dossier.checks[checkType];
         if (currentCheck.status === 'SUBMITTED' || currentCheck.status === 'PENDING') {
@@ -805,6 +933,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       checkTypes: VerificationCheckType[];
       instructions: string;
     }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       await verificationRepository.requestReVerification(checkId, checkTypes, instructions);
     },
     onSuccess: () => {
@@ -821,6 +952,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   // Final approval mutation (signs off verification + activates worker)
   const finalApproveMutation = useMutation({
     mutationFn: async ({ workerId, notes }: { workerId: string; notes?: string }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       return await verificationRepository.approveApplicationAndOnboardWorker(workerId, notes);
     },
     onSuccess: (data) => {
@@ -884,6 +1018,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       category: RejectionReasonCategory | string;
       remarks: string;
     }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       return await verificationRepository.rejectWorker(workerId, category, remarks);
     },
     onSuccess: () => {
@@ -919,6 +1056,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       workerId: string;
       remarks: string;
     }) => {
+      if (isReadOnly) {
+        throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
+      }
       return await verificationRepository.reconsiderApplication(workerId, remarks);
     },
     onSuccess: () => {
@@ -946,11 +1086,11 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     },
   });
 
-  // Modal accessibility: body scroll-lock and keyboard listener
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(true);
 
+  // Modal accessibility: keyboard listener
+  useEffect(() => {
     const handleKeyDown = (e: { key: string }) => {
       if (e.key === 'Escape') {
         if (isDocPreviewOpen) {
@@ -988,7 +1128,6 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
       if (triggerElement && typeof triggerElement.focus === 'function') {
         triggerElement.focus();
@@ -1043,7 +1182,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   // Safe navigation handlers
   const canAdvanceFromStep = (step: WizardStep): boolean => {
-    if (isHistoricallyVerified || isApplicationRejected) return true;
+    if (isReadOnly || isHistoricallyVerified || isApplicationRejected || isApprovedDossier) return true;
     if (step === 1) return isApplicationValid;
     if (step === 2) return true;
     if (step === 3) return allMandatoryPassed || hasRejectedCheck;
@@ -1053,27 +1192,22 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   const handleStepClick = (targetStep: WizardStep) => {
     if (targetStep === currentStep) return;
-    if (isHistoricallyVerified || isApplicationRejected) {
-      setVisitedSteps((prev) => new Set([...prev, targetStep]));
+    if (isReadOnly || isHistoricallyVerified || isApplicationRejected || isApprovedDossier) {
       setCurrentStep(targetStep);
       return;
     }
     // Allow clicking backwards at any time
     if (targetStep < currentStep) {
-      setVisitedSteps((prev) => new Set([...prev, targetStep]));
       setCurrentStep(targetStep);
       return;
     }
     // Prevent clicking ahead if prerequisites not satisfied
     if (targetStep > currentStep) {
       if (targetStep === 2 && isApplicationValid) {
-        setVisitedSteps((prev) => new Set([...prev, 2]));
         setCurrentStep(2);
       } else if (targetStep === 3 && isApplicationValid) {
-        setVisitedSteps((prev) => new Set([...prev, 3]));
         setCurrentStep(3);
       } else if ((targetStep === 4 || targetStep === 5) && (allMandatoryPassed || hasRejectedCheck)) {
-        setVisitedSteps((prev) => new Set([...prev, targetStep]));
         setCurrentStep(targetStep);
       }
     }
@@ -1082,7 +1216,6 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   const handleNext = () => {
     if (currentStep < 5 && canAdvanceFromStep(currentStep)) {
       const nextStep = (currentStep + 1) as WizardStep;
-      setVisitedSteps((prev) => new Set([...prev, currentStep, nextStep]));
       if (currentStep === 2 && submittedDocs.length > 0) {
         setInspectedDocIds((prev) => {
           const next = new Set(prev);
@@ -1100,7 +1233,6 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
   const handlePrevious = () => {
     if (currentStep > 1) {
       const prevStep = (currentStep - 1) as WizardStep;
-      setVisitedSteps((prev) => new Set([...prev, prevStep]));
       setCurrentStep(prevStep);
     }
   };
@@ -1125,7 +1257,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 950,
-        padding: 'var(--space-4)',
+        padding: 'clamp(8px, 2vw, 20px)',
       }}
     >
       <div
@@ -1137,10 +1269,10 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           borderRadius: 'var(--radius-xl)',
           boxShadow: '0 25px 60px -15px rgba(0, 0, 0, 0.35), 0 0 0 1px var(--color-border)',
           border: '1px solid var(--color-border)',
-          width: '94%',
-          maxWidth: '1000px',
-          maxHeight: '92vh',
-          height: '92vh',
+          width: 'min(96vw, 1050px)',
+          maxWidth: '1050px',
+          maxHeight: 'min(94vh, 920px)',
+          height: 'min(94vh, 920px)',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
@@ -1267,95 +1399,107 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               }}
             >
               <div
+                className="modal-header-container"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 'var(--space-3)',
-                  flexWrap: 'wrap',
+                  padding: 0,
+                  backgroundColor: 'transparent',
+                  borderBottom: 'none',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                  <h2
-                    id="review-modal-title"
-                    style={{
-                      fontSize: 'var(--font-size-base)',
-                      fontWeight: 800,
-                      color: 'var(--color-text-primary)',
-                      margin: 0,
-                    }}
-                  >
-                    Verification Dossier: {dossier.workerName}
-                  </h2>
-                  <StatusBadge status={dossier.status} />
+                <div className="modal-header-content">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                    <h2
+                      id="review-modal-title"
+                      style={{
+                        fontSize: 'var(--font-size-base)',
+                        fontWeight: 800,
+                        color: 'var(--color-text-primary)',
+                        margin: 0,
+                        wordBreak: 'break-word',
+                      }}
+                    >
+                      Verification Dossier: {dossier.workerName}
+                    </h2>
+                    <StatusBadge status={dossier.status} />
 
-                  <button
-                    type="button"
-                    aria-label="Inspect Worker Profile — View Worker Record"
-                    title="Inspect Worker Profile"
-                    onClick={() => {
-                      if (dossier?.workerId) {
-                        window.open(`/workers?workerId=${dossier.workerId}`, '_blank');
-                      }
-                    }}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      padding: '2px 8px',
-                      borderRadius: 'var(--radius-sm)',
-                      border: '1px solid var(--color-border)',
-                      backgroundColor: 'var(--color-bg-subtle)',
-                      fontSize: 'var(--font-size-xs)',
-                      color: 'var(--color-text-secondary)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    View Worker Record
-                  </button>
+                    {isReadOnly && (
+                      <span
+                        data-testid="read-only-history-badge"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          backgroundColor: '#f1f5f9',
+                          border: '1px solid #cbd5e1',
+                          color: '#475569',
+                        }}
+                      >
+                        <History size={12} />
+                        Read-Only Historical Record
+                      </span>
+                    )}
 
-                  {isHistoricallyVerified && (
-                    <span
+                    <button
+                      type="button"
+                      aria-label="Inspect Worker Profile — View Worker Record"
+                      title="Inspect Worker Profile"
+                      onClick={() => {
+                        if (dossier?.workerId) {
+                          window.open(`/workers?workerId=${dossier.workerId}`, '_blank');
+                        }
+                      }}
                       style={{
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
                         padding: '2px 8px',
                         borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-bg-subtle)',
                         fontSize: 'var(--font-size-xs)',
-                        fontWeight: 600,
-                        backgroundColor: 'var(--color-status-success-bg)',
-                        border: '1px solid var(--color-status-success-border)',
-                        color: 'var(--color-status-success-text)',
+                        color: 'var(--color-text-secondary)',
+                        cursor: 'pointer',
                       }}
                     >
-                      <CheckCircle2 size={12} />
-                      Verified
-                    </span>
-                  )}
+                      View Worker Record
+                    </button>
+
+                    {isHistoricallyVerified && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          fontSize: 'var(--font-size-xs)',
+                          fontWeight: 600,
+                          backgroundColor: 'var(--color-status-success-bg)',
+                          border: '1px solid var(--color-status-success-border)',
+                          color: 'var(--color-status-success-text)',
+                        }}
+                      >
+                        <CheckCircle2 size={12} />
+                        Verified
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <button
-                    ref={closeButtonRef}
-                    onClick={onClose}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: 'var(--color-text-secondary)',
-                      padding: '6px',
-                      borderRadius: 'var(--radius-md)',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}
-                    aria-label="Close dossier view"
-                    title="Close dossier"
-                  >
-                    <X size={20} />
-                  </button>
-                </div>
+                <button
+                  ref={closeButtonRef}
+                  onClick={onClose}
+                  className="modal-close-btn"
+                  aria-label="Close dossier view"
+                  title="Close dossier"
+                  type="button"
+                >
+                  <X size={18} />
+                </button>
               </div>
 
               {/* Backend Contract Inconsistency Warning Banner */}
@@ -1477,11 +1621,12 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               <nav
                 aria-label="Verification Progress"
                 style={{
-                  padding: 'var(--space-3) var(--space-6)',
+                  padding: 'var(--space-3) var(--space-4)',
                   borderBottom: '1px solid var(--color-border)',
                   backgroundColor: 'var(--color-surface)',
                   flexShrink: 0,
                   overflowX: 'auto',
+                  WebkitOverflowScrolling: 'touch',
                 }}
               >
                 <div
@@ -1491,34 +1636,26 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     justifyContent: 'space-between',
                     maxWidth: '850px',
                     margin: '0 auto',
-                    minWidth: '600px',
+                    minWidth: '460px',
+                    width: '100%',
+                    gap: 'var(--space-2)',
                   }}
                 >
                   {([1, 2, 3, 4, 5] as WizardStep[]).map((stepNum, idx) => {
                     const isCurrent = stepNum === currentStep;
+                    const stepStatus = getStepStatus(stepNum);
+                    const isStepCompleted = stepStatus === 'COMPLETED';
+                    const isStepRejected = stepStatus === 'REJECTED';
+                    const isStepInReview = stepStatus === 'IN_REVIEW';
 
-                    const isStepCompleted =
-                      stepNum === 1 ? isApplicationStepCompleted && !isCurrent :
-                        stepNum === 2 ? isDocumentsStepCompleted && !isCurrent :
-                          stepNum === 3 ? isKycStepCompleted && !isCurrent :
-                            stepNum === 4 ? isSummaryStepCompleted && !isCurrent :
-                              stepNum === 5 ? (isFinalApprovalStepCompleted && !isCurrent) : false;
-
-                    const isBlocked = !isHistoricallyVerified && !isApplicationRejected && (
+                    const isBlocked = !isReadOnly && !isHistoricallyVerified && !isApplicationRejected && !isApprovedDossier && (
                       (stepNum === 2 && !isApplicationValid) ||
                       ((stepNum === 4 || stepNum === 5) && !allMandatoryPassed && !hasRejectedCheck)
                     );
 
-                    const canClick = isHistoricallyVerified || isApplicationRejected || (stepNum <= 3 && isApplicationValid) || allMandatoryPassed || hasRejectedCheck;
+                    const canClick = isReadOnly || isHistoricallyVerified || isApplicationRejected || isApprovedDossier || (stepNum <= 3 && isApplicationValid) || allMandatoryPassed || hasRejectedCheck;
 
-                    const lineCompleted = isHistoricallyVerified
-                      ? (currentStep > stepNum)
-                      : (
-                        stepNum === 1 ? isApplicationStepCompleted :
-                          stepNum === 2 ? isDocumentsStepCompleted :
-                            stepNum === 3 ? isKycStepCompleted :
-                              stepNum === 4 ? isSummaryStepCompleted : false
-                      );
+                    const lineCompleted = isStepCompleted;
 
                     return (
                       <React.Fragment key={stepNum}>
@@ -1532,6 +1669,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             gap: '4px',
                             cursor: canClick ? 'pointer' : 'not-allowed',
                             userSelect: 'none',
+                            position: 'relative',
                           }}
                           onClick={() => {
                             if (canClick) handleStepClick(stepNum);
@@ -1541,7 +1679,11 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               ? 'Blocked: All KYC checks must be approved before advancing'
                               : isStepCompleted
                                 ? `Step ${stepNum}: ${STEP_LABELS[stepNum]} (Completed)`
-                                : `Step ${stepNum}: ${STEP_LABELS[stepNum]}`
+                                : isStepRejected
+                                  ? `Step ${stepNum}: ${STEP_LABELS[stepNum]} (Rejected)`
+                                  : isStepInReview
+                                    ? `Step ${stepNum}: ${STEP_LABELS[stepNum]} (In Review)`
+                                    : `Step ${stepNum}: ${STEP_LABELS[stepNum]} (Pending)`
                           }
                         >
                           <div
@@ -1555,40 +1697,71 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               fontSize: 'var(--font-size-xs)',
                               fontWeight: 700,
                               transition: 'all 0.2s ease',
-                              backgroundColor: isStepCompleted
-                                ? 'var(--color-success)'
-                                : isCurrent
-                                  ? 'var(--color-primary)'
-                                  : 'var(--color-bg-subtle)',
+                              backgroundColor: isCurrent
+                                ? 'var(--color-primary)'
+                                : isStepCompleted
+                                  ? 'var(--color-success)'
+                                  : isStepRejected
+                                    ? 'var(--color-error)'
+                                    : isStepInReview
+                                      ? '#d97706'
+                                      : 'var(--color-bg-subtle)',
                               border: isCurrent
-                                ? (isHistoricallyVerified ? '2px solid var(--color-success)' : '2px solid var(--color-primary)')
+                                ? '2px solid var(--color-primary)'
                                 : isStepCompleted
                                   ? '2px solid var(--color-success)'
-                                  : '2px solid var(--color-border)',
-                              color: isStepCompleted || isCurrent ? '#ffffff' : 'var(--color-text-secondary)',
+                                  : isStepRejected
+                                    ? '2px solid var(--color-error)'
+                                    : isStepInReview
+                                      ? '2px solid #d97706'
+                                      : '2px solid var(--color-border)',
+                              color: isCurrent || isStepCompleted || isStepRejected || isStepInReview ? '#ffffff' : 'var(--color-text-secondary)',
                               boxShadow: isCurrent
-                                ? (isHistoricallyVerified ? '0 0 0 3px rgba(16, 185, 129, 0.35)' : '0 0 0 3px rgba(15, 118, 110, 0.2)')
+                                ? '0 0 0 3px rgba(15, 118, 110, 0.35), 0 2px 4px rgba(0, 0, 0, 0.1)'
                                 : 'none',
                             }}
                           >
-                            {isStepCompleted ? <Check size={16} strokeWidth={2.5} /> : stepNum}
+                            {isCurrent ? (
+                              stepNum
+                            ) : isStepCompleted ? (
+                              <Check size={16} strokeWidth={2.5} />
+                            ) : isStepRejected ? (
+                              <X size={16} strokeWidth={2.5} />
+                            ) : (
+                              stepNum
+                            )}
                           </div>
                           <span
                             style={{
                               fontSize: '11px',
-                              fontWeight: isCurrent ? 700 : isStepCompleted ? 600 : 500,
+                              fontWeight: isCurrent ? 800 : isStepCompleted ? 600 : 500,
                               color: isCurrent
-                                ? (isHistoricallyVerified ? 'var(--color-success)' : 'var(--color-primary)')
+                                ? 'var(--color-primary)'
                                 : isStepCompleted
                                   ? 'var(--color-success)'
-                                  : isBlocked
-                                    ? 'var(--color-text-disabled)'
-                                    : 'var(--color-text-secondary)',
+                                  : isStepRejected
+                                    ? 'var(--color-error-dark, #dc2626)'
+                                    : isStepInReview
+                                      ? '#b45309'
+                                      : isBlocked
+                                        ? 'var(--color-text-disabled)'
+                                        : 'var(--color-text-secondary)',
                               whiteSpace: 'nowrap',
                             }}
                           >
                             {STEP_LABELS[stepNum]}
                           </span>
+                          {isCurrent && (
+                            <div
+                              style={{
+                                width: '16px',
+                                height: '2px',
+                                borderRadius: '1px',
+                                backgroundColor: 'var(--color-primary)',
+                                marginTop: '-2px',
+                              }}
+                            />
+                          )}
                         </div>
 
                         {/* Connecting Line between bubbles */}
@@ -1596,12 +1769,15 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           <div
                             style={{
                               flex: 1,
+                              minWidth: '16px',
                               height: '2px',
-                              margin: '0 8px',
+                              margin: '0 6px',
                               marginBottom: '16px',
                               backgroundColor: lineCompleted
                                 ? 'var(--color-success)'
-                                : 'var(--color-border)',
+                                : isStepRejected
+                                  ? 'var(--color-error)'
+                                  : 'var(--color-border)',
                               transition: 'background-color 0.2s ease',
                             }}
                           />
@@ -1616,9 +1792,10 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
             {/* Scrollable Main Content Area */}
             <div
               style={{
-                flex: 1,
+                flex: '1 1 auto',
+                minHeight: 0,
                 overflowY: 'auto',
-                padding: 'var(--space-6)',
+                padding: 'clamp(12px, 3vw, 24px)',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 'var(--space-6)',
@@ -2567,7 +2744,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 <span>Format: </span>
                                 <span>
                                   {docItem.contentType || docItem.mimeType || 'application/pdf'}
-                                  {docItem.sizeBytes ? ` • ${Math.round(docItem.sizeBytes / 1024)} KB` : ''}
+                                  {docItem.sizeBytes !== undefined && docItem.sizeBytes !== null
+                                    ? ` • ${formatDocumentSize(docItem.sizeBytes)}`
+                                    : ''}
                                 </span>
                               </div>
                             </div>
@@ -3017,7 +3196,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 (d.documentId && check.documents?.some((cd) => cd.documentId === d.documentId))
                             ) || (check.documentMetadata?.documentId && check.documentMetadata?.reviewable ? check.documentMetadata : null);
 
-                            const showActions = !isHistoricallyVerified && !isApplicationRejected && !isApproved && canReview;
+                            const showActions = !isReadOnly && !isHistoricallyVerified && !isApplicationRejected && !isApproved && canReview;
 
                             if (!checkDoc && !showActions) return null;
 
@@ -3054,6 +3233,26 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
                                 {showActions && (
                                   <>
+                                    {item.prerequisiteBlockers && item.prerequisiteBlockers.length > 0 && !isApproved && (
+                                      <div
+                                        style={{
+                                          padding: '4px 8px',
+                                          borderRadius: 'var(--radius-sm)',
+                                          backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                                          border: '1px solid var(--color-border-subtle)',
+                                          fontSize: '11px',
+                                          color: 'var(--color-text-secondary)',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          width: '100%',
+                                          marginBottom: '4px',
+                                        }}
+                                      >
+                                        <Clock size={12} color="var(--color-warning-dark)" style={{ flexShrink: 0 }} />
+                                        <span>Prerequisite: {item.prerequisiteBlockers.join(', ')}</span>
+                                      </div>
+                                    )}
                                     {canDecide ? (
                                       <>
                                         {isTerminal ? (
@@ -3091,6 +3290,34 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                               >
                                                 <Clock size={12} />
                                                 {startReviewMutation.isPending ? 'Starting Review...' : 'Start Review'}
+                                              </button>
+                                            )}
+
+                                            {check.status === 'IN_REVIEW' && (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!checkId) return;
+                                                  releaseReviewMutation.mutate(checkId);
+                                                }}
+                                                disabled={!checkId || releaseReviewMutation.isPending}
+                                                title="Release claimed check back to queue pool"
+                                                style={{
+                                                  padding: '4px 10px',
+                                                  borderRadius: 'var(--radius-sm)',
+                                                  backgroundColor: 'var(--color-bg-subtle)',
+                                                  color: 'var(--color-text-secondary)',
+                                                  border: '1px solid var(--color-border)',
+                                                  fontSize: 'var(--font-size-xs)',
+                                                  fontWeight: 600,
+                                                  cursor: !checkId || releaseReviewMutation.isPending ? 'not-allowed' : 'pointer',
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                }}
+                                              >
+                                                <RotateCcw size={12} />
+                                                {releaseReviewMutation.isPending ? 'Releasing...' : 'Release Review'}
                                               </button>
                                             )}
 
@@ -3584,7 +3811,51 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   )}
 
                   {/* Readiness Banner */}
-                  {allMandatoryPassed && !dossier.contractInconsistency ? (
+                  {isApprovedDossier ? (
+                    <div
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        backgroundColor: 'var(--color-status-success-bg)',
+                        border: '1px solid var(--color-status-success-border)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-3)',
+                      }}
+                    >
+                      <CheckCircle2 size={20} color="var(--color-status-success-text)" />
+                      <div>
+                        <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-status-success-text)', display: 'block' }}>
+                          Worker Verification Completed & Approved
+                        </strong>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                          Application has met all mandatory KYC standards and final approval has been granted.
+                        </span>
+                      </div>
+                    </div>
+                  ) : isApplicationRejected ? (
+                    <div
+                      style={{
+                        padding: 'var(--space-3) var(--space-4)',
+                        backgroundColor: 'var(--color-error-bg)',
+                        border: '1px solid var(--color-error-border)',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-3)',
+                      }}
+                    >
+                      <AlertTriangle size={20} color="var(--color-error-dark)" />
+                      <div>
+                        <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-error-dark)', display: 'block' }}>
+                          Application Rejected
+                        </strong>
+                        <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-error-dark)' }}>
+                          This application has been rejected. View Step 5 for rejection details and outcome.
+                        </span>
+                      </div>
+                    </div>
+                  ) : allMandatoryPassed && !dossier.contractInconsistency ? (
                     <div
                       style={{
                         padding: 'var(--space-3) var(--space-4)',
@@ -3890,33 +4161,35 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                           </span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        data-testid="reconsider-application-banner-btn"
-                        onClick={() => {
-                          setReconsiderError(null);
-                          setIsConfirmReconsiderOpen(true);
-                        }}
-                        disabled={reconsiderApplicationMutation.isPending}
-                        style={{
-                          padding: 'var(--space-2) var(--space-4)',
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: '#2563eb',
-                          color: '#ffffff',
-                          border: 'none',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 700,
-                          cursor: reconsiderApplicationMutation.isPending ? 'not-allowed' : 'pointer',
-                          whiteSpace: 'nowrap',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
-                        }}
-                      >
-                        <RotateCcw size={14} />
-                        Reconsider Application
-                      </button>
+                      {!isReadOnly && (
+                        <button
+                          type="button"
+                          data-testid="reconsider-application-banner-btn"
+                          onClick={() => {
+                            setReconsiderError(null);
+                            setIsConfirmReconsiderOpen(true);
+                          }}
+                          disabled={reconsiderApplicationMutation.isPending}
+                          style={{
+                            padding: 'var(--space-2) var(--space-4)',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: '#2563eb',
+                            color: '#ffffff',
+                            border: 'none',
+                            fontSize: 'var(--font-size-xs)',
+                            fontWeight: 700,
+                            cursor: reconsiderApplicationMutation.isPending ? 'not-allowed' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
+                          }}
+                        >
+                          <RotateCcw size={14} />
+                          Reconsider Application
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -4165,41 +4438,99 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </button>
                   )}
 
-                  {/* Step 4: Continue to Final Approval */}
+                  {/* Step 4: Continue to Final Approval / View Final Approval */}
                   {currentStep === 4 && (
                     <button
                       type="button"
+                      data-testid={
+                        isApprovedDossier
+                          ? 'view-final-approval-btn'
+                          : isApplicationRejected
+                            ? 'view-final-decision-btn'
+                            : 'continue-to-final-approval-btn'
+                      }
                       onClick={handleNext}
-                      disabled={!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected}
+                      disabled={!allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected && !isApprovedDossier}
                       title={
-                        !allMandatoryPassed && !hasRejectedCheck && !isHistoricallyVerified && !isApplicationRejected
-                          ? 'All mandatory checks must be approved before continuing to final approval'
-                          : 'Continue to Final Approval'
+                        isApprovedDossier
+                          ? 'View Final Approval'
+                          : isApplicationRejected
+                            ? 'View Final Decision'
+                            : !allMandatoryPassed && !hasRejectedCheck
+                              ? 'All mandatory checks must be approved before continuing to final approval'
+                              : 'Continue to Final Approval'
                       }
                       style={{
                         padding: 'var(--space-2) var(--space-5)',
                         borderRadius: 'var(--radius-md)',
-                        backgroundColor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
-                        color: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? '#ffffff' : 'var(--color-text-disabled)',
+                        backgroundColor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected || isApprovedDossier) ? 'var(--color-primary)' : 'var(--color-bg-disabled)',
+                        color: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected || isApprovedDossier) ? '#ffffff' : 'var(--color-text-disabled)',
                         border: 'none',
                         fontSize: 'var(--font-size-sm)',
                         fontWeight: 600,
-                        cursor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected) ? 'pointer' : 'not-allowed',
+                        cursor: (allMandatoryPassed || hasRejectedCheck || isHistoricallyVerified || isApplicationRejected || isApprovedDossier) ? 'pointer' : 'not-allowed',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: '4px',
                       }}
                     >
-                      Continue to Final Approval
+                      {isApprovedDossier
+                        ? 'View Final Approval'
+                        : isApplicationRejected
+                          ? 'View Final Decision'
+                          : 'Continue to Final Approval'}
                       <ChevronRight size={16} />
                     </button>
                   )}
 
                   {/* Step 5: Final Decision Actions */}
                   {currentStep === 5 && (
-                    dossier.status === 'APPROVED' || isHistoricallyVerified ? (
+                    isReadOnly ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+                        <div
+                          data-testid="read-only-historical-decision-notice"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            backgroundColor: 'var(--color-bg-subtle, #f1f5f9)',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: 'var(--font-size-xs)',
+                            color: 'var(--color-text-secondary)',
+                            fontWeight: 600,
+                          }}
+                        >
+                          <History size={14} />
+                          Historical Record: Decision is finalized & read-only
+                        </div>
+                        <button
+                          type="button"
+                          data-testid="close-historical-dossier-btn"
+                          onClick={onClose}
+                          style={{
+                            padding: 'var(--space-2) var(--space-6)',
+                            borderRadius: 'var(--radius-md)',
+                            backgroundColor: 'var(--color-navy)',
+                            color: '#ffffff',
+                            border: '1px solid var(--color-navy)',
+                            fontSize: 'var(--font-size-sm)',
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          }}
+                        >
+                          Close Dossier
+                        </button>
+                      </div>
+                    ) : isApprovedDossier ? (
                       <button
                         type="button"
+                        data-testid="close-approved-dossier-btn"
                         onClick={onClose}
                         style={{
                           padding: 'var(--space-2) var(--space-6)',
@@ -4217,7 +4548,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                         }}
                       >
                         <CheckCircle2 size={16} />
-                        Worker Verification Approved — Close Dossier
+                        Close Dossier
                       </button>
                     ) : isApplicationRejected ? (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
@@ -4399,26 +4730,25 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
             >
               {/* Header with Title, Status & Close X */}
               <div
+                className="modal-header-container"
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
                   borderBottom: '1px solid var(--color-border)',
-                  padding: 'var(--space-4) var(--space-5)',
+                  padding: 'var(--space-3) var(--space-4)',
                   backgroundColor: 'var(--color-surface)',
                   flexShrink: 0,
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <FileText size={22} color="var(--color-primary)" />
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-2)', flex: '1 1 auto', minWidth: 0 }}>
+                  <FileText size={20} color="var(--color-primary)" style={{ flexShrink: 0, marginTop: '2px' }} />
+                  <div className="modal-header-content">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
                       <h3
                         style={{
                           margin: 0,
                           fontSize: 'var(--font-size-md)',
                           fontWeight: 700,
                           color: 'var(--color-navy)',
+                          wordBreak: 'break-word',
                         }}
                       >
                         {activeDocMetadata?.documentTypeName || 'Submitted Document Inspection'}
@@ -4431,7 +4761,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                         }
                       />
                     </div>
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', wordBreak: 'break-word' }}>
                       Check: {activeDoc.checkTitle || activeDoc.checkType} • Worker: {activeDocMetadata?.nameOnDoc || dossier?.workerName || 'Applicant'}
                     </span>
                   </div>
@@ -4440,19 +4770,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   type="button"
                   data-testid="close-document-preview-overlay"
                   aria-label="Close document preview"
+                  title="Close document preview"
                   onClick={() => setIsDocPreviewOpen(false)}
-                  style={{
-                    background: 'none',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    cursor: 'pointer',
-                    padding: '6px',
-                    color: 'var(--color-text-secondary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.15s ease',
-                  }}
+                  className="modal-close-btn"
                 >
                   <X size={18} />
                 </button>
@@ -4493,7 +4813,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   <span style={{ color: 'var(--color-text-secondary)', display: 'block', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Format & Size</span>
                   <strong style={{ color: 'var(--color-text-primary)' }}>
                     {activeDocMetadata?.contentType || activeDocMetadata?.mimeType || 'application/pdf'}
-                    {activeDocMetadata?.sizeBytes ? ` (${Math.round(activeDocMetadata.sizeBytes / 1024)} KB)` : ''}
+                    {activeDocMetadata?.sizeBytes !== undefined && activeDocMetadata?.sizeBytes !== null
+                      ? ` (${formatDocumentSize(activeDocMetadata.sizeBytes)})`
+                      : ''}
                   </strong>
                 </div>
               </div>
@@ -4548,6 +4870,54 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </a>
                   )}
                 </div>
+
+                {/* Warning Banner for Minimal or Empty Document Attachment */}
+                {isSuspiciousMinimalDocument(activeDocMetadata?.sizeBytes) && (
+                  <div
+                    data-testid="minimal-stub-warning"
+                    style={{
+                      backgroundColor: '#fffbeb',
+                      borderBottom: '1px solid #fde68a',
+                      color: '#92400e',
+                      padding: '8px var(--space-5)',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flexShrink: 0,
+                      width: '100%',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <AlertTriangle size={15} color="#d97706" style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Minimal Document File ({formatDocumentSize(activeDocMetadata?.sizeBytes)}):</strong> This file is under 500 bytes and contains only minimal structural metadata without readable document content (renders as a blank page). If unreadable, request document re-upload.
+                    </span>
+                  </div>
+                )}
+                {isEmptyDocument(activeDocMetadata?.sizeBytes) && (
+                  <div
+                    data-testid="empty-file-warning"
+                    style={{
+                      backgroundColor: '#fef2f2',
+                      borderBottom: '1px solid #fecaca',
+                      color: '#991b1b',
+                      padding: '8px var(--space-5)',
+                      fontSize: '11px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      flexShrink: 0,
+                      width: '100%',
+                      boxSizing: 'border-box',
+                    }}
+                  >
+                    <AlertTriangle size={15} color="#dc2626" style={{ flexShrink: 0 }} />
+                    <span>
+                      <strong>Empty Document (0 Bytes):</strong> The uploaded file contains 0 bytes and cannot be previewed.
+                    </span>
+                  </div>
+                )}
 
                 {/* Viewport Core Content */}
                 <div
@@ -4765,7 +5135,50 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 src={signedDocUrlData.signedUrl}
                                 title="PDF document preview"
                                 style={{ width: '100%', height: '100%', border: 'none' }}
-                              />
+                              >
+                                <div
+                                  data-testid="pdf-embed-fallback"
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: 'var(--space-6)',
+                                    backgroundColor: '#f8fafc',
+                                    textAlign: 'center',
+                                  }}
+                                >
+                                  <FileText size={36} color="#64748b" style={{ marginBottom: '10px' }} />
+                                  <h4 style={{ margin: '0 0 4px 0', color: '#1e293b', fontSize: 'var(--font-size-sm)' }}>
+                                    Document Viewer Notice
+                                  </h4>
+                                  <p style={{ margin: '0 0 12px 0', fontSize: 'var(--font-size-xs)', color: '#64748b', maxWidth: '380px', lineHeight: 1.5 }}>
+                                    Inline embedding was restricted by browser policies. You can safely inspect the authorized document in a new tab.
+                                  </p>
+                                  <a
+                                    href={signedDocUrlData.signedUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    data-testid="open-document-fallback-link"
+                                    style={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      padding: '7px 14px',
+                                      backgroundColor: 'var(--color-brand-600)',
+                                      color: '#ffffff',
+                                      borderRadius: 'var(--radius-md)',
+                                      fontSize: 'var(--font-size-xs)',
+                                      fontWeight: 600,
+                                      textDecoration: 'none',
+                                    }}
+                                  >
+                                    <ExternalLink size={13} /> View Document in External Tab
+                                  </a>
+                                </div>
+                              </iframe>
                             </object>
                           </div>
                         );
@@ -4853,7 +5266,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
-                  {canDecide && activeDoc.checkType && dossier?.checks?.[activeDoc.checkType]?.status !== 'APPROVED' && (() => {
+                  {!isReadOnly && canDecide && activeDoc.checkType && dossier?.checks?.[activeDoc.checkType]?.status !== 'APPROVED' && (() => {
                     const chk = dossier?.checks?.[activeDoc.checkType];
                     const rawCheckId = chk?.id || chk?.checkId || activeDoc.checkId;
                     const targetCheckId = rawCheckId && typeof rawCheckId === 'string' && rawCheckId.trim() !== '' ? rawCheckId.trim() : '';
@@ -4973,6 +5386,23 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     >
                       <CheckCircle2 size={12} />
                       Verified & Approved
+                    </span>
+                  )}
+                  {isReadOnly && (
+                    <span
+                      data-testid="read-only-preview-notice"
+                      style={{
+                        fontSize: '11px',
+                        color: 'var(--color-text-muted)',
+                        fontStyle: 'italic',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '4px 8px',
+                      }}
+                    >
+                      <History size={12} />
+                      Historical Record (Read-Only)
                     </span>
                   )}
                   <button

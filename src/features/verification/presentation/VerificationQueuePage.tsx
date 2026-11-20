@@ -11,8 +11,6 @@ import {
   AlertCircle,
   Clock,
   CheckCircle2,
-  Eye,
-  FileText,
   ArrowUpDown,
 } from 'lucide-react';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -20,6 +18,7 @@ import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/Loadin
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { VerificationFilterCriteria, VerificationDossier } from '../domain/types';
+import { getVerificationProgressStage, getNextActionDescription } from '../domain/verificationWorkflow';
 import { verificationRepository } from '../data/verificationRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -49,28 +48,13 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const canDecide = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
   const canReview = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
 
-  const [activeSection, setActiveSection] = useState<'queue' | 'document-review' | 'check-status' | 'expiry-recheck'>(() => {
-    const s = searchParams.get('section') || searchParams.get('tab');
-    if (s === 'document-review' || location.pathname.includes('/document-review')) return 'document-review';
-    if (s === 'check-status' || location.pathname.includes('/check-status')) return 'check-status';
-    if (s === 'expiry-recheck' || s === 'rechecks' || location.pathname.includes('/rechecks')) return 'expiry-recheck';
-    return 'queue';
-  });
-
-  useEffect(() => {
-    const s = searchParams.get('section') || searchParams.get('tab');
-    if (s === 'document-review' || location.pathname.includes('/document-review')) setActiveSection('document-review');
-    else if (s === 'check-status' || location.pathname.includes('/check-status')) setActiveSection('check-status');
-    else if (s === 'expiry-recheck' || s === 'rechecks' || location.pathname.includes('/rechecks')) setActiveSection('expiry-recheck');
-    else if (!s && location.pathname === '/verification') setActiveSection('queue');
-  }, [searchParams, location.pathname]);
-
-  const effectiveSection = activeSection;
+  const isDocumentReviewSection = location.pathname.includes('/document-review') || searchParams.get('section') === 'document-review';
+  const isCheckStatusSection = location.pathname.includes('/check-status') || searchParams.get('section') === 'check-status';
 
   const effectiveViewMode: 'all' | 'my-reviews' | 'rechecks' | 'corrections' | 'history' = propViewMode || (
     location.pathname.includes('/my-reviews')
       ? 'my-reviews'
-      : location.pathname.includes('/rechecks') || effectiveSection === 'expiry-recheck'
+      : location.pathname.includes('/rechecks')
       ? 'rechecks'
       : location.pathname.includes('/corrections')
       ? 'corrections'
@@ -82,7 +66,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const initialStatus = searchParams.get('status') || propDefaultStatus || (
     effectiveViewMode === 'my-reviews'
       ? 'IN_REVIEW'
-      : effectiveViewMode === 'rechecks' || effectiveSection === 'expiry-recheck'
+      : effectiveViewMode === 'rechecks'
       ? 'RECHECK_DUE'
       : effectiveViewMode === 'corrections'
       ? 'REJECTED'
@@ -373,108 +357,64 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               : 'Mandatory 6-point verification (1 pre-check phone OTP + 5 operations checks: Identity, Address, Emergency Contact, Employer Reference, Police Clearance).'}
           </p>
         </div>
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-primary-subtle)',
-            border: '1px solid var(--color-border-subtle)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-primary)',
-            fontWeight: 600,
-          }}
-        >
-          <ShieldCheck size={16} />
-          <span>Operational Verification SLA: 48 Hours</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: '1px solid var(--color-border)',
+              cursor: isFetching ? 'not-allowed' : 'pointer',
+              opacity: isFetching ? 0.7 : 1,
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <RefreshCw
+              size={14}
+              color="var(--color-primary)"
+              className={isFetching ? 'animate-spin' : ''}
+            />
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
+              backgroundColor: 'var(--color-primary-subtle)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-primary)',
+              fontWeight: 600,
+            }}
+          >
+            <ShieldCheck size={16} />
+            <span>Operational Verification SLA: 48 Hours</span>
+          </div>
         </div>
-      </div>
-
-      {/* 4 Working Sections for Verification Executive */}
-      <div
-        role="tablist"
-        aria-label="Verification Sections"
-        style={{
-          display: 'flex',
-          gap: 'var(--space-2)',
-          borderBottom: '2px solid var(--color-border)',
-          paddingBottom: '0',
-          marginBottom: 'var(--space-2)',
-          overflowX: 'auto',
-        }}
-      >
-        {[
-          { id: 'queue' as const, label: 'Verification Queue', icon: FileText, count: queueData?.totalCount },
-          { id: 'document-review' as const, label: 'Document Review', icon: Eye },
-          { id: 'check-status' as const, label: 'Check Status', icon: CheckCircle2 },
-          { id: 'expiry-recheck' as const, label: 'Expiry & Re-check', icon: RefreshCw },
-        ].map((tab) => {
-          const isActive = effectiveSection === tab.id && effectiveViewMode !== 'history';
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => {
-                setActiveSection(tab.id);
-                updateUrlParams({
-                  section: tab.id === 'queue' ? null : tab.id,
-                  tab: tab.id === 'queue' ? null : tab.id,
-                  page: 1,
-                  status: tab.id === 'expiry-recheck' ? 'RECHECK_DUE' : (tab.id === 'queue' ? (selectedStatus === 'RECHECK_DUE' ? 'ALL' : selectedStatus) : null),
-                });
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 18px',
-                border: 'none',
-                borderBottom: isActive ? '3px solid var(--color-primary)' : '3px solid transparent',
-                backgroundColor: isActive ? 'var(--color-primary-subtle)' : 'transparent',
-                color: isActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                fontWeight: isActive ? 700 : 500,
-                fontSize: 'var(--font-size-sm)',
-                cursor: 'pointer',
-                borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-                transition: 'all var(--transition-fast)',
-                whiteSpace: 'nowrap',
-                marginBottom: '-2px',
-              }}
-            >
-              <Icon size={16} />
-              <span>{tab.label}</span>
-              {tab.count !== undefined && tab.count > 0 && (
-                <span
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: 'var(--radius-full)',
-                    backgroundColor: isActive ? 'var(--color-primary)' : 'var(--color-bg-subtle)',
-                    color: isActive ? '#ffffff' : 'var(--color-text-secondary)',
-                    fontSize: '11px',
-                    fontWeight: 700,
-                  }}
-                >
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
       </div>
 
       {effectiveViewMode === 'history' ? (
         <VerificationHistoryPage onSelectDossier={handleSelectDossier} hideHeader={true} />
-      ) : effectiveSection === 'document-review' ? (
+      ) : isDocumentReviewSection ? (
         <VerificationDocumentReviewView
           selectedDossierId={selectedDossierId}
           onSelectDossier={handleSelectDossier}
           onClearSelectedDossier={() => handleSelectDossier(null)}
         />
-      ) : effectiveSection === 'check-status' ? (
+      ) : isCheckStatusSection ? (
         <VerificationCheckStatusView onSelectDossier={handleSelectDossier} />
       ) : (
         <>
@@ -757,6 +697,9 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                       Category / Locality
                     </th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                      Verification Stage
+                    </th>
                     <th
                       onClick={toggleSortOrder}
                       style={{
@@ -777,6 +720,9 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
                       Queue Status
                     </th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>
+                      Next Action
+                    </th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-secondary)', textAlign: 'right' }}>
                       Action
                     </th>
@@ -785,6 +731,8 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                 <tbody>
                   {queueData?.items.map((item) => {
                     const targetWorkerId = item.workerId || item.id;
+                    const progress = getVerificationProgressStage(item);
+                    const nextAction = getNextActionDescription(item);
                     const isSelected = Boolean(
                       selectedDossierId === targetWorkerId ||
                       selectedDossierId === item.id
@@ -843,11 +791,26 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
                             {item.locality} • {item.experienceYears} Yrs Exp
                           </div>
                         </td>
+                        <td style={{ padding: 'var(--space-4)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                              {progress.stage}
+                            </span>
+                            <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
+                              {progress.label}
+                            </span>
+                          </div>
+                        </td>
                         <td style={{ padding: 'var(--space-4)', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
                           {formatDateTimeIST(item.submissionTime)}
                         </td>
                         <td style={{ padding: 'var(--space-4)' }}>
                           <StatusBadge status={item.status} />
+                        </td>
+                        <td style={{ padding: 'var(--space-4)' }}>
+                          <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', fontWeight: 500 }}>
+                            {nextAction}
+                          </span>
                         </td>
                         <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
                           <div style={{ display: 'inline-flex', gap: 'var(--space-2)', alignItems: 'center' }}>
@@ -1084,6 +1047,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
           }
           onClose={handleCloseModal}
           triggerElement={triggerElementRef.current}
+          readOnly={effectiveViewMode === 'history'}
         />
       )}
     </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, useIsFetching } from '@tanstack/react-query';
 import {
   Sliders,
   MapPin,
@@ -24,6 +24,7 @@ import {
   X,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -195,30 +196,6 @@ export const ConfigurationMastersPage: React.FC = () => {
     },
   });
 
-  // App Settings Query & Mutation
-  const { data: appSettings = [], isLoading: loadingAppSettings } = useQuery({
-    queryKey: ['config', 'appSettings'],
-    queryFn: () => configurationRepository.getAppSettings?.() ?? Promise.resolve([]),
-    enabled: canManageSecurity && activeTab === 'security',
-  });
-
-  const [editingAppSetting, setEditingAppSetting] = useState<{ key: string; value: string; description: string } | null>(null);
-
-  const updateAppSettingMutation = useMutation({
-    mutationFn: ({ key, value }: { key: string; value: string | boolean }) =>
-      configurationRepository.updateAppSetting!(key, value),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['config', 'appSettings'] });
-      setEditingAppSetting(null);
-      setSuccessToast('Application runtime setting updated successfully.');
-      setTimeout(() => setSuccessToast(null), 4000);
-    },
-    onError: (err: unknown) => {
-      setErrorToast(err instanceof Error ? err.message : 'Failed to update setting.');
-      setTimeout(() => setErrorToast(null), 5000);
-    },
-  });
-
   // Notification Events Query
   const { data: notificationEvents = [] } = useQuery({
     queryKey: ['config', 'notificationEvents'],
@@ -247,14 +224,23 @@ export const ConfigurationMastersPage: React.FC = () => {
 
   // Create Area State & Mutation
   const [isCreateAreaModalOpen, setIsCreateAreaModalOpen] = useState(false);
-  const [createAreaDraft, setCreateAreaDraft] = useState({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
+  const [createAreaDraft, setCreateAreaDraft] = useState<{ name: string; city: string; radiusMeters?: number; pincodesText?: string }>({
+    name: '',
+    city: 'Hyderabad',
+    radiusMeters: 5000,
+    pincodesText: '',
+  });
   const createAreaMutation = useMutation({
-    mutationFn: (dto: { name: string; city: string; radiusMeters?: number }) =>
-      configurationRepository.createOperationalArea!(dto),
+    mutationFn: (dto: { name: string; city: string; radiusMeters?: number; pincodesText?: string }) =>
+      configurationRepository.createOperationalArea!({
+        name: dto.name,
+        city: dto.city,
+        radiusMeters: dto.radiusMeters,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'areas'] });
       setIsCreateAreaModalOpen(false);
-      setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
+      setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000, pincodesText: '' });
       setSuccessToast('Operational area cluster provisioned successfully.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
@@ -332,6 +318,20 @@ export const ConfigurationMastersPage: React.FC = () => {
   const [targetAdminForStatus, setTargetAdminForStatus] = useState<AdminAccountItem | null>(null);
   const [newStatus, setNewStatus] = useState<'ACTIVE' | 'SUSPENDED'>('SUSPENDED');
   const [statusChangeReason, setStatusChangeReason] = useState('');
+
+  const isAnyModalOpen = Boolean(
+    isCreateCategoryModalOpen ||
+    isCreateAreaModalOpen ||
+    isCreateTemplateModalOpen ||
+    isCategoryModalOpen ||
+    isAreaModalOpen ||
+    isTemplateModalOpen ||
+    isCreateAdminModalOpen ||
+    isChangeRoleModalOpen ||
+    isStatusModalOpen ||
+    isDiffPreviewOpen
+  );
+  useBodyScrollLock(isAnyModalOpen);
 
 
   // Queries
@@ -551,6 +551,8 @@ export const ConfigurationMastersPage: React.FC = () => {
     },
   });
 
+  const configFetchingCount = useIsFetching({ queryKey: ['config'] });
+  const isConfigFetching = configFetchingCount > 0 || isSessionsLoading;
 
   // Authoritative Configuration Access Guard
   if (!hasAnyConfigAccess) {
@@ -615,6 +617,32 @@ export const ConfigurationMastersPage: React.FC = () => {
             Authoritative Super Admin governance for service categories, operational clusters, fee plans, templates, and role matrices.
           </p>
         </div>
+        <button
+          type="button"
+          onClick={() => {
+            queryClient.invalidateQueries({ queryKey: ['config'] });
+            queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
+            queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
+          }}
+          disabled={isConfigFetching}
+          aria-label="Refresh"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '6px 14px',
+            borderRadius: 'var(--radius-md)',
+            border: '1px solid var(--color-border)',
+            backgroundColor: 'var(--color-surface)',
+            color: 'var(--color-text-primary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: isConfigFetching ? 'not-allowed' : 'pointer',
+          }}
+        >
+          <RefreshCw size={13} className={isConfigFetching ? 'animate-spin' : ''} />
+          <span>{isConfigFetching ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
       </div>
 
       {successToast && (
@@ -1988,6 +2016,8 @@ export const ConfigurationMastersPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => refetchSessions()}
+                disabled={isSessionsLoading}
+                aria-label="Refresh"
                 title="Refresh sessions list"
                 style={{
                   display: 'inline-flex',
@@ -2000,11 +2030,12 @@ export const ConfigurationMastersPage: React.FC = () => {
                   fontSize: 'var(--font-size-xs, 11px)',
                   fontWeight: 600,
                   color: 'var(--color-text-secondary, #475569)',
-                  cursor: 'pointer',
+                  cursor: isSessionsLoading ? 'not-allowed' : 'pointer',
+                  opacity: isSessionsLoading ? 0.7 : 1,
                 }}
               >
                 <RefreshCw size={12} className={isSessionsLoading ? 'animate-spin' : ''} />
-                Refresh
+                <span>{isSessionsLoading ? 'Refreshing...' : 'Refresh'}</span>
               </button>
             </div>
 
@@ -2102,124 +2133,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             )}
           </div>
 
-
-          {/* Sub-card 4: Live Application Platform Settings */}
-          <div
-            style={{
-              backgroundColor: 'var(--color-surface, #ffffff)',
-              borderRadius: 'var(--radius-lg, 8px)',
-              border: '1px solid var(--color-border, #e2e8f0)',
-              overflow: 'hidden',
-            }}
-          >
-            <div
-              style={{
-                padding: 'var(--space-4) var(--space-5)',
-                borderBottom: '1px solid var(--color-border, #e2e8f0)',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, fontSize: 'var(--font-size-sm, 14px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)' }}>
-                  Platform Application Runtime Settings
-                </h3>
-                <p style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
-                  Authoritative runtime configuration and service flags served via `/api/v1/admin/app-settings`.
-                </p>
-              </div>
-            </div>
-
-            {loadingAppSettings ? (
-              <div style={{ padding: 'var(--space-6)', display: 'flex', justifyContent: 'center' }}>
-                <LoadingSpinner message="Loading platform application settings..." />
-              </div>
-            ) : appSettings.length === 0 ? (
-              <div style={{ padding: 'var(--space-6)', textAlign: 'center', color: 'var(--color-text-secondary, #64748b)', fontSize: 'var(--font-size-xs, 12px)' }}>
-                No platform application settings found.
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                  <thead style={{ backgroundColor: 'var(--color-bg-subtle, #f8fafc)', borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
-                    <tr>
-                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>SETTING KEY</th>
-                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>RUNTIME VALUE</th>
-                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)' }}>DESCRIPTION</th>
-                      <th style={{ padding: 'var(--space-3) var(--space-4)', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', textAlign: 'right' }}>ACTION</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {appSettings.map((setting) => (
-                      <tr key={setting.key} style={{ borderBottom: '1px solid var(--color-border, #e2e8f0)' }}>
-                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 700, fontFamily: 'monospace', color: 'var(--color-text-primary, #0f172a)' }}>
-                          {setting.key}
-                        </td>
-                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600 }}>
-                          <span
-                            style={{
-                              padding: '2px 8px',
-                              borderRadius: 'var(--radius-sm, 4px)',
-                              fontSize: '11px',
-                              backgroundColor: setting.value === true || setting.value === 'true'
-                                ? 'var(--color-status-success-bg, #ecfdf5)'
-                                : setting.value === false || setting.value === 'false'
-                                ? 'var(--color-status-danger-bg, #fef2f2)'
-                                : 'var(--color-bg-subtle, #f1f5f9)',
-                              color: setting.value === true || setting.value === 'true'
-                                ? 'var(--color-status-success-text, #065f46)'
-                                : setting.value === false || setting.value === 'false'
-                                ? 'var(--color-status-danger-text, #991b1b)'
-                                : 'var(--color-text-primary, #0f172a)',
-                            }}
-                          >
-                            {String(setting.value)}
-                          </span>
-                        </td>
-                        <td style={{ padding: 'var(--space-3) var(--space-4)', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
-                          {setting.description || 'Global administrative setting.'}
-                        </td>
-                        <td style={{ padding: 'var(--space-3) var(--space-4)', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingAppSetting({
-                                key: setting.key,
-                                value: String(setting.value),
-                                description: setting.description || '',
-                              });
-                            }}
-                            style={{
-                              padding: '4px 8px',
-                              borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-border)',
-                              backgroundColor: 'transparent',
-                              fontSize: 'var(--font-size-xs)',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <Edit2 size={12} /> Edit
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
         </div>
       ))}
 
       {/* MODAL: Edit Service Category */}
       {isCategoryModalOpen && categoryDraft && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2229,11 +2149,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -2243,19 +2165,23 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
-              maxHeight: '90vh',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
               overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
-                Edit Category: {categoryDraft.name}
-              </h2>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                  Edit Category: {categoryDraft.name}
+                </h2>
+              </div>
               <button
                 type="button"
                 aria-label="Close modal"
+                title="Close modal"
                 onClick={() => setIsCategoryModalOpen(false)}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: '4px' }}
+                className="modal-close-btn"
               >
                 <X size={18} />
               </button>
@@ -2439,6 +2365,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Edit Operational Area */}
       {isAreaModalOpen && areaDraft && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2448,11 +2375,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -2462,31 +2391,28 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0 }}>
-                {areaDraft.id ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Add New Operational Area'}
-              </h2>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                  {areaDraft.id ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Add New Operational Area'}
+                </h2>
+              </div>
               <button
                 type="button"
                 aria-label="Close modal"
+                title="Close modal"
                 onClick={() => {
                   setIsAreaModalOpen(false);
                   setAreaModalError(null);
                 }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-text-secondary)',
-                  padding: '4px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
+                className="modal-close-btn"
               >
-                <X size={20} />
+                <X size={18} />
               </button>
             </div>
 
@@ -2623,6 +2549,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Edit Notification Template */}
       {isTemplateModalOpen && templateDraft && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2632,11 +2559,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -2646,11 +2575,25 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              Edit Notification Template: {templateDraft.eventTrigger}
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word', flex: '1 1 auto', minWidth: 0 }}>
+                Edit Notification Template: {templateDraft.eventTrigger}
+              </h2>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsTemplateModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
@@ -2783,6 +2726,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: View Fee Diff Preview */}
       {isDiffPreviewOpen && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2792,11 +2736,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -2806,11 +2752,25 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              Commercial Fee Schedule — Diff Preview
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word', flex: '1 1 auto', minWidth: 0 }}>
+                Commercial Fee Schedule — Diff Preview
+              </h2>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsDiffPreviewOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
@@ -2864,6 +2824,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Provision Administrator */}
       {isCreateAdminModalOpen && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2873,11 +2834,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -2887,14 +2850,30 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              Provision New Platform Administrator
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              Create an administrative account and delegate an authoritative operational persona.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                  Provision New Platform Administrator
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
+                  Create an administrative account and delegate an authoritative operational persona.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsCreateAdminModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             {createAdminError && (
               <div
@@ -2987,6 +2966,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Change Role */}
       {isChangeRoleModalOpen && targetAdminForRole && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -2996,11 +2976,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -3010,14 +2992,30 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              Reassign Administrative Role
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              Reassigning role for <strong>{targetAdminForRole.name}</strong> ({targetAdminForRole.email}).
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                  Reassign Administrative Role
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
+                  Reassigning role for <strong>{targetAdminForRole.name}</strong> ({targetAdminForRole.email}).
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsChangeRoleModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>New Role Persona <RequiredIndicator /></label>
@@ -3085,6 +3083,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Suspend / Reactivate Status */}
       {isStatusModalOpen && targetAdminForStatus && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -3094,11 +3093,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
@@ -3108,16 +3109,32 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-              {newStatus === 'SUSPENDED' ? 'Suspend Administrator Account' : 'Reactivate Administrator Account'}
-            </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-              {newStatus === 'SUSPENDED'
-                ? `Suspending account for ${targetAdminForStatus.name} (${targetAdminForStatus.email}) revokes active sessions and prevents further portal access.`
-                : `Reactivating account for ${targetAdminForStatus.name} (${targetAdminForStatus.email}) restores portal access.`}
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                  {newStatus === 'SUSPENDED' ? 'Suspend Administrator Account' : 'Reactivate Administrator Account'}
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
+                  {newStatus === 'SUSPENDED'
+                    ? `Suspending account for ${targetAdminForStatus.name} (${targetAdminForStatus.email}) revokes active sessions and prevents further portal access.`
+                    : `Reactivating account for ${targetAdminForStatus.name} (${targetAdminForStatus.email}) restores portal access.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsStatusModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
@@ -3175,6 +3192,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Create Service Category */}
       {isCreateCategoryModalOpen && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -3184,11 +3202,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface, #ffffff)',
               borderRadius: 'var(--radius-lg, 8px)',
@@ -3198,15 +3218,31 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4, 16px)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
               boxShadow: 'var(--shadow-xl)',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
-              Add New Service Category
-            </h2>
-            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
-              Provision an authoritative workforce domain role. Code must be unique.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0, wordBreak: 'break-word' }}>
+                  Add New Service Category
+                </h2>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)', wordBreak: 'break-word' }}>
+                  Provision an authoritative workforce domain role. Code must be unique.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsCreateCategoryModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Category Machine Code (e.g. COOK, CHEF)</label>
@@ -3265,6 +3301,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Create Operational Area */}
       {isCreateAreaModalOpen && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -3274,11 +3311,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface, #ffffff)',
               borderRadius: 'var(--radius-lg, 8px)',
@@ -3288,18 +3327,36 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4, 16px)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
               boxShadow: 'var(--shadow-xl)',
             }}
           >
-            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
-              Add New Operational Area
-            </h2>
-            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
-              Define a new geographical cluster for service delivery.
-            </p>
+            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0, wordBreak: 'break-word' }}>
+                  Add New Operational Area
+                </h2>
+                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)', wordBreak: 'break-word' }}>
+                  Define a new geographical cluster for service delivery.
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close modal"
+                title="Close modal"
+                onClick={() => setIsCreateAreaModalOpen(false)}
+                className="modal-close-btn"
+              >
+                <X size={18} />
+              </button>
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Locality / Cluster Name</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Cluster / Locality Name <RequiredIndicator />
+              </label>
               <input
                 type="text"
                 placeholder="e.g. Kondapur Hub"
@@ -3310,12 +3367,27 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>City</label>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                City Name <RequiredIndicator />
+              </label>
               <input
                 type="text"
                 placeholder="Hyderabad"
                 value={createAreaDraft.city}
                 onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, city: e.target.value })}
+                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+                Covered Pin Codes
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. 500081, 500084"
+                value={createAreaDraft.pincodesText || ''}
+                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, pincodesText: e.target.value })}
                 style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
               />
             </div>
@@ -3355,6 +3427,7 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* MODAL: Create Notification Template */}
       {isCreateTemplateModalOpen && (
         <div
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -3364,11 +3437,13 @@ export const ConfigurationMastersPage: React.FC = () => {
             justifyContent: 'center',
             zIndex: 1000,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
+            className="modal-content modal-scrollable-body"
             style={{
               backgroundColor: 'var(--color-surface, #ffffff)',
               borderRadius: 'var(--radius-lg, 8px)',
@@ -3378,6 +3453,9 @@ export const ConfigurationMastersPage: React.FC = () => {
               display: 'flex',
               flexDirection: 'column',
               gap: 'var(--space-4, 16px)',
+              maxHeight: 'min(90vh, calc(100vh - 32px))',
+              overflowY: 'auto',
+              overscrollBehavior: 'contain',
               boxShadow: 'var(--shadow-xl)',
             }}
           >
@@ -3474,87 +3552,6 @@ export const ConfigurationMastersPage: React.FC = () => {
                 style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
               >
                 {createTemplateMutation.isPending ? 'Provisioning...' : 'Provision Template'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Edit App Setting */}
-      {editingAppSetting && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 'var(--space-4)',
-          }}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            style={{
-              backgroundColor: 'var(--color-surface, #ffffff)',
-              borderRadius: 'var(--radius-lg, 8px)',
-              maxWidth: '480px',
-              width: '100%',
-              padding: 'var(--space-6, 24px)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-4, 16px)',
-              boxShadow: 'var(--shadow-xl)',
-            }}
-          >
-            <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
-              Edit Setting: {editingAppSetting.key}
-            </h2>
-            <p style={{ margin: 0, fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)' }}>
-              {editingAppSetting.description || 'Global administrative setting.'}
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Value</label>
-              {editingAppSetting.value === 'true' || editingAppSetting.value === 'false' ? (
-                <select
-                  value={editingAppSetting.value}
-                  onChange={(e) => setEditingAppSetting({ ...editingAppSetting, value: e.target.value })}
-                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-                >
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={editingAppSetting.value}
-                  onChange={(e) => setEditingAppSetting({ ...editingAppSetting, value: e.target.value })}
-                  style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-                />
-              )}
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
-              <button
-                type="button"
-                onClick={() => setEditingAppSetting(null)}
-                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={updateAppSettingMutation.isPending}
-                onClick={() => {
-                  const val = editingAppSetting.value === 'true' ? true : editingAppSetting.value === 'false' ? false : editingAppSetting.value;
-                  updateAppSettingMutation.mutate({ key: editingAppSetting.key, value: val });
-                }}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
-              >
-                {updateAppSettingMutation.isPending ? 'Saving...' : 'Save Setting'}
               </button>
             </div>
           </div>

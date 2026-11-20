@@ -71,7 +71,7 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       expect(getDefaultLandingRoute(opsAdmin)).toBe('/dashboard');
     });
 
-    it('evaluates Verification Executive default landing route as /verification', () => {
+    it('evaluates Verification Executive default landing route as /dashboard', () => {
       const verifExec = {
         id: 'adm-003',
         role: 'VERIFICATION_EXECUTIVE',
@@ -81,7 +81,7 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
           PERMISSIONS.AUDIT_VIEW,
         ],
       };
-      expect(getDefaultLandingRoute(verifExec)).toBe('/verification');
+      expect(getDefaultLandingRoute(verifExec)).toBe('/dashboard');
     });
 
     it('evaluates Support Executive default landing route as /dashboard (Support Operations Console)', () => {
@@ -146,7 +146,7 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       expect(await screen.findByRole('heading', { name: /Operations Command Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
-    it('Verification Executive logs in and mounts VerificationQueuePage at /verification', async () => {
+    it('Verification Executive logs in and mounts VerificationExecutiveDashboard at /dashboard', async () => {
       const user = userEvent.setup();
       const { router } = renderApp('/auth/login');
 
@@ -159,9 +159,9 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('Support Executive logs in and mounts SupportExecutiveDashboard at /dashboard', async () => {
@@ -283,11 +283,11 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       const submitBtn2 = screen.getByRole('button', { name: /Sign In to Operations Console/i });
       await user.click(submitBtn2);
 
-      // Must land on /verification, NOT on /configuration
+      // Must land on /dashboard, NOT on /configuration
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
     });
 
@@ -304,7 +304,7 @@ describe('SevaNest Authentication, Landing Navigation, Logout & Session Inactivi
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
       // 2. Navigate to /workers

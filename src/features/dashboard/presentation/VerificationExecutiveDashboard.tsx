@@ -208,7 +208,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
           <button
             onClick={handleRefresh}
             disabled={isFetching}
-            aria-label="Refresh Queue"
+            aria-label="Refresh"
             title="Refresh verification queue and metrics with latest backend data"
             style={{
               display: 'flex',
@@ -229,11 +229,12 @@ export const VerificationExecutiveDashboard: React.FC = () => {
             <RefreshCw
               size={14}
               color="var(--color-primary)"
+              className={isFetching ? 'animate-spin' : ''}
               style={{
                 animation: isFetching ? 'spin 1s linear infinite' : undefined,
               }}
             />
-            <span>{isFetching ? 'Refreshing...' : 'Refresh Queue'}</span>
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
@@ -264,9 +265,10 @@ export const VerificationExecutiveDashboard: React.FC = () => {
 
       {/* Section A: Overview Cards */}
       <div
+        className="kpi-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
           gap: 'var(--space-4)',
         }}
       >
@@ -304,7 +306,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))',
           gap: 'var(--space-6)',
         }}
       >

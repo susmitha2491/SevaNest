@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -26,6 +26,7 @@ import { VerificationCheckType } from '../../verification/domain/types';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface WorkerDirectoryModalProps {
   workerId: string;
@@ -45,14 +46,8 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
   const [docZoom, setDocZoom] = useState(100);
   const [docRotation, setDocRotation] = useState(0);
 
-  // Lock background body scroll while modal is active (BUG-003)
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = originalOverflow;
-    };
-  }, []);
+  // Global reference-counted modal scroll lock (BUG-003)
+  useBodyScrollLock(true);
 
   // 1. Fetch complete worker profile
   const {
@@ -222,118 +217,111 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border, #e2e8f0)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <div
-              style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--color-brand-50, #f0fdfa)',
-                border: '2px solid var(--color-brand-600, #0d9488)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--color-brand-700, #0f766e)',
-                fontWeight: 700,
-                fontSize: '16px',
-                flexShrink: 0,
-              }}
-            >
-              {worker?.name ? worker.name.charAt(0).toUpperCase() : <User size={20} />}
-            </div>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                <h2
-                  id="worker-directory-modal-title"
-                  style={{
-                    margin: 0,
-                    fontSize: 'var(--font-size-xl, 18px)',
-                    fontWeight: 700,
-                    color: 'var(--color-text-primary, #0f172a)',
-                  }}
-                >
-                  {worker?.name || 'Worker Profile'}
-                </h2>
-                <span
-                  style={{
-                    fontFamily: 'monospace',
-                    fontSize: '12px',
-                    color: 'var(--color-text-secondary, #64748b)',
-                    backgroundColor: 'var(--color-bg-app, #f1f5f9)',
-                    padding: '2px 8px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  {worker?.id || workerId}
-                </span>
-                <VerificationBadge isFullyVerified={true} status="VERIFIED" />
-              </div>
-              <p
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <div
                 style={{
-                  margin: '2px 0 0',
-                  fontSize: 'var(--font-size-xs, 12px)',
-                  color: 'var(--color-text-secondary, #64748b)',
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--color-brand-50, #f0fdfa)',
+                  border: '2px solid var(--color-brand-600, #0d9488)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--color-brand-700, #0f766e)',
+                  fontWeight: 700,
+                  fontSize: '16px',
+                  flexShrink: 0,
                 }}
               >
-                {worker?.category || 'Household Staff'} • {worker?.locality || 'Hyderabad'} • {worker?.experienceYears || 0} Years Experience
-              </p>
+                {worker?.name ? worker.name.charAt(0).toUpperCase() : <User size={20} />}
+              </div>
+              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                  <h2
+                    id="worker-directory-modal-title"
+                    style={{
+                      margin: 0,
+                      fontSize: 'var(--font-size-xl, 18px)',
+                      fontWeight: 700,
+                      color: 'var(--color-text-primary, #0f172a)',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {worker?.name || 'Worker Profile'}
+                  </h2>
+                  <span
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: '12px',
+                      color: 'var(--color-text-secondary, #64748b)',
+                      backgroundColor: 'var(--color-bg-app, #f1f5f9)',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                    }}
+                  >
+                    {worker?.id || workerId}
+                  </span>
+                  <VerificationBadge isFullyVerified={true} status="VERIFIED" />
+                </div>
+                <p
+                  style={{
+                    margin: '2px 0 0',
+                    fontSize: 'var(--font-size-xs, 12px)',
+                    color: 'var(--color-text-secondary, #64748b)',
+                  }}
+                >
+                  {worker?.category || 'Household Staff'} • {worker?.locality || 'Hyderabad'} • {worker?.experienceYears || 0} Years Experience
+                </p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: '4px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  navigate(`/verification?workerId=${encodeURIComponent(workerId)}`);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '4px 10px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  backgroundColor: 'var(--color-primary-subtle, #eff6ff)',
+                  border: '1px solid var(--color-primary, #2563eb)',
+                  color: 'var(--color-primary, #2563eb)',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="Open worker verification dossier"
+              >
+                <ShieldCheck size={14} />
+                <span>Verification Dossier</span>
+                <ExternalLink size={12} />
+              </button>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                navigate(`/verification?workerId=${encodeURIComponent(workerId)}`);
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                borderRadius: 'var(--radius-md, 6px)',
-                backgroundColor: 'var(--color-primary-subtle, #eff6ff)',
-                border: '1px solid var(--color-primary, #2563eb)',
-                color: 'var(--color-primary, #2563eb)',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              title="Open worker verification dossier"
-            >
-              <ShieldCheck size={14} />
-              <span>Verification Dossier</span>
-              <ExternalLink size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close modal"
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--color-text-tertiary, #94a3b8)',
-                padding: '6px',
-                borderRadius: '6px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <X size={20} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            title="Close modal"
+            className="modal-close-btn"
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Tab Navigation */}

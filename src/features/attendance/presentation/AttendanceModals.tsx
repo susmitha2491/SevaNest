@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowRight, ExternalLink, X } from 'lucide-react';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import {
   BackendAttendanceStatus,
   BookingAttendanceEntry,
@@ -55,6 +56,8 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
   onOpenCorrect,
   onClose,
 }) => {
+  useBodyScrollLock(Boolean(entry));
+
   if (!entry) return null;
 
   return (
@@ -63,6 +66,7 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
       aria-modal="true"
       aria-labelledby="attendance-detail-title"
       onClick={onClose}
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -72,16 +76,18 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
         justifyContent: 'center',
         padding: 'var(--space-4)',
         zIndex: 1000,
+        overscrollBehavior: 'contain',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-content"
         style={{
           backgroundColor: '#ffffff',
           borderRadius: 'var(--radius-xl)',
           maxWidth: '620px',
           width: '100%',
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           border: '1px solid var(--color-border)',
@@ -90,20 +96,18 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
         }}
       >
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-5)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: '#f8fafc',
           }}
         >
-          <div>
-            <h2 id="attendance-detail-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
+          <div className="modal-header-content">
+            <h2 id="attendance-detail-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', wordBreak: 'break-word' }}>
               Attendance Log Details — {formatDateIST(entry.date)}
             </h2>
-            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               Ref {formatBookingReference(entry.bookingId)}
               {scheduledWindowLabel ? ` · Shift ${scheduledWindowLabel}` : ''}
             </div>
@@ -112,13 +116,26 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close attendance detail"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)', padding: '4px' }}
+            title="Close attendance detail"
+            className="modal-close-btn"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div style={{ padding: 'var(--space-5)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-5)',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-4)',
+          }}
+        >
           {/* Booking summary header */}
           <div
             style={{
@@ -294,6 +311,7 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
             display: 'flex',
             justifyContent: 'flex-end',
             gap: '8px',
+            flexShrink: 0,
           }}
         >
           <button
@@ -361,6 +379,8 @@ export const RecordAttendanceModal: React.FC<RecordAttendanceModalProps> = ({
   onSubmit,
   onClose,
 }) => {
+  useBodyScrollLock(isOpen && Boolean(booking));
+
   const [date, setDate] = useState(() => initialDate || getTodayISTDate());
   const [status, setStatus] = useState<BackendAttendanceStatus>('PRESENT');
   const [note, setNote] = useState('');
@@ -400,6 +420,7 @@ export const RecordAttendanceModal: React.FC<RecordAttendanceModalProps> = ({
       aria-modal="true"
       aria-labelledby="record-attendance-title"
       onClick={() => !isSubmitting && onClose()}
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -409,45 +430,63 @@ export const RecordAttendanceModal: React.FC<RecordAttendanceModalProps> = ({
         justifyContent: 'center',
         padding: 'var(--space-4)',
         zIndex: 1050,
+        overscrollBehavior: 'contain',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-content"
         style={{
           backgroundColor: '#ffffff',
           borderRadius: 'var(--radius-xl)',
           maxWidth: '500px',
           width: '100%',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
+          display: 'flex',
+          flexDirection: 'column',
           border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
         }}
       >
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-5)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: '#f8fafc',
           }}
         >
-          <h2 id="record-attendance-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Record Booking Attendance
-          </h2>
+          <div className="modal-header-content">
+            <h2 id="record-attendance-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', wordBreak: 'break-word' }}>
+              Record Booking Attendance
+            </h2>
+          </div>
           <button
             type="button"
             aria-label="Close attendance action modal"
+            title="Close attendance action modal"
             disabled={isSubmitting}
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+            className="modal-close-btn"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-3)',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+          }}
+        >
           {/* Read-only booking context summary */}
           <div
             style={{
@@ -617,6 +656,8 @@ export const CorrectAttendanceModal: React.FC<CorrectAttendanceModalProps> = ({
   onSubmit,
   onClose,
 }) => {
+  useBodyScrollLock(Boolean(entry));
+
   const [proposedStatus, setProposedStatus] = useState<BackendAttendanceStatus>(
     () => (entry?.status as BackendAttendanceStatus) || 'PRESENT'
   );
@@ -669,6 +710,7 @@ export const CorrectAttendanceModal: React.FC<CorrectAttendanceModalProps> = ({
       aria-modal="true"
       aria-labelledby="correct-attendance-title"
       onClick={() => !isSubmitting && onClose()}
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -678,45 +720,63 @@ export const CorrectAttendanceModal: React.FC<CorrectAttendanceModalProps> = ({
         justifyContent: 'center',
         padding: 'var(--space-4)',
         zIndex: 1050,
+        overscrollBehavior: 'contain',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
+        className="modal-content"
         style={{
           backgroundColor: '#ffffff',
           borderRadius: 'var(--radius-xl)',
           maxWidth: '520px',
           width: '100%',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
+          display: 'flex',
+          flexDirection: 'column',
           border: '1px solid var(--color-border)',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
         }}
       >
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-5)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: '#f8fafc',
           }}
         >
-          <h2 id="correct-attendance-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            Correct Attendance ({formatDateIST(entry.date)})
-          </h2>
+          <div className="modal-header-content">
+            <h2 id="correct-attendance-title" style={{ margin: 0, fontSize: 'var(--font-size-md)', fontWeight: 700, color: 'var(--color-navy)', wordBreak: 'break-word' }}>
+              Correct Attendance ({formatDateIST(entry.date)})
+            </h2>
+          </div>
           <button
             type="button"
             aria-label="Close attendance action modal"
+            title="Close attendance action modal"
             disabled={isSubmitting}
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary)' }}
+            className="modal-close-btn"
           >
             <X size={18} />
           </button>
         </div>
 
-        <div style={{ padding: 'var(--space-5)', display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-5)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-3)',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+          }}
+        >
           {/* Current vs Proposed status summary */}
           <div
             style={{

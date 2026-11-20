@@ -140,28 +140,26 @@ describe('Configuration Role-Based Access Governance & Workflows', () => {
       });
     });
 
-    it('allows Super Admin to view and edit Runtime App Settings in Session & Security tab', async () => {
+    it('verifies Session & Security contains only administrative security controls and excludes mobile runtime settings', async () => {
       const user = userEvent.setup();
       renderWithProviders(<ConfigurationMastersPage />, '/configuration?tab=security');
 
-      expect(await screen.findByRole('heading', { name: /Platform Application Runtime Settings/i })).toBeInTheDocument();
-      expect(screen.getByText('maintenance')).toBeInTheDocument();
-      expect(screen.getByText('supportPhone')).toBeInTheDocument();
+      // Genuine administrative security controls
+      expect(await screen.findByRole('heading', { name: /Session Governance & Security Settings/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Automated Session Inactivity Logout/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Active Administrator Token Sessions/i })).toBeInTheDocument();
 
-      // Click Edit on supportPhone setting
-      const editButtons = screen.getAllByRole('button', { name: /Edit/i });
-      await user.click(editButtons[0]);
+      // Mobile runtime settings table and controls are strictly excluded from the Admin Website
+      expect(screen.queryByRole('heading', { name: /Platform Application Runtime Settings/i })).not.toBeInTheDocument();
+      expect(screen.queryByText('maintenance')).not.toBeInTheDocument();
+      expect(screen.queryByText('supportPhone')).not.toBeInTheDocument();
+      expect(screen.queryByText('customerMinVersion')).not.toBeInTheDocument();
+      expect(screen.queryByText('workerMinVersion')).not.toBeInTheDocument();
 
-      expect(await screen.findByRole('heading', { name: /Edit Setting: maintenance/i })).toBeInTheDocument();
-
-      // Toggle boolean setting value
-      const selectEl = screen.getByRole('combobox');
-      await user.selectOptions(selectEl, 'true');
-
-      const saveBtn = screen.getByRole('button', { name: /Save Setting/i });
-      await user.click(saveBtn);
-
-      expect(await screen.findByText(/Application runtime setting updated successfully/i)).toBeInTheDocument();
+      // Administrative security setting interaction: change inactivity timeout to 10 minutes
+      const option10 = screen.getByTestId('timeout-option-10');
+      await user.click(option10);
+      expect(option10).toBeChecked();
     });
 
     it('allows Super Admin to open Add Operational Area modal and submit', async () => {

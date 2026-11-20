@@ -22,7 +22,6 @@ import {
   Sparkles,
   ExternalLink,
   AlertCircle,
-  Layers,
   ClipboardCheck,
   RotateCcw,
 } from 'lucide-react';
@@ -42,6 +41,7 @@ import { formatDateTimeIST, formatDateIST } from '../../../shared/formatters/dat
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { BookingAttendanceSection } from './BookingAttendanceSection';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface BookingDetailModalProps {
   booking: BookingDetail | null;
@@ -51,12 +51,11 @@ interface BookingDetailModalProps {
   onOpenTrialOutcome?: (booking: BookingDetail) => void;
   onOpenReplacement?: (booking: BookingDetail) => void;
   onOpenCancel?: (booking: BookingDetail) => void;
+  initialSection?: SectionKey;
 }
 
 export type SectionKey =
-  | 'ALL'
   | 'OVERVIEW'
-  | 'PROFILES'
   | 'CUSTOMER'
   | 'WORKER'
   | 'INTERVIEWS'
@@ -64,7 +63,9 @@ export type SectionKey =
   | 'PAYMENTS'
   | 'REPLACEMENT'
   | 'COMMUNICATIONS'
-  | 'ATTENDANCE';
+  | 'ATTENDANCE'
+  | 'ALL'
+  | 'PROFILES';
 
 interface TimelineDisplayEntry {
   to?: string;
@@ -86,8 +87,18 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   onOpenTrialOutcome,
   onOpenReplacement,
   onOpenCancel,
+  initialSection,
 }) => {
-  const [filterSection, setFilterSection] = useState<SectionKey>('ALL');
+  const [filterSection, setFilterSection] = useState<SectionKey>(() => initialSection || 'OVERVIEW');
+
+  React.useEffect(() => {
+    if (initialSection) {
+      setFilterSection(initialSection);
+    }
+  }, [initialSection, booking?.id]);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(booking));
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const canManageBooking = hasPermission(user?.permissions, PERMISSIONS.BOOKINGS_MANAGE);
@@ -377,22 +388,22 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     count?: number;
     testId: string;
   }> = [
-    { key: 'ALL', label: 'All Sections', icon: <Layers size={14} />, testId: 'workspace-tab-all' },
-    { key: 'OVERVIEW', label: 'Booking Overview', icon: <FileText size={14} />, testId: 'workspace-tab-overview' },
-    { key: 'CUSTOMER', label: 'Customer Details', icon: <User size={14} />, testId: 'workspace-tab-customer' },
-    { key: 'WORKER', label: 'Assigned Worker Details', icon: <Briefcase size={14} />, testId: 'workspace-tab-worker' },
-    { key: 'INTERVIEWS', label: 'Interviews & Trials', icon: <Calendar size={14} />, count: interviewsCount, testId: 'workspace-tab-interviews' },
-    { key: 'TIMELINE', label: 'Booking Timeline', icon: <History size={14} />, count: timelineCount, testId: 'workspace-tab-timeline' },
-    { key: 'PAYMENTS', label: 'Payments & Fees', icon: <DollarSign size={14} />, count: paymentsCount, testId: 'workspace-tab-payments' },
-    { key: 'REPLACEMENT', label: 'Replacement History', icon: <RefreshCw size={14} />, count: replacementCount, testId: 'workspace-tab-replacements' },
-    { key: 'COMMUNICATIONS', label: 'Communication History', icon: <MessageSquare size={14} />, count: commsCount, testId: 'workspace-tab-communications' },
+    { key: 'OVERVIEW', label: 'Booking Overview', icon: <FileText size={15} />, testId: 'workspace-tab-overview' },
+    { key: 'CUSTOMER', label: 'Customer Details', icon: <User size={15} />, testId: 'workspace-tab-customer' },
+    { key: 'WORKER', label: 'Assigned Worker', icon: <Briefcase size={15} />, testId: 'workspace-tab-worker' },
+    { key: 'INTERVIEWS', label: 'Interviews & Trials', icon: <Calendar size={15} />, count: interviewsCount, testId: 'workspace-tab-interviews' },
+    { key: 'TIMELINE', label: 'Booking Timeline', icon: <History size={15} />, count: timelineCount, testId: 'workspace-tab-timeline' },
+    { key: 'PAYMENTS', label: 'Payments & Fees', icon: <DollarSign size={15} />, count: paymentsCount, testId: 'workspace-tab-payments' },
+    { key: 'REPLACEMENT', label: 'Replacement History', icon: <RefreshCw size={15} />, count: replacementCount, testId: 'workspace-tab-replacements' },
+    { key: 'COMMUNICATIONS', label: 'Communication History', icon: <MessageSquare size={15} />, count: commsCount, testId: 'workspace-tab-communications' },
     ...(canViewAttendance
-      ? [{ key: 'ATTENDANCE' as SectionKey, label: 'Attendance & Logs', icon: <ClipboardCheck size={14} />, testId: 'workspace-tab-attendance' }]
+      ? [{ key: 'ATTENDANCE' as SectionKey, label: 'Attendance & Logs', icon: <ClipboardCheck size={15} />, testId: 'workspace-tab-attendance' }]
       : []),
   ];
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -403,6 +414,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         zIndex: 1000,
         padding: '12px',
         backdropFilter: 'blur(6px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
@@ -410,94 +422,119 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
       data-testid="booking-detail-modal"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: '#f8fafc',
-          borderRadius: '10px',
+          borderRadius: '12px',
           width: '100%',
-          maxWidth: '1120px',
-          maxHeight: '90vh',
+          maxWidth: '1200px',
+          maxHeight: '92vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
           overflow: 'hidden',
           border: '1px solid #cbd5e1',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* ======================================================== */}
         {/* 1. WORKSPACE HEADER & QUICK ACTION BAR                   */}
         {/* ======================================================== */}
         <div
+          className="modal-header-container"
           style={{
-            padding: '10px 18px',
+            padding: '12px 18px',
             backgroundColor: '#ffffff',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '10px',
+            flexDirection: 'column',
+            gap: '8px',
             flexShrink: 0,
           }}
         >
-          {/* Left: Booking Identity & Metadata */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <h2
-                id="booking-modal-title"
-                style={{
-                  fontSize: '15px',
-                  fontWeight: 700,
-                  color: '#0f172a',
-                  letterSpacing: '-0.01em',
-                  margin: 0,
-                }}
-              >
-                Booking Details: {booking.id}
-              </h2>
-              <StatusBadge status={booking.status} />
-              <span
-                data-testid="booking-category-badge"
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: '#eff6ff',
-                  color: '#1d4ed8',
-                  border: '1px solid #bfdbfe',
-                }}
-              >
-                {booking.serviceCategory}
-              </span>
-              <span
-                style={{
-                  fontSize: '11px',
-                  fontWeight: 500,
-                  padding: '2px 8px',
-                  borderRadius: '12px',
-                  backgroundColor: '#f1f5f9',
-                  color: '#475569',
-                }}
-              >
-                {booking.engagementType.replace(/_/g, ' ')}
-              </span>
+          {/* Top row: Left Identity + Pinned Right Close Button */}
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: '12px',
+              width: '100%',
+            }}
+          >
+            {/* Left: Booking Identity & Metadata */}
+            <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '3px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h2
+                  id="booking-modal-title"
+                  style={{
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    color: '#0f172a',
+                    letterSpacing: '-0.01em',
+                    margin: 0,
+                    wordBreak: 'break-word',
+                  }}
+                >
+                  Booking Details: {booking.id}
+                </h2>
+                <StatusBadge status={booking.status} />
+                <span
+                  data-testid="booking-category-badge"
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    backgroundColor: '#eff6ff',
+                    color: '#1d4ed8',
+                    border: '1px solid #bfdbfe',
+                  }}
+                >
+                  {booking.serviceCategory}
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 500,
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    backgroundColor: '#f1f5f9',
+                    color: '#475569',
+                  }}
+                >
+                  {booking.engagementType.replace(/_/g, ' ')}
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b', flexWrap: 'wrap' }}>
+                <span>Locality: <strong style={{ color: '#1e293b' }}>{booking.customerLocality}</strong></span>
+                <span>•</span>
+                <span>Created: <strong style={{ color: '#1e293b' }}>{formatReadableDateTime(booking.createdAt)}</strong></span>
+                {booking.serviceStartDate && (
+                  <>
+                    <span>•</span>
+                    <span>Start Date: <strong style={{ color: '#1e293b' }}>{formatReadableDate(booking.serviceStartDate)}</strong></span>
+                  </>
+                )}
+              </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#64748b', flexWrap: 'wrap' }}>
-              <span>Locality: <strong style={{ color: '#1e293b' }}>{booking.customerLocality}</strong></span>
-              <span>•</span>
-              <span>Created: <strong style={{ color: '#1e293b' }}>{formatReadableDateTime(booking.createdAt)}</strong></span>
-              {booking.serviceStartDate && (
-                <>
-                  <span>•</span>
-                  <span>Start Date: <strong style={{ color: '#1e293b' }}>{formatReadableDate(booking.serviceStartDate)}</strong></span>
-                </>
-              )}
-            </div>
+            {/* Dedicated Top-Right Close Button (Pinned, never wrapped underneath!) */}
+            <button
+              onClick={onClose}
+              data-testid="close-booking-modal-button"
+              className="modal-close-btn"
+              aria-label="Close booking modal"
+              title="Close booking modal"
+              type="button"
+            >
+              <X size={18} />
+            </button>
           </div>
 
-          {/* Right: Actions */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Quick Action Buttons Row (wraps cleanly below without displacing Close button) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
             {onOpenMatchWizard &&
               canMatchBooking &&
               booking.status !== 'CANCELLED' &&
@@ -698,28 +735,6 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   Cancel Booking
                 </button>
               )}
-
-            <button
-              onClick={onClose}
-              data-testid="close-booking-modal-button"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                padding: '4px 10px',
-                height: '28px',
-                backgroundColor: '#ffffff',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                color: '#475569',
-                fontSize: '12px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-              aria-label="Close booking modal"
-            >
-              <X size={14} /> Close
-            </button>
           </div>
         </div>
 
@@ -836,36 +851,26 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         )}
 
         {/* ======================================================== */}
-        {/* 2. EXECUTIVE SNAPSHOT STRIP (UNIFIED 4-METRIC ROW)       */}
+        {/* 2. EXECUTIVE SNAPSHOT STRIP (COMPACT 4-METRIC ROW)       */}
         {/* ======================================================== */}
-        <div
-          style={{
-            padding: '8px 18px',
-            backgroundColor: '#ffffff',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-            gap: '8px',
-            flexShrink: 0,
-          }}
-        >
-          {/* Client Demographics Snapshot */}
+        <div className="booking-modal-summary-grid">
+          {/* Card 1: Customer Details */}
           <div
             style={{
-              padding: '6px 10px',
+              padding: '8px 12px',
               backgroundColor: '#f8fafc',
-              borderRadius: '6px',
+              borderRadius: '8px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '10px',
             }}
           >
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
                 backgroundColor: '#eff6ff',
                 color: '#0284c7',
                 display: 'flex',
@@ -874,13 +879,13 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <User size={14} />
+              <User size={16} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Client Demographics
+              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Customer • Client Demographics
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.customerLocality} Cluster
               </div>
               <div style={{ fontSize: '11px', color: '#0284c7', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -889,23 +894,23 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Staff Allocation Snapshot */}
+          {/* Card 2: Assigned Worker */}
           <div
             style={{
-              padding: '6px 10px',
+              padding: '8px 12px',
               backgroundColor: '#f8fafc',
-              borderRadius: '6px',
+              borderRadius: '8px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '10px',
             }}
           >
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
                 backgroundColor: hasWorker ? '#ecfdf5' : '#fffbeb',
                 color: hasWorker ? '#047857' : '#d97706',
                 display: 'flex',
@@ -914,19 +919,19 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <Briefcase size={14} />
+              <Briefcase size={16} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Staff Allocation
+              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Staff Allocation • Assigned Worker
               </div>
-              <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#d97706', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#d97706', fontSize: '13px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {hasWorker ? `Assigned: ${resolvedWorkerName}` : 'No Worker Assigned'}
               </div>
-              <div style={{ fontSize: '11px', color: hasWorker ? '#16a34a' : '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '3px' }}>
+              <div style={{ fontSize: '11px', color: hasWorker ? '#16a34a' : '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {hasWorker ? (
                   <>
-                    <ShieldCheck size={11} /> Verified Placement
+                    <ShieldCheck size={12} /> Verified Placement
                   </>
                 ) : (
                   'Pending Candidate Match'
@@ -935,23 +940,23 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Shift & Budget Snapshot */}
+          {/* Card 3: Service Details */}
           <div
             style={{
-              padding: '6px 10px',
+              padding: '8px 12px',
               backgroundColor: '#f8fafc',
-              borderRadius: '6px',
+              borderRadius: '8px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '10px',
             }}
           >
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
                 backgroundColor: '#eef2ff',
                 color: '#4f46e5',
                 display: 'flex',
@@ -960,40 +965,40 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <Clock size={14} />
+              <Clock size={16} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Shift & Budget
+              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Service Details & Shift
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginTop: '1px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.timingShift === '24x7 Assistance' ? '24x7 Assistance' : (booking.timingShift || 'Standard Schedule')}
               </div>
               <div style={{ fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {booking.salaryBudgetMax && booking.salaryBudgetMax > 0
-                  ? `Budget Cap: ${formatCurrencyINR(booking.salaryBudgetMax)} / mo`
+                  ? `Budget: ${formatCurrencyINR(booking.salaryBudgetMax)} / mo`
                   : 'Budget: Standard Rate Band'}
               </div>
             </div>
           </div>
 
-          {/* Platform Fee Snapshot */}
+          {/* Card 4: Platform Fee */}
           <div
             style={{
-              padding: '6px 10px',
+              padding: '8px 12px',
               backgroundColor: '#f8fafc',
-              borderRadius: '6px',
+              borderRadius: '8px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: '10px',
             }}
           >
             <div
               style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '6px',
+                width: '32px',
+                height: '32px',
+                borderRadius: '8px',
                 backgroundColor: booking.platformFeePaid ? '#ecfdf5' : '#fffbeb',
                 color: booking.platformFeePaid ? '#059669' : '#d97706',
                 display: 'flex',
@@ -1002,13 +1007,13 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 flexShrink: 0,
               }}
             >
-              <IndianRupee size={14} />
+              <IndianRupee size={16} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ color: '#64748b', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                 Platform Fee
               </div>
-              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '12px', marginTop: '1px' }}>
+              <div style={{ fontWeight: 700, color: '#0f172a', fontSize: '13px', marginTop: '1px' }}>
                 {formatCurrencyINR(booking.platformFeeAmount || 499)}
               </div>
               <div style={{ fontSize: '11px', fontWeight: 600, color: booking.platformFeePaid ? '#16a34a' : '#d97706' }}>
@@ -1019,85 +1024,66 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
         </div>
 
         {/* ======================================================== */}
-        {/* 3. NAVIGATION TAB BAR (8 DEDICATED SECTIONS)             */}
+        {/* 3. WORKSPACE BODY: RESPONSIVE SIDEBAR + MAIN WORKSPACE   */}
         {/* ======================================================== */}
-        <div
-          style={{
-            padding: '4px 18px',
-            backgroundColor: '#ffffff',
-            borderBottom: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '2px',
-            overflowX: 'auto',
-            flexShrink: 0,
-            scrollbarWidth: 'none',
-          }}
-          role="tablist"
-          aria-label="Booking Workspace Section Tabs"
-        >
-          {navTabs.map((tab) => {
-            const isActive = filterSection === tab.key;
-            return (
-              <button
-                key={tab.key}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => scrollToSection(tab.key)}
-                data-testid={tab.testId}
-                style={{
-                  padding: '5px 9px',
-                  border: 'none',
-                  borderRadius: '5px',
-                  backgroundColor: isActive ? '#eff6ff' : 'transparent',
-                  fontWeight: isActive ? 700 : 500,
-                  color: isActive ? '#0284c7' : '#64748b',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  transition: 'all 0.15s ease',
-                  outline: 'none',
-                }}
-              >
-                {tab.icon}
-                <span>{tab.label}</span>
-                {tab.count !== undefined && (
-                  <span
-                    style={{
-                      fontSize: '9px',
-                      fontWeight: 700,
-                      padding: '0 4px',
-                      borderRadius: '8px',
-                      backgroundColor: isActive ? '#0284c7' : '#f1f5f9',
-                      color: isActive ? '#ffffff' : '#64748b',
-                      border: isActive ? 'none' : '1px solid #e2e8f0',
-                    }}
-                  >
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        <div className="booking-modal-body-container">
+          {/* Section Navigation (Left sidebar on desktop, scrollable pills on mobile) */}
+          <nav
+            className="booking-modal-nav"
+            role="tablist"
+            aria-label="Booking Workspace Section Tabs"
+          >
+            {navTabs.map((tab) => {
+              const isActive = filterSection === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`workspace-panel-${tab.key.toLowerCase()}`}
+                  id={`workspace-tab-${tab.key.toLowerCase()}`}
+                  onClick={() => scrollToSection(tab.key)}
+                  data-testid={tab.testId}
+                  className={`booking-modal-nav-button ${isActive ? 'active' : ''}`}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <span style={{ color: isActive ? '#0284c7' : '#64748b', display: 'flex', alignItems: 'center' }}>
+                      {tab.icon}
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {tab.label}
+                    </span>
+                  </div>
+                  {tab.count !== undefined && (
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        borderRadius: '10px',
+                        backgroundColor: isActive ? '#0284c7' : '#f1f5f9',
+                        color: isActive ? '#ffffff' : '#64748b',
+                        border: isActive ? 'none' : '1px solid #e2e8f0',
+                        marginLeft: '6px',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {tab.count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
 
-        {/* ======================================================== */}
-        {/* 4. WORKSPACE SCROLLABLE CONTENT BODY                     */}
-        {/* ======================================================== */}
-        <div
-          style={{
-            padding: '14px 18px',
-            overflowY: 'auto',
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px',
-            backgroundColor: '#f8fafc',
-          }}
-        >
+          {/* Main Content Workspace (Displays ONLY active section) */}
+          <main
+            className="booking-modal-workspace modal-scrollable-body"
+            role="tabpanel"
+            id={`workspace-panel-${filterSection.toLowerCase()}`}
+            aria-labelledby={`workspace-tab-${filterSection.toLowerCase()}`}
+          >
           {/* ====================================================== */}
           {/* SECTION 1: BOOKING OVERVIEW                            */}
           {/* ====================================================== */}
@@ -2640,6 +2626,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               />
             </div>
           )}
+          </main>
         </div>
 
         {/* ======================================================== */}

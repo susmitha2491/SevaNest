@@ -1,4 +1,4 @@
-import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository } from '../domain/types';
+import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository, CustomerAddress, CustomerNote, CustomerBookingSummary, CustomerComplaintSummary } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
 import { formatPhoneNumber, getCustomerPhone, setCustomerPhone, getCustomerEmail, setCustomerEmail } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
@@ -147,6 +147,36 @@ const MOCK_CUSTOMERS: CustomerDetail[] = [
   },
 ];
 
+function extractPhoneString(val: unknown): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    const obj = val as Record<string, unknown>;
+    if (obj.masked) return String(obj.masked);
+    if (obj.number) {
+      const code = obj.countryCode ? `${obj.countryCode} ` : '';
+      return `${code}${obj.number}`;
+    }
+    if (obj.nationalNumber) {
+      const code = obj.countryCode ? `${obj.countryCode} ` : '+91 ';
+      return `${code}${obj.nationalNumber}`;
+    }
+    if (obj.formatted) return String(obj.formatted);
+  }
+  return '';
+}
+
+function extractEmailString(val: unknown): string {
+  if (!val) return '';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    const obj = val as Record<string, unknown>;
+    if (obj.email) return String(obj.email);
+    if (obj.address) return String(obj.address);
+  }
+  return '';
+}
+
 function maskCustomerPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');
   if (digits.length >= 10) {
@@ -177,7 +207,7 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
   const name = String(item.name || item.fullName || profileObj.fullName || userObj.fullName || combinedName || 'Customer User');
 
   const userId = String(item.userId || userObj.id || '') || undefined;
-  const rawPhone = String(item.unmaskedPhone || item.phone || item.mobile || profileObj.phone || userObj.phone || '');
+  const rawPhone = extractPhoneString(item.unmaskedPhone || item.phone || item.mobile || profileObj.phone || userObj.phone || '');
   const cachedPhone = getCustomerPhone(id) || (userId ? getCustomerPhone(userId) : undefined);
   const rawCleanPhone = cachedPhone || (rawPhone && !rawPhone.includes('*') ? formatPhoneNumber(rawPhone) : undefined);
   if (rawCleanPhone) {
@@ -193,7 +223,7 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
     (rawPhone ? maskCustomerPhone(rawPhone) : '+91 ***** *****')
   );
 
-  const rawEmail = String(item.unmaskedEmail || item.email || profileObj.email || userObj.email || '');
+  const rawEmail = extractEmailString(item.unmaskedEmail || item.email || profileObj.email || userObj.email || '');
   const cachedEmail = getCustomerEmail(id) || (userId ? getCustomerEmail(userId) : undefined);
   const rawCleanEmail = cachedEmail || (rawEmail && !rawEmail.includes('*') ? rawEmail : undefined);
   if (rawCleanEmail) {
@@ -271,43 +301,96 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
   };
 }
 
-export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, unknown>, etag?: string): CustomerDetail {
+export function mapBackendCustomerDetailToCustomerDetail(
+  data: Record<string, unknown>,
+  etag?: string,
+  fetchedNotes?: Array<string | CustomerNote>,
+  fetchedBookings?: CustomerBookingSummary[],
+  fetchedComplaints?: CustomerComplaintSummary[]
+): CustomerDetail {
   const summary = mapBackendCustomerToCustomer(data);
   const profileObj = (data.profile && typeof data.profile === 'object' ? data.profile : {}) as Record<string, unknown>;
   const userObj = (data.user && typeof data.user === 'object' ? data.user : {}) as Record<string, unknown>;
 
+  const rawAddresses = Array.isArray(data.addresses) ? data.addresses : [];
+  const addresses: CustomerAddress[] = rawAddresses.map((a: Record<string, unknown>) => ({
+    id: String(a.id || ''),
+    line: String(a.line || ''),
+    line2: a.line2 ? String(a.line2) : null,
+    area: String(a.area || ''),
+    city: String(a.city || ''),
+    state: a.state ? String(a.state) : null,
+    pincode: String(a.pincode || ''),
+    label: a.label ? String(a.label) : null,
+    latitude: typeof a.latitude === 'number' ? a.latitude : null,
+    longitude: typeof a.longitude === 'number' ? a.longitude : null,
+    isDefault: Boolean(a.isDefault),
+    isActive: a.isActive !== false,
+  }));
+
+  const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0];
+  const formattedAddr = defaultAddr
+    ? [defaultAddr.line, defaultAddr.line2, defaultAddr.area, defaultAddr.city, defaultAddr.pincode]
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
   const fullAddress = String(
     data.fullAddress ||
+    formattedAddr ||
     data.address ||
     profileObj.address ||
     profileObj.fullAddress ||
     `${summary.locality}, Hyderabad`
   );
 
-  const rawBookings = Array.isArray(data.bookings)
-    ? data.bookings
+  const rawBookings = fetchedBookings !== undefined
+    ? fetchedBookings
+    : Array.isArray(data.bookings)
+    ? (data.bookings as CustomerBookingSummary[])
     : Array.isArray(data.recentBookings)
-    ? data.recentBookings
+    ? (data.recentBookings as CustomerBookingSummary[])
     : [];
 
-  const rawComplaints = Array.isArray(data.complaints)
-    ? data.complaints
+  const rawComplaints = fetchedComplaints !== undefined
+    ? fetchedComplaints
+    : Array.isArray(data.complaints)
+    ? (data.complaints as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
+        ticketId: String(c.id || c.ticketId || ''),
+        disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
+        serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
+        status: String(c.status || 'OPEN'),
+        createdAt: String(c.createdAt || 'Recent'),
+        description: c.description ? String(c.description) : undefined,
+      }))
     : Array.isArray(data.tickets)
-    ? data.tickets
-    : Array.isArray(data.supportTickets)
-    ? data.supportTickets
+    ? (data.tickets as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
+        ticketId: String(c.id || c.ticketId || ''),
+        disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
+        serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
+        status: String(c.status || 'OPEN'),
+        createdAt: String(c.createdAt || 'Recent'),
+        description: c.description ? String(c.description) : undefined,
+      }))
     : [];
 
-  const complaints: CustomerDetail['complaints'] = rawComplaints.map((c: Record<string, unknown>) => ({
-    ticketId: String(c.id || c.ticketId || ''),
-    disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
-    serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
-    status: String(c.status || 'OPEN'),
-    createdAt: String(c.createdAt || 'Recent'),
-    description: c.description ? String(c.description) : undefined,
-  }));
+  const rawNotes: Array<string | CustomerNote> = fetchedNotes !== undefined
+    ? fetchedNotes
+    : Array.isArray(data.notes)
+    ? (data.notes as Array<string | CustomerNote>)
+    : [];
 
-  const rawDetailPhone = String(data.unmaskedPhone || data.mobile || data.phone || profileObj.phone || profileObj.mobile || '');
+  const activeBookings = rawBookings.filter((b) =>
+    ['CONFIRMED', 'ACTIVE', 'INTERVIEW_TRIAL_SCHEDULED', 'MATCHED'].includes(String(b.status).toUpperCase())
+  ).length || Number(data.activeBookings ?? 0);
+
+  const totalBookings = rawBookings.length || Number(data.totalBookings ?? summary.totalBookings ?? 0);
+
+  const openGrievances = rawComplaints.filter((c) =>
+    ['OPEN', 'IN_PROGRESS', 'ESCALATED', 'INVESTIGATION_PENDING'].includes(String(c.status).toUpperCase())
+  ).length || Number(data.openGrievances ?? 0);
+
+  const rawDetailPhone = extractPhoneString(data.unmaskedPhone || data.mobile || data.phone || profileObj.phone || profileObj.mobile || '');
   const unmaskedPhone = (rawDetailPhone && !rawDetailPhone.includes('*'))
     ? formatPhoneNumber(rawDetailPhone)
     : summary.unmaskedPhone || summary.phone;
@@ -316,7 +399,7 @@ export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, un
     if (summary.userId) setCustomerPhone(summary.userId, unmaskedPhone);
   }
 
-  const rawDetailEmail = String(
+  const rawDetailEmail = extractEmailString(
     data.unmaskedEmail ||
     data.email ||
     profileObj.email ||
@@ -335,17 +418,19 @@ export function mapBackendCustomerDetailToCustomerDetail(data: Record<string, un
 
   return {
     ...summary,
+    totalBookings,
     etag: etag || (data.etag as string | undefined),
     fullAddress,
+    addresses,
     unmaskedPhone,
     unmaskedEmail,
     email: unmaskedEmail,
     totalSpendINR: Number(data.totalSpendINR ?? data.totalSpend ?? 0),
-    activeBookings: Number(data.activeBookings ?? 0),
-    openGrievances: Number(data.openGrievances ?? 0),
-    notes: Array.isArray(data.notes) ? data.notes.map(String) : [],
-    bookings: rawBookings as CustomerDetail['bookings'],
-    complaints,
+    activeBookings,
+    openGrievances,
+    notes: rawNotes,
+    bookings: rawBookings,
+    complaints: rawComplaints,
   };
 }
 
@@ -381,9 +466,14 @@ export class RealCustomerRepository implements ICustomerRepository {
         }
       }
 
-      const params: Record<string, unknown> = {
-        verificationStatus: filter?.status === 'ACTIVE' ? 'VERIFIED' : filter?.status === 'SUSPENDED' ? 'PENDING' : undefined,
-      };
+      const params: Record<string, unknown> = {};
+
+      if (filter?.status && filter.status !== 'ALL') {
+        params.accountStatus = filter.status;
+      }
+      if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        params.verificationStatus = filter.verificationStatus;
+      }
 
       if (term) {
         if (isIndianMobileNumber(term)) {
@@ -501,10 +591,11 @@ export class RealCustomerRepository implements ICustomerRepository {
         limit,
       };
 
-      if (filter?.status === 'ACTIVE') {
-        params.verificationStatus = 'VERIFIED';
-      } else if (filter?.status === 'SUSPENDED') {
-        params.verificationStatus = 'PENDING';
+      if (filter?.status && filter.status !== 'ALL') {
+        params.accountStatus = filter.status;
+      }
+      if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        params.verificationStatus = filter.verificationStatus;
       }
 
       if (term) {
@@ -601,9 +692,114 @@ export class RealCustomerRepository implements ICustomerRepository {
       const raw = response.data;
       const target = (raw.customer || (raw.data && typeof raw.data === 'object' && (raw.data as Record<string, unknown>).customer) || raw.data || raw) as Record<string, unknown>;
       const etag = (response.headers?.['etag'] || response.headers?.etag) as string | undefined;
-      return mapBackendCustomerDetailToCustomerDetail(target, etag);
+
+      const userObj = (target.user && typeof target.user === 'object' ? target.user : {}) as Record<string, unknown>;
+      const targetUserId = String(target.userId || userObj.id || '');
+
+      const [notesRes, bookingsRes, ticketsRes] = await Promise.allSettled([
+        httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
+          `/admin/customers/${encodeURIComponent(id)}/notes`,
+          { params: { limit: 100 } }
+        ),
+        targetUserId
+          ? httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
+              '/admin/bookings',
+              { params: { customerUserId: targetUserId, limit: 100 } }
+            )
+          : Promise.resolve(null),
+        targetUserId
+          ? httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
+              '/admin/support/tickets',
+              { params: { creatorUserId: targetUserId, limit: 100 } }
+            )
+          : Promise.resolve(null),
+      ]);
+
+      let fetchedNotes: Array<string | CustomerNote> | undefined;
+      if (notesRes.status === 'fulfilled' && notesRes.value?.data) {
+        const nData = notesRes.value.data as Record<string, unknown>;
+        const rawList = Array.isArray(nData) ? nData : Array.isArray(nData.data) ? nData.data : Array.isArray(nData.items) ? nData.items : [];
+        if (rawList.length > 0) {
+          fetchedNotes = (rawList as Record<string, unknown>[]).map((item) => ({
+            id: String(item.id || ''),
+            authorId: String(item.authorId || item.author || 'Administrative Staff'),
+            note: String(item.note || item.content || item.text || ''),
+            createdAt: String(item.createdAt || item.timestamp || ''),
+          }));
+        }
+      }
+
+      let fetchedBookings: CustomerBookingSummary[] | undefined;
+      if (bookingsRes.status === 'fulfilled' && bookingsRes.value?.data) {
+        const bData = bookingsRes.value.data as Record<string, unknown>;
+        const rawList = Array.isArray(bData) ? bData : Array.isArray(bData.data) ? bData.data : Array.isArray(bData.items) ? bData.items : [];
+        if (rawList.length > 0) {
+          fetchedBookings = (rawList as Record<string, unknown>[]).map((b) => {
+            const cat = (b.category && typeof b.category === 'object' ? b.category : {}) as Record<string, unknown>;
+            return {
+              bookingId: String(b.id || b.bookingId || ''),
+              category: String(cat.name || cat.id || b.serviceCategory || b.category || 'Household Service'),
+              workerName: b.workerName ? String(b.workerName) : undefined,
+              status: String(b.status || 'CONFIRMED'),
+              date: String(b.scheduledAt || b.requestedStartDate || b.startDate || b.createdAt || 'Recent'),
+            };
+          });
+        }
+      }
+
+      let fetchedComplaints: CustomerComplaintSummary[] | undefined;
+      if (ticketsRes.status === 'fulfilled' && ticketsRes.value?.data) {
+        const tData = ticketsRes.value.data as Record<string, unknown>;
+        const rawList = Array.isArray(tData) ? tData : Array.isArray(tData.data) ? tData.data : Array.isArray(tData.items) ? tData.items : [];
+        if (rawList.length > 0) {
+          fetchedComplaints = (rawList as Record<string, unknown>[]).map((t) => {
+            const cat = (t.category && typeof t.category === 'object' ? t.category : {}) as Record<string, unknown>;
+            return {
+              ticketId: String(t.id || t.ticketId || ''),
+              disputeCategory: String(cat.name || cat.id || t.disputeCategory || 'General Support'),
+              serviceCategory: t.serviceCategory ? String(t.serviceCategory) : undefined,
+              status: String(t.status || 'OPEN'),
+              createdAt: String(t.createdAt || 'Recent'),
+              description: t.description ? String(t.description) : undefined,
+            };
+          });
+        }
+      }
+
+      return mapBackendCustomerDetailToCustomerDetail(
+        target,
+        etag,
+        fetchedNotes,
+        fetchedBookings,
+        fetchedComplaints
+      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getCustomerNotes(customerId: string): Promise<CustomerNote[]> {
+    try {
+      const res = await httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
+        `/admin/customers/${encodeURIComponent(customerId)}/notes`,
+        { params: { limit: 100 } }
+      );
+      const data = res.data;
+      const rawList = Array.isArray(data)
+        ? data
+        : Array.isArray((data as Record<string, unknown>)?.data)
+        ? (data as Record<string, unknown>).data
+        : Array.isArray((data as Record<string, unknown>)?.items)
+        ? (data as Record<string, unknown>).items
+        : [];
+      return (rawList as Record<string, unknown>[]).map((item) => ({
+        id: String(item.id || ''),
+        authorId: String(item.authorId || item.author || 'Administrative Staff'),
+        note: String(item.note || item.content || item.text || ''),
+        createdAt: String(item.createdAt || item.timestamp || ''),
+      }));
+    } catch {
+      return [];
     }
   }
 
@@ -628,10 +824,9 @@ export class RealCustomerRepository implements ICustomerRepository {
 
   async suspendCustomer(customerId: string, remarks: string): Promise<void> {
     try {
-      // 1. Fetch customer to obtain userId and GET ETag
+      // 1. Fetch customer to obtain userId
       const customer = await this.getCustomerById(customerId).catch(() => null);
       const targetUserId = customer?.userId || customerId;
-      const ifMatchHeader = customer?.etag || '*';
 
       // 2. Change account status via /admin/users/{userId}/status sending If-Match wildcard
       await httpClient.patch(
@@ -642,16 +837,6 @@ export class RealCustomerRepository implements ICustomerRepository {
         },
         { headers: { 'If-Match': '*' } }
       );
-
-      // 3. Update customer verification-status sending If-Match ETag (or '*' fallback per backend contract)
-      await httpClient.patch(
-        `/admin/customers/${encodeURIComponent(customerId)}/verification-status`,
-        {
-          status: 'PENDING',
-          note: remarks,
-        },
-        { headers: { 'If-Match': ifMatchHeader } }
-      );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -659,10 +844,9 @@ export class RealCustomerRepository implements ICustomerRepository {
 
   async reactivateCustomer(customerId: string): Promise<void> {
     try {
-      // 1. Fetch customer to obtain userId and GET ETag
+      // 1. Fetch customer to obtain userId
       const customer = await this.getCustomerById(customerId).catch(() => null);
       const targetUserId = customer?.userId || customerId;
-      const ifMatchHeader = customer?.etag || '*';
 
       // 2. Reactivate account status via /admin/users/{userId}/status sending If-Match wildcard
       await httpClient.patch(
@@ -672,16 +856,6 @@ export class RealCustomerRepository implements ICustomerRepository {
           reason: 'Account restored by operations staff',
         },
         { headers: { 'If-Match': '*' } }
-      );
-
-      // 3. Restore customer verification-status sending If-Match ETag (or '*' fallback per backend contract)
-      await httpClient.patch(
-        `/admin/customers/${encodeURIComponent(customerId)}/verification-status`,
-        {
-          status: 'VERIFIED',
-          note: 'Account restored by operations staff',
-        },
-        { headers: { 'If-Match': ifMatchHeader } }
       );
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
@@ -741,6 +915,10 @@ export class MockCustomerRepository implements ICustomerRepository {
       result = result.filter((c) => c.status === filter.status);
     }
 
+    if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+      result = result.filter((c) => c.verificationStatus === filter.verificationStatus);
+    }
+
     if (filter?.locality && filter.locality !== 'ALL') {
       result = result.filter((c) => c.locality === filter.locality);
     }
@@ -772,6 +950,20 @@ export class MockCustomerRepository implements ICustomerRepository {
     return customer ? { ...customer } : null;
   }
 
+  async getCustomerNotes(customerId: string): Promise<CustomerNote[]> {
+    const customer = MOCK_CUSTOMERS.find((c) => c.id === customerId);
+    if (!customer) return [];
+    return customer.notes.map((n, idx) => {
+      if (typeof n === 'object' && n !== null) return n as CustomerNote;
+      return {
+        id: `mock-note-${idx}`,
+        authorId: 'STAFF-OPS-01',
+        note: String(n),
+        createdAt: new Date().toISOString(),
+      };
+    });
+  }
+
   async revealPII(customerId: string, _reason: string): Promise<{ phone: string; email: string }> {
     const customer = MOCK_CUSTOMERS.find((c) => c.id === customerId);
     if (customer) {
@@ -790,8 +982,7 @@ export class MockCustomerRepository implements ICustomerRepository {
     const customer = MOCK_CUSTOMERS.find((c) => c.id === customerId);
     if (customer) {
       customer.status = 'SUSPENDED';
-      customer.verificationStatus = 'PENDING';
-      customer.notes.push(`[SUSPENDED] ${remarks}`);
+      customer.notes.push(`[ACCOUNT SUSPENDED] ${remarks}`);
     }
   }
 
@@ -799,8 +990,7 @@ export class MockCustomerRepository implements ICustomerRepository {
     const customer = MOCK_CUSTOMERS.find((c) => c.id === customerId);
     if (customer) {
       customer.status = 'ACTIVE';
-      customer.verificationStatus = 'VERIFIED';
-      customer.notes.push('[REACTIVATED] Account restored by operations staff');
+      customer.notes.push('[ACCOUNT REACTIVATED] Account restored by operations staff');
     }
   }
 

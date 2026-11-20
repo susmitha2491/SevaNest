@@ -13,6 +13,7 @@ import {
 import { BookingDetail, CandidateMatch, MatchRequirement, TrialSchedule } from '../domain/types';
 import { bookingRepository } from '../data/bookingRepository';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface CandidateMatchingModalProps {
   booking: BookingDetail | null;
@@ -38,6 +39,9 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 }) => {
   const queryClient = useQueryClient();
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateMatch | null>(null);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(booking));
 
   // Schedule form state (uses genuine future date/time -> ISO 8601)
   const [scheduleType, setScheduleType] = useState<'TRIAL' | 'INTERVIEW'>('TRIAL');
@@ -67,20 +71,20 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
         const rawEng = booking.engagement?.toUpperCase();
         const engagement: MatchRequirement['engagement'] =
           rawEng === 'FULL_TIME' ||
-          rawEng === 'PART_TIME' ||
-          rawEng === 'LIVE_IN' ||
-          rawEng === 'DAILY' ||
-          rawEng === 'HOURLY' ||
-          rawEng === 'SHIFT' ||
-          rawEng === 'ONE_TIME'
+            rawEng === 'PART_TIME' ||
+            rawEng === 'LIVE_IN' ||
+            rawEng === 'DAILY' ||
+            rawEng === 'HOURLY' ||
+            rawEng === 'SHIFT' ||
+            rawEng === 'ONE_TIME'
             ? rawEng
             : booking.engagementType === 'PART_TIME'
-            ? 'PART_TIME'
-            : booking.engagementType === 'FULL_TIME_LIVE_IN'
-            ? 'LIVE_IN'
-            : booking.engagementType === 'ONE_TIME'
-            ? 'ONE_TIME'
-            : 'FULL_TIME';
+              ? 'PART_TIME'
+              : booking.engagementType === 'FULL_TIME_LIVE_IN'
+                ? 'LIVE_IN'
+                : booking.engagementType === 'ONE_TIME'
+                  ? 'ONE_TIME'
+                  : 'FULL_TIME';
         return bookingRepository.matchCandidates({
           category: booking.categoryCode || booking.serviceCategory.toUpperCase().replace(/\s+/g, '_'),
           areaId: booking.areaId,
@@ -166,6 +170,7 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -176,12 +181,14 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
         zIndex: 1000,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="matching-modal-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
@@ -192,52 +199,52 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <div>
+          <div className="modal-header-content">
             <h2
               id="matching-modal-title"
-              style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}
+              style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}
             >
               Candidate Worker Matching Wizard
             </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               Booking <strong>{booking.id}</strong> • {booking.serviceCategory} in <strong>{booking.customerLocality}</strong>
             </p>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary)',
-            }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close matching modal"
+            title="Close matching modal"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Modal Body */}
         <div
+          className="modal-scrollable-body"
           style={{
             padding: 'var(--space-6)',
             overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--space-5)',
+            overscrollBehavior: 'contain',
           }}
         >
           {/* Customer Requirement Criteria Pill Bar */}
@@ -722,8 +729,8 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
               {scheduleMutation.isPending
                 ? 'Scheduling...'
                 : scheduleType === 'INTERVIEW'
-                ? 'Confirm Interview Schedule'
-                : 'Confirm Trial Schedule'}
+                  ? 'Confirm Interview Schedule'
+                  : 'Confirm Trial Schedule'}
             </button>
           </div>
         </div>

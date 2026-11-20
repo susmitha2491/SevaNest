@@ -178,6 +178,18 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
 
   // 4. Verification Management
   if (hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)) {
+    const hasWorkerManage = isSuperAdmin || isOpsAdmin || hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
+    const isVerifExecutive = user.role === 'VERIFICATION_EXECUTIVE' || (!hasWorkerManage && !isSuperAdmin && !isOpsAdmin);
+
+    const verificationSubItems: NavSubItem[] | undefined = user.role === 'VERIFICATION_EXECUTIVE'
+      ? [
+          { id: 'all-applications', name: 'All Applications', path: '/verification', end: true },
+          { id: 'rechecks-expiry', name: 'Rechecks & Expiry', path: '/verification/rechecks', end: false },
+          { id: 'corrections-required', name: 'Corrections Required', path: '/verification/corrections', end: false },
+          { id: 'review-history', name: 'Review History', path: '/verification/history', end: false },
+        ]
+      : undefined;
+
     modules.push({
       id: 'verification',
       name: isOpsAdmin ? 'Verification Management' : 'Verification',
@@ -185,20 +197,34 @@ export function getAccessibleNavigation(user: AdminUser | null | undefined): Nav
       icon: UserCheck,
       requiredPermission: PERMISSIONS.VERIFICATION_REVIEW,
       end: false,
+      subItems: verificationSubItems,
     });
 
-    // For Verification Executive, place Workers Management right near the Verification menu
-    const hasWorkerManage = isSuperAdmin || isOpsAdmin || hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
-    const isVerifExecutive = !hasWorkerManage;
-    if (isVerifExecutive && hasPermission(permissions, PERMISSIONS.WORKER_VIEW)) {
-      modules.push({
-        id: 'workers',
-        name: 'Workers Management',
-        path: '/workers',
-        icon: Briefcase,
-        requiredPermission: PERMISSIONS.WORKER_VIEW,
-        end: true,
-      });
+    // For Verification Executive, place Directory below Verification and above Workers Management
+    if (isVerifExecutive) {
+      if (hasPermission(permissions, PERMISSIONS.WORKER_VIEW) || hasPermission(permissions, PERMISSIONS.CUSTOMER_VIEW)) {
+        modules.push({
+          id: 'directory',
+          name: 'Directory',
+          path: '/directory',
+          icon: Users,
+          requiredPermission: hasPermission(permissions, PERMISSIONS.WORKER_VIEW)
+            ? PERMISSIONS.WORKER_VIEW
+            : PERMISSIONS.CUSTOMER_VIEW,
+          end: true,
+        });
+      }
+
+      if (hasPermission(permissions, PERMISSIONS.WORKER_VIEW)) {
+        modules.push({
+          id: 'workers',
+          name: 'Workers Management',
+          path: '/workers',
+          icon: Briefcase,
+          requiredPermission: PERMISSIONS.WORKER_VIEW,
+          end: true,
+        });
+      }
     }
   }
 
@@ -364,11 +390,10 @@ export function isRouteAccessibleForUser(
     return true;
   }
 
-  // Directory route is accessible to Super Admin and Support Executive (users with worker.view or customer.view without worker.manage or verification.review)
+  // Directory route is accessible to Super Admin, Support Executive, and Verification Executive (users with worker.view or customer.view without worker.manage)
   if (normalized === '/directory') {
     const hasWorkerManage = hasPermission(permissions, PERMISSIONS.WORKER_MANAGE);
-    const hasVerificationReview = hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW);
-    if (hasWorkerManage || hasVerificationReview) {
+    if (hasWorkerManage) {
       return false;
     }
     return hasPermission(permissions, PERMISSIONS.WORKER_VIEW) || hasPermission(permissions, PERMISSIONS.CUSTOMER_VIEW);

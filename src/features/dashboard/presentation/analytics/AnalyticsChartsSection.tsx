@@ -177,16 +177,17 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             </h2>
           </div>
           <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px', display: 'block' }}>
-            PRD Section 14 Analytics: Real-time demand aggregations, fulfillment funnels, workforce capacity, and support SLAs.
+            Real-time demand aggregations, fulfillment funnels, workforce capacity, and support SLAs.
           </span>
         </div>
       </div>
 
       {/* Grid: 2 Columns on Desktop */}
       <div
+        className="analytics-charts-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))',
           gap: 'var(--space-5)',
         }}
       >
@@ -207,7 +208,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <Layers size={17} color="var(--color-primary)" />
               <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, color: 'var(--color-navy)' }}>
-                Demand & Booking Conversion (PRD §14.1, §14.4)
+                Demand & Booking Conversion
               </h3>
             </div>
             {categoryDemand && (
@@ -272,7 +273,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <MapPin size={17} color="var(--color-primary)" />
               <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, color: 'var(--color-navy)' }}>
-                Geographic Demand & Repeat Customers (PRD §14.5, §14.10)
+                Geographic Demand & Repeat Customers
               </h3>
             </div>
           </div>
@@ -333,7 +334,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <Briefcase size={17} color="var(--color-primary)" />
               <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, color: 'var(--color-navy)' }}>
-                Workforce Capacity & Conversion (PRD §14.2, §14.6)
+                Workforce Capacity & Conversion
               </h3>
             </div>
           </div>
@@ -422,7 +423,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <AlertOctagon size={17} color="var(--color-primary)" />
               <h3 style={{ fontSize: 'var(--font-size-md)', fontWeight: 600, color: 'var(--color-navy)' }}>
-                Quality, Grievance SLA & Collections (PRD §14.7, §14.8, §14.9)
+                Quality, Grievance SLA & Collections
               </h3>
             </div>
           </div>
@@ -501,7 +502,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: 'var(--space-2)' }}>
               <CreditCard size={15} color="var(--color-primary)" />
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
-                Fee Collections Breakdown (PRD §14.8)
+                Fee Collections Breakdown
               </span>
             </div>
             {paymentCollections?.totalsByFeeType && paymentCollections.totalsByFeeType.length > 0 ? (
@@ -543,7 +544,7 @@ export const AnalyticsChartsSection: React.FC<AnalyticsChartsSectionProps> = ({
             )}
           </div>
 
-          {/* Support Ticket Volume by Status (PRD §14.9) */}
+          {/* Support Ticket Volume by Status */}
           {supportStatusData.length > 0 && (
             <div style={{ borderTop: '1px dashed var(--color-border)', paddingTop: 'var(--space-3)' }}>
               <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 'var(--space-2)' }}>

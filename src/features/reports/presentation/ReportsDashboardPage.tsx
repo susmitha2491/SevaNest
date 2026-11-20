@@ -817,6 +817,7 @@ export const ReportsDashboardPage: React.FC = () => {
                 type="button"
                 onClick={handleRefreshReport}
                 disabled={isDetailFetching || isCatalogFetching || Boolean(dateRangeValidationError)}
+                aria-label="Refresh"
                 style={{
                   padding: '7px 12px',
                   borderRadius: 'var(--radius-md)',
@@ -895,7 +896,7 @@ export const ReportsDashboardPage: React.FC = () => {
             </div>
           )}
 
-          {/* PRD Specification & Backend Scope Banner */}
+          {/* Specification & Metric Definition Banner */}
           <div
             style={{
               padding: 'var(--space-3) var(--space-4)',
@@ -1171,18 +1172,42 @@ export const ReportsDashboardPage: React.FC = () => {
                     borderRadius: 'var(--radius-full)',
                   }}
                 >
-                  {catalogCounts?.ALL ?? reports?.length ?? 12} PRD Reports
+                  {catalogCounts?.ALL ?? reports?.length ?? 12} Reports
                 </span>
               </div>
               <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)' }}>
-                Operational & Business Reports • Marketplace intelligence, workforce telemetry, and financial realizations defined in SevaNest PRD Section 14.
+                Operational & Business Reports • Marketplace intelligence, workforce telemetry, and financial realizations.
               </p>
             </div>
-            {reports && (
-              <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                Showing {reports.length} of {catalogCounts?.ALL ?? 12} reports
-              </span>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+              {reports && (
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                  Showing {reports.length} of {catalogCounts?.ALL ?? 12} reports
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => refetchCatalog()}
+                disabled={isCatalogFetching}
+                aria-label="Refresh"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-surface)',
+                  color: 'var(--color-text-primary)',
+                  fontSize: 'var(--font-size-xs)',
+                  fontWeight: 600,
+                  cursor: isCatalogFetching ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <RefreshCw size={13} className={isCatalogFetching ? 'animate-spin' : ''} />
+                <span>{isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Compact Filter Toolbar: Category Pills + Search Bar */}
@@ -1293,7 +1318,7 @@ export const ReportsDashboardPage: React.FC = () => {
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-app)', borderBottom: '1px solid var(--color-border)' }}>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '112px', whiteSpace: 'nowrap' }}>Requirement</th>
-                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', minWidth: '240px' }}>Report Name & PRD Definition</th>
+                      <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', minWidth: '240px' }}>Report Name & Description</th>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '118px', whiteSpace: 'nowrap' }}>Category</th>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '190px' }}>Cadence / Scope</th>
                       <th style={{ padding: '10px 14px', fontWeight: 700, color: 'var(--color-text-secondary)', width: '204px', textAlign: 'right', whiteSpace: 'nowrap' }}>Actions</th>

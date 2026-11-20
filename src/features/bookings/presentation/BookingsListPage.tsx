@@ -223,21 +223,52 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
           </p>
         </div>
 
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            padding: 'var(--space-2) var(--space-3)',
-            backgroundColor: 'var(--color-status-info-bg)',
-            border: '1px solid var(--color-status-info-border)',
-            borderRadius: 'var(--radius-md)',
-            fontSize: 'var(--font-size-xs)',
-            color: 'var(--color-status-info-text)',
-          }}
-        >
-          <Info size={16} />
-          <span>Strict Policy: Only fully-verified candidates matched to bookings</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            aria-label="Refresh"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: '8px 14px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: 'var(--color-bg-surface)',
+              color: 'var(--color-text-primary)',
+              fontSize: 'var(--font-size-sm)',
+              fontWeight: 600,
+              border: '1px solid var(--color-border)',
+              cursor: isFetching ? 'not-allowed' : 'pointer',
+              opacity: isFetching ? 0.7 : 1,
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <RefreshCw
+              size={14}
+              color="var(--color-primary)"
+              className={isFetching ? 'animate-spin' : ''}
+            />
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
+              backgroundColor: 'var(--color-status-info-bg)',
+              border: '1px solid var(--color-status-info-border)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-status-info-text)',
+            }}
+          >
+            <Info size={16} />
+            <span>Strict Policy: Only fully-verified candidates matched to bookings</span>
+          </div>
         </div>
       </div>
 

@@ -322,7 +322,7 @@ export const PaymentsListPage: React.FC = () => {
             Financial Transactions
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            PRD commercial operations: transaction status tracking, fee records, refunds, and audited reference exports.
+            Commercial operations: transaction status tracking, fee records, refunds, and audited reference exports.
           </p>
         </div>
 
@@ -397,10 +397,11 @@ export const PaymentsListPage: React.FC = () => {
               alignItems: 'center',
               gap: '6px',
             }}
+            aria-label="Refresh"
             title="Refresh payment transactions and ledger"
           >
             <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-            <span>Refresh</span>
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
@@ -947,10 +948,10 @@ export const PaymentsListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab Content 3: Fee Records & Revenue Streams (PRD Commercial Model) */}
+      {/* Tab Content 3: Fee Records & Revenue Streams (Commercial Model) */}
       {activeTab === 'fee-records' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          {/* PRD Commercial Framework Notice */}
+          {/* Commercial Framework Notice */}
           <div
             style={{
               padding: 'var(--space-4)',
@@ -966,10 +967,10 @@ export const PaymentsListPage: React.FC = () => {
           >
             <div>
               <h3 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
-                PRD Commercial Revenue Streams & Configured Rates
+                Commercial Revenue Streams & Configured Rates
               </h3>
               <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '4px', margin: 0 }}>
-                As mandated by SevaNest PRD Section 10, commercial rates are flexible and configurable from the Admin Portal without rebuilding payment logic.
+                Commercial rates are flexible and configurable from the Admin Portal without rebuilding payment logic.
               </p>
             </div>
 
@@ -1028,7 +1029,7 @@ export const PaymentsListPage: React.FC = () => {
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Configured Rate</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Commercial Status</th>
                     <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Last Updated</th>
-                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>PRD Model Policy</th>
+                    <th style={{ padding: 'var(--space-3) var(--space-4)', fontWeight: 700, color: 'var(--color-text-secondary)' }}>Revenue Policy</th>
                   </tr>
                 </thead>
                 <tbody>

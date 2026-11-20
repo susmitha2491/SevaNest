@@ -112,13 +112,14 @@ describe('My Account & Staff Profile Redesign', () => {
       expect(screen.getByTestId('account-user-status')).toHaveTextContent('ACTIVE');
     });
 
-    it('renders the RBAC permissions scope card with granted permissions', async () => {
+    it('does not render Assigned Permissions Scope card or badges in the UI', async () => {
       renderApp('/account');
 
-      expect(await screen.findByTestId('account-permissions-scope-card')).toBeInTheDocument();
-      expect(screen.getByText('support.view')).toBeInTheDocument();
-      expect(screen.getByText('support.manage')).toBeInTheDocument();
-      expect(screen.getByText('bookings.view')).toBeInTheDocument();
+      expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
+      expect(screen.queryByTestId('account-permissions-scope-card')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Assigned Permissions Scope/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Authoritative permissions granted by backend security tokens/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('support.manage')).not.toBeInTheDocument();
     });
   });
 

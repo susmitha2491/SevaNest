@@ -313,6 +313,7 @@ export const SuperAdminDashboard: React.FC = () => {
           <button
             onClick={handleRefreshAll}
             disabled={isAnyFetching}
+            aria-label="Refresh"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -330,16 +331,17 @@ export const SuperAdminDashboard: React.FC = () => {
             }}
           >
             <RefreshCw size={14} color="var(--color-primary)" className={isAnyFetching ? 'animate-spin' : ''} />
-            <span>{isAnyFetching ? 'Refreshing...' : 'Refresh Metrics'}</span>
+            <span>{isAnyFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
 
       {/* 8-Card Executive KPI Grid */}
       <div
+        className="kpi-grid"
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
           gap: 'var(--space-4)',
         }}
       >
@@ -941,7 +943,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* PRD Section 14: Business Analytics Visualizations */}
+      {/* Business Analytics Visualizations */}
       <AnalyticsChartsSection
         analytics={analyticsData}
         isLoading={isAnalyticsLoading}
@@ -1171,7 +1173,7 @@ export const SuperAdminDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Platform Administrative Modules & Workstations Directory (PRD & Super Admin Scope) */}
+      {/* Platform Administrative Modules & Workstations Directory */}
       <div
         style={{
           backgroundColor: 'var(--color-bg-surface)',

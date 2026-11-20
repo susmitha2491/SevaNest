@@ -3,13 +3,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { Lock, Mail, AlertCircle, ArrowRight, Eye, EyeOff, Loader2, RotateCw } from 'lucide-react';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { authRepository, invalidateSessionOnServer } from '../data/authRepository';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { queryClient } from '../../../core/api/queryClient';
 import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
-import { DomainError } from '../../../core/errors/DomainError';
+import { DomainError, UnauthorizedError } from '../../../core/errors/DomainError';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 import { isQuickLoginEnabled } from '../../../core/config/env';
 import { QuickLoginSection } from './QuickLoginSection';
@@ -28,9 +28,29 @@ export const SignInPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [wakeUpStatus, setWakeUpStatus] = useState<{ attempt: number; maxRetries: number } | null>(null);
   const showQuickLogin = isQuickLoginEnabled();
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
+
+  // Pre-warm the backend on Render when user visits the sign-in page
+  useEffect(() => {
+    fetch('/api/v1/app-config', { method: 'GET', cache: 'no-store' }).catch(() => {});
+  }, []);
+
+  // Listen for backend waking-up progress events during authentication
+  useEffect(() => {
+    const handleWakingUp: Parameters<typeof window.addEventListener>[1] = (e) => {
+      const detail = (e as { detail?: { attempt: number; maxRetries: number } })?.detail;
+      if (detail) {
+        setWakeUpStatus(detail);
+      }
+    };
+    window.addEventListener('backend-waking-up', handleWakingUp);
+    return () => {
+      window.removeEventListener('backend-waking-up', handleWakingUp);
+    };
+  }, []);
 
   // Clean up any lingering history state from logout redirects
   useEffect(() => {
@@ -95,6 +115,7 @@ export const SignInPage: React.FC = () => {
     if (isSubmitting) return;
     try {
       setIsSubmitting(true);
+      setWakeUpStatus(null);
       setAuthError(null);
       setAuthCorrelationId(null);
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
@@ -107,11 +128,17 @@ export const SignInPage: React.FC = () => {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
       setAuthError(errorMessage);
       setAuthCorrelationId(err instanceof DomainError && err.correlationId ? err.correlationId : null);
-      // Security: Clear password input on failed login attempt while preserving entered email
-      setValue('password', '');
-      setSelectedRoleId(null);
+      // Security: Clear password input ONLY on invalid credentials, NOT on server/network/waking errors
+      const isCredentialError =
+        err instanceof UnauthorizedError ||
+        (err instanceof DomainError && (err.code === 'UNAUTHORIZED' || ('errorCode' in err && (err as { errorCode?: string }).errorCode === 'INVALID_CREDENTIALS')));
+      if (isCredentialError) {
+        setValue('password', '');
+        setSelectedRoleId(null);
+      }
     } finally {
       setIsSubmitting(false);
+      setWakeUpStatus(null);
     }
   };
 
@@ -126,26 +153,82 @@ export const SignInPage: React.FC = () => {
         </p>
       </div>
 
-      {authError && (
+      {wakeUpStatus && (
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 'var(--space-1)',
+            gap: '8px',
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fde68a',
+            color: '#92400e',
+            padding: '8px 12px',
+            borderRadius: 'var(--radius-md)',
+            fontSize: 'var(--font-size-xs)',
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2
+            size={16}
+            style={{
+              flexShrink: 0,
+              animation: 'spin 1s linear infinite',
+            }}
+          />
+          <span>
+            Backend server is waking up on Render (attempt {wakeUpStatus.attempt}/{wakeUpStatus.maxRetries}). Please hold on, connecting automatically...
+          </span>
+        </div>
+      )}
+
+      {authError && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
             backgroundColor: 'var(--color-status-danger-bg)',
             border: '1px solid var(--color-status-danger-border)',
             color: 'var(--color-status-danger-text)',
-            padding: '6px 10px',
+            padding: '8px 10px',
             borderRadius: 'var(--radius-md)',
             fontSize: 'var(--font-size-xs)',
           }}
           role="alert"
         >
-          <AlertCircle size={15} style={{ flexShrink: 0 }} />
-          <span>
-            {authError}
-            {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+            <AlertCircle size={15} style={{ flexShrink: 0 }} />
+            <span>
+              {authError}
+              {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
+            </span>
+          </div>
+          {(authError.includes('waking up on Render') || authError.includes('temporarily unavailable')) && (
+            <button
+              type="button"
+              onClick={handleSubmit(onSubmit)}
+              disabled={isSubmitting}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                alignSelf: 'flex-start',
+                marginTop: '2px',
+                padding: '4px 10px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: '#ffffff',
+                backgroundColor: 'var(--color-primary)',
+                border: 'none',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              <RotateCw size={12} />
+              <span>Retry Sign In Now</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -250,8 +333,17 @@ export const SignInPage: React.FC = () => {
             border: 'none',
           }}
         >
-          <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Operations Console'}</span>
-          <ArrowRight size={16} />
+          {wakeUpStatus ? (
+            <>
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Waking Server ({wakeUpStatus.attempt}/{wakeUpStatus.maxRetries})...</span>
+            </>
+          ) : (
+            <>
+              <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Operations Console'}</span>
+              <ArrowRight size={16} />
+            </>
+          )}
         </button>
       </form>
 

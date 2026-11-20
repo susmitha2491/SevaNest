@@ -164,7 +164,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
       // Browser popstate back into /payments
@@ -175,12 +175,12 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         await router.navigate('/payments');
       });
 
-      // Redirects to /verification
+      // Redirects to /dashboard
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
       expect(screen.queryByRole('heading', { name: /Access Restricted/i })).not.toBeInTheDocument();
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('Redirects Operations Manager to /dashboard when history traversal hits unauthorized /configuration', async () => {
@@ -427,16 +427,16 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
 
-      // 2. Navigate to /verification/rechecks
+      // 2. Navigate to /verification
       await act(async () => {
-        await router.navigate('/verification/rechecks');
+        await router.navigate('/verification');
       });
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/rechecks');
+        expect(router.state.location.pathname).toBe('/verification');
       });
 
       // 3. Authenticated Back navigation works
@@ -444,9 +444,9 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         await router.navigate(-1);
       });
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
 
       // 4. Authenticated Forward navigation works
       await act(async () => {
@@ -730,12 +730,12 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
       expect(useAuthStore.getState().isAuthenticated).toBe(true);
 
-      // 2. Press browser Back button from /verification
+      // 2. Press browser Back button from /dashboard
       triggerPopStateForTesting();
       window.dispatchEvent(new window.PopStateEvent('popstate'));
       await act(async () => {
@@ -759,7 +759,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await waitFor(() => {
         expect(router.state.location.pathname).toBe('/auth/login');
       });
-      expect(screen.queryByText('Worker Verification & Trust Operations')).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: /Trust & Verification Console/i })).not.toBeInTheDocument();
 
       // 5. Sign In Again
       const emailInput2 = await screen.findByPlaceholderText('name@sevanest.internal', {}, { timeout: 4000 });
@@ -770,9 +770,9 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
       await user.click(submitBtn2);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
-      expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+      expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     });
 
     it('SUPPORT_EXECUTIVE: Sign In -> /dashboard -> Browser Back -> Invalidate -> /auth/login -> Sign In Again -> /dashboard', async () => {

@@ -20,7 +20,7 @@ import { verificationRepository } from '../data/verificationRepository';
 export const VerificationInsightsPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ['verification', 'insights-data'],
     queryFn: async () => {
       const [pendingRes, inReviewRes, recheckRes, rejectedRes, approvedRes] = await Promise.all([
@@ -123,7 +123,10 @@ export const VerificationInsightsPage: React.FC = () => {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => refetch()}
+          disabled={isFetching}
+          aria-label="Refresh"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -135,12 +138,13 @@ export const VerificationInsightsPage: React.FC = () => {
             fontSize: 'var(--font-size-sm)',
             fontWeight: 600,
             border: '1px solid var(--color-border)',
-            cursor: 'pointer',
+            cursor: isFetching ? 'not-allowed' : 'pointer',
+            opacity: isFetching ? 0.7 : 1,
             boxShadow: 'var(--shadow-sm)',
           }}
         >
-          <RefreshCw size={14} color="var(--color-primary)" />
-          <span>Refresh Insights</span>
+          <RefreshCw size={14} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
+          <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 

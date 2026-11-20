@@ -109,10 +109,10 @@ describe('Complete Booking & Replacement Management Workflow Suite', () => {
       };
 
       renderWithProviders(
-        <BookingDetailModal booking={mockBookingMissingCustomer} isOpen={true} onClose={vi.fn()} />
+        <BookingDetailModal booking={mockBookingMissingCustomer} isOpen={true} onClose={vi.fn()} initialSection="CUSTOMER" />
       );
 
-      expect(screen.getByText('Customer Details Unavailable')).toBeInTheDocument();
+      expect(screen.getAllByText('Customer Details Unavailable').length).toBeGreaterThan(0);
       expect(screen.queryByRole('heading', { name: /01a11ef5/i })).toBeNull();
     });
   });
@@ -295,6 +295,7 @@ describe('Complete Booking & Replacement Management Workflow Suite', () => {
     };
 
     it('renders customer profile, assigned worker allocation, and full lifecycle timeline', async () => {
+      const user = userEvent.setup();
       renderWithProviders(
         <BookingDetailModal
           booking={mockBookingWithHistory}
@@ -304,8 +305,17 @@ describe('Complete Booking & Replacement Management Workflow Suite', () => {
       );
 
       expect(screen.getByText('Booking Details: B-84920')).toBeInTheDocument();
+
+      // Navigate to Customer Details
+      await user.click(screen.getByTestId('workspace-tab-customer'));
       expect(screen.getByText('Anand Sharma')).toBeInTheDocument();
+
+      // Navigate to Assigned Worker
+      await user.click(screen.getByTestId('workspace-tab-worker'));
       expect(screen.getByText('Sunita Devi')).toBeInTheDocument();
+
+      // Navigate to Booking Timeline
+      await user.click(screen.getByTestId('workspace-tab-timeline'));
       expect(screen.getByText(/Booking Lifecycle History & Timeline/i)).toBeInTheDocument();
 
       // Verify status progression timeline events

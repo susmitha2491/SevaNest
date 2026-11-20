@@ -139,9 +139,47 @@ export function evaluateVerificationWorkflow(
     // Frontend sequential locking is removed. All reviewable documents and checks
     // remain independently accessible and reviewable in any order.
     const isLocked = false;
-    const prerequisiteStepNumber: number | undefined = undefined;
-    const prerequisiteTitle: string | undefined = undefined;
+    let prerequisiteStepNumber: number | undefined = undefined;
+    let prerequisiteTitle: string | undefined = undefined;
     const prerequisiteBlockers: string[] = [];
+
+    if (stepDef.type === 'ADDRESS') {
+      const idStatus = safeChecks['IDENTITY']?.status;
+      if (idStatus !== 'APPROVED') {
+        prerequisiteStepNumber = 1;
+        prerequisiteTitle = 'Identity Proof';
+        prerequisiteBlockers.push('Step 1 (Identity Proof) must be approved first');
+      }
+    } else if (stepDef.type === 'EMERGENCY_CONTACT') {
+      const addrStatus = safeChecks['ADDRESS']?.status;
+      if (addrStatus !== 'APPROVED') {
+        prerequisiteStepNumber = 2;
+        prerequisiteTitle = 'Address Proof';
+        prerequisiteBlockers.push('Step 2 (Address Proof) must be approved first');
+      }
+    } else if (stepDef.type === 'REFERENCE' || (stepDef.type as string) === 'PREVIOUS_EMPLOYMENT') {
+      const emergStatus = safeChecks['EMERGENCY_CONTACT']?.status;
+      if (emergStatus !== 'APPROVED') {
+        prerequisiteStepNumber = 3;
+        prerequisiteTitle = 'Emergency Contact';
+        prerequisiteBlockers.push('Step 3 (Emergency Contact) must be approved first');
+      }
+    } else if (stepDef.type === 'POLICE_CLEARANCE' || (stepDef.type as string) === 'POLICE_VERIFICATION') {
+      const idStatus = safeChecks['IDENTITY']?.status;
+      const addrStatus = safeChecks['ADDRESS']?.status;
+      if (idStatus !== 'APPROVED') {
+        prerequisiteStepNumber = 1;
+        prerequisiteTitle = 'Identity Proof';
+        prerequisiteBlockers.push('Step 1 (Identity Proof) must be approved first');
+      }
+      if (addrStatus !== 'APPROVED') {
+        if (!prerequisiteStepNumber) {
+          prerequisiteStepNumber = 2;
+          prerequisiteTitle = 'Address Proof';
+        }
+        prerequisiteBlockers.push('Step 2 (Address Proof) must be approved first');
+      }
+    }
 
     const isCurrentActionable = !isCompleted;
     if (isCurrentActionable && !firstUnapprovedFound) {
@@ -198,4 +236,98 @@ export function getNextStepType(currentType: VerificationCheckType): Verificatio
     return VERIFICATION_CHECK_ORDER[currentIndex + 1].type;
   }
   return null;
+}
+
+export interface VerificationProgressStage {
+  stage: string;
+  stageNumber: number;
+  totalStages: number;
+  approvedCount: number;
+  percent: number;
+  label: string;
+}
+
+/**
+ * Calculates current verification stage, completed check count, and progress summary for a worker dossier.
+ */
+export function getVerificationProgressStage(dossier?: {
+  checks?: Record<string, VerificationCheck>;
+  status?: string;
+} | null): VerificationProgressStage {
+  if (!dossier) {
+    return { stage: 'Not Started', stageNumber: 0, totalStages: 5, approvedCount: 0, percent: 0, label: '0/5 Checks' };
+  }
+
+  const checks = dossier.checks || {};
+  let approvedCount = 0;
+  for (const step of VERIFICATION_CHECK_ORDER) {
+    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
+    if (chk?.status === 'APPROVED') {
+      approvedCount++;
+    }
+  }
+
+  if (dossier.status === 'APPROVED') {
+    return { stage: 'Approved & Signed Off', stageNumber: 5, totalStages: 5, approvedCount: 5, percent: 100, label: '5/5 Approved' };
+  }
+  if (dossier.status === 'RECHECK_DUE') {
+    return { stage: 'Re-Check Due', stageNumber: approvedCount, totalStages: 5, approvedCount, percent: Math.round((approvedCount / 5) * 100), label: 'Recheck Due' };
+  }
+  if (dossier.status === 'REJECTED') {
+    return { stage: 'Corrections Required', stageNumber: approvedCount, totalStages: 5, approvedCount, percent: Math.round((approvedCount / 5) * 100), label: 'Corrections Needed' };
+  }
+
+  // Find first unapproved step
+  for (const step of VERIFICATION_CHECK_ORDER) {
+    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
+    if (chk?.status !== 'APPROVED') {
+      return {
+        stage: step.title,
+        stageNumber: step.stepNumber,
+        totalStages: 5,
+        approvedCount,
+        percent: Math.round((approvedCount / 5) * 100),
+        label: `${approvedCount}/5 • ${step.title}`,
+      };
+    }
+  }
+
+  return { stage: 'Ready for Sign-Off', stageNumber: 5, totalStages: 5, approvedCount: 5, percent: 100, label: '5/5 Approved • Pending Sign-Off' };
+}
+
+/**
+ * Calculates the next required operational action description for a worker dossier.
+ */
+export function getNextActionDescription(dossier?: {
+  checks?: Record<string, VerificationCheck>;
+  status?: string;
+} | null): string {
+  if (!dossier) return 'Open Dossier';
+  if (dossier.status === 'APPROVED') return 'Verification Completed';
+  if (dossier.status === 'RECHECK_DUE') return 'Review Expired Credentials';
+  if (dossier.status === 'REJECTED') return 'Review Corrections';
+  if (dossier.status === 'PENDING_REVIEW') return 'Start Review / Claim';
+
+  const checks = dossier.checks || {};
+  for (const step of VERIFICATION_CHECK_ORDER) {
+    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
+    if (chk?.status !== 'APPROVED') {
+      switch (step.type) {
+        case 'IDENTITY':
+          return 'Inspect Identity Proof';
+        case 'ADDRESS':
+          return 'Inspect Address Proof';
+        case 'EMERGENCY_CONTACT':
+          return 'Vet Emergency Contact';
+        case 'REFERENCE':
+          return 'Call Employer Reference';
+        case 'POLICE_CLEARANCE':
+          return 'Record Police Certificate';
+        default:
+          return `Verify ${step.title}`;
+      }
+    }
+  }
+
+  return 'Supervisor Sign-Off';
 }

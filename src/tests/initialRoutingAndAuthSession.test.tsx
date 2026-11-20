@@ -71,12 +71,11 @@ describe('Initial Login Page Routing & Session Verification', () => {
     const { router } = renderApp('/');
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/verification');
+      expect(router.state.location.pathname).toBe('/dashboard');
     });
 
-    expect(await screen.findByText('Worker Verification & Trust Operations', {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Trust & Verification Console/i }, { timeout: 4000 })).toBeInTheDocument();
     expect(screen.queryByText(/Access Restricted/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Required permission: dashboard.view/i)).not.toBeInTheDocument();
   });
 
   it('3. Opening / with a valid Super Admin session redirects to /dashboard when authorized', async () => {

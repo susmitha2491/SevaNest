@@ -270,6 +270,7 @@ export const VerificationCheckStatusView: React.FC<VerificationCheckStatusViewPr
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
+            aria-label="Refresh"
             style={{
               padding: '6px 12px',
               borderRadius: 'var(--radius-md)',
@@ -278,13 +279,14 @@ export const VerificationCheckStatusView: React.FC<VerificationCheckStatusViewPr
               fontSize: '11px',
               fontWeight: 600,
               cursor: isFetching ? 'not-allowed' : 'pointer',
+              opacity: isFetching ? 0.7 : 1,
               display: 'inline-flex',
               alignItems: 'center',
               gap: '4px',
             }}
           >
             <RefreshCw size={12} className={isFetching ? 'animate-spin' : ''} />
-            <span>Refresh Status</span>
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
 

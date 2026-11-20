@@ -371,10 +371,12 @@ export const SupportExecutiveDashboard: React.FC = () => {
             opacity: isFetching ? 0.7 : 1,
             boxShadow: 'var(--shadow-sm)',
           }}
+          aria-label="Refresh"
         >
           <RefreshCw
             size={14}
             color="var(--color-primary)"
+            className={isFetching ? 'animate-spin' : ''}
             style={{ animation: isFetching ? 'spin 1s linear infinite' : undefined }}
           />
           <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
@@ -383,6 +385,7 @@ export const SupportExecutiveDashboard: React.FC = () => {
 
       {/* 2. KPI Cards */}
       <div
+        className="kpi-grid"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 175px), 1fr))',

@@ -279,9 +279,10 @@ export const DirectoryPage: React.FC = () => {
               alignItems: 'center',
               gap: '6px',
             }}
+            aria-label="Refresh"
           >
             <RefreshCw size={14} className={isCurrentFetching ? 'animate-spin' : ''} />
-            <span>Refresh</span>
+            <span>{isCurrentFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
@@ -474,164 +475,214 @@ export const DirectoryPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs, 11px)' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '75px', whiteSpace: 'nowrap' }}>
                         Worker ID
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', minWidth: '120px', whiteSpace: 'nowrap' }}>
                         Worker Name & Contact
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '75px', whiteSpace: 'nowrap' }}>
                         Skills
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                        Experience & Rating
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '85px', whiteSpace: 'nowrap' }}>
+                        Exp & Rating
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '70px', whiteSpace: 'nowrap' }}>
                         Locality
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                        Verification Status
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '85px', whiteSpace: 'nowrap' }}>
+                        Verification
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
-                        Account Status
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', width: '75px', whiteSpace: 'nowrap' }}>
+                        Status
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
+                      <th style={{ padding: '8px 6px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', width: '85px', whiteSpace: 'nowrap' }}>
                         Actions
                       </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {workers.map((worker: Worker) => (
-                      <tr
-                        key={worker.id}
-                        tabIndex={0}
-                        role="button"
-                        aria-label={`View profile for ${worker.name} (${worker.id})`}
-                        className="worker-directory-row clickable-table-row"
-                        onClick={(e) => {
-                          const target = e.target as { closest?: (selector: string) => unknown };
-                          if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                            return;
+                    {workers.map((worker: Worker) => {
+                      const skillList: string[] = [];
+                      const addSkill = (val?: string) => {
+                        if (!val) return;
+                        val.split(',').map((s) => s.trim()).filter(Boolean).forEach((s) => {
+                          if (!skillList.some((existing) => existing.toLowerCase() === s.toLowerCase())) {
+                            skillList.push(s);
                           }
-                          handleSelectWorker(worker.id);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
+                        });
+                      };
+                      if (worker.category) addSkill(worker.category);
+                      if (worker.categories && Array.isArray(worker.categories)) {
+                        worker.categories.forEach((cat) => addSkill(cat));
+                      }
+                      if (skillList.length === 0) skillList.push('General');
+
+                      const visibleSkills = skillList.slice(0, 1);
+                      const remainingSkills = skillList.length - 1;
+
+                      return (
+                        <tr
+                          key={worker.id}
+                          tabIndex={0}
+                          role="button"
+                          aria-label={`View profile for ${worker.name} (${worker.id})`}
+                          className="worker-directory-row clickable-table-row"
+                          onClick={(e) => {
                             const target = e.target as { closest?: (selector: string) => unknown };
                             if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                               return;
                             }
-                            e.preventDefault();
                             handleSelectWorker(worker.id);
-                          }
-                        }}
-                        style={{
-                          borderBottom: '1px solid var(--color-border-subtle)',
-                          cursor: 'pointer',
-                          transition: 'background-color 0.15s ease',
-                        }}
-                      >
-                        <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-primary)' }}>
-                          {worker.id}
-                        </td>
-
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
-                          {(worker.phone || worker.mobile || worker.phoneMasked) && (
-                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                              {worker.phone || worker.mobile || worker.phoneMasked}
-                            </div>
-                          )}
-                        </td>
-
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              const target = e.target as { closest?: (selector: string) => unknown };
+                              if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                                return;
+                              }
+                              e.preventDefault();
+                              handleSelectWorker(worker.id);
+                            }
+                          }}
+                          style={{
+                            borderBottom: '1px solid var(--color-border-subtle)',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.15s ease',
+                          }}
+                        >
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                             <span
+                              title={worker.id}
                               style={{
+                                fontFamily: 'monospace',
+                                fontWeight: 700,
                                 fontSize: '11px',
-                                fontWeight: 600,
-                                padding: '2px 8px',
-                                borderRadius: 'var(--radius-sm)',
-                                backgroundColor: 'var(--color-bg-subtle)',
-                                color: 'var(--color-text-primary)',
-                                border: '1px solid var(--color-border)',
+                                color: 'var(--color-primary)',
+                                display: 'inline-block',
+                                maxWidth: '75px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                verticalAlign: 'middle',
                               }}
                             >
-                              {worker.category || 'General'}
+                              {worker.id}
                             </span>
-                            {worker.categories && worker.categories.filter((c) => c !== worker.category).map((cat) => (
-                              <span
-                                key={cat}
-                                style={{
-                                  fontSize: '10px',
-                                  padding: '1px 6px',
-                                  borderRadius: 'var(--radius-sm)',
-                                  backgroundColor: 'var(--color-bg-app)',
-                                  color: 'var(--color-text-muted)',
-                                }}
-                              >
-                                +{cat}
-                              </span>
-                            ))}
-                          </div>
-                        </td>
+                          </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Briefcase size={12} style={{ color: 'var(--color-text-muted)' }} />
-                            <span>{worker.experienceYears || 0} yrs</span>
-                            <span style={{ color: 'var(--color-border)' }}>•</span>
-                            <Star size={12} style={{ color: '#f59e0b', fill: '#f59e0b' }} />
-                            <span style={{ fontWeight: 600 }}>{worker.ratingAverage ? Number(worker.ratingAverage).toFixed(1) : 'New'}</span>
-                          </div>
-                        </td>
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle' }}>
+                            <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '11px', whiteSpace: 'nowrap' }}>
+                              {worker.name}
+                            </div>
+                            {(worker.phone || worker.mobile || worker.phoneMasked) && (
+                              <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
+                                {worker.phone || worker.mobile || worker.phoneMasked}
+                              </div>
+                            )}
+                          </td>
 
-                        <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <MapPin size={12} style={{ color: 'var(--color-text-muted)' }} />
-                            <span>{worker.locality || 'Hyderabad'}</span>
-                          </div>
-                        </td>
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'nowrap' }}>
+                              {visibleSkills.map((skill, sIdx) => (
+                                <span
+                                  key={skill}
+                                  title={skillList.join(', ')}
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 600,
+                                    padding: '1px 5px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    backgroundColor: sIdx === 0 ? 'var(--color-bg-subtle)' : 'var(--color-bg-app)',
+                                    color: sIdx === 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                    border: '1px solid var(--color-border)',
+                                    whiteSpace: 'nowrap',
+                                    maxWidth: '75px',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    display: 'inline-block',
+                                    verticalAlign: 'middle',
+                                  }}
+                                >
+                                  {skill}
+                                </span>
+                              ))}
+                              {remainingSkills > 0 && (
+                                <span
+                                  title={skillList.slice(1).join(', ')}
+                                  style={{
+                                    fontSize: '10px',
+                                    padding: '1px 4px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    backgroundColor: 'var(--color-bg-app)',
+                                    color: 'var(--color-text-muted)',
+                                    border: '1px solid var(--color-border)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  +{remainingSkills}
+                                </span>
+                              )}
+                            </div>
+                          </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <VerificationBadge isFullyVerified={true} status="VERIFIED" />
-                        </td>
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', fontSize: '11px' }}>
+                              <Briefcase size={10} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                              <span>{worker.experienceYears || 0}y</span>
+                              <span style={{ color: 'var(--color-border)' }}>•</span>
+                              <Star size={10} style={{ color: '#f59e0b', fill: '#f59e0b', flexShrink: 0 }} />
+                              <span style={{ fontWeight: 600 }}>{worker.ratingAverage ? Number(worker.ratingAverage).toFixed(1) : 'New'}</span>
+                            </div>
+                          </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <StatusBadge status={worker.status || 'ACTIVE'} />
-                        </td>
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', fontSize: '11px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+                              <MapPin size={10} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                              <span>{worker.locality || 'Hyderabad'}</span>
+                            </div>
+                          </td>
 
-                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleSelectWorker(worker.id);
-                            }}
-                            style={{
-                              padding: '6px 12px',
-                              borderRadius: 'var(--radius-md)',
-                              border: '1px solid var(--color-border)',
-                              backgroundColor: 'var(--color-surface)',
-                              color: 'var(--color-text-primary)',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                            }}
-                          >
-                            <Eye size={12} />
-                            <span>View Profile</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                            <VerificationBadge isFullyVerified={true} status="VERIFIED" />
+                          </td>
+
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                            <StatusBadge status={worker.status || 'ACTIVE'} />
+                          </td>
+
+                          <td style={{ padding: '6px 6px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectWorker(worker.id);
+                              }}
+                              style={{
+                                padding: '3px 6px',
+                                borderRadius: 'var(--radius-md)',
+                                border: '1px solid var(--color-border)',
+                                backgroundColor: 'var(--color-surface)',
+                                color: 'var(--color-text-primary)',
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '3px',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Eye size={11} />
+                              <span>View Profile</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -796,26 +847,26 @@ export const DirectoryPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs, 12px)' }}>
                   <thead>
                     <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap', width: '80px' }}>
                         Customer ID
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                         Customer Name & Contact
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                         Locality
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                         Registration Date
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                         Account Status
                       </th>
-                      <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
+                      <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '90px' }}>
                         Actions
                       </th>
                     </tr>
@@ -851,38 +902,53 @@ export const DirectoryPage: React.FC = () => {
                           transition: 'background-color 0.15s ease',
                         }}
                       >
-                        <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-primary)' }}>
-                          {customer.id}
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                          <span
+                            title={customer.id}
+                            style={{
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              fontSize: '11px',
+                              color: 'var(--color-primary)',
+                              display: 'inline-block',
+                              maxWidth: '75px',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            {customer.id}
+                          </span>
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{customer.name}</div>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle' }}>
+                          <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '12px', whiteSpace: 'nowrap' }}>{customer.name}</div>
                           {(customer.unmaskedPhone || customer.phone || customer.maskedPhone) && (
-                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
                               {customer.unmaskedPhone || customer.phone || customer.maskedPhone}
                             </div>
                           )}
                         </td>
 
-                        <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', fontSize: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <MapPin size={12} style={{ color: 'var(--color-text-muted)' }} />
+                            <MapPin size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
                             <span>{customer.locality || 'Hyderabad'}</span>
                           </div>
                         </td>
 
-                        <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', fontSize: '12px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <Calendar size={12} style={{ color: 'var(--color-text-muted)' }} />
+                            <Calendar size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
                             <span>{formatRegistrationDateIST(customer.registeredDate)}</span>
                           </div>
                         </td>
 
-                        <td style={{ padding: '14px 16px' }}>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                           <StatusBadge status={customer.status} />
                         </td>
 
-                        <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                        <td style={{ padding: '6px 8px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -890,7 +956,7 @@ export const DirectoryPage: React.FC = () => {
                               setSelectedCustomerId(customer.id);
                             }}
                             style={{
-                              padding: '6px 12px',
+                              padding: '4px 8px',
                               borderRadius: 'var(--radius-md)',
                               border: '1px solid var(--color-border)',
                               backgroundColor: 'var(--color-surface)',
@@ -900,7 +966,8 @@ export const DirectoryPage: React.FC = () => {
                               cursor: 'pointer',
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: '4px',
+                              gap: '3px',
+                              whiteSpace: 'nowrap',
                             }}
                           >
                             <Eye size={12} />

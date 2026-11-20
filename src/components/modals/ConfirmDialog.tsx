@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AlertTriangle, X } from 'lucide-react';
 import { RequiredIndicator } from '../common/RequiredIndicator';
+import { useBodyScrollLock } from '../../shared/hooks/useBodyScrollLock';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -46,6 +47,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   const [remarks, setRemarks] = useState('');
   const [isConfirmedCheckbox, setIsConfirmedCheckbox] = useState(!isDestructive);
 
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen);
+
   React.useEffect(() => {
     if (isOpen) {
       setRemarks('');
@@ -65,6 +69,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -74,6 +79,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         justifyContent: 'center',
         zIndex,
         padding: 'var(--space-4)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
@@ -86,6 +92,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       }}
     >
       <div
+        className="modal-content modal-scrollable-body"
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border)',
@@ -99,19 +106,20 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           flexDirection: 'column',
           gap: 'var(--space-4)',
           boxShadow: 'var(--shadow-xl)',
+          overscrollBehavior: 'contain',
         }}
         onClick={(e) => {
           e.stopPropagation();
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flex: '1 1 auto', minWidth: 0 }}>
             {isDestructive && (
-              <div style={{ color: 'var(--color-error)' }}>
+              <div style={{ color: 'var(--color-error)', flexShrink: 0 }}>
                 <AlertTriangle size={24} />
               </div>
             )}
-            <h2 id="confirm-dialog-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--color-navy)' }}>
+            <h2 id="confirm-dialog-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 600, color: 'var(--color-navy)', margin: 0, wordBreak: 'break-word' }}>
               {title}
             </h2>
           </div>
@@ -121,10 +129,11 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
               e.stopPropagation();
               if (!isLoading) onCancel();
             }}
-            style={{ color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+            className="modal-close-btn"
             aria-label="Close dialog"
+            title="Close dialog"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 

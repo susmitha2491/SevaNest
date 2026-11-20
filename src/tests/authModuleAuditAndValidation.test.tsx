@@ -96,9 +96,9 @@ describe('Authentication Module Audit & Security Validation', () => {
       // Verify role label formatting
       expect(getRoleLabel('VERIFICATION_SUPERVISOR')).toBe('Verification Supervisor');
 
-      // Verify default workstation landing route is /verification
+      // Verify default workstation landing route is /dashboard
       const landing = getDefaultLandingRoute(supervisorUser);
-      expect(landing).toBe('/verification');
+      expect(landing).toBe('/dashboard');
     });
 
     it('normalizes backend role aliases VERIF_SUPERVISOR and VERIFICATION_LEAD to VERIFICATION_SUPERVISOR', () => {
@@ -243,9 +243,8 @@ describe('Authentication Module Audit & Security Validation', () => {
         expect(router.state.location.pathname).toBe('/auth/login');
       });
 
-      expect(router.state.location.state).toEqual({
-        from: expect.objectContaining({ pathname: '/bookings' }),
-      });
+      // Without stored refresh token, state is cleanly cleared to prevent stale redirects
+      expect(router.state.location.state).toBeNull();
     });
   });
 

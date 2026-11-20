@@ -210,31 +210,29 @@ export const BookingAttendanceSection: React.FC<BookingAttendanceSectionProps> =
       </div>
 
       {/* Monthly Summary Cards */}
-      {summary && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
-          {[
-            { label: 'Recorded', value: summary.recorded ?? entries.length, color: '#0f172a', bg: '#f8fafc' },
-            { label: 'Present', value: summary.presentDays, color: '#15803d', bg: '#f0fdf4' },
-            { label: 'Absent', value: summary.absentDays, color: '#b91c1c', bg: '#fef2f2' },
-            { label: 'Late', value: summary.lateDays, color: '#b45309', bg: '#fffbeb' },
-            { label: 'Leave', value: summary.leaveDays, color: '#475569', bg: '#f8fafc' },
-            { label: 'Exceptions', value: summary.exceptionDays, color: '#0369a1', bg: '#f0f9ff' },
-          ].map((stat) => (
-            <div
-              key={stat.label}
-              style={{
-                padding: '10px 12px',
-                borderRadius: '8px',
-                backgroundColor: stat.bg,
-                border: '1px solid #e2e8f0',
-              }}
-            >
-              <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b' }}>{stat.label}</div>
-              <div style={{ fontSize: '18px', fontWeight: 800, color: stat.color, marginTop: '2px' }}>{stat.value}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px' }}>
+        {[
+          { label: 'Recorded', value: summary?.recorded ?? entries.length, color: '#0f172a', bg: '#f8fafc' },
+          { label: 'Present', value: summary?.presentDays ?? entries.filter((e) => e.status === 'PRESENT').length, color: '#15803d', bg: '#f0fdf4' },
+          { label: 'Absent', value: summary?.absentDays ?? entries.filter((e) => e.status === 'ABSENT').length, color: '#b91c1c', bg: '#fef2f2' },
+          { label: 'Late', value: summary?.lateDays ?? entries.filter((e) => e.status === 'LATE').length, color: '#b45309', bg: '#fffbeb' },
+          { label: 'Leave', value: summary?.leaveDays ?? entries.filter((e) => e.status === 'LEAVE').length, color: '#475569', bg: '#f8fafc' },
+          { label: 'Exceptions', value: summary?.exceptionDays ?? entries.filter((e) => e.status === 'EXCEPTION').length, color: '#0369a1', bg: '#f0f9ff' },
+        ].map((stat) => (
+          <div
+            key={stat.label}
+            style={{
+              padding: '10px 12px',
+              borderRadius: '8px',
+              backgroundColor: stat.bg,
+              border: '1px solid #e2e8f0',
+            }}
+          >
+            <div style={{ fontSize: '11px', fontWeight: 600, color: '#64748b' }}>{stat.label}</div>
+            <div style={{ fontSize: '18px', fontWeight: 800, color: stat.color, marginTop: '2px' }}>{stat.value}</div>
+          </div>
+        ))}
+      </div>
 
       {/* Inline Record or Correct Form */}
       {(isRecording || editingEntry) && canManageAttendance && (
@@ -397,9 +395,14 @@ export const BookingAttendanceSection: React.FC<BookingAttendanceSectionProps> =
         ) : isEntriesError ? (
           <div style={{ fontSize: '12px', color: '#b91c1c' }}>Unable to load attendance logs.</div>
         ) : entries.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '20px', color: '#64748b', fontSize: '13px' }}>
-            <Calendar size={24} color="#cbd5e1" style={{ margin: '0 auto 6px', display: 'block' }} />
-            No attendance logs recorded for this booking yet.
+          <div style={{ textAlign: 'center', padding: '28px 16px', color: '#64748b', fontSize: '13px' }}>
+            <Calendar size={28} color="#94a3b8" style={{ margin: '0 auto 8px', display: 'block' }} />
+            <div style={{ fontWeight: 600, color: '#334155', marginBottom: '3px' }}>
+              No attendance logs recorded for this booking yet ({selectedMonth}).
+            </div>
+            <div style={{ fontSize: '11px', color: '#64748b' }}>
+              Daily attendance logs marked by workers or verified by administrators will appear here.
+            </div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>

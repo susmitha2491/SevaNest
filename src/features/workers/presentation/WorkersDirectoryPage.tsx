@@ -158,9 +158,10 @@ export const WorkersDirectoryPage: React.FC = () => {
               alignItems: 'center',
               gap: '6px',
             }}
+            aria-label="Refresh"
           >
             <RefreshCw size={14} className={isFetching ? 'animate-spin' : ''} />
-            <span>Refresh</span>
+            <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
         </div>
       </div>
@@ -251,186 +252,230 @@ export const WorkersDirectoryPage: React.FC = () => {
             </p>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-sm)' }}>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs, 12px)' }}>
               <thead>
                 <tr style={{ backgroundColor: 'var(--color-bg-subtle)', borderBottom: '1px solid var(--color-border)' }}>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap', width: '80px' }}>
                     Worker ID
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     Worker Name & Contact
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     Skill Categories
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     Experience & Rating
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     Locality
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                     KYC & Platform Status
                   </th>
-                  <th style={{ padding: '12px 16px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right' }}>
+                  <th style={{ padding: '8px 8px', fontWeight: 700, fontSize: '11px', color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '135px' }}>
                     Actions
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {workers.map((worker: Worker) => (
-                  <tr
-                    key={worker.id}
-                    tabIndex={0}
-                    role="button"
-                    aria-label={`View profile for ${worker.name} (${worker.id})`}
-                    className="worker-directory-row clickable-table-row"
-                    onClick={(e) => {
-                      const target = e.target as { closest?: (selector: string) => unknown };
-                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                        return;
+                {workers.map((worker: Worker) => {
+                  const skillList: string[] = [];
+                  const addSkill = (val?: string) => {
+                    if (!val) return;
+                    val.split(',').map((s) => s.trim()).filter(Boolean).forEach((s) => {
+                      if (!skillList.some((existing) => existing.toLowerCase() === s.toLowerCase())) {
+                        skillList.push(s);
                       }
-                      setSelectedWorkerId(worker.id);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
+                    });
+                  };
+                  if (worker.category) addSkill(worker.category);
+                  if (worker.categories && Array.isArray(worker.categories)) {
+                    worker.categories.forEach((cat) => addSkill(cat));
+                  }
+                  if (skillList.length === 0) skillList.push('General');
+
+                  const visibleSkills = skillList.slice(0, 1);
+                  const remainingSkills = skillList.length - 1;
+
+                  return (
+                    <tr
+                      key={worker.id}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`View profile for ${worker.name} (${worker.id})`}
+                      className="worker-directory-row clickable-table-row"
+                      onClick={(e) => {
                         const target = e.target as { closest?: (selector: string) => unknown };
                         if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                           return;
                         }
-                        e.preventDefault();
                         setSelectedWorkerId(worker.id);
-                      }
-                    }}
-                    style={{
-                      borderBottom: '1px solid var(--color-border-subtle)',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.15s ease',
-                    }}
-                  >
-                    <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontWeight: 700, color: 'var(--color-primary)' }}>
-                      {worker.id}
-                    </td>
-
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{worker.name}</div>
-                      {(worker.phone || worker.mobile || worker.phoneMasked) && (
-                        <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                          {worker.phone || worker.mobile || worker.phoneMasked}
-                        </div>
-                      )}
-                    </td>
-
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          const target = e.target as { closest?: (selector: string) => unknown };
+                          if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                            return;
+                          }
+                          e.preventDefault();
+                          setSelectedWorkerId(worker.id);
+                        }
+                      }}
+                      style={{
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
                         <span
+                          title={worker.id}
                           style={{
+                            fontFamily: 'monospace',
+                            fontWeight: 700,
                             fontSize: '11px',
-                            fontWeight: 600,
-                            padding: '2px 8px',
-                            borderRadius: 'var(--radius-sm)',
-                            backgroundColor: 'var(--color-bg-subtle)',
-                            color: 'var(--color-text-primary)',
-                            border: '1px solid var(--color-border)',
+                            color: 'var(--color-primary)',
+                            display: 'inline-block',
+                            maxWidth: '75px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            verticalAlign: 'middle',
                           }}
                         >
-                          {worker.category || 'General'}
+                          {worker.id}
                         </span>
-                        {worker.categories && worker.categories.filter((c) => c !== worker.category).map((cat) => (
-                          <span
-                            key={cat}
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '12px', whiteSpace: 'nowrap' }}>{worker.name}</div>
+                        {(worker.phone || worker.mobile || worker.phoneMasked) && (
+                          <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
+                            {worker.phone || worker.mobile || worker.phoneMasked}
+                          </div>
+                        )}
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', flexWrap: 'nowrap' }}>
+                          {visibleSkills.map((skill, sIdx) => (
+                            <span
+                              key={skill}
+                              title={skillList.join(', ')}
+                              style={{
+                                fontSize: '11px',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: sIdx === 0 ? 'var(--color-bg-subtle)' : 'var(--color-bg-app)',
+                                color: sIdx === 0 ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
+                                border: '1px solid var(--color-border)',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {skill}
+                            </span>
+                          ))}
+                          {remainingSkills > 0 && (
+                            <span
+                              title={skillList.slice(1).join(', ')}
+                              style={{
+                                fontSize: '10px',
+                                padding: '1px 5px',
+                                borderRadius: 'var(--radius-sm)',
+                                backgroundColor: 'var(--color-bg-app)',
+                                color: 'var(--color-text-muted)',
+                                border: '1px solid var(--color-border)',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              +{remainingSkills}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '11px' }}>
+                          <Briefcase size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                          <span>{worker.experienceYears || 0} yrs</span>
+                          <span style={{ color: 'var(--color-border)' }}>•</span>
+                          <Star size={11} style={{ color: '#f59e0b', fill: '#f59e0b', flexShrink: 0 }} />
+                          <span style={{ fontWeight: 600 }}>{worker.ratingAverage ? Number(worker.ratingAverage).toFixed(1) : 'New'}</span>
+                        </div>
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap', fontSize: '11px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
+                          <MapPin size={11} style={{ color: 'var(--color-text-muted)', flexShrink: 0 }} />
+                          <span>{worker.locality || 'Hyderabad'}</span>
+                        </div>
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <VerificationBadge isFullyVerified={true} status="VERIFIED" />
+                          <StatusBadge status={worker.status || 'ACTIVE'} />
+                        </div>
+                      </td>
+
+                      <td style={{ padding: '6px 8px', verticalAlign: 'middle', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/verification?workerId=${encodeURIComponent(worker.id)}`);
+                            }}
                             style={{
-                              fontSize: '10px',
-                              padding: '1px 6px',
-                              borderRadius: 'var(--radius-sm)',
-                              backgroundColor: 'var(--color-bg-app)',
-                              color: 'var(--color-text-muted)',
+                              padding: '4px 6px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-primary-subtle)',
+                              backgroundColor: 'var(--color-primary-subtle)',
+                              color: 'var(--color-primary)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title="Inspect verification dossier"
+                          >
+                            <ShieldCheck size={12} />
+                            <span>Dossier</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedWorkerId(worker.id);
+                            }}
+                            style={{
+                              padding: '4px 6px',
+                              borderRadius: 'var(--radius-md)',
+                              border: '1px solid var(--color-border)',
+                              backgroundColor: 'var(--color-surface)',
+                              color: 'var(--color-text-primary)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              whiteSpace: 'nowrap',
                             }}
                           >
-                            +{cat}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Briefcase size={12} style={{ color: 'var(--color-text-muted)' }} />
-                        <span>{worker.experienceYears || 0} yrs</span>
-                        <span style={{ color: 'var(--color-border)' }}>•</span>
-                        <Star size={12} style={{ color: '#f59e0b', fill: '#f59e0b' }} />
-                        <span style={{ fontWeight: 600 }}>{worker.ratingAverage ? Number(worker.ratingAverage).toFixed(1) : 'New'}</span>
-                      </div>
-                    </td>
-
-                    <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <MapPin size={12} style={{ color: 'var(--color-text-muted)' }} />
-                        <span>{worker.locality || 'Hyderabad'}</span>
-                      </div>
-                    </td>
-
-                    <td style={{ padding: '14px 16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <VerificationBadge isFullyVerified={true} status="VERIFIED" />
-                        <StatusBadge status={worker.status || 'ACTIVE'} />
-                      </div>
-                    </td>
-
-                    <td style={{ padding: '14px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            navigate(`/verification?workerId=${encodeURIComponent(worker.id)}`);
-                          }}
-                          style={{
-                            padding: '6px 10px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-primary-subtle)',
-                            backgroundColor: 'var(--color-primary-subtle)',
-                            color: 'var(--color-primary)',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                          title="Inspect verification dossier"
-                        >
-                          <ShieldCheck size={12} />
-                          <span>Dossier</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedWorkerId(worker.id);
-                          }}
-                          style={{
-                            padding: '6px 12px',
-                            borderRadius: 'var(--radius-md)',
-                            border: '1px solid var(--color-border)',
-                            backgroundColor: 'var(--color-surface)',
-                            color: 'var(--color-text-primary)',
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
-                        >
-                          <Eye size={12} />
-                          <span>View Profile</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                            <Eye size={12} />
+                            <span>View Profile</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

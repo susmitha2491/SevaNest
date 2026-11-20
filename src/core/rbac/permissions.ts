@@ -187,8 +187,9 @@ export function hasAnyPermission(userPermissions: string[] | undefined, required
 /**
  * Derives the canonical operational landing route for an administrative user
  * based on their server-issued granular permissions.
- * Ensures specialized personas (e.g., Verification Executive) land directly on their
- * authorized workstation without triggering 403 / Access Restricted guards.
+ *
+ * Every authenticated role (Super Admin, Operations Admin, Verification Executive,
+ * Support Executive) consistently lands on the unified Dashboard (/dashboard).
  */
 export function getDefaultLandingRoute(user: { permissions?: string[]; role?: string } | null | undefined): string {
   if (!user || !user.permissions || !Array.isArray(user.permissions)) {
@@ -196,78 +197,13 @@ export function getDefaultLandingRoute(user: { permissions?: string[]; role?: st
   }
   const permissions = user.permissions;
 
-  // 1. Support Executive landing: lands on Support Operations Console (/dashboard)
-  if (
-    user.role === 'SUPPORT_EXECUTIVE' &&
-    hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)
-  ) {
-    return '/dashboard';
+  // If user has zero permissions and is an unassigned / unknown role
+  if (permissions.length === 0 && (!user.role || user.role === 'UNKNOWN')) {
+    return '/account';
   }
 
-  // 2. Command center / dashboard when explicitly authorized with dashboard.view or wildcard
-  if (
-    permissions.includes(PERMISSIONS.DASHBOARD_VIEW) ||
-    permissions.includes('dashboard.view') ||
-    permissions.includes('*')
-  ) {
-    return '/dashboard';
-  }
-
-  // 3. Verification staff default operational workstation: /verification
-  if (
-    (user.role === 'VERIFICATION_EXECUTIVE' || user.role === 'VERIFICATION_SUPERVISOR') &&
-    hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)
-  ) {
-    return '/verification';
-  }
-
-  // 4. Command center / dashboard via alias permissions (e.g. Operations Admin via alert.view)
-  if (hasPermission(permissions, PERMISSIONS.DASHBOARD_VIEW)) {
-    return '/dashboard';
-  }
-
-  // 5. Granular fallbacks to authorized operational workstations
-  if (hasPermission(permissions, PERMISSIONS.VERIFICATION_REVIEW)) {
-    return '/verification';
-  }
-  if (
-    hasPermission(permissions, PERMISSIONS.SUPPORT_VIEW) ||
-    hasPermission(permissions, PERMISSIONS.SUPPORT_MANAGE)
-  ) {
-    return '/support';
-  }
-  if (
-    hasPermission(permissions, PERMISSIONS.BOOKINGS_VIEW) ||
-    hasPermission(permissions, PERMISSIONS.BOOKINGS_MANAGE)
-  ) {
-    return '/bookings';
-  }
-  if (
-    hasPermission(permissions, PERMISSIONS.WORKER_VIEW) ||
-    hasPermission(permissions, PERMISSIONS.WORKERS_MANAGE)
-  ) {
-    return '/workers';
-  }
-  if (
-    hasPermission(permissions, PERMISSIONS.CUSTOMERS_VIEW) ||
-    hasPermission(permissions, PERMISSIONS.CUSTOMERS_MANAGE)
-  ) {
-    return '/customers';
-  }
-  if (hasPermission(permissions, PERMISSIONS.PAYMENTS_VIEW) || hasPermission(permissions, PERMISSIONS.REFUNDS_MANAGE)) {
-    return '/payments';
-  }
-  if (hasPermission(permissions, PERMISSIONS.REPORTS_VIEW) || hasPermission(permissions, PERMISSIONS.EXPORTS_GENERATE)) {
-    return '/reports';
-  }
-  if (hasPermission(permissions, PERMISSIONS.CONFIGURATION_MANAGE) || hasPermission(permissions, PERMISSIONS.ROLES_MANAGE)) {
-    return '/configuration';
-  }
-  if (hasPermission(permissions, PERMISSIONS.AUDIT_VIEW)) {
-    return '/audit';
-  }
-
-  return '/account';
+  // Consistent landing route: Every authenticated role lands on the unified Dashboard (/dashboard)
+  return '/dashboard';
 }
 
 export { getRoleLabel, ROLE_LABELS } from './roleLabels';

@@ -70,9 +70,13 @@ describe('Booking & Service Management Workflows', () => {
 
     // Check modal contents
     expect(await screen.findByRole('heading', { name: /Booking Details: B-84920/i })).toBeInTheDocument();
-    expect(screen.getByText(/Customer Profile/i)).toBeInTheDocument();
+    expect(screen.getByText(/Booking Overview & Service Engagement/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Kondapur/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Deep kitchen cleaning/i)).toBeInTheDocument();
+
+    // Navigate to Customer Details
+    await user.click(screen.getByRole('tab', { name: /Customer Details/i }));
+    expect(screen.getByText(/Customer Profile/i)).toBeInTheDocument();
   });
 
   it('opens candidate matching wizard and displays only verified worker matches', async () => {

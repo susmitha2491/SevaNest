@@ -358,7 +358,7 @@ export async function generateProfessionalExcel(
     color: { argb: 'FF0F172A' },
   });
 
-  addMergedBannerRow(worksheet, report.description || 'Authoritative PRD Section 14 Operational Telemetry', bannerSpanCols, 28, {
+  addMergedBannerRow(worksheet, report.description || 'Authoritative Operational Telemetry', bannerSpanCols, 28, {
     name: 'Calibri',
     size: 10,
     italic: true,

@@ -43,11 +43,13 @@ import {
 import { ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { evaluateVerificationWorkflow } from '../../verification/domain/verificationWorkflow';
 import { formatDocumentVaultError } from '../../verification/domain/documentVaultErrorFormatter';
+import { formatDocumentSize, isSuspiciousMinimalDocument } from '../../verification/domain/documentUtils';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
@@ -167,6 +169,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     docNumber?: string;
     contentType?: string;
     mimeType?: string;
+    sizeBytes?: number;
     submittedAt?: string;
   } | null>(null);
   const [docRotation, setDocRotation] = useState(0);
@@ -287,11 +290,11 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     setIsPhotoLoadError(false);
   }, [workerId]);
 
-  // Modal accessibility: body scroll lock and Escape key listener
-  useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(true);
 
+  // Modal accessibility: Escape key listener
+  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (
@@ -311,7 +314,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, [
@@ -1524,26 +1526,16 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
       >
         {/* Clean Modal Header */}
         <div
+          className="modal-header-container"
           style={{
             flexShrink: 0,
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
             backgroundColor: 'var(--color-bg-subtle)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 'var(--space-2)',
           }}
         >
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 'var(--space-3)',
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <h2
                 id="worker-detail-modal-title"
                 style={{
@@ -1551,6 +1543,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                   fontWeight: 800,
                   color: 'var(--color-text-primary)',
                   margin: 0,
+                  wordBreak: 'break-word',
                 }}
               >
                 {worker.name}
@@ -1611,69 +1604,58 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-              <button
-                ref={closeButtonRef}
-                onClick={onClose}
-                aria-label="Close dossier"
-                title="Close"
+            {/* Sub-row with identity and locality */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-text-secondary)',
+                flexWrap: 'wrap',
+                marginTop: '4px',
+              }}
+            >
+              <span
                 style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-text-secondary)',
-                  padding: '6px',
-                  borderRadius: 'var(--radius-md)',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'background-color 0.15s ease',
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  color: 'var(--color-primary)',
+                  fontFamily: 'monospace',
+                  fontWeight: 700,
                 }}
               >
-                <X size={20} />
-              </button>
+                ID: {worker.id}
+              </span>
+              <span
+                style={{
+                  backgroundColor: 'var(--color-surface)',
+                  border: '1px solid var(--color-border)',
+                  padding: '2px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  fontFamily: 'monospace',
+                }}
+              >
+                • App ID: {worker.applicationId || dossier?.applicationId || worker.id}
+              </span>
+              <span>
+                • {worker.category} • {worker.experienceYears} Yrs Exp • {worker.locality}
+              </span>
             </div>
           </div>
 
-          {/* Sub-row with identity and locality */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-text-secondary)',
-              flexWrap: 'wrap',
-            }}
+          <button
+            ref={closeButtonRef}
+            onClick={onClose}
+            aria-label="Close dossier"
+            title="Close dossier"
+            className="modal-close-btn"
+            type="button"
           >
-            <span
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-sm)',
-                color: 'var(--color-primary)',
-                fontFamily: 'monospace',
-                fontWeight: 700,
-              }}
-            >
-              ID: {worker.id}
-            </span>
-            <span
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                border: '1px solid var(--color-border)',
-                padding: '2px 8px',
-                borderRadius: 'var(--radius-sm)',
-                fontFamily: 'monospace',
-              }}
-            >
-              • App ID: {worker.applicationId || dossier?.applicationId || worker.id}
-            </span>
-            <span>
-              • {worker.category} • {worker.experienceYears} Yrs Exp • {worker.locality}
-            </span>
-          </div>
+            <X size={18} />
+          </button>
         </div>
 
         {/* 4-Stage Workflow Navigation Tabs */}
@@ -3418,6 +3400,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                     docNumber: doc.docNumberMasked,
                                     contentType: doc.contentType,
                                     mimeType: doc.mimeType,
+                                    sizeBytes: doc.sizeBytes,
                                     submittedAt: doc.submittedAt,
                                   });
                                   setDocRotation(0);
@@ -3744,41 +3727,29 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                     >
                       {/* Popup Header */}
                       <div
+                        className="modal-header-container"
                         style={{
                           padding: 'var(--space-3) var(--space-4)',
                           borderBottom: '1px solid var(--color-border)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
                           backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
                         }}
                       >
-                        <div>
+                        <div className="modal-header-content">
                           <span style={{ fontSize: '10px', color: 'var(--color-primary)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.05em' }}>
                             Authorized Document Vault Preview
                           </span>
-                          <h4 style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+                          <h4 style={{ margin: '2px 0 0 0', fontSize: 'var(--font-size-sm)', fontWeight: 800, color: 'var(--color-text-primary)', wordBreak: 'break-word' }}>
                             {inspectingDoc.title} {inspectingDoc.docNumber ? `(${inspectingDoc.docNumber})` : ''}
                           </h4>
                         </div>
                         <button
+                          type="button"
                           onClick={() => setInspectingDoc(null)}
                           aria-label="Close Preview"
-                          style={{
-                            background: '#ffffff',
-                            border: '1px solid var(--color-border)',
-                            borderRadius: 'var(--radius-sm)',
-                            padding: '4px 10px',
-                            fontSize: 'var(--font-size-xs)',
-                            color: 'var(--color-text-secondary)',
-                            cursor: 'pointer',
-                            fontWeight: 600,
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                          }}
+                          title="Close Preview"
+                          className="modal-close-btn"
                         >
-                          ✕ Close Preview
+                          <X size={18} />
                         </button>
                       </div>
 
@@ -3956,10 +3927,39 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                   </div>
                                 </div>
 
+                                {isSuspiciousMinimalDocument(inspectingDoc.sizeBytes) && (
+                                  <div
+                                    data-testid="worker-detail-minimal-stub-warning"
+                                    style={{
+                                      backgroundColor: '#fffbeb',
+                                      border: '1px solid #fde68a',
+                                      borderRadius: 'var(--radius-sm)',
+                                      color: '#92400e',
+                                      padding: '6px 12px',
+                                      fontSize: '11px',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '6px',
+                                      width: '100%',
+                                      boxSizing: 'border-box',
+                                    }}
+                                  >
+                                    <AlertTriangle size={14} color="#d97706" style={{ flexShrink: 0 }} />
+                                    <span>
+                                      <strong>Minimal Document Attachment ({formatDocumentSize(inspectingDoc.sizeBytes)}):</strong> File is under 500 bytes and contains only minimal structural metadata without readable document content.
+                                    </span>
+                                  </div>
+                                )}
+
                                 {/* Document Metadata Bar */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '8px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
                                   <div>
                                     <strong>{inspectingDoc.title}</strong> {inspectingDoc.docNumber ? `(${inspectingDoc.docNumber})` : ''}
+                                    {inspectingDoc.sizeBytes !== undefined && inspectingDoc.sizeBytes !== null && (
+                                      <span style={{ marginLeft: '6px', color: 'var(--color-text-muted)' }}>
+                                        • {formatDocumentSize(inspectingDoc.sizeBytes)}
+                                      </span>
+                                    )}
                                   </div>
                                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                                     {inspectingDoc.submittedAt && (
@@ -4425,6 +4425,7 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                                     docNumber: doc.docNumberMasked,
                                     contentType: doc.contentType,
                                     mimeType: doc.mimeType,
+                                    sizeBytes: doc.sizeBytes,
                                     submittedAt: doc.submittedAt,
                                   });
                                   setDocRotation(0);

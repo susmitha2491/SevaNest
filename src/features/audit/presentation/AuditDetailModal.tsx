@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import {
   X,
   ShieldCheck,
@@ -114,6 +115,8 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  useBodyScrollLock(isOpen && Boolean(auditLog));
+
   // Handle ESC key to dismiss modal
   useEffect(() => {
     if (!isOpen) return;
@@ -155,6 +158,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -166,6 +170,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
         zIndex: 1000,
         padding: '16px',
         boxSizing: 'border-box',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
@@ -173,12 +178,13 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
       onClick={onClose}
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface, #ffffff)',
           borderRadius: '16px',
           maxWidth: '860px',
           width: 'min(94vw, 860px)',
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
@@ -190,17 +196,14 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
-            padding: '20px 24px',
+            padding: '16px 20px',
             borderBottom: '1px solid var(--color-border, #e2e8f0)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
             backgroundColor: '#f8fafc',
-            gap: '16px',
           }}
         >
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="modal-header-content">
             {/* Top Badge Strip */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
               <div
@@ -309,18 +312,9 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close modal"
-            style={{
-              padding: '6px',
-              borderRadius: '8px',
-              border: '1px solid var(--color-border, #e2e8f0)',
-              backgroundColor: '#ffffff',
-              color: 'var(--color-text-secondary, #64748b)',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background-color 150ms ease, color 150ms ease',
-            }}
+            title="Close modal"
+            className="modal-close-btn"
+            type="button"
           >
             <X size={18} />
           </button>
@@ -328,9 +322,13 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
 
         {/* Modal Scrollable Body */}
         <div
+          className="modal-scrollable-body"
           style={{
+            flex: 1,
+            minHeight: 0,
             padding: '24px',
             overflowY: 'auto',
+            overscrollBehavior: 'contain',
             display: 'flex',
             flexDirection: 'column',
             gap: '20px',
@@ -749,6 +747,7 @@ export const AuditDetailModal: React.FC<AuditDetailModalProps> = ({
             alignItems: 'center',
             flexWrap: 'wrap',
             gap: '12px',
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--color-text-tertiary, #64748b)' }}>

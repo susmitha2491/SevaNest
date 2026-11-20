@@ -264,7 +264,7 @@ describe('SevaNest Admin Portal: Tab-Close Logout, Login Rate-Limit Audit & Inac
       await user.click(submitBtn);
 
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification');
+        expect(router.state.location.pathname).toBe('/dashboard');
       });
 
       expect(useAuthStore.getState().user?.role).toBe('VERIFICATION_EXECUTIVE');

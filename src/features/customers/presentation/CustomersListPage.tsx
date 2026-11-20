@@ -40,6 +40,9 @@ export const CustomersListPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>(
     () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED') || 'ALL'
   );
+  const [verificationFilter, setVerificationFilter] = useState<'ALL' | 'VERIFIED' | 'PENDING'>(
+    () => (searchParams.get('verification') as 'ALL' | 'VERIFIED' | 'PENDING') || 'ALL'
+  );
   const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
   const [sortField, setSortField] = useState<CustomerSortField>('registeredDate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -86,11 +89,15 @@ export const CustomersListPage: React.FC = () => {
     if (stat && stat !== statusFilter) {
       setStatusFilter(stat as 'ALL' | 'ACTIVE' | 'SUSPENDED');
     }
+    const verif = searchParams.get('verification');
+    if (verif && verif !== verificationFilter) {
+      setVerificationFilter(verif as 'ALL' | 'VERIFIED' | 'PENDING');
+    }
     const loc = searchParams.get('locality');
     if (loc && loc !== localityFilter) {
       setLocalityFilter(loc);
     }
-  }, [searchParams, detailModalId, statusFilter, localityFilter]);
+  }, [searchParams, detailModalId, statusFilter, verificationFilter, localityFilter]);
 
   const handleOpenDetailModal = (id: string) => {
     setDetailModalId(id);
@@ -122,13 +129,14 @@ export const CustomersListPage: React.FC = () => {
     isFetchingNextPage,
     isFetching,
   } = useInfiniteQuery({
-    queryKey: ['customers', 'infinite', debouncedSearchTerm, statusFilter, localityFilter],
+    queryKey: ['customers', 'infinite', debouncedSearchTerm, statusFilter, verificationFilter, localityFilter],
     queryFn: async ({ pageParam = 1 }) => {
       if (typeof customerRepository.getCustomersPage === 'function') {
         return customerRepository.getCustomersPage(
           {
             searchTerm: debouncedSearchTerm,
             status: statusFilter,
+            verificationStatus: verificationFilter,
             locality: localityFilter,
           },
           pageParam,
@@ -138,6 +146,7 @@ export const CustomersListPage: React.FC = () => {
       const all = await customerRepository.getCustomers({
         searchTerm: debouncedSearchTerm,
         status: statusFilter,
+        verificationStatus: verificationFilter,
         locality: localityFilter,
       });
       return {
@@ -188,6 +197,10 @@ export const CustomersListPage: React.FC = () => {
       result = result.filter((c) => c.status === statusFilter);
     }
 
+    if (verificationFilter !== 'ALL') {
+      result = result.filter((c) => c.verificationStatus === verificationFilter);
+    }
+
     if (localityFilter !== 'ALL') {
       result = result.filter((c) => c.locality === localityFilter);
     }
@@ -215,7 +228,7 @@ export const CustomersListPage: React.FC = () => {
     });
 
     return result;
-  }, [allCustomers, searchTerm, statusFilter, localityFilter, sortField, sortOrder]);
+  }, [allCustomers, searchTerm, statusFilter, verificationFilter, localityFilter, sortField, sortOrder]);
 
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedCustomers.length;
 
@@ -380,7 +393,7 @@ export const CustomersListPage: React.FC = () => {
             setTimeout(() => setSuccessBanner(null), 3000);
           }}
           disabled={isFetching}
-          aria-label="Refresh customer directory"
+          aria-label="Refresh"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -398,7 +411,7 @@ export const CustomersListPage: React.FC = () => {
           }}
         >
           <RefreshCw size={13} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
-          <span>{isFetching ? 'Refreshing...' : 'Refresh Directory'}</span>
+          <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 
@@ -492,6 +505,31 @@ export const CustomersListPage: React.FC = () => {
           minWidth="140px"
         />
 
+        {/* Verification Status Filter */}
+        <CustomSelect
+          value={verificationFilter}
+          onChange={(val) => {
+            const nextVal = val as 'ALL' | 'VERIFIED' | 'PENDING';
+            setVerificationFilter(nextVal);
+            setSearchParams((prev) => {
+              const next = new window.URLSearchParams(prev);
+              if (nextVal !== 'ALL') {
+                next.set('verification', nextVal);
+              } else {
+                next.delete('verification');
+              }
+              return next;
+            }, { replace: true });
+          }}
+          options={[
+            { value: 'ALL', label: 'Verification: All' },
+            { value: 'VERIFIED', label: 'Verified' },
+            { value: 'PENDING', label: 'Pending Verification' },
+          ]}
+          ariaLabel="Filter by customer verification status"
+          minWidth="175px"
+        />
+
         {/* Locality Filter */}
         <CustomSelect
           value={localityFilter}
@@ -577,7 +615,7 @@ export const CustomersListPage: React.FC = () => {
                 Cluster Locality
               </th>
               <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                KYC Verification
+                Verification Status
               </th>
               <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Account Status

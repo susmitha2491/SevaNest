@@ -5,6 +5,7 @@ import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
+import { logger } from '../../../core/logging/logger';
 import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
 import { requestTokenRefresh } from '../../../core/auth/tokenRefreshCoordinator';
 
@@ -411,68 +412,98 @@ export class RealAuthRepository implements IAuthRepository {
       throw new UnauthorizedError('Administrative email and password are required.');
     }
 
-    try {
-      // Call POST /auth/admin/login
-      const response = await httpClient.post<Record<string, unknown>>('/auth/admin/login', {
-        email,
-        password,
-        ...(credentials.deviceId ? { deviceId: credentials.deviceId } : {}),
-        ...(credentials.deviceName ? { deviceName: credentials.deviceName } : {}),
-      });
+    const isTestMode = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
+    const maxWakeRetries = isTestMode ? 0 : 12;
+    let wakeAttempts = 0;
 
-      const rawData = response.data;
-      if (!rawData || typeof rawData !== 'object') {
-        throw new ServerFailureError('Unexpected response from authentication server.');
-      }
-
-      // Safely support both flat responses and nested envelopes ({ data: ... } or { tokens: ... })
-      const payload = (rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
-        ? (rawData.data as Record<string, unknown>)
-        : (rawData.tokens && typeof rawData.tokens === 'object' && !Array.isArray(rawData.tokens))
-        ? (rawData.tokens as Record<string, unknown>)
-        : rawData;
-
-      const accessToken = (payload.accessToken || payload.token || payload.access_token || rawData.accessToken) as string | undefined;
-      const refreshToken = (payload.refreshToken || payload.refresh_token || rawData.refreshToken) as string | undefined;
-
-      if (!accessToken || typeof accessToken !== 'string') {
-        throw new ServerFailureError('Unexpected response from authentication server: missing accessToken.');
-      }
-
-      // If user object or roles/permissions are returned directly with login response, map them; otherwise fetch from /users/me
-      let user: AdminUser;
-      const userSource = (payload.user || rawData.user) as Record<string, unknown> | undefined;
-      const hasDirectRoleOrPermissions =
-        payload.role !== undefined ||
-        rawData.role !== undefined ||
-        payload.roles !== undefined ||
-        rawData.roles !== undefined ||
-        payload.permissions !== undefined ||
-        rawData.permissions !== undefined;
-
-      if (userSource && typeof userSource === 'object') {
-        const mergedUser = {
-          ...userSource,
-          ...(payload.permissions !== undefined ? { permissions: payload.permissions } : rawData.permissions !== undefined ? { permissions: rawData.permissions } : {}),
-          ...(payload.permissionCodes !== undefined ? { permissionCodes: payload.permissionCodes } : rawData.permissionCodes !== undefined ? { permissionCodes: rawData.permissionCodes } : {}),
-          ...(payload.role !== undefined ? { role: payload.role } : rawData.role !== undefined ? { role: rawData.role } : {}),
-          ...(payload.roles !== undefined ? { roles: payload.roles } : rawData.roles !== undefined ? { roles: rawData.roles } : {}),
-        };
-        user = mapBackendUserToAdminUser(mergedUser, email);
-      } else if (hasDirectRoleOrPermissions) {
-        user = mapBackendUserToAdminUser(payload, email);
-      } else {
-        const meResponse = await httpClient.get('/users/me', {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+    while (true) {
+      try {
+        // Call POST /auth/admin/login
+        const response = await httpClient.post<Record<string, unknown>>('/auth/admin/login', {
+          email,
+          password,
+          ...(credentials.deviceId ? { deviceId: credentials.deviceId } : {}),
+          ...(credentials.deviceName ? { deviceName: credentials.deviceName } : {}),
         });
-        user = mapBackendUserToAdminUser(meResponse.data, email);
-      }
 
-      return { user, accessToken, refreshToken };
-    } catch (err: unknown) {
-      throw mapHttpErrorToDomainError(err);
+        const rawData = response.data;
+        if (!rawData || typeof rawData !== 'object') {
+          throw new ServerFailureError('Unexpected response from authentication server.');
+        }
+
+        // Safely support both flat responses and nested envelopes ({ data: ... } or { tokens: ... })
+        const payload = (rawData.data && typeof rawData.data === 'object' && !Array.isArray(rawData.data))
+          ? (rawData.data as Record<string, unknown>)
+          : (rawData.tokens && typeof rawData.tokens === 'object' && !Array.isArray(rawData.tokens))
+          ? (rawData.tokens as Record<string, unknown>)
+          : rawData;
+
+        const accessToken = (payload.accessToken || payload.token || payload.access_token || rawData.accessToken) as string | undefined;
+        const refreshToken = (payload.refreshToken || payload.refresh_token || rawData.refreshToken) as string | undefined;
+
+        if (!accessToken || typeof accessToken !== 'string') {
+          throw new ServerFailureError('Unexpected response from authentication server: missing accessToken.');
+        }
+
+        // If user object or roles/permissions are returned directly with login response, map them; otherwise fetch from /users/me
+        let user: AdminUser;
+        const userSource = (payload.user || rawData.user) as Record<string, unknown> | undefined;
+        const hasDirectRoleOrPermissions =
+          payload.role !== undefined ||
+          rawData.role !== undefined ||
+          payload.roles !== undefined ||
+          rawData.roles !== undefined ||
+          payload.permissions !== undefined ||
+          rawData.permissions !== undefined;
+
+        if (userSource && typeof userSource === 'object') {
+          const mergedUser = {
+            ...userSource,
+            ...(payload.permissions !== undefined ? { permissions: payload.permissions } : rawData.permissions !== undefined ? { permissions: rawData.permissions } : {}),
+            ...(payload.permissionCodes !== undefined ? { permissionCodes: payload.permissionCodes } : rawData.permissionCodes !== undefined ? { permissionCodes: rawData.permissionCodes } : {}),
+            ...(payload.role !== undefined ? { role: payload.role } : rawData.role !== undefined ? { role: rawData.role } : {}),
+            ...(payload.roles !== undefined ? { roles: payload.roles } : rawData.roles !== undefined ? { roles: rawData.roles } : {}),
+          };
+          user = mapBackendUserToAdminUser(mergedUser, email);
+        } else if (hasDirectRoleOrPermissions) {
+          user = mapBackendUserToAdminUser(payload, email);
+        } else {
+          const meResponse = await httpClient.get('/users/me', {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
+          user = mapBackendUserToAdminUser(meResponse.data, email);
+        }
+
+        return { user, accessToken, refreshToken };
+      } catch (err: unknown) {
+        const domainErr = mapHttpErrorToDomainError(err);
+        const isWakingUp =
+          domainErr instanceof ServerFailureError &&
+          (domainErr.errorCode === 'BACKEND_WAKING_UP' ||
+           domainErr.errorCode === 'HTTP_502' ||
+           domainErr.errorCode === 'HTTP_503' ||
+           domainErr.errorCode === 'HTTP_504' ||
+           domainErr.message.includes('waking up on Render') ||
+           domainErr.message.includes('temporarily unavailable'));
+
+        if (isWakingUp && wakeAttempts < maxWakeRetries) {
+          wakeAttempts++;
+          logger.info(`Render backend is waking up. Retrying login attempt ${wakeAttempts}/${maxWakeRetries}...`);
+          if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+            window.dispatchEvent(
+              new window.CustomEvent('backend-waking-up', {
+                detail: { attempt: wakeAttempts, maxRetries: maxWakeRetries },
+              })
+            );
+          }
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          continue;
+        }
+
+        throw domainErr;
+      }
     }
   }
 

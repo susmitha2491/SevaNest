@@ -21,6 +21,7 @@ import {
 import { bookingRepository } from '../data/bookingRepository';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface ReplacementFulfillmentModalProps {
   booking: BookingDetail | null;
@@ -37,6 +38,9 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
 }) => {
   const queryClient = useQueryClient();
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateMatch | null>(null);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(booking));
   const [remarks, setRemarks] = useState('');
   const [confirmedPolicy, setConfirmedPolicy] = useState(false);
   const [rejectRemarks, setRejectRemarks] = useState('');
@@ -204,6 +208,7 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -214,12 +219,14 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
         zIndex: 1000,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="replacement-modal-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
@@ -230,24 +237,23 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <h2
                 id="replacement-modal-title"
-                style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}
+                style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}
               >
                 Replacement Request Workstation
               </h2>
@@ -293,32 +299,33 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                   : 'Replacement Review'}
               </span>
             </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               Booking: <strong>{booking.id}</strong> • Customer: <strong>{booking.customerName}</strong> ({booking.customerLocality} • {booking.customerPhoneMasked})
             </p>
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary)',
-            }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close replacement modal"
+            title="Close replacement modal"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Modal Body */}
         <div
+          className="modal-scrollable-body"
           style={{
             padding: 'var(--space-6)',
             overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
         >
           {/* Replacement Case Info Card */}

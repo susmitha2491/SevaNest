@@ -143,7 +143,8 @@ describe('Operational Reports & Analytics Workflows', () => {
 
     expect(await screen.findByRole('heading', { name: /Reports & Analytics/i })).toBeInTheDocument();
     expect(screen.getByText('FR-RPT-001')).toBeInTheDocument();
-    expect(screen.getByText('12 PRD Reports')).toBeInTheDocument();
+    expect(screen.getByText('12 Reports')).toBeInTheDocument();
+    expect(screen.queryByText('12 PRD Reports')).not.toBeInTheDocument();
   });
 
   it('allows drilling into unified FR-RPT-012 and toggling between Top-Rated Workers and Repeat Customers', async () => {

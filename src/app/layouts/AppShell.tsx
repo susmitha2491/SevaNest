@@ -7,6 +7,7 @@ import {
   X,
   User,
   ChevronDown,
+  ChevronRight,
   CheckCircle2,
   AlertTriangle,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import { SessionInactivityGuard } from '../../core/auth/SessionInactivityGuard';
 
 export const AppShell: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [globalToast, setGlobalToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const profileMenuRef = useRef<React.ComponentRef<'div'>>(null);
@@ -27,6 +29,37 @@ export const AppShell: React.FC = () => {
   const location = useLocation();
 
   const accessibleModules = getAccessibleNavigation(user);
+
+  // Expandable sidebar modules state (automatically expanded when viewing module routes)
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() => ({
+    verification: location.pathname.startsWith('/verification'),
+  }));
+
+  const lastVerificationPathRef = useRef<string>(location.pathname);
+  useEffect(() => {
+    if (location.pathname.startsWith('/verification') && location.pathname !== lastVerificationPathRef.current) {
+      lastVerificationPathRef.current = location.pathname;
+      setExpandedModules((prev) => ({ ...prev, verification: true }));
+    }
+  }, [location.pathname]);
+
+  // Close mobile drawer on navigation or route changes
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [location.pathname]);
+
+  // Close mobile drawer on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: { key: string }) => {
+      if (e.key === 'Escape') {
+        setMobileMenuOpen(false);
+      }
+    };
+    if (mobileMenuOpen) {
+      window.addEventListener('keydown', handleKeyDown as (e: unknown) => void);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown as (e: unknown) => void);
+  }, [mobileMenuOpen]);
 
   useEffect(() => {
     const handleToast = (e: Event) => {
@@ -76,8 +109,16 @@ export const AppShell: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-bg-app)' }}>
+      {/* Mobile Drawer Backdrop */}
+      <div
+        className={`mobile-sidebar-backdrop ${mobileMenuOpen ? 'active' : ''}`}
+        onClick={() => setMobileMenuOpen(false)}
+        aria-hidden="true"
+      />
+
       {/* Sidebar Navigation */}
       <aside
+        className={`portal-sidebar ${mobileMenuOpen ? 'mobile-open' : ''}`}
         style={{
           width: sidebarOpen ? 'var(--sidebar-width)' : 'var(--sidebar-collapsed-width)',
           backgroundColor: 'var(--color-bg-surface)',
@@ -147,7 +188,13 @@ export const AppShell: React.FC = () => {
           )}
 
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => {
+              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                setMobileMenuOpen(false);
+              } else {
+                setSidebarOpen(!sidebarOpen);
+              }
+            }}
             style={{
               color: 'var(--color-text-muted)',
               padding: '4px',
@@ -180,27 +227,69 @@ export const AppShell: React.FC = () => {
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: sidebarOpen ? '0 var(--space-2)' : '0 4px' }}>
             {accessibleModules.map((mod) => {
               const Icon = mod.icon;
+              const hasSubItems = Boolean(mod.subItems && mod.subItems.length > 0);
+              const isParentExpanded = Boolean(
+                expandedModules[mod.id] ?? location.pathname.startsWith(mod.path)
+              );
+              const isSubmenuRouteActive = hasSubItems && location.pathname.startsWith(mod.path);
+
+              const isItemActive =
+                !hasSubItems && (
+                  (mod.path === '/verification' && (mod.end ? (location.pathname === '/verification' || location.pathname === '/verification/') : location.pathname.startsWith('/verification'))) ||
+                  (mod.path === '/bookings' && (location.pathname.startsWith('/bookings') || location.pathname.startsWith('/replacements'))) ||
+                  (mod.path === '/support' && (location.pathname.startsWith('/support') || location.pathname === '/support')) ||
+                  (mod.path === '/workers' && (location.pathname === '/workers' || (location.pathname.startsWith('/workers') && !location.pathname.startsWith('/workers/directory')))) ||
+                  (mod.path === '/workers/directory' && location.pathname.startsWith('/workers/directory')) ||
+                  (mod.path === '/directory' && location.pathname.startsWith('/directory')) ||
+                  (mod.path === '/customers' && location.pathname.startsWith('/customers')) ||
+                  (mod.path === '/payments' && location.pathname.startsWith('/payments')) ||
+                  (mod.path === '/reports' && location.pathname.startsWith('/reports')) ||
+                  (mod.path === '/configuration' && location.pathname.startsWith('/configuration')) ||
+                  (mod.path === '/audit' && location.pathname.startsWith('/audit')) ||
+                  (mod.path === '/dashboard' && (location.pathname === '/dashboard' || location.pathname === '/support/dashboard'))
+                );
 
               return (
                 <div key={mod.id} style={{ display: 'flex', flexDirection: 'column' }}>
                   <NavLink
                     to={mod.path}
-                    end={mod.end ?? (mod.path === '/dashboard' || mod.path === '/verification' || mod.path === '/workers')}
+                    end={hasSubItems ? true : (mod.end ?? (mod.path === '/dashboard' || (mod.path === '/verification' && !hasSubItems) || mod.path === '/workers'))}
+                    className={({ isActive }) => (!hasSubItems && (isActive || isItemActive) ? 'active' : '')}
+                    onClick={(e) => {
+                      if (hasSubItems) {
+                        // If user is already on a verification page, toggle expand/collapse without re-navigating
+                        if (location.pathname.startsWith(mod.path)) {
+                          e.preventDefault();
+                        }
+                        setExpandedModules((prev) => {
+                          const currentlyExpanded = prev[mod.id] ?? location.pathname.startsWith(mod.path);
+                          return {
+                            ...prev,
+                            [mod.id]: !currentlyExpanded,
+                          };
+                        });
+                        if (!sidebarOpen && typeof window !== 'undefined' && window.innerWidth >= 1024) {
+                          setSidebarOpen(true);
+                        }
+                      } else {
+                        setMobileMenuOpen(false);
+                      }
+                    }}
                     style={({ isActive }) => {
-                      const isItemActive =
-                        isActive ||
-                        (mod.path === '/verification' && location.pathname.startsWith('/verification')) ||
-                        (mod.path === '/bookings' && (location.pathname.startsWith('/bookings') || location.pathname.startsWith('/replacements'))) ||
-                        (mod.path === '/support' && (location.pathname.startsWith('/support') || location.pathname === '/support')) ||
-                        (mod.path === '/workers' && (location.pathname === '/workers' || (location.pathname.startsWith('/workers') && !location.pathname.startsWith('/workers/directory')))) ||
-                        (mod.path === '/workers/directory' && location.pathname.startsWith('/workers/directory')) ||
-                        (mod.path === '/directory' && location.pathname.startsWith('/directory')) ||
-                        (mod.path === '/customers' && location.pathname.startsWith('/customers')) ||
-                        (mod.path === '/payments' && location.pathname.startsWith('/payments')) ||
-                        (mod.path === '/reports' && location.pathname.startsWith('/reports')) ||
-                        (mod.path === '/configuration' && location.pathname.startsWith('/configuration')) ||
-                        (mod.path === '/audit' && location.pathname.startsWith('/audit')) ||
-                        (mod.path === '/dashboard' && (location.pathname === '/dashboard' || location.pathname === '/support/dashboard'));
+                      const active = !hasSubItems && (isActive || isItemActive);
+                      const bg = active
+                        ? 'var(--color-primary-subtle)'
+                        : isSubmenuRouteActive
+                          ? 'var(--color-bg-subtle, #f8fafc)'
+                          : 'transparent';
+
+                      const textColor = active
+                        ? 'var(--color-primary)'
+                        : 'var(--color-text-secondary)';
+
+                      const border = active
+                        ? '3px solid var(--color-primary)'
+                        : '3px solid transparent';
 
                       return {
                         display: 'flex',
@@ -211,10 +300,10 @@ export const AppShell: React.FC = () => {
                         width: '100%',
                         borderRadius: 'var(--radius-md)',
                         fontSize: 'var(--font-size-sm)',
-                        fontWeight: isItemActive ? 600 : 500,
-                        backgroundColor: isItemActive ? 'var(--color-primary-subtle)' : 'transparent',
-                        color: isItemActive ? 'var(--color-primary)' : 'var(--color-text-secondary)',
-                        borderLeft: isItemActive ? '3px solid var(--color-primary)' : '3px solid transparent',
+                        fontWeight: active ? 600 : 500,
+                        backgroundColor: bg,
+                        color: textColor,
+                        borderLeft: border,
                         transition: 'all var(--transition-fast)',
                         justifyContent: sidebarOpen ? 'flex-start' : 'center',
                         whiteSpace: 'nowrap',
@@ -222,6 +311,7 @@ export const AppShell: React.FC = () => {
                         boxSizing: 'border-box',
                       };
                     }}
+                    aria-expanded={hasSubItems ? isParentExpanded : undefined}
                     title={!sidebarOpen ? mod.name : undefined}
                   >
                     {Icon && <Icon size={16} style={{ flexShrink: 0 }} />}
@@ -238,12 +328,90 @@ export const AppShell: React.FC = () => {
                         {mod.name}
                       </span>
                     )}
+                    {sidebarOpen && hasSubItems && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          marginLeft: 'auto',
+                          color: 'var(--color-text-muted)',
+                        }}
+                      >
+                        {isParentExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </span>
+                    )}
                     {!sidebarOpen && !Icon && (
                       <span style={{ fontSize: '11px', fontWeight: 700 }}>
                         {mod.name.charAt(0)}
                       </span>
                     )}
                   </NavLink>
+
+                  {/* Expandable Submenus (e.g. for Verification Executive) */}
+                  {hasSubItems && isParentExpanded && sidebarOpen && mod.subItems && (
+                    <div
+                      role="group"
+                      aria-label={`${mod.name} submenus`}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '2px',
+                        paddingLeft: '14px',
+                        marginTop: '2px',
+                        marginBottom: '4px',
+                        borderLeft: '2px solid var(--color-border-subtle, #e2e8f0)',
+                        marginLeft: '16px',
+                      }}
+                    >
+                      {mod.subItems.map((sub) => {
+                        const isSubActive =
+                          sub.path === '/verification'
+                            ? (location.pathname === '/verification' || location.pathname === '/verification/')
+                            : location.pathname.startsWith(sub.path);
+
+                        return (
+                          <NavLink
+                            key={sub.id}
+                            to={sub.path}
+                            end={sub.end ?? (sub.path === '/verification')}
+                            className={({ isActive }) => (isSubActive || isActive ? 'active' : '')}
+                            onClick={() => setMobileMenuOpen(false)}
+                            style={({ isActive }) => {
+                              const active = isSubActive || isActive;
+                              return {
+                                display: 'flex',
+                                alignItems: 'center',
+                                height: '28px',
+                                padding: '0 8px',
+                                borderRadius: 'var(--radius-md)',
+                                fontSize: 'var(--font-size-xs, 12px)',
+                                fontWeight: active ? 600 : 500,
+                                backgroundColor: active ? 'var(--color-primary-subtle)' : 'transparent',
+                                color: active ? 'var(--color-primary)' : 'var(--color-text-secondary)',
+                                borderLeft: active ? '3px solid var(--color-primary)' : '3px solid transparent',
+                                textDecoration: 'none',
+                                whiteSpace: 'nowrap',
+                                boxSizing: 'border-box',
+                                transition: 'all var(--transition-fast)',
+                              };
+                            }}
+                          >
+                            <span
+                              style={{
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                                flex: 1,
+                              }}
+                            >
+                              {sub.name}
+                            </span>
+                          </NavLink>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -290,6 +458,7 @@ export const AppShell: React.FC = () => {
           )}
           <NavLink
             to="/account"
+            onClick={() => setMobileMenuOpen(false)}
             style={({ isActive }) => ({
               width: '100%',
               display: 'flex',
@@ -351,16 +520,42 @@ export const AppShell: React.FC = () => {
             borderBottom: '1px solid var(--color-border-subtle)',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             padding: 'var(--space-2) var(--space-4)',
             position: 'sticky',
             top: 0,
             zIndex: 45,
             flexWrap: 'wrap',
+            gap: '8px',
           }}
         >
+          {/* Mobile Navigation Trigger & Brand */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="mobile-hamburger-btn"
+              onClick={() => setMobileMenuOpen(true)}
+              aria-label="Open Navigation Menu"
+            >
+              <Menu size={20} />
+            </button>
+            <div className="mobile-header-brand">
+              <img
+                src="/SevaNest_logo-removebg-preview.png"
+                alt="SevaNest logo"
+                style={{
+                  height: '24px',
+                  maxWidth: '115px',
+                  width: 'auto',
+                  objectFit: 'contain',
+                  display: 'block',
+                }}
+              />
+            </div>
+          </div>
+
           {/* Header Utilities */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', marginLeft: 'auto' }}>
             {user && (
               <div ref={profileMenuRef} className="header-profile-menu-container" style={{ position: 'relative' }}>
                 <button
@@ -399,7 +594,7 @@ export const AppShell: React.FC = () => {
                       <User size={14} />
                     )}
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
+                  <div className="header-user-info-text" style={{ display: 'flex', flexDirection: 'column', textAlign: 'right' }}>
                     <span
                       data-testid="header-user-name"
                       style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1.2 }}
@@ -471,7 +666,7 @@ export const AppShell: React.FC = () => {
                         className="header-profile-dropdown-item"
                       >
                         <User size={16} />
-                        <span>My Account</span>
+                        <span>View Profile</span>
                       </button>
 
                       <div style={{ height: '1px', backgroundColor: 'var(--color-border-subtle)', margin: 'var(--space-1) 0' }} />

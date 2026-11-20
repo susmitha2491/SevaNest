@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
 import { PaymentTransaction, RefundDto } from '../domain/types';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface RefundProcessingModalProps {
   transaction: PaymentTransaction | null;
@@ -21,6 +22,9 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   const [reason, setReason] = useState('');
   const [hasConfirmedApproval, setHasConfirmedApproval] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(transaction));
 
   if (!isOpen || !transaction) return null;
 
@@ -55,6 +59,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -65,55 +70,72 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
         zIndex: 1100,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="refund-modal-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
           maxWidth: '540px',
           width: '100%',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: '#fff1f2', // Soft red warning
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <AlertTriangle size={20} color="#e11d48" />
+          <div className="modal-header-content" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <AlertTriangle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
             <h2
               id="refund-modal-title"
-              style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#9f1239', margin: 0 }}
+              style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#9f1239', margin: 0, wordBreak: 'break-word' }}
             >
               Approve & Initiate Full Refund
             </h2>
           </div>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-tertiary)' }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close refund modal"
+            title="Close refund modal"
             disabled={isProcessing}
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} style={{ padding: 'var(--space-6)', display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <form
+          onSubmit={handleSubmit}
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-6)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-4)',
+            overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
+            overscrollBehavior: 'contain',
+          }}
+        >
           {/* Target Summary Card */}
           <div
             style={{
@@ -148,7 +170,7 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           </div>
 
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
-            In accordance with SevaNest PRD & backend governance, issuing a full refund is an audited administrative action.
+            In accordance with platform & backend governance, issuing a full refund is an audited administrative action.
             The settlement instruction will be submitted to the payment gateway and recorded in the immutable audit trail.
           </p>
 

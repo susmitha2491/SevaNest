@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, FileSpreadsheet, CheckCircle2 } from 'lucide-react';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 import { ReportItem } from '../domain/types';
 import { reportRepository } from '../data/reportRepository';
 
@@ -16,6 +17,8 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
   onClose,
   canExport = true,
 }) => {
+  useBodyScrollLock(isOpen && Boolean(report));
+
   const [exportFeedback, setExportFeedback] = useState<string | null>(null);
   const [loadedReport, setLoadedReport] = useState<ReportItem | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -83,6 +86,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -92,18 +96,20 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
         padding: 'var(--space-4)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="report-preview-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-lg)',
           maxWidth: '850px',
           width: '100%',
-          maxHeight: '90vh',
+          maxHeight: 'min(90vh, calc(100vh - 32px))',
           display: 'flex',
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
@@ -113,17 +119,15 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
-            padding: 'var(--space-5) var(--space-6)',
+            padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'flex-start',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: '4px' }}>
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginBottom: '4px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-brand-600)', fontFamily: 'monospace' }}>
                 {currentReport.requirement || currentReport.id}
               </span>
@@ -140,31 +144,38 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
                 {currentReport.category}
               </span>
             </div>
-            <h2 id="report-preview-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
+            <h2 id="report-preview-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
               {currentReport.name}
             </h2>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               {currentReport.description}
             </p>
           </div>
           <button
             onClick={onClose}
-            style={{
-              padding: '6px',
-              borderRadius: 'var(--radius-md)',
-              border: 'none',
-              backgroundColor: 'transparent',
-              color: 'var(--color-text-tertiary)',
-              cursor: 'pointer',
-            }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close modal"
+            title="Close modal"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
         {/* Scrollable Content */}
-        <div style={{ padding: 'var(--space-6)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-6)',
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overscrollBehavior: 'contain',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-5)',
+          }}
+        >
           {exportFeedback && (
             <div
               style={{
@@ -299,6 +310,7 @@ export const ReportPreviewModal: React.FC<ReportPreviewModalProps> = ({
             justifyContent: 'flex-end',
             gap: 'var(--space-3)',
             backgroundColor: 'var(--color-bg-subtle)',
+            flexShrink: 0,
           }}
         >
           <button

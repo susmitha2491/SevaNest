@@ -11,7 +11,6 @@ import {
   Send,
   ExternalLink,
   ShieldCheck,
-  Languages,
 } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { updateCustomerStatusInCache } from '../utils/customerCache';
@@ -24,6 +23,22 @@ import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+
+const LANGUAGE_LABELS: Record<string, string> = {
+  en: 'English (Standard)',
+  hi: 'Hindi',
+  te: 'Telugu',
+  ta: 'Tamil',
+  kn: 'Kannada',
+  ml: 'Malayalam',
+  mr: 'Marathi',
+  bn: 'Bengali',
+  gu: 'Gujarati',
+  pa: 'Punjabi',
+  ur: 'Urdu',
+  or: 'Odia',
+};
 
 interface CustomerDetailModalProps {
   customerId: string;
@@ -47,6 +62,9 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [targetVerificationStatus, setTargetVerificationStatus] = useState<'PENDING' | 'VERIFIED'>('VERIFIED');
   const [isActionLoading, setIsActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(true);
 
   // PII Reveal State
   const [isRevealDialogOpen, setIsRevealDialogOpen] = useState(false);
@@ -184,6 +202,10 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-modal-title"
       style={{
         position: 'fixed',
         inset: 0,
@@ -193,10 +215,12 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         justifyContent: 'center',
         zIndex: 1000,
         padding: 'var(--space-4)',
+        overscrollBehavior: 'contain',
       }}
       onClick={onClose}
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           borderRadius: 'var(--radius-xl)',
@@ -208,49 +232,42 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
           flexDirection: 'column',
           overflow: 'hidden',
           border: '1px solid var(--color-border-subtle)',
+          overscrollBehavior: 'contain',
         }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border-subtle)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}>
-                  {customer.name}
-                </h2>
-                <StatusBadge status={customer.status} />
-                <VerificationBadge
-                  isFullyVerified={customer.verificationStatus === 'VERIFIED'}
-                  status={customer.verificationStatus || 'PENDING'}
-                />
-              </div>
-              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', fontFamily: 'monospace', fontWeight: 600 }}>
-                {customer.id} • Registered {formatRegistrationDateIST(customer.registeredDate)}
-              </span>
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              <h2 id="customer-modal-title" style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
+                {customer.name}
+              </h2>
+              <StatusBadge status={customer.status} />
+              <VerificationBadge
+                isFullyVerified={customer.verificationStatus === 'VERIFIED'}
+                status={customer.verificationStatus || 'PENDING'}
+              />
             </div>
+            <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-accent)', fontFamily: 'monospace', fontWeight: 600, wordBreak: 'break-all' }}>
+              {customer.id} • Registered {formatRegistrationDateIST(customer.registeredDate)}
+            </span>
           </div>
           <button
             onClick={onClose}
             aria-label="Close dossier"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-muted)',
-              padding: 'var(--space-1)',
-            }}
+            title="Close dossier"
+            className="modal-close-btn"
+            type="button"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
@@ -262,6 +279,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
             backgroundColor: 'var(--color-bg-subtle)',
             padding: '0 var(--space-6)',
             overflowX: 'auto',
+            flexShrink: 0,
           }}
         >
           {[
@@ -295,7 +313,19 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div style={{ padding: 'var(--space-6)', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 'var(--space-6)' }}>
+        <div
+          className="modal-scrollable-body"
+          style={{
+            padding: 'var(--space-6)',
+            overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-6)',
+            overscrollBehavior: 'contain',
+          }}
+        >
           {/* TAB 1: PROFILE & OVERVIEW */}
           {activeTab === 'profile' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-5)' }}>
@@ -407,14 +437,53 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px' }}>
-                      <Languages size={13} /> Preferred Communication:
+                    <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block', marginBottom: '2px' }}>
+                      Preferred Communication:
                     </span>
                     <span style={{ color: 'var(--color-text-primary)', fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>
-                      {customer.preferredLanguage || 'English (Standard)'}
+                      {(customer.preferredLanguage && (LANGUAGE_LABELS[customer.preferredLanguage.toLowerCase()] || customer.preferredLanguage)) || 'English (Standard)'}
                     </span>
                   </div>
                 </div>
+
+                {customer.addresses && customer.addresses.length > 0 && (
+                  <div style={{ paddingTop: 'var(--space-2)', borderTop: '1px solid var(--color-border-subtle)', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <MapPin size={12} /> Saved Household Addresses ({customer.addresses.length}):
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '8px' }}>
+                      {customer.addresses.map((addr) => (
+                        <div
+                          key={addr.id}
+                          style={{
+                            padding: '8px 10px',
+                            backgroundColor: 'var(--color-bg-surface)',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--color-border-subtle)',
+                            fontSize: '11px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '2px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                              {addr.label || 'Household'}
+                            </span>
+                            {addr.isDefault && (
+                              <span style={{ fontSize: '9px', fontWeight: 700, padding: '1px 5px', borderRadius: '4px', backgroundColor: 'var(--color-status-info-bg)', color: 'var(--color-status-info-text)' }}>
+                                DEFAULT
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ color: 'var(--color-text-secondary)', lineHeight: 1.3 }}>
+                            {[addr.line, addr.line2, addr.area, addr.city, addr.pincode].filter(Boolean).join(', ')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Historical Service Engagements & Requests preview in Profile tab */}
@@ -722,21 +791,37 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-                    {customer.notes.map((note, idx) => (
-                      <div
-                        key={idx}
-                        style={{
-                          padding: '8px 12px',
-                          backgroundColor: 'var(--color-bg-subtle)',
-                          borderRadius: 'var(--radius-md)',
-                          fontSize: 'var(--font-size-xs)',
-                          color: 'var(--color-text-secondary)',
-                          borderLeft: '3px solid var(--color-accent)',
-                        }}
-                      >
-                        {note}
-                      </div>
-                    ))}
+                    {customer.notes.map((note, idx) => {
+                      const isObj = typeof note === 'object' && note !== null;
+                      const text = isObj ? note.note : String(note);
+                      const authorId = isObj ? note.authorId : undefined;
+                      const createdAt = isObj ? note.createdAt : undefined;
+                      return (
+                        <div
+                          key={isObj ? note.id : idx}
+                          style={{
+                            padding: '10px 14px',
+                            backgroundColor: 'var(--color-bg-subtle)',
+                            borderRadius: 'var(--radius-md)',
+                            fontSize: 'var(--font-size-xs)',
+                            color: 'var(--color-text-secondary)',
+                            borderLeft: '3px solid var(--color-accent)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '4px',
+                          }}
+                        >
+                          <div style={{ color: 'var(--color-text-primary)', whiteSpace: 'pre-wrap' }}>{text}</div>
+                          {(authorId || createdAt) && (
+                            <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              {authorId && <span>Logged by: {authorId}</span>}
+                              {authorId && createdAt && <span>•</span>}
+                              {createdAt && <span>{formatRegistrationDateIST(createdAt)}</span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -817,6 +902,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            flexShrink: 0,
           }}
         >
           {!readOnly ? (
@@ -925,6 +1011,9 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       {/* PII Reveal Dialog */}
       {isRevealDialogOpen && (
         <div
+          role="dialog"
+          aria-modal="true"
+          className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
@@ -934,10 +1023,12 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
             justifyContent: 'center',
             zIndex: 1100,
             padding: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
           onClick={() => setIsRevealDialogOpen(false)}
         >
           <div
+            className="modal-content"
             style={{
               backgroundColor: 'var(--color-bg-surface)',
               borderRadius: 'var(--radius-xl)',
@@ -949,6 +1040,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
               flexDirection: 'column',
               gap: 'var(--space-4)',
               border: '1px solid var(--color-border-subtle)',
+              overscrollBehavior: 'contain',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -1073,8 +1165,8 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
         }
         description={
           targetVerificationStatus === 'VERIFIED'
-            ? 'Confirm customer profile and residential verification check. Recorded in the backend audit log.'
-            : 'Reset customer verification status to PENDING pending additional checks. Recorded in the backend audit log.'
+            ? 'Confirm customer profile, mobile, and residential address checks according to the PRD Trust Framework (§9). Recorded in the backend audit log.'
+            : 'Reset customer verification status to PENDING pending additional mobile/address checks. Recorded in the backend audit log.'
         }
         confirmLabel={targetVerificationStatus === 'VERIFIED' ? 'Confirm Verified' : 'Set Pending'}
         isDestructive={false}

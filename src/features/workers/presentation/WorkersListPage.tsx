@@ -381,7 +381,7 @@ export const WorkersListPage: React.FC = () => {
             setTimeout(() => setRefreshToast(false), 3000);
           }}
           disabled={isFetching}
-          aria-label="Refresh domestic worker roster"
+          aria-label="Refresh"
           style={{
             display: 'flex',
             alignItems: 'center',
@@ -399,7 +399,7 @@ export const WorkersListPage: React.FC = () => {
           }}
         >
           <RefreshCw size={13} color="var(--color-primary)" className={isFetching ? 'animate-spin' : ''} />
-          <span>{isFetching ? 'Refreshing...' : 'Refresh Roster'}</span>
+          <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
         </button>
       </div>
 

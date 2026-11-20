@@ -36,6 +36,7 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface TicketDetailModalProps {
   ticket: SupportTicketDetail | null;
@@ -62,6 +63,9 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
   const [isInternalNote, setIsInternalNote] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [staleWarning, setStaleWarning] = useState<string | null>(null);
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -339,6 +343,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -349,6 +354,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
         zIndex: 1000,
         padding: '16px',
         backdropFilter: 'blur(4px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
@@ -360,6 +366,7 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
       }}
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-bg-surface, #ffffff)',
           borderRadius: '16px',
@@ -372,114 +379,132 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
           overflow: 'hidden',
           border: '1px solid var(--color-border, #e2e8f0)',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* =========================================================================
             HEADER: Conversation Identity, Status, SLA & Primary Actions
             ========================================================================= */}
         <div
+          className="modal-header-container"
           style={{
             padding: '12px 20px',
             borderBottom: '1px solid var(--color-border, #e2e8f0)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-app, #f8fafc)',
-            gap: '12px',
-            flexWrap: 'wrap',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            flexShrink: 0,
           }}
         >
-          {/* Left: User Identity & Ticket Info */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
-            <div
-              style={{
-                width: '38px',
-                height: '38px',
-                borderRadius: '50%',
-                backgroundColor: ticket.complainantType === 'CUSTOMER' ? '#e0f2fe' : '#f3e8ff',
-                color: ticket.complainantType === 'CUSTOMER' ? '#0369a1' : '#7e22ce',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontWeight: 700,
-                fontSize: '14px',
-                flexShrink: 0,
-              }}
-            >
-              {displayName ? displayName.charAt(0).toUpperCase() : (isWorker ? 'W' : 'C')}
-            </div>
-
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                <h2
-                  id="ticket-chat-title"
-                  style={{
-                    fontSize: '15px',
-                    fontWeight: 700,
-                    color: 'var(--color-text-primary, #0f172a)',
-                    margin: 0,
-                    letterSpacing: '-0.01em',
-                  }}
-                >
-                  {displayName}
-                </h2>
-                <h3
-                  style={{
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: 'var(--color-text-secondary, #64748b)',
-                    margin: 0,
-                  }}
-                >
-                  Grievance Case: {ticket.id}
-                </h3>
-
-                <span
-                  style={{
-                    fontSize: '11px',
-                    padding: '1px 8px',
-                    borderRadius: '9999px',
-                    backgroundColor: ticket.complainantType === 'CUSTOMER' ? '#e0f2fe' : '#f3e8ff',
-                    color: ticket.complainantType === 'CUSTOMER' ? '#0369a1' : '#7e22ce',
-                    fontWeight: 700,
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.04em',
-                  }}
-                >
-                  {ticket.complainantType}
-                </span>
-
-                <span
-                  style={{
-                    fontSize: '12px',
-                    color: 'var(--color-text-secondary, #64748b)',
-                    fontFamily: 'monospace',
-                    fontWeight: 600,
-                  }}
-                >
-                  #{ticket.id}
-                </span>
-              </div>
-
+          {/* Top row: Identity on Left, Pinned Close (X) button on Top-Right */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px', width: '100%' }}>
+            {/* Left: User Identity & Ticket Info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: '1 1 auto' }}>
               <div
                 style={{
-                  fontSize: '12px',
-                  color: 'var(--color-text-secondary, #64748b)',
-                  marginTop: '2px',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '50%',
+                  backgroundColor: ticket.complainantType === 'CUSTOMER' ? '#e0f2fe' : '#f3e8ff',
+                  color: ticket.complainantType === 'CUSTOMER' ? '#0369a1' : '#7e22ce',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  flexShrink: 0,
                 }}
               >
-                <span>{ticket.serviceCategory || 'Support'}</span>
-                <span style={{ margin: '0 5px' }}>•</span>
-                <span>{(ticket.disputeCategory || 'Grievance').replace(/_/g, ' ')}</span>
+                {displayName ? displayName.charAt(0).toUpperCase() : (isWorker ? 'W' : 'C')}
+              </div>
+
+              <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <h2
+                    id="ticket-chat-title"
+                    style={{
+                      fontSize: '15px',
+                      fontWeight: 700,
+                      color: 'var(--color-text-primary, #0f172a)',
+                      margin: 0,
+                      letterSpacing: '-0.01em',
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    {displayName}
+                  </h2>
+                  <h3
+                    style={{
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: 'var(--color-text-secondary, #64748b)',
+                      margin: 0,
+                      wordBreak: 'break-word',
+                    }}
+                  >
+                    Grievance Case: {ticket.id}
+                  </h3>
+
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      padding: '1px 8px',
+                      borderRadius: '9999px',
+                      backgroundColor: ticket.complainantType === 'CUSTOMER' ? '#e0f2fe' : '#f3e8ff',
+                      color: ticket.complainantType === 'CUSTOMER' ? '#0369a1' : '#7e22ce',
+                      fontWeight: 700,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    {ticket.complainantType}
+                  </span>
+
+                  <span
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--color-text-secondary, #64748b)',
+                      fontFamily: 'monospace',
+                      fontWeight: 600,
+                    }}
+                  >
+                    #{ticket.id}
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--color-text-secondary, #64748b)',
+                    marginTop: '2px',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  <span>{ticket.serviceCategory || 'Support'}</span>
+                  <span style={{ margin: '0 5px' }}>•</span>
+                  <span>{(ticket.disputeCategory || 'Grievance').replace(/_/g, ' ')}</span>
+                </div>
               </div>
             </div>
+
+            {/* Pinned Top-Right Close Button */}
+            <button
+              type="button"
+              data-testid="close-ticket-modal-button"
+              onClick={onClose}
+              className="modal-close-btn"
+              aria-label="Close ticket modal"
+              title="Close ticket modal"
+            >
+              <X size={18} />
+            </button>
           </div>
 
-          {/* Right: Status, Priority, SLA & Modal Controls */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          {/* Quick Actions Row below: Status, Priority, SLA & Modal Action Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', width: '100%' }}>
             <StatusBadge status={ticket.status} />
 
             {/* Editable Priority if Open/In-Progress */}
@@ -570,35 +595,6 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
                 <span>Escalate Ops</span>
               </button>
             )}
-
-            {/* Close Modal (X) */}
-            <button
-              type="button"
-              data-testid="close-ticket-modal-button"
-              onClick={onClose}
-              aria-label="Close ticket modal"
-              style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '8px',
-                border: '1px solid var(--color-border, #cbd5e1)',
-                backgroundColor: 'var(--color-bg-surface, #ffffff)',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: 'var(--color-text-secondary, #64748b)',
-                transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#f1f5f9';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#ffffff';
-              }}
-            >
-              <X size={16} />
-            </button>
           </div>
         </div>
 
@@ -740,14 +736,17 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             CHAT CONVERSATION AREA: Chronological Timeline
             ========================================================================= */}
         <div
+          className="modal-scrollable-body"
           style={{
             flex: 1,
+            minHeight: 0,
             overflowY: 'auto',
             padding: '16px 20px',
             backgroundColor: '#f8fafc',
             display: 'flex',
             flexDirection: 'column',
             gap: '12px',
+            overscrollBehavior: 'contain',
           }}
         >
           {/* 1. Original Grievance Statement from Complainant */}

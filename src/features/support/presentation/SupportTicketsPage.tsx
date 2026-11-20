@@ -431,6 +431,35 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
             {viewConfig.subtitle}
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => refetch()}
+          disabled={isFetching}
+          aria-label="Refresh"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            padding: '8px 14px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            color: 'var(--color-text-primary)',
+            fontSize: 'var(--font-size-sm)',
+            fontWeight: 600,
+            border: '1px solid var(--color-border)',
+            cursor: isFetching ? 'not-allowed' : 'pointer',
+            opacity: isFetching ? 0.7 : 1,
+            boxShadow: 'var(--shadow-sm)',
+          }}
+        >
+          <RefreshCw
+            size={14}
+            color="var(--color-primary)"
+            className={isFetching ? 'animate-spin' : ''}
+          />
+          <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
+        </button>
       </div>
 
       {/* Stale Concurrency Error Banner */}

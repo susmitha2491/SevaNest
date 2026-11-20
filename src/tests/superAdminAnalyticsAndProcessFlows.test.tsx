@@ -126,7 +126,8 @@ describe('Super Admin Dashboard: Analytics Charts & Process Flow Removal Verific
 
     // 1. Demand & Booking Conversion
     expect(await screen.findByText('Business Analytics & Marketplace Intelligence')).toBeInTheDocument();
-    expect(screen.getByText('Demand & Booking Conversion (PRD §14.1, §14.4)')).toBeInTheDocument();
+    expect(screen.getByText('Demand & Booking Conversion')).toBeInTheDocument();
+    expect(screen.queryByText(/PRD §14\.1/i)).not.toBeInTheDocument();
     expect(screen.getByText('Total: 1,200 Requests')).toBeInTheDocument();
     expect(screen.getByText('House Maid')).toBeInTheDocument();
     expect(screen.getByText('Cook')).toBeInTheDocument();
@@ -135,7 +136,8 @@ describe('Super Admin Dashboard: Analytics Charts & Process Flow Removal Verific
     expect(screen.getByText(/63% Conversion/)).toBeInTheDocument();
 
     // 2. Geographic Demand & Repeat Customers
-    expect(screen.getByText('Geographic Demand & Repeat Customers (PRD §14.5, §14.10)')).toBeInTheDocument();
+    expect(screen.getByText('Geographic Demand & Repeat Customers')).toBeInTheDocument();
+    expect(screen.queryByText(/PRD §14\.5/i)).not.toBeInTheDocument();
     expect(screen.getByText('Gachibowli')).toBeInTheDocument();
     expect(screen.getByText('420 requests')).toBeInTheDocument();
     expect(screen.getByText('HITEC City')).toBeInTheDocument();
@@ -143,7 +145,8 @@ describe('Super Admin Dashboard: Analytics Charts & Process Flow Removal Verific
     expect(screen.getByText('7 bookings')).toBeInTheDocument();
 
     // 3. Workforce Capacity & Conversion
-    expect(screen.getByText('Workforce Capacity & Conversion (PRD §14.2, §14.6)')).toBeInTheDocument();
+    expect(screen.getByText('Workforce Capacity & Conversion')).toBeInTheDocument();
+    expect(screen.queryByText(/PRD §14\.2/i)).not.toBeInTheDocument();
     expect(screen.getByText('Verification Conversion')).toBeInTheDocument();
     expect(screen.getByText('80.0%')).toBeInTheDocument();
     expect(screen.getByText('Workforce Utilization')).toBeInTheDocument();
@@ -154,7 +157,8 @@ describe('Super Admin Dashboard: Analytics Charts & Process Flow Removal Verific
     expect(screen.getByText('4.95')).toBeInTheDocument();
 
     // 4. Quality, Grievance SLA & Collections
-    expect(screen.getByText('Quality, Grievance SLA & Collections (PRD §14.7, §14.8, §14.9)')).toBeInTheDocument();
+    expect(screen.getByText('Quality, Grievance SLA & Collections')).toBeInTheDocument();
+    expect(screen.queryByText(/PRD §14\.7/i)).not.toBeInTheDocument();
     expect(screen.getByText('Cancellation Rate')).toBeInTheDocument();
     expect(screen.getByText('5.0%')).toBeInTheDocument();
     expect(screen.getByText('Replacement Rate')).toBeInTheDocument();

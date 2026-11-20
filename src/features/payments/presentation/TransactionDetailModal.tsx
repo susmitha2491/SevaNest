@@ -19,6 +19,7 @@ import { paymentRepository } from '../data/paymentRepository';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
 
 interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
@@ -53,6 +54,9 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
   const verifyAction = onVerifyPaymentStatus || onReconcile;
   const isVerifyingStatus = isVerifying || isReconciling;
   const refundAction = onProcessRefund || onInitiateRefund;
+
+  // Global reference-counted modal scroll lock
+  useBodyScrollLock(isOpen && Boolean(transaction));
 
   const [resolvedContact, setResolvedContact] = useState<string | undefined>(() => {
     if (!transaction) return undefined;
@@ -131,6 +135,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop"
       style={{
         position: 'fixed',
         inset: 0,
@@ -141,12 +146,14 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
         zIndex: 1000,
         padding: 'var(--space-4)',
         backdropFilter: 'blur(3px)',
+        overscrollBehavior: 'contain',
       }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="txn-modal-title"
     >
       <div
+        className="modal-content"
         style={{
           backgroundColor: 'var(--color-surface)',
           borderRadius: 'var(--radius-xl)',
@@ -157,30 +164,29 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           flexDirection: 'column',
           boxShadow: 'var(--shadow-xl)',
           overflow: 'hidden',
+          overscrollBehavior: 'contain',
         }}
       >
         {/* Header */}
         <div
+          className="modal-header-container"
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+          <div className="modal-header-content">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <h2
                 id="txn-modal-title"
-                style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)' }}
+                style={{ fontSize: 'var(--font-size-lg)', fontWeight: 800, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}
               >
                 Transaction: {transaction.id}
               </h2>
               <StatusBadge status={transaction.status} />
             </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
               Linked Booking:{' '}
               {canViewBookings && transaction.bookingId ? (
                 <Link
@@ -198,15 +204,12 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--color-text-tertiary)',
-            }}
+            className="modal-close-btn"
+            type="button"
             aria-label="Close transaction details modal"
+            title="Close transaction details modal"
           >
-            <X size={20} />
+            <X size={18} />
           </button>
         </div>
 
@@ -256,12 +259,16 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
         {/* Body */}
         <div
+          className="modal-scrollable-body"
           style={{
             padding: 'var(--space-6)',
             overflowY: 'auto',
+            flex: 1,
+            minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
             gap: 'var(--space-4)',
+            overscrollBehavior: 'contain',
           }}
         >
           {/* Main Amount & Fee Highlight Card */}
@@ -467,6 +474,7 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
             justifyContent: 'space-between',
             alignItems: 'center',
             backgroundColor: 'var(--color-bg-subtle)',
+            flexShrink: 0,
           }}
         >
           <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
