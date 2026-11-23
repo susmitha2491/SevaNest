@@ -148,7 +148,7 @@ export const DirectoryPage: React.FC = () => {
         workerPageSize
       );
     },
-    enabled: canViewWorkers && activeTab === 'workers',
+    enabled: canViewWorkers,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
@@ -199,7 +199,7 @@ export const DirectoryPage: React.FC = () => {
         customerPageSize
       );
     },
-    enabled: canViewCustomers && activeTab === 'customers',
+    enabled: canViewCustomers,
     staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
@@ -210,11 +210,12 @@ export const DirectoryPage: React.FC = () => {
 
   const customerTotal = customerPageResult?.total ?? customers.length;
 
-  const isCurrentFetching = activeTab === 'workers' ? isWorkerFetching : isCustomerFetching;
+  const isCurrentFetching = isWorkerFetching || isCustomerFetching;
   const handleRefresh = () => {
-    if (activeTab === 'workers' && canViewWorkers) {
+    if (canViewWorkers) {
       refetchWorkers();
-    } else if (activeTab === 'customers' && canViewCustomers) {
+    }
+    if (canViewCustomers) {
       refetchCustomers();
     }
   };
@@ -257,8 +258,16 @@ export const DirectoryPage: React.FC = () => {
             <CheckCircle2 size={14} />
             <span>
               {activeTab === 'workers'
-                ? `${workerTotal} Verified Workers Onboarded`
-                : `${customerTotal} Registered Customers`}
+                ? isWorkerLoading && workerPageResult === undefined
+                  ? 'Loading verified workers...'
+                  : isWorkerError
+                    ? 'Error loading workers'
+                    : `${workerTotal} Verified Workers Onboarded`
+                : isCustomerLoading && customerPageResult === undefined
+                  ? 'Loading registered customers...'
+                  : isCustomerError
+                    ? 'Error loading customers'
+                    : `${customerTotal} Registered Customers`}
             </span>
           </div>
 
@@ -333,7 +342,7 @@ export const DirectoryPage: React.FC = () => {
                 fontWeight: 700,
               }}
             >
-              {workerTotal}
+              {isWorkerLoading && workerPageResult === undefined ? '...' : isWorkerError ? '—' : workerTotal}
             </span>
           </button>
         )}
@@ -373,7 +382,7 @@ export const DirectoryPage: React.FC = () => {
                 fontWeight: 700,
               }}
             >
-              {customerTotal}
+              {isCustomerLoading && customerPageResult === undefined ? '...' : isCustomerError ? '—' : customerTotal}
             </span>
           </button>
         )}

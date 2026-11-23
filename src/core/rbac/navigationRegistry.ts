@@ -355,6 +355,8 @@ export function getRequiredPermissionForRoute(pathname: string): string {
   if (normalized.startsWith('/verification')) return PERMISSIONS.VERIFICATION_REVIEW;
   if (normalized === '/bookings') return PERMISSIONS.BOOKINGS_VIEW;
   if (normalized === '/replacements') return PERMISSIONS.BOOKINGS_VIEW;
+  if (normalized === '/attendance') return PERMISSIONS.ATTENDANCE_VIEW;
+  if (normalized === '/ratings') return PERMISSIONS.RATING_VIEW;
   if (normalized === '/payments') return PERMISSIONS.PAYMENTS_VIEW;
   if (normalized.startsWith('/support')) return PERMISSIONS.SUPPORT_VIEW;
   if (normalized === '/reports') return PERMISSIONS.REPORTS_VIEW;
@@ -425,6 +427,16 @@ export function isRouteAccessibleForUser(
   }
   if (normalized === '/replacements') {
     return hasPermission(permissions, PERMISSIONS.BOOKINGS_VIEW);
+  }
+
+  // 5a. Attendance
+  if (normalized === '/attendance') {
+    return hasPermission(permissions, PERMISSIONS.ATTENDANCE_VIEW);
+  }
+
+  // 5b. Ratings
+  if (normalized === '/ratings') {
+    return hasPermission(permissions, PERMISSIONS.RATING_VIEW);
   }
 
   // 6. Payments

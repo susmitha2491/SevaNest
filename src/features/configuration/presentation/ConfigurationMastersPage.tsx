@@ -22,6 +22,17 @@ import {
   RotateCcw,
   LucideIcon,
   X,
+  ChevronDown,
+  ChevronRight,
+  LayoutDashboard,
+  Briefcase,
+  UserCheck,
+  CalendarCheck,
+  ClipboardCheck,
+  Star,
+  CreditCard,
+  LifeBuoy,
+  BarChart3,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
@@ -36,6 +47,7 @@ import {
   OperationalAreaItem,
   FeePlanItem,
   NotificationTemplateItem,
+  PermissionCatalogItem,
 } from '../domain/types';
 import { configurationRepository } from '../data/configurationRepository';
 import { workerRepository } from '../../workers/data/workerRepository';
@@ -44,8 +56,17 @@ import { authRepository } from '../../auth/data/authRepository';
 import { AdminAccountItem } from '../../adminUsers/domain/types';
 import { AdminRole } from '../../../core/auth/authTypes';
 import { useAuthStore } from '../../../core/auth/authStore';
-import { useSessionSecurityStore } from '../../../core/auth/sessionSecurityStore';
-import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import {
+  useSessionSecurityStore,
+  MIN_TIMEOUT_MINUTES,
+  MAX_TIMEOUT_MINUTES,
+} from '../../../core/auth/sessionSecurityStore';
+import {
+  PERMISSIONS,
+  hasPermission,
+  isSuperAdminOnlyPermission,
+  mapLegacyPermissionToCanonical,
+} from '../../../core/rbac/permissions';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 
@@ -96,6 +117,121 @@ const CONFIGURATION_SECTIONS: Array<{
     label: 'Session & Security',
     shortDescription: 'Authentication lifecycle, inactivity timeout policy, and session token governance',
     icon: Lock,
+  },
+];
+
+interface PermissionModuleConfig {
+  id: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  codes: string[];
+}
+
+const PERMISSION_MODULE_GROUPS: PermissionModuleConfig[] = [
+  {
+    id: 'dashboard',
+    title: 'Dashboard & Operational Alerts',
+    description: 'Command center triage, system overview, and operational alert lifecycle management',
+    icon: LayoutDashboard,
+    codes: ['alert.view', 'alert.manage'],
+  },
+  {
+    id: 'customers',
+    title: 'Customer Management',
+    description: 'Household customer profiles, residential addresses, verification flags, and account status',
+    icon: Users,
+    codes: ['customer.view', 'customer.manage', 'user.view', 'user.status.manage'],
+  },
+  {
+    id: 'workers',
+    title: 'Domestic Worker Management',
+    description: 'Helper workforce directory, assisted onboarding profile editing, emergency contact reveals, and blacklisting',
+    icon: Briefcase,
+    codes: [
+      'worker.view',
+      'worker.manage',
+      'worker.activate',
+      'worker.reveal_emergency_contact',
+      'worker.blacklist',
+      'worker.blacklist.lift',
+    ],
+  },
+  {
+    id: 'verification',
+    title: 'Worker Verification & KYC',
+    description: 'KYC identity vetting, address checks, criminal records check decisions, queue triage, and supervisor sign-off',
+    icon: UserCheck,
+    codes: [
+      'verification.review',
+      'verification.document.view',
+      'verification.decide',
+      'verification.reassign',
+      'verification.signoff',
+      'verification.configure',
+    ],
+  },
+  {
+    id: 'bookings',
+    title: 'Booking Management & Fulfillment',
+    description: 'Placement schedules, candidate matching algorithms, contract fulfillment, and replacement requests',
+    icon: CalendarCheck,
+    codes: [
+      'booking.view',
+      'booking.manage',
+      'matching.run',
+      'replacement.view',
+      'replacement.manage',
+    ],
+  },
+  {
+    id: 'attendance',
+    title: 'Attendance & Daily Logs',
+    description: 'Daily domestic service check-ins, punch logs, and audited attendance corrections',
+    icon: ClipboardCheck,
+    codes: ['attendance.view', 'attendance.manage'],
+  },
+  {
+    id: 'ratings',
+    title: 'Ratings & Reviews',
+    description: 'Service feedback, customer satisfaction scores, and review moderation for abusive content',
+    icon: Star,
+    codes: ['rating.view', 'rating.moderate'],
+  },
+  {
+    id: 'payments',
+    title: 'Payments & Financial Ledger',
+    description: 'Customer transactions, gateway settlement reconciliations, fee schedules, and financial refunds',
+    icon: CreditCard,
+    codes: ['payment.view', 'payment.manage', 'payment.refund'],
+  },
+  {
+    id: 'support',
+    title: 'Customer & Worker Support',
+    description: 'Grievance ticket queues, priority escalations, telephonic resolution, and support categories',
+    icon: LifeBuoy,
+    codes: ['support.view', 'support.manage', 'support.category.manage'],
+  },
+  {
+    id: 'reports',
+    title: 'Reports & Business Analytics',
+    description: 'Read-only business analytics, workforce retention, and operational reporting',
+    icon: BarChart3,
+    codes: ['report.view'],
+  },
+  {
+    id: 'configuration',
+    title: 'Platform Configuration & Masters',
+    description: 'Service skill taxonomy, geographic operational clusters, push/SMS templates, and app start-up policies',
+    icon: Sliders,
+    codes: ['config.manage', 'category.manage', 'area.manage', 'notification.manage'],
+  },
+  {
+    id: 'security',
+    title: 'Administration, Roles & Security',
+    description: 'Administrative staff provisioning, RBAC role-permission governance, and immutable audit logs',
+    icon: Shield,
+    codes: ['admin.manage_users', 'role.manage', 'audit.view'],
   },
 ];
 
@@ -172,6 +308,111 @@ export const ConfigurationMastersPage: React.FC = () => {
   const autoLogoutEnabled = useSessionSecurityStore((s) => s.autoLogoutEnabled);
   const timeoutMinutes = useSessionSecurityStore((s) => s.timeoutMinutes);
   const setPolicy = useSessionSecurityStore((s) => s.setPolicy);
+
+  const [draftAutoLogout, setDraftAutoLogout] = useState<boolean>(autoLogoutEnabled);
+  const [draftTimeout, setDraftTimeout] = useState<number>(timeoutMinutes);
+  const [isCustomMode, setIsCustomMode] = useState<boolean>(timeoutMinutes !== 10 && timeoutMinutes !== 15);
+  const [customInputValue, setCustomInputValue] = useState<string>(
+    timeoutMinutes !== 10 && timeoutMinutes !== 15 ? String(timeoutMinutes) : '30'
+  );
+  const [customError, setCustomError] = useState<string | null>(null);
+  const [securitySaveSuccess, setSecuritySaveSuccess] = useState<string | null>(null);
+
+  // Sync draft state if store changes externally (e.g. cross-tab sync or store reset)
+  useEffect(() => {
+    setDraftAutoLogout(autoLogoutEnabled);
+    setDraftTimeout(timeoutMinutes);
+    if (timeoutMinutes !== 10 && timeoutMinutes !== 15) {
+      setIsCustomMode(true);
+      setCustomInputValue(String(timeoutMinutes));
+    } else {
+      setIsCustomMode(false);
+    }
+    setCustomError(null);
+  }, [autoLogoutEnabled, timeoutMinutes]);
+
+  const validateCustomMinutes = (valStr: string): string | null => {
+    const trimmed = valStr.trim();
+    if (!trimmed) {
+      return `Please enter a timeout value between ${MIN_TIMEOUT_MINUTES} and ${MAX_TIMEOUT_MINUTES} minutes.`;
+    }
+    const num = Number(trimmed);
+    if (Number.isNaN(num) || !Number.isInteger(num)) {
+      return 'Timeout must be a valid whole number of minutes.';
+    }
+    if (num < MIN_TIMEOUT_MINUTES) {
+      return `Minimum inactivity timeout is ${MIN_TIMEOUT_MINUTES} minutes.`;
+    }
+    if (num > MAX_TIMEOUT_MINUTES) {
+      return `Maximum inactivity timeout is ${MAX_TIMEOUT_MINUTES} minutes.`;
+    }
+    return null;
+  };
+
+  const hasUnsavedChanges =
+    draftAutoLogout !== autoLogoutEnabled ||
+    (isCustomMode
+      ? (timeoutMinutes === 10 || timeoutMinutes === 15 || Number(customInputValue.trim()) !== timeoutMinutes)
+      : (draftTimeout !== timeoutMinutes || (timeoutMinutes !== 10 && timeoutMinutes !== 15)));
+
+  const handleCustomChange = (val: string) => {
+    setCustomInputValue(val);
+    const err = validateCustomMinutes(val);
+    setCustomError(err);
+  };
+
+  const handleSelectOption15 = () => {
+    setIsCustomMode(false);
+    setDraftTimeout(15);
+    setCustomError(null);
+  };
+
+  const handleSelectOption10 = () => {
+    setIsCustomMode(false);
+    setDraftTimeout(10);
+    setCustomError(null);
+  };
+
+  const handleSelectCustom = () => {
+    setIsCustomMode(true);
+    const initialCustom = (draftTimeout !== 10 && draftTimeout !== 15) ? String(draftTimeout) : (customInputValue || '30');
+    setCustomInputValue(initialCustom);
+    const err = validateCustomMinutes(initialCustom);
+    setCustomError(err);
+  };
+
+  const handleSaveSecurityPolicy = () => {
+    if (!canManageSecurity) return;
+    if (isCustomMode) {
+      const err = validateCustomMinutes(customInputValue);
+      if (err) {
+        setCustomError(err);
+        return;
+      }
+      const customNum = Number(customInputValue.trim());
+      setPolicy({ autoLogoutEnabled: draftAutoLogout, timeoutMinutes: customNum });
+      setDraftTimeout(customNum);
+    } else {
+      setPolicy({ autoLogoutEnabled: draftAutoLogout, timeoutMinutes: draftTimeout });
+    }
+    useSessionSecurityStore.getState().recordActivity();
+    setSecuritySaveSuccess('Session security policy saved successfully.');
+    setTimeout(() => setSecuritySaveSuccess(null), 4000);
+  };
+
+  const handleCancelSecurityPolicy = () => {
+    setDraftAutoLogout(autoLogoutEnabled);
+    setDraftTimeout(timeoutMinutes);
+    if (timeoutMinutes !== 10 && timeoutMinutes !== 15) {
+      setIsCustomMode(true);
+      setCustomInputValue(String(timeoutMinutes));
+    } else {
+      setIsCustomMode(false);
+      setCustomInputValue('30');
+    }
+    setCustomError(null);
+    setSecuritySaveSuccess(null);
+  };
 
   const {
     data: activeSessions = [],
@@ -298,6 +539,19 @@ export const ConfigurationMastersPage: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<string>('OPERATIONS_ADMIN');
   const [rolePermissionsDraft, setRolePermissionsDraft] = useState<Record<string, string[]>>({});
   const [isRoleSaveOpen, setIsRoleSaveOpen] = useState(false);
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroupCollapse = (groupId: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+  const collapseAllGroups = () => {
+    const next: Record<string, boolean> = {};
+    PERMISSION_MODULE_GROUPS.forEach((g) => { next[g.id] = true; });
+    setCollapsedGroups(next);
+  };
+  const expandAllGroups = () => {
+    setCollapsedGroups({});
+  };
 
   // Admin Users State
   const [adminUserFilter, setAdminUserFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED'>('ALL');
@@ -393,7 +647,13 @@ export const ConfigurationMastersPage: React.FC = () => {
     enabled: canManageTemplates,
   });
 
-  const { data: roleDefinitions, isLoading: loadingRoles } = useQuery({
+  const {
+    data: roleDefinitions,
+    isLoading: loadingRoles,
+    isError: isRolesError,
+    error: rolesError,
+    refetch: refetchRoles,
+  } = useQuery({
     queryKey: ['config', 'roles'],
     queryFn: async () => {
       const defs = await configurationRepository.getRolePermissions();
@@ -403,6 +663,28 @@ export const ConfigurationMastersPage: React.FC = () => {
       });
       setRolePermissionsDraft(initialMap);
       return defs;
+    },
+    enabled: canManageRoles,
+  });
+
+  const {
+    data: permissionCatalog = [],
+    isLoading: loadingPermissions,
+    isError: isPermissionsError,
+    error: permissionsError,
+    refetch: refetchPermissions,
+  } = useQuery({
+    queryKey: ['config', 'permissionsCatalog'],
+    queryFn: async (): Promise<PermissionCatalogItem[]> => {
+      if (typeof configurationRepository.getPermissionCatalogItems === 'function') {
+        return await configurationRepository.getPermissionCatalogItems();
+      }
+      const stringCodes = (await configurationRepository.getPermissionCatalog?.()) || [];
+      return stringCodes.map((code) => ({
+        code,
+        description: code,
+        superAdminOnly: isSuperAdminOnlyPermission(code),
+      }));
     },
     enabled: canManageRoles,
   });
@@ -478,10 +760,16 @@ export const ConfigurationMastersPage: React.FC = () => {
   const updateRoleMutation = useMutation({
     mutationFn: ({ role, permissions, rationale }: { role: string; permissions: string[]; rationale: string }) =>
       configurationRepository.updateRolePermissions(role, permissions, rationale),
-    onSuccess: () => {
+    onSuccess: (updatedRole) => {
       queryClient.invalidateQueries({ queryKey: ['config', 'roles'] });
+      if (updatedRole && updatedRole.permissions) {
+        setRolePermissionsDraft((prev) => ({
+          ...prev,
+          [updatedRole.role]: [...updatedRole.permissions],
+        }));
+      }
       setIsRoleSaveOpen(false);
-      setSuccessToast('Role permissions matrix updated successfully and synchronized.');
+      setSuccessToast(`Role permissions for ${updatedRole?.roleName || selectedRole} updated successfully and synchronized.`);
       setTimeout(() => setSuccessToast(null), 4000);
     },
     onError: (err: unknown) => {
@@ -570,7 +858,7 @@ export const ConfigurationMastersPage: React.FC = () => {
     (canManageAreas && loadingAreas) ||
     (canManageFees && loadingFees && !editingFees) ||
     (canManageTemplates && loadingTemplates) ||
-    (canManageRoles && loadingRoles);
+    (canManageRoles && (loadingRoles || loadingPermissions));
 
   if (isInitialLoading) {
     return <LoadingSpinner message="Loading system configuration masters..." />;
@@ -586,13 +874,41 @@ export const ConfigurationMastersPage: React.FC = () => {
   const isFeeDraftModified = editingFees?.some((f) => f.draftValueINR !== f.liveValueINR);
 
   const handleTogglePermission = (role: string, permKey: string) => {
+    if (role !== 'SUPER_ADMIN' && isSuperAdminOnlyPermission(permKey)) {
+      return;
+    }
     const currentPerms = rolePermissionsDraft[role] || [];
     const exists = currentPerms.includes(permKey);
     const updated = exists ? currentPerms.filter((p) => p !== permKey) : [...currentPerms, permKey];
-    setRolePermissionsDraft({
-      ...rolePermissionsDraft,
+    setRolePermissionsDraft((prev) => ({
+      ...prev,
       [role]: updated,
-    });
+    }));
+  };
+
+  const handleToggleModulePermissions = (role: string, moduleCodes: string[], selectAll: boolean) => {
+    if (role === 'SUPER_ADMIN') return;
+    const currentPerms = new Set(rolePermissionsDraft[role] || []);
+    const allowedCodes = moduleCodes.filter((code) => !isSuperAdminOnlyPermission(code));
+    if (selectAll) {
+      allowedCodes.forEach((code) => currentPerms.add(code));
+    } else {
+      allowedCodes.forEach((code) => currentPerms.delete(code));
+    }
+    setRolePermissionsDraft((prev) => ({
+      ...prev,
+      [role]: Array.from(currentPerms),
+    }));
+  };
+
+  const handleResetRoleDraft = (role: string) => {
+    const originalRole = roleDefinitions?.find((r) => r.role === role);
+    if (originalRole) {
+      setRolePermissionsDraft((prev) => ({
+        ...prev,
+        [role]: [...originalRole.permissions],
+      }));
+    }
   };
 
   return (
@@ -1415,130 +1731,651 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* TAB 5: ROLES & PERMISSION MATRIX */}
       {activeTab === 'roles' && (!canManageRoles ? (
         <NoAccessView moduleName="Role-Based Access Control Governance Matrix" requiredPermission={PERMISSIONS.ROLES_MANAGE} />
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
-            <div>
-              <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                Role-Based Access Control Governance Matrix
-              </h2>
-              <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                Assign granular capabilities to system personas. Super Admin core controls remain strictly locked.
-              </p>
-            </div>
-            <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-              <CustomSelect
-                value={selectedRole}
-                onChange={(val) => setSelectedRole(val)}
-                options={(roleDefinitions || []).map((r) => ({
-                  value: r.role,
-                  label: `${r.roleName}${r.isImmutable ? ' (Immutable)' : ''}`,
-                }))}
-                ariaLabel="Select role to configure"
-                minWidth="200px"
-              />
-              <button
-                disabled={roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable}
-                onClick={() => setIsRoleSaveOpen(true)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-md)',
-                  backgroundColor: roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable ? 'var(--color-bg-subtle)' : 'var(--color-brand-600)',
-                  color: roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable ? 'var(--color-text-tertiary)' : '#ffffff',
-                  fontSize: 'var(--font-size-xs)',
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                }}
-              >
-                <Save size={14} /> Save Role Privileges
-              </button>
-            </div>
+      ) : isPermissionsError || isRolesError ? (
+        <div
+          role="alert"
+          style={{
+            padding: 'var(--space-6)',
+            borderRadius: 'var(--radius-lg)',
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#991b1b',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            textAlign: 'center',
+            gap: 'var(--space-3)',
+            minHeight: '260px',
+          }}
+        >
+          <div style={{ padding: '12px', borderRadius: '50%', backgroundColor: '#fee2e2', color: '#dc2626' }}>
+            <AlertCircle size={32} />
           </div>
-
-          {/* Role Description Card */}
-          {roleDefinitions?.find((r) => r.role === selectedRole) && (
-            <div
-              style={{
-                backgroundColor: 'var(--color-surface)',
-                borderRadius: 'var(--radius-lg)',
-                border: '1px solid var(--color-border)',
-                padding: 'var(--space-4)',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 'var(--space-3)',
-              }}
-            >
-              {roleDefinitions.find((r) => r.role === selectedRole)?.isImmutable ? (
-                <Lock size={20} color="var(--color-warning-dark)" />
-              ) : (
-                <Shield size={20} color="var(--color-brand-600)" />
-              )}
-              <div>
-                <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
-                  {roleDefinitions.find((r) => r.role === selectedRole)?.roleName} Governance Policy
-                </div>
-                <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                  {roleDefinitions.find((r) => r.role === selectedRole)?.description}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Permissions Toggle Grid */}
-          <div
+          <div>
+            <h3 style={{ fontSize: 'var(--font-size-base)', fontWeight: 700, marginBottom: '4px' }}>
+              Failed to Load Permissions Catalog
+            </h3>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: '#b91c1c', maxWidth: '480px' }}>
+              {permissionsError instanceof Error
+                ? permissionsError.message
+                : rolesError instanceof Error
+                ? rolesError.message
+                : 'Unable to retrieve authoritative role permissions from backend. Please verify backend connectivity and retry.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              refetchPermissions();
+              refetchRoles();
+            }}
             style={{
-              backgroundColor: 'var(--color-surface)',
-              borderRadius: 'var(--radius-lg)',
-              border: '1px solid var(--color-border)',
-              padding: 'var(--space-5)',
+              marginTop: 'var(--space-2)',
+              padding: '8px 18px',
+              borderRadius: 'var(--radius-md)',
+              backgroundColor: '#dc2626',
+              color: '#ffffff',
+              fontSize: 'var(--font-size-xs)',
+              fontWeight: 600,
+              border: 'none',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
             }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-3)' }}>
-              {Object.entries(PERMISSIONS).map(([key, permString]) => {
-                const isChecked = (rolePermissionsDraft[selectedRole] || []).includes(permString);
-                const isImmutable = roleDefinitions?.find((r) => r.role === selectedRole)?.isImmutable;
+            <RotateCcw size={14} /> Retry Authorization Sync
+          </button>
+        </div>
+      ) : (() => {
+        const selectedRoleDef = roleDefinitions?.find((r) => r.role === selectedRole);
+        const isSelectedRoleImmutable = selectedRoleDef?.isImmutable ?? (selectedRole === 'SUPER_ADMIN');
+        const selectedRoleDraftPerms = rolePermissionsDraft[selectedRole] || [];
+        const selectedRoleServerPerms = selectedRoleDef?.permissions || [];
+        const isRoleDirty =
+          !isSelectedRoleImmutable &&
+          (selectedRoleDraftPerms.length !== selectedRoleServerPerms.length ||
+            selectedRoleDraftPerms.some((p) => !selectedRoleServerPerms.includes(p)) ||
+            selectedRoleServerPerms.some((p) => !selectedRoleDraftPerms.includes(p)));
 
-                return (
-                  <label
-                    key={key}
+        // Collect grouped codes to detect any uncategorized permissions from backend
+        const allGroupedCodes = new Set(PERMISSION_MODULE_GROUPS.flatMap((g) => g.codes));
+        const additionalPerms = permissionCatalog.filter((p) => !allGroupedCodes.has(p.code));
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            {/* Header with Title & Save Action */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+              <div>
+                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  Role-Based Access Control Governance Matrix
+                </h2>
+                <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                  Assign granular capabilities to system personas. Super Admin core controls remain strictly locked.
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                {isRoleDirty && (
+                  <button
+                    type="button"
+                    onClick={() => handleResetRoleDraft(selectedRole)}
                     style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 'var(--space-2)',
-                      padding: 'var(--space-3)',
+                      padding: '6px 12px',
                       borderRadius: 'var(--radius-md)',
-                      backgroundColor: isChecked ? 'var(--color-brand-50)' : 'var(--color-bg-subtle)',
-                      border: '1px solid',
-                      borderColor: isChecked ? 'var(--color-brand-600)' : 'var(--color-border)',
-                      cursor: isImmutable ? 'not-allowed' : 'pointer',
+                      backgroundColor: 'var(--color-surface)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={isImmutable}
-                      onChange={() => handleTogglePermission(selectedRole, permString)}
-                      style={{ marginTop: '2px' }}
-                    />
-                    <div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', fontWeight: 700, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
-                        {permString}
+                    <RotateCcw size={13} /> Discard Changes
+                  </button>
+                )}
+                <button
+                  disabled={isSelectedRoleImmutable || updateRoleMutation.isPending}
+                  onClick={() => setIsRoleSaveOpen(true)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: isSelectedRoleImmutable
+                      ? 'var(--color-bg-subtle)'
+                      : isRoleDirty
+                      ? 'var(--color-brand-600)'
+                      : 'var(--color-brand-700)',
+                    color: isSelectedRoleImmutable ? 'var(--color-text-tertiary)' : '#ffffff',
+                    fontSize: 'var(--font-size-xs)',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: isSelectedRoleImmutable ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: isRoleDirty ? '0 1px 3px rgba(13, 148, 136, 0.3)' : 'none',
+                  }}
+                >
+                  <Save size={14} />
+                  {isSelectedRoleImmutable
+                    ? 'Immutable Core Role'
+                    : isRoleDirty
+                    ? 'Save Role Privileges *'
+                    : 'Save Role Privileges'}
+                </button>
+              </div>
+            </div>
+
+            {/* Role Selector Tabs (Interactive Cards) */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: 'var(--space-3)',
+              }}
+              role="tablist"
+              aria-label="Select administrative role"
+            >
+              {(roleDefinitions || []).map((r) => {
+                const isSelected = r.role === selectedRole;
+                const roleDraftCount = (rolePermissionsDraft[r.role] || []).length;
+                const isImm = r.isImmutable || r.role === 'SUPER_ADMIN';
+
+                return (
+                  <button
+                    key={r.role}
+                    type="button"
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setSelectedRole(r.role)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 'var(--space-1)',
+                      padding: 'var(--space-3) var(--space-4)',
+                      borderRadius: 'var(--radius-lg)',
+                      border: '2px solid',
+                      borderColor: isSelected ? 'var(--color-brand-600)' : 'var(--color-border)',
+                      backgroundColor: isSelected ? 'var(--color-brand-50, #f0fdfa)' : 'var(--color-surface)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? 'var(--shadow-sm)' : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        {isImm ? (
+                          <Lock size={15} color="var(--color-warning-dark, #b45309)" />
+                        ) : (
+                          <Shield size={15} color="var(--color-brand-600, #0d9488)" />
+                        )}
+                        <span style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                          {r.roleName}
+                        </span>
                       </div>
-                      <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>
-                        {key.replace(/_/g, ' ')}
-                      </div>
+                      {isImm && (
+                        <span
+                          style={{
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: 'var(--color-warning-bg, #fef3c7)',
+                            color: 'var(--color-warning-dark, #92400e)',
+                          }}
+                        >
+                          LOCKED
+                        </span>
+                      )}
                     </div>
-                  </label>
+                    <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                      <span>{roleDraftCount} / {permissionCatalog.length} permissions</span>
+                      <span style={{ fontWeight: 500 }}>
+                        {r.accountsCount ?? r.userCount ?? 1} staff
+                      </span>
+                    </div>
+                  </button>
                 );
               })}
             </div>
+
+            {/* Role Policy Summary / Immutable Banner */}
+            {isSelectedRoleImmutable ? (
+              <div
+                style={{
+                  backgroundColor: 'var(--color-warning-bg, #fef3c7)',
+                  border: '1px solid var(--color-warning-border, #fcd34d)',
+                  borderRadius: 'var(--radius-lg)',
+                  padding: 'var(--space-4)',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <Lock size={20} color="var(--color-warning-dark, #b45309)" style={{ marginTop: '2px', flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm)', color: 'var(--color-warning-dark, #92400e)' }}>
+                    Super Administrator Core Matrix (Protected & Immutable)
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-warning-dark, #92400e)', marginTop: '2px', lineHeight: 1.5 }}>
+                    The Super Admin role holds unrestricted system authority across all {permissionCatalog.length} platform permissions.
+                    In accordance with backend security policy (ROLE_IMMUTABLE), Super Admin permissions are permanent and cannot be modified or reduced.
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  backgroundColor: 'var(--color-surface)',
+                  borderRadius: 'var(--radius-lg)',
+                  border: '1px solid var(--color-border)',
+                  padding: 'var(--space-4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--space-3)',
+                }}
+              >
+                <Shield size={20} color="var(--color-brand-600)" style={{ flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    {selectedRoleDef?.roleName} Governance Policy
+                  </div>
+                  <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
+                    {selectedRoleDef?.description}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Unsaved Changes Banner */}
+            {isRoleDirty && (
+              <div
+                style={{
+                  backgroundColor: 'var(--color-brand-50, #f0fdfa)',
+                  border: '1px solid var(--color-brand-600, #0d9488)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: 'var(--space-3) var(--space-4)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 'var(--space-2)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                  <AlertCircle size={18} color="var(--color-brand-600)" />
+                  <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 600, color: 'var(--color-brand-900, #134e4a)' }}>
+                    Unsaved permission changes for {selectedRoleDef?.roleName} ({selectedRoleDraftPerms.length} permissions currently assigned).
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleResetRoleDraft(selectedRole)}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-surface)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRoleSaveOpen(true)}
+                    style={{
+                      padding: '4px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: 'var(--color-brand-600)',
+                      color: '#ffffff',
+                      fontSize: 'var(--font-size-xs)',
+                      fontWeight: 600,
+                      border: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Apply Now
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Toolbar above Categories */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 'var(--space-2)',
+                padding: '6px 12px',
+                backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                  Permission Matrix
+                </span>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    padding: '1px 8px',
+                    borderRadius: 'var(--radius-full)',
+                    backgroundColor: 'var(--color-brand-50, #f0fdfa)',
+                    color: 'var(--color-brand-700, #0f766e)',
+                    border: '1px solid var(--color-brand-200, #99f6e4)',
+                  }}
+                >
+                  {selectedRoleDraftPerms.length} / {permissionCatalog.length} Active
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={expandAllGroups}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-brand-600, #0d9488)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                  }}
+                >
+                  Expand All
+                </button>
+                <span style={{ color: 'var(--color-border)' }}>|</span>
+                <button
+                  type="button"
+                  onClick={collapseAllGroups}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-text-secondary)',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    padding: '2px 6px',
+                  }}
+                >
+                  Collapse All
+                </button>
+              </div>
+            </div>
+
+            {/* Compact Collapsible Module Groups */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+              {PERMISSION_MODULE_GROUPS.map((group) => {
+                const GroupIcon = group.icon;
+                const groupItems = group.codes
+                  .map((code) => permissionCatalog.find((p) => p.code === code))
+                  .filter((p): p is PermissionCatalogItem => p !== undefined);
+
+                if (groupItems.length === 0) return null;
+
+                const isCollapsed = Boolean(collapsedGroups[group.id]);
+                const activeCount = groupItems.filter((item) =>
+                  selectedRoleDraftPerms.includes(item.code)
+                ).length;
+
+                const configurableItems = isSelectedRoleImmutable
+                  ? []
+                  : groupItems.filter((item) => !item.superAdminOnly);
+                const allConfigurableChecked =
+                  configurableItems.length > 0 &&
+                  configurableItems.every((item) => selectedRoleDraftPerms.includes(item.code));
+
+                return (
+                  <div
+                    key={group.id}
+                    style={{
+                      backgroundColor: 'var(--color-surface)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      overflow: 'hidden',
+                      boxShadow: 'var(--shadow-xs)',
+                    }}
+                  >
+                    {/* Collapsible Module Header */}
+                    <div
+                      onClick={() => toggleGroupCollapse(group.id)}
+                      style={{
+                        padding: '8px 12px',
+                        backgroundColor: isCollapsed ? 'var(--color-surface)' : 'var(--color-bg-subtle)',
+                        borderBottom: isCollapsed ? 'none' : '1px solid var(--color-border)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        {isCollapsed ? (
+                          <ChevronRight size={15} color="var(--color-text-secondary)" />
+                        ) : (
+                          <ChevronDown size={15} color="var(--color-brand-600)" />
+                        )}
+                        <GroupIcon size={15} color="var(--color-brand-600)" style={{ flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>
+                          {group.title}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            padding: '1px 6px',
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: activeCount === groupItems.length ? '#dcfce7' : activeCount > 0 ? '#f0fdfa' : '#f1f5f9',
+                            color: activeCount === groupItems.length ? '#166534' : activeCount > 0 ? '#0f766e' : '#64748b',
+                            border: `1px solid ${activeCount === groupItems.length ? '#bbf7d0' : activeCount > 0 ? '#ccfbf1' : '#e2e8f0'}`,
+                          }}
+                        >
+                          {activeCount}/{groupItems.length}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {!isSelectedRoleImmutable && configurableItems.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleToggleModulePermissions(
+                                selectedRole,
+                                groupItems.map((p) => p.code),
+                                !allConfigurableChecked
+                              )
+                            }
+                            style={{
+                              padding: '2px 8px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: 'var(--color-surface)',
+                              border: '1px solid var(--color-border)',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              color: allConfigurableChecked ? '#b91c1c' : 'var(--color-brand-700)',
+                            }}
+                          >
+                            {allConfigurableChecked ? 'Clear All' : 'Select All'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Permissions List Rows (When Expanded) */}
+                    {!isCollapsed && (
+                      <div style={{ display: 'flex', flexDirection: 'column' }}>
+                        {groupItems.map((p, idx) => {
+                          const isChecked = selectedRoleDraftPerms.includes(p.code);
+                          const isRestricted = p.superAdminOnly && selectedRole !== 'SUPER_ADMIN';
+                          const isDisabled = isSelectedRoleImmutable || isRestricted;
+
+                          return (
+                            <label
+                              key={p.code}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '7px 12px',
+                                borderBottom: idx < groupItems.length - 1 ? '1px solid var(--color-border-subtle, #f1f5f9)' : 'none',
+                                backgroundColor: isRestricted
+                                  ? '#f8fafc'
+                                  : isChecked
+                                  ? 'var(--color-brand-50, #f0fdfa)'
+                                  : '#ffffff',
+                                cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                transition: 'background-color 0.1s ease',
+                                flexWrap: 'wrap',
+                                gap: '6px',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={isDisabled}
+                                  onChange={() => handleTogglePermission(selectedRole, p.code)}
+                                  style={{ cursor: isDisabled ? 'not-allowed' : 'pointer', flexShrink: 0 }}
+                                />
+                                <span
+                                  style={{
+                                    fontSize: '12px',
+                                    fontFamily: 'monospace',
+                                    fontWeight: 600,
+                                    color: isChecked && !isRestricted ? 'var(--color-brand-800, #115e59)' : 'var(--color-text-primary)',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {p.code}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: '12px',
+                                    color: 'var(--color-text-secondary)',
+                                    lineHeight: 1.3,
+                                  }}
+                                >
+                                  — {p.description}
+                                </span>
+                              </div>
+
+                              {p.superAdminOnly && (
+                                <span
+                                  style={{
+                                    fontSize: '10px',
+                                    fontWeight: 700,
+                                    padding: '1px 6px',
+                                    borderRadius: 'var(--radius-full)',
+                                    backgroundColor: 'var(--color-warning-bg, #fef3c7)',
+                                    color: 'var(--color-warning-dark, #92400e)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '3px',
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  <Lock size={10} /> Super Admin Only
+                                </span>
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Additional uncategorized permissions if any */}
+              {additionalPerms.length > 0 && (
+                <div
+                  style={{
+                    backgroundColor: 'var(--color-surface)',
+                    borderRadius: 'var(--radius-md)',
+                    border: '1px solid var(--color-border)',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      backgroundColor: 'var(--color-bg-subtle)',
+                      borderBottom: '1px solid var(--color-border)',
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: '13px', color: 'var(--color-text-primary)' }}>
+                      Additional Platform Capabilities
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {additionalPerms.map((p, idx) => {
+                      const isChecked = selectedRoleDraftPerms.includes(p.code);
+                      const isRestricted = p.superAdminOnly && selectedRole !== 'SUPER_ADMIN';
+                      const isDisabled = isSelectedRoleImmutable || isRestricted;
+
+                      return (
+                        <label
+                          key={p.code}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '7px 12px',
+                            borderBottom: idx < additionalPerms.length - 1 ? '1px solid var(--color-border-subtle, #f1f5f9)' : 'none',
+                            backgroundColor: isRestricted
+                              ? '#f8fafc'
+                              : isChecked
+                              ? 'var(--color-brand-50)'
+                              : '#ffffff',
+                            cursor: isDisabled ? 'not-allowed' : 'pointer',
+                            flexWrap: 'wrap',
+                            gap: '6px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isDisabled}
+                              onChange={() => handleTogglePermission(selectedRole, p.code)}
+                              style={{ cursor: isDisabled ? 'not-allowed' : 'pointer', flexShrink: 0 }}
+                            />
+                            <span style={{ fontSize: '12px', fontFamily: 'monospace', fontWeight: 600 }}>
+                              {p.code}
+                            </span>
+                            <span style={{ fontSize: '12px', color: 'var(--color-text-secondary)' }}>
+                              — {p.description}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })())}
 
       {/* TAB 6: ADMIN USER ACCOUNTS & PERSONNEL */}
       {activeTab === 'adminUsers' && (!canManageAdminUsers ? (
@@ -1822,7 +2659,7 @@ export const ConfigurationMastersPage: React.FC = () => {
                 }}
               >
                 <CheckCircle2 size={12} />
-                15-Minute Standard Active
+                {timeoutMinutes === 15 ? '15-Minute Standard Active' : autoLogoutEnabled ? `${timeoutMinutes}-Minute Policy Active` : 'Inactivity Logout Disabled'}
               </span>
             </div>
           </div>
@@ -1841,9 +2678,31 @@ export const ConfigurationMastersPage: React.FC = () => {
           >
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--space-4)', flexWrap: 'wrap' }}>
               <div>
-                <h3 style={{ fontSize: 'var(--font-size-md, 15px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
-                  Automated Session Inactivity Logout
-                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 'var(--font-size-md, 15px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0 }}>
+                    Automated Session Inactivity Logout
+                  </h3>
+                  <div
+                    data-testid="active-timeout-badge"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-full, 9999px)',
+                      backgroundColor: autoLogoutEnabled ? 'var(--color-status-success-bg, #ecfdf5)' : 'var(--color-bg-subtle, #f1f5f9)',
+                      border: `1px solid ${autoLogoutEnabled ? 'var(--color-status-success-border, #a7f3d0)' : 'var(--color-border, #cbd5e1)'}`,
+                      color: autoLogoutEnabled ? 'var(--color-status-success-text, #065f46)' : 'var(--color-text-secondary, #64748b)',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <Clock size={12} />
+                    <span>
+                      Active: {autoLogoutEnabled ? `${timeoutMinutes} Minutes` : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
                 <p style={{ fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)', margin: '4px 0 0 0', lineHeight: 1.5 }}>
                   Automatically terminate idle administrator sessions to protect sensitive customer records, KYC documents, and financial operations from physical tampering.
                 </p>
@@ -1855,18 +2714,20 @@ export const ConfigurationMastersPage: React.FC = () => {
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: 'var(--space-2)',
-                  cursor: 'pointer',
+                  cursor: canManageSecurity ? 'pointer' : 'not-allowed',
                   fontWeight: 600,
                   fontSize: 'var(--font-size-sm, 13px)',
                   color: 'var(--color-text-primary, #0f172a)',
+                  opacity: canManageSecurity ? 1 : 0.7,
                 }}
               >
                 <input
                   type="checkbox"
                   data-testid="auto-logout-toggle"
-                  checked={autoLogoutEnabled}
-                  onChange={(e) => setPolicy({ autoLogoutEnabled: e.target.checked })}
-                  style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                  checked={draftAutoLogout}
+                  disabled={!canManageSecurity}
+                  onChange={(e) => setDraftAutoLogout(e.target.checked)}
+                  style={{ width: '16px', height: '16px', cursor: canManageSecurity ? 'pointer' : 'not-allowed' }}
                 />
                 <span>Enable Inactivity Logout</span>
               </label>
@@ -1875,30 +2736,40 @@ export const ConfigurationMastersPage: React.FC = () => {
             <hr style={{ border: 'none', borderTop: '1px solid var(--color-border, #e2e8f0)', margin: 0 }} />
 
             {/* Inactivity Threshold Options */}
-            <div>
-              <label style={{ display: 'block', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', marginBottom: 'var(--space-3)' }}>
-                INACTIVITY TIMEOUT THRESHOLD
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 'var(--space-3)' }}>
+            <div style={{ opacity: draftAutoLogout ? 1 : 0.6, pointerEvents: draftAutoLogout ? 'auto' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-3)' }}>
+                <label style={{ display: 'block', fontSize: 'var(--font-size-xs, 12px)', fontWeight: 700, color: 'var(--color-text-secondary, #64748b)', margin: 0 }}>
+                  INACTIVITY TIMEOUT THRESHOLD
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-muted, #94a3b8)' }}>
+                  Permitted: 5 – 60 minutes
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 'var(--space-3)' }}>
+                {/* 15 Minutes Default */}
                 <label
+                  onClick={handleSelectOption15}
                   style={{
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: 'var(--space-3)',
                     padding: 'var(--space-3) var(--space-4)',
                     borderRadius: 'var(--radius-md, 6px)',
-                    border: timeoutMinutes === 15 ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
-                    backgroundColor: timeoutMinutes === 15 ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
-                    cursor: 'pointer',
+                    border: (!isCustomMode && draftTimeout === 15) ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: (!isCustomMode && draftTimeout === 15) ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                    cursor: canManageSecurity ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   <input
                     type="radio"
                     name="inactivityTimeout"
                     data-testid="timeout-option-15"
-                    checked={timeoutMinutes === 15}
-                    onChange={() => setPolicy({ timeoutMinutes: 15 })}
-                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                    checked={!isCustomMode && draftTimeout === 15}
+                    onChange={handleSelectOption15}
+                    disabled={!canManageSecurity}
+                    style={{ marginTop: '2px', cursor: canManageSecurity ? 'pointer' : 'not-allowed' }}
                   />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm, 13px)', color: 'var(--color-text-primary, #0f172a)' }}>
@@ -1910,25 +2781,29 @@ export const ConfigurationMastersPage: React.FC = () => {
                   </div>
                 </label>
 
+                {/* 10 Minutes Strict */}
                 <label
+                  onClick={handleSelectOption10}
                   style={{
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: 'var(--space-3)',
                     padding: 'var(--space-3) var(--space-4)',
                     borderRadius: 'var(--radius-md, 6px)',
-                    border: timeoutMinutes === 10 ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
-                    backgroundColor: timeoutMinutes === 10 ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
-                    cursor: 'pointer',
+                    border: (!isCustomMode && draftTimeout === 10) ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: (!isCustomMode && draftTimeout === 10) ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                    cursor: canManageSecurity ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.15s ease',
                   }}
                 >
                   <input
                     type="radio"
                     name="inactivityTimeout"
                     data-testid="timeout-option-10"
-                    checked={timeoutMinutes === 10}
-                    onChange={() => setPolicy({ timeoutMinutes: 10 })}
-                    style={{ marginTop: '2px', cursor: 'pointer' }}
+                    checked={!isCustomMode && draftTimeout === 10}
+                    onChange={handleSelectOption10}
+                    disabled={!canManageSecurity}
+                    style={{ marginTop: '2px', cursor: canManageSecurity ? 'pointer' : 'not-allowed' }}
                   />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm, 13px)', color: 'var(--color-text-primary, #0f172a)' }}>
@@ -1936,6 +2811,89 @@ export const ConfigurationMastersPage: React.FC = () => {
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs, 11px)', color: 'var(--color-text-secondary, #64748b)', marginTop: '2px' }}>
                       Accelerated client-side timeout window for high-compliance shared administrative environments.
+                    </div>
+                  </div>
+                </label>
+
+                {/* Custom Option */}
+                <label
+                  onClick={handleSelectCustom}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 'var(--space-3)',
+                    padding: 'var(--space-3) var(--space-4)',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: isCustomMode ? '2px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: isCustomMode ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                    cursor: canManageSecurity ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="inactivityTimeout"
+                    data-testid="timeout-option-custom"
+                    checked={isCustomMode}
+                    onChange={handleSelectCustom}
+                    disabled={!canManageSecurity}
+                    style={{ marginTop: '2px', cursor: canManageSecurity ? 'pointer' : 'not-allowed' }}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 'var(--font-size-sm, 13px)', color: 'var(--color-text-primary, #0f172a)' }}>
+                      Custom Timeout
+                    </div>
+                    <div style={{ fontSize: 'var(--font-size-xs, 11px)', color: 'var(--color-text-secondary, #64748b)', marginTop: '2px' }}>
+                      Specify custom inactivity duration between 5 and 60 minutes.
+                    </div>
+                    <div style={{ marginTop: 'var(--space-2)' }} onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <input
+                          type="number"
+                          data-testid="custom-timeout-input"
+                          min={MIN_TIMEOUT_MINUTES}
+                          max={MAX_TIMEOUT_MINUTES}
+                          step={1}
+                          disabled={!draftAutoLogout || !canManageSecurity}
+                          value={customInputValue}
+                          onChange={(e) => handleCustomChange(e.target.value)}
+                          placeholder="5 - 60"
+                          aria-label="Custom timeout in minutes"
+                          style={{
+                            width: '80px',
+                            height: '34px',
+                            padding: '0 8px',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                            color: 'var(--color-text-primary, #0f172a)',
+                            backgroundColor: !draftAutoLogout || !canManageSecurity ? 'var(--color-bg-subtle, #f1f5f9)' : '#ffffff',
+                            border: isCustomMode && customError ? '1.5px solid var(--color-danger, #ef4444)' : '1px solid var(--color-border, #cbd5e1)',
+                            borderRadius: 'var(--radius-md, 6px)',
+                            textAlign: 'center',
+                          }}
+                        />
+                        <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-secondary, #64748b)' }}>
+                          minutes
+                        </span>
+                      </div>
+                      {isCustomMode && customError && (
+                        <div
+                          data-testid="custom-timeout-error"
+                          role="alert"
+                          style={{
+                            marginTop: '6px',
+                            fontSize: '11px',
+                            color: 'var(--color-danger, #ef4444)',
+                            fontWeight: 600,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          <AlertCircle size={12} />
+                          <span>{customError}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </label>
@@ -1960,6 +2918,108 @@ export const ConfigurationMastersPage: React.FC = () => {
               <span>
                 <strong>Pre-Logout Warning:</strong> A countdown dialog appears <strong>60 seconds (1 minute)</strong> before automatic termination. Administrators may select <strong>"Stay Logged In"</strong> to refresh credentials and continue their work without losing unsaved changes.
               </span>
+            </div>
+
+            {/* Save & Cancel Action Bar with Unsaved Changes Handling */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingTop: 'var(--space-4)',
+                borderTop: '1px solid var(--color-border, #e2e8f0)',
+                flexWrap: 'wrap',
+                gap: 'var(--space-3)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minHeight: '26px' }}>
+                {hasUnsavedChanges && !securitySaveSuccess && (
+                  <span
+                    data-testid="unsaved-changes-indicator"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 10px',
+                      borderRadius: 'var(--radius-sm, 4px)',
+                      backgroundColor: '#fffbeb',
+                      border: '1px solid #fde68a',
+                      color: '#92400e',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <AlertCircle size={13} />
+                    Unsaved changes
+                  </span>
+                )}
+                {securitySaveSuccess && (
+                  <span
+                    data-testid="save-feedback-message"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '4px 10px',
+                      borderRadius: 'var(--radius-sm, 4px)',
+                      backgroundColor: 'var(--color-status-success-bg, #ecfdf5)',
+                      border: '1px solid var(--color-status-success-border, #a7f3d0)',
+                      color: 'var(--color-status-success-text, #065f46)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    <CheckCircle2 size={13} />
+                    {securitySaveSuccess}
+                  </span>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                <button
+                  type="button"
+                  data-testid="cancel-security-policy-btn"
+                  onClick={handleCancelSecurityPolicy}
+                  disabled={!hasUnsavedChanges}
+                  style={{
+                    padding: '7px 16px',
+                    fontSize: 'var(--font-size-sm, 13px)',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: '1px solid var(--color-border, #cbd5e1)',
+                    backgroundColor: '#ffffff',
+                    color: !hasUnsavedChanges ? 'var(--color-text-disabled, #94a3b8)' : 'var(--color-text-secondary, #475569)',
+                    cursor: !hasUnsavedChanges ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="save-security-policy-btn"
+                  onClick={handleSaveSecurityPolicy}
+                  disabled={!hasUnsavedChanges || (isCustomMode && Boolean(customError)) || !canManageSecurity}
+                  style={{
+                    padding: '7px 18px',
+                    fontSize: 'var(--font-size-sm, 13px)',
+                    fontWeight: 600,
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: 'none',
+                    backgroundColor: (!hasUnsavedChanges || (isCustomMode && Boolean(customError)) || !canManageSecurity)
+                      ? 'var(--color-bg-disabled, #cbd5e1)'
+                      : 'var(--color-primary, #0f766e)',
+                    color: '#ffffff',
+                    cursor: (!hasUnsavedChanges || (isCustomMode && Boolean(customError)) || !canManageSecurity) ? 'not-allowed' : 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  <Save size={14} />
+                  <span>Save Changes</span>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2707,21 +3767,153 @@ export const ConfigurationMastersPage: React.FC = () => {
       {/* CONFIRM DIALOG: Save Role Privileges */}
       <ConfirmDialog
         isOpen={isRoleSaveOpen}
-        title={`Authorize Permission Updates for ${roleDefinitions?.find((r) => r.role === selectedRole)?.roleName}`}
+        title={`Authorize Permission Updates for ${roleDefinitions?.find((r) => r.role === selectedRole)?.roleName || selectedRole}`}
         description="Changes to role capabilities will be enforced on staff authentication token refresh."
         confirmLabel="Authorize Role Update"
         isDestructive={true}
         requireRemarks={true}
-        remarksPlaceholder="Enter mandatory security authorization justification..."
+        remarksLabel="Mandatory Audit Reason"
+        remarksPlaceholder="Explain why these role permissions are being changed..."
         onConfirm={(remarks) => {
+          const rawCodes = rolePermissionsDraft[selectedRole] || [];
+          const cleanedCodes = Array.from(
+            new Set(
+              rawCodes
+                .map((c) => mapLegacyPermissionToCanonical(c))
+                .filter((code) => {
+                  if (!code) return false;
+                  if (selectedRole !== 'SUPER_ADMIN' && isSuperAdminOnlyPermission(code)) return false;
+                  return true;
+                })
+            )
+          );
           updateRoleMutation.mutate({
             role: selectedRole,
-            permissions: rolePermissionsDraft[selectedRole] || [],
+            permissions: cleanedCodes,
             rationale: remarks || 'Security role permission update.',
           });
         }}
         onCancel={() => setIsRoleSaveOpen(false)}
-      />
+      >
+        {(() => {
+          const roleDef = roleDefinitions?.find((r) => r.role === selectedRole);
+          const currentPerms = roleDef?.permissions || [];
+          const proposedPerms = rolePermissionsDraft[selectedRole] || [];
+          const added = proposedPerms.filter((p) => !currentPerms.includes(p));
+          const removed = currentPerms.filter((p) => !proposedPerms.includes(p));
+
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)', marginBottom: 'var(--space-3)' }}>
+              {/* Selected Role Identification */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                  border: '1px solid var(--color-border, #e2e8f0)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Shield size={16} color="var(--color-brand-600, #0d9488)" />
+                  <span style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-text-primary)' }}>
+                    Target Role: {roleDef?.roleName || selectedRole}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    backgroundColor: '#ffffff',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  {selectedRole}
+                </span>
+              </div>
+
+              {/* Added / Removed Summary */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {added.length > 0 && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: '#f0fdf4',
+                      border: '1px solid #bbf7d0',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#166534', marginBottom: '4px' }}>
+                      +{added.length} Permissions Added:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {added.map((code) => (
+                        <span
+                          key={code}
+                          style={{
+                            fontSize: '11px',
+                            fontFamily: 'monospace',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: '#dcfce7',
+                            color: '#15803d',
+                            border: '1px solid #86efac',
+                          }}
+                        >
+                          +{code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {removed.length > 0 && (
+                  <div
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 'var(--radius-md)',
+                      backgroundColor: '#fef2f2',
+                      border: '1px solid #fecaca',
+                    }}
+                  >
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: '#991b1b', marginBottom: '4px' }}>
+                      -{removed.length} Permissions Removed:
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {removed.map((code) => (
+                        <span
+                          key={code}
+                          style={{
+                            fontSize: '11px',
+                            fontFamily: 'monospace',
+                            padding: '1px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: '#fee2e2',
+                            color: '#b91c1c',
+                            border: '1px solid #fca5a5',
+                          }}
+                        >
+                          -{code}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {added.length === 0 && removed.length === 0 && (
+                  <div style={{ fontSize: '12px', color: 'var(--color-text-secondary)', fontStyle: 'italic', padding: '4px 0' }}>
+                    No permissions modified.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+      </ConfirmDialog>
 
       {/* MODAL: View Fee Diff Preview */}
       {isDiffPreviewOpen && (

@@ -918,10 +918,10 @@ export const AttendanceLogsPage: React.FC = () => {
                           <StatusBadge status={entry.status} />
                         </td>
                         <td style={{ padding: '10px 8px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                          {entry.checkInTime ? formatDateTimeIST(entry.checkInTime) : 'Not recorded'}
+                          {entry.checkInTime ? formatDateTimeIST(entry.checkInTime) : 'Not captured'}
                         </td>
                         <td style={{ padding: '10px 8px', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                          {entry.checkOutTime ? formatDateTimeIST(entry.checkOutTime) : 'Not recorded'}
+                          {entry.checkOutTime ? formatDateTimeIST(entry.checkOutTime) : 'Not captured'}
                         </td>
                         <td style={{ padding: '10px 8px', fontSize: '11px', color: 'var(--color-text-secondary)' }}>
                           <div>{entry.updatedAt ? formatDateTimeIST(entry.updatedAt) : formatDateIST(entry.date)}</div>

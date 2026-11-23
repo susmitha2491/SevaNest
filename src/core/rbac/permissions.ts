@@ -4,26 +4,35 @@
  */
 
 export const PERMISSIONS = {
-  DASHBOARD_VIEW: 'dashboard.view',
+  ALERT_VIEW: 'alert.view',
+  ALERT_MANAGE: 'alert.manage',
+  DASHBOARD_VIEW: 'dashboard.view', // Backward-compatible view key, maps to alert.view in hasPermission
   CUSTOMER_VIEW: 'customer.view', // Canonical singular backend code
   CUSTOMERS_VIEW: 'customer.view', // Backward-compatible alias
   CUSTOMER_MANAGE: 'customer.manage', // Canonical singular backend code
   CUSTOMERS_MANAGE: 'customer.manage', // Backward-compatible alias
   CUSTOMERS_MANAGE_STATUS: 'user.status.manage', // Canonical backend user status manage
   USER_STATUS_MANAGE: 'user.status.manage', // Canonical backend user status manage
+  USER_VIEW: 'user.view',
   WORKER_VIEW: 'worker.view',
   WORKERS_VIEW: 'worker.view', // Canonical singular backend code
   WORKER_MANAGE: 'worker.manage', // Canonical singular backend code
   WORKERS_MANAGE: 'worker.manage', // Backward-compatible alias
   WORKERS_MANAGE_STATUS: 'user.status.manage', // Canonical backend user status manage
   WORKER_ACTIVATE: 'worker.activate',
+  WORKER_REVEAL_EMERGENCY_CONTACT: 'worker.reveal_emergency_contact',
+  WORKER_BLACKLIST: 'worker.blacklist',
+  WORKER_BLACKLIST_LIFT: 'worker.blacklist.lift',
   VERIFICATION_REVIEW: 'verification.review',
   VERIFICATION_DECIDE: 'verification.decide',
   VERIFICATION_SIGNOFF: 'verification.signoff',
   VERIFICATION_REASSIGN: 'verification.reassign',
   VERIFICATION_DOCUMENT_VIEW: 'verification.document.view',
   DOCUMENTS_VIEW_RESTRICTED: 'verification.document.view', // Aliased to canonical verification.document.view
+  VERIFICATION_CONFIGURE: 'verification.configure',
+  BOOKING_VIEW: 'booking.view',
   BOOKINGS_VIEW: 'bookings.view',
+  BOOKING_MANAGE: 'booking.manage',
   BOOKINGS_MANAGE: 'bookings.manage',
   MATCHING_RUN: 'matching.run',
   REPLACEMENT_VIEW: 'replacement.view',
@@ -32,22 +41,77 @@ export const PERMISSIONS = {
   ATTENDANCE_MANAGE: 'attendance.manage',
   RATING_VIEW: 'rating.view',
   RATING_MODERATE: 'rating.moderate',
-  ALERT_VIEW: 'alert.view',
-  ALERT_MANAGE: 'alert.manage',
+  PAYMENT_VIEW: 'payment.view',
   PAYMENTS_VIEW: 'payments.view',
   PAYMENT_MANAGE: 'payment.manage',
+  PAYMENT_REFUND: 'payment.refund',
   REFUNDS_MANAGE: 'refunds.manage',
   SUPPORT_VIEW: 'support.view',
   SUPPORT_MANAGE: 'support.manage',
+  SUPPORT_CATEGORY_MANAGE: 'support.category.manage',
+  REPORT_VIEW: 'report.view',
   REPORTS_VIEW: 'reports.view',
   EXPORTS_GENERATE: 'exports.generate',
   CATEGORY_MANAGE: 'category.manage',
   AREA_MANAGE: 'area.manage',
   NOTIFICATION_MANAGE: 'notification.manage',
+  CONFIG_MANAGE: 'config.manage',
   CONFIGURATION_MANAGE: 'configuration.manage',
+  ROLE_MANAGE: 'role.manage',
   ROLES_MANAGE: 'roles.manage',
+  ADMIN_MANAGE_USERS: 'admin.manage_users',
   AUDIT_VIEW: 'audit.view',
 } as const;
+
+export const SUPER_ADMIN_ONLY_PERMISSIONS: ReadonlySet<string> = new Set([
+  'admin.manage_users',
+  'audit.view',
+  'role.manage',
+  'worker.blacklist.lift',
+]);
+
+export function isSuperAdminOnlyPermission(code: string): boolean {
+  return SUPER_ADMIN_ONLY_PERMISSIONS.has(code);
+}
+
+export function mapLegacyPermissionToCanonical(code: string): string {
+  switch (code) {
+    case 'dashboard.view':
+      return 'alert.view';
+    case 'customers.view':
+      return 'customer.view';
+    case 'customers.manage':
+      return 'customer.manage';
+    case 'customers.manage_status':
+    case 'workers.manage_status':
+      return 'user.status.manage';
+    case 'workers.view':
+      return 'worker.view';
+    case 'workers.manage':
+      return 'worker.manage';
+    case 'documents.view_restricted':
+      return 'verification.document.view';
+    case 'bookings.view':
+      return 'booking.view';
+    case 'bookings.manage':
+      return 'booking.manage';
+    case 'payments.view':
+      return 'payment.view';
+    case 'refunds.manage':
+      return 'payment.refund';
+    case 'reports.view':
+    case 'exports.generate':
+    case 'report.export':
+    case 'reports.export':
+      return 'report.view';
+    case 'configuration.manage':
+      return 'config.manage';
+    case 'roles.manage':
+      return 'role.manage';
+    default:
+      return code;
+  }
+}
 
 export type PermissionKey = typeof PERMISSIONS[keyof typeof PERMISSIONS] | string;
 
@@ -55,119 +119,18 @@ export function hasPermission(userPermissions: string[] | undefined, required: P
   if (!userPermissions || !Array.isArray(userPermissions)) return false;
   if (userPermissions.includes('*')) return true;
   if (userPermissions.includes(required)) return true;
-  // Support legacy documents.view_restricted string when checking VERIFICATION_DOCUMENT_VIEW
-  if (required === PERMISSIONS.VERIFICATION_DOCUMENT_VIEW && userPermissions.includes('documents.view_restricted')) {
-    return true;
-  }
-  // Support canonical customer.view and legacy customers.view interchangeably
-  if (
-    (required === PERMISSIONS.CUSTOMER_VIEW || required === 'customers.view' || required === 'customer.view') &&
-    (userPermissions.includes('customer.view') || userPermissions.includes('customers.view'))
-  ) {
-    return true;
-  }
-  // Support canonical customer.manage and legacy customers.manage interchangeably
-  if (
-    (required === PERMISSIONS.CUSTOMER_MANAGE || required === 'customers.manage' || required === 'customer.manage') &&
-    (userPermissions.includes('customer.manage') || userPermissions.includes('customers.manage'))
-  ) {
-    return true;
-  }
-  // Support canonical worker.view and legacy workers.view interchangeably
-  if (
-    (required === PERMISSIONS.WORKER_VIEW || required === 'workers.view' || required === 'worker.view') &&
-    (userPermissions.includes('worker.view') || userPermissions.includes('workers.view'))
-  ) {
-    return true;
-  }
-  // Support canonical worker.manage and legacy workers.manage interchangeably
-  if (
-    (required === PERMISSIONS.WORKER_MANAGE || required === 'workers.manage' || required === 'worker.manage') &&
-    (userPermissions.includes('worker.manage') || userPermissions.includes('workers.manage'))
-  ) {
-    return true;
-  }
-  // Support canonical user.status.manage and legacy manage_status keys interchangeably
-  if (
-    (required === PERMISSIONS.USER_STATUS_MANAGE || required === 'user.status.manage' || required === 'customers.manage_status' || required === 'workers.manage_status') &&
-    (userPermissions.includes('user.status.manage') || userPermissions.includes('customers.manage_status') || userPermissions.includes('workers.manage_status'))
-  ) {
+  const canonicalRequired = mapLegacyPermissionToCanonical(required);
+  if (userPermissions.includes(canonicalRequired)) return true;
+  if (userPermissions.some((p) => mapLegacyPermissionToCanonical(p) === canonicalRequired)) {
     return true;
   }
   // Support canonical dashboard overview via dashboard.view, alert.view, or support.view / support.manage
   if (
-    (required === PERMISSIONS.DASHBOARD_VIEW || required === 'dashboard.view') &&
+    (canonicalRequired === 'alert.view' || required === 'dashboard.view') &&
     (userPermissions.includes('dashboard.view') ||
      userPermissions.includes('alert.view') ||
      userPermissions.includes('support.view') ||
      userPermissions.includes('support.manage'))
-  ) {
-    return true;
-  }
-  // Support canonical booking.view and bookings.view interchangeably
-  if (
-    (required === PERMISSIONS.BOOKINGS_VIEW || required === 'bookings.view' || required === 'booking.view') &&
-    (userPermissions.includes('bookings.view') || userPermissions.includes('booking.view'))
-  ) {
-    return true;
-  }
-  // Support canonical booking.manage and bookings.manage interchangeably
-  if (
-    (required === PERMISSIONS.BOOKINGS_MANAGE || required === 'bookings.manage' || required === 'booking.manage') &&
-    (userPermissions.includes('bookings.manage') || userPermissions.includes('booking.manage'))
-  ) {
-    return true;
-  }
-  // Support canonical payment.view and payments.view interchangeably
-  if (
-    (required === PERMISSIONS.PAYMENTS_VIEW || required === 'payments.view' || required === 'payment.view') &&
-    (userPermissions.includes('payments.view') || userPermissions.includes('payment.view'))
-  ) {
-    return true;
-  }
-  // Support canonical payment.refund and refunds.manage interchangeably
-  if (
-    (required === PERMISSIONS.REFUNDS_MANAGE || required === 'refunds.manage' || required === 'payment.refund') &&
-    (userPermissions.includes('refunds.manage') || userPermissions.includes('payment.refund'))
-  ) {
-    return true;
-  }
-  // Support canonical report.view and reports.view interchangeably
-  if (
-    (required === PERMISSIONS.REPORTS_VIEW || required === 'reports.view' || required === 'report.view') &&
-    (userPermissions.includes('reports.view') || userPermissions.includes('report.view'))
-  ) {
-    return true;
-  }
-  // Support canonical export generation via exports.generate, report.export, or reporting access
-  if (
-    (required === PERMISSIONS.EXPORTS_GENERATE || required === 'exports.generate' || required === 'report.export' || required === 'reports.export') &&
-    (userPermissions.includes('exports.generate') ||
-     userPermissions.includes('report.export') ||
-     userPermissions.includes('reports.export') ||
-     userPermissions.includes('report.view') ||
-     userPermissions.includes('reports.view'))
-  ) {
-    return true;
-  }
-  // Support canonical verification access strictly via verification.review
-  if (
-    (required === PERMISSIONS.VERIFICATION_REVIEW || required === 'verification.review') &&
-    userPermissions.includes('verification.review')
-  ) {
-    return true;
-  }
-  // Support canonical role.manage and roles.manage interchangeably
-  if (
-    (required === PERMISSIONS.ROLES_MANAGE || required === 'roles.manage' || required === 'role.manage') &&
-    (userPermissions.includes('roles.manage') || userPermissions.includes('role.manage'))
-  ) {
-    return true;
-  }
-  // Support canonical config.manage and configuration.manage interchangeably
-  if (
-    (required === PERMISSIONS.CONFIGURATION_MANAGE || required === 'configuration.manage' || required === 'config.manage') &&
-    (userPermissions.includes('configuration.manage') || userPermissions.includes('config.manage'))
   ) {
     return true;
   }

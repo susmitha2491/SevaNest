@@ -1685,8 +1685,30 @@ export class RealBookingRepository implements IBookingRepository {
         workerId: String(item.workerId || ''),
         date: String(item.date || ''),
         status: String(item.status || 'PRESENT'),
-        checkInTime: item.checkInAt ? String(item.checkInAt) : item.checkInTime ? String(item.checkInTime) : null,
-        checkOutTime: item.checkOutAt ? String(item.checkOutAt) : item.checkOutTime ? String(item.checkOutTime) : null,
+        checkInTime:
+          item.checkInAt !== undefined && item.checkInAt !== null
+            ? String(item.checkInAt)
+            : item.checkInTime !== undefined && item.checkInTime !== null
+            ? String(item.checkInTime)
+            : item.checkIn !== undefined && item.checkIn !== null
+            ? String(item.checkIn)
+            : item.check_in_at !== undefined && item.check_in_at !== null
+            ? String(item.check_in_at)
+            : item.check_in !== undefined && item.check_in !== null
+            ? String(item.check_in)
+            : null,
+        checkOutTime:
+          item.checkOutAt !== undefined && item.checkOutAt !== null
+            ? String(item.checkOutAt)
+            : item.checkOutTime !== undefined && item.checkOutTime !== null
+            ? String(item.checkOutTime)
+            : item.checkOut !== undefined && item.checkOut !== null
+            ? String(item.checkOut)
+            : item.check_out_at !== undefined && item.check_out_at !== null
+            ? String(item.check_out_at)
+            : item.check_out !== undefined && item.check_out !== null
+            ? String(item.check_out)
+            : null,
         note: item.note ? String(item.note) : null,
         markedByRole: item.recordedBy ? String(item.recordedBy) : item.markedByRole ? String(item.markedByRole) : undefined,
         recordedByUserId: item.recordedByUserId ? String(item.recordedByUserId) : null,

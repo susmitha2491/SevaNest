@@ -173,6 +173,9 @@ describe('SevaNest Configuration UI Redesign & Session Security Settings', () =>
       const option10 = await screen.findByTestId('timeout-option-10');
       await user.click(option10);
 
+      const saveBtn = screen.getByTestId('save-security-policy-btn');
+      await user.click(saveBtn);
+
       expect(useSessionSecurityStore.getState().timeoutMinutes).toBe(10);
       expect(option10).toBeChecked();
     });

@@ -115,7 +115,7 @@ describe('Unified Directory Module Specification for Super Admin', () => {
 
       expect(screen.getByRole('link', { name: /^Workers Management$/i })).toBeInTheDocument();
       expect(screen.queryByRole('link', { name: /^Workers Directory$/i })).not.toBeInTheDocument();
-      expect(screen.queryByRole('link', { name: /^Directory$/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Directory$/i })).toBeInTheDocument();
       unmount();
 
       // Support Executive
@@ -179,7 +179,7 @@ describe('Unified Directory Module Specification for Super Admin', () => {
       expect(isRouteAccessibleForUser('/directory', superAdminUser)).toBe(true);
       expect(isRouteAccessibleForUser('/directory', supportExecUser)).toBe(true);
       expect(isRouteAccessibleForUser('/directory', opsAdminUser)).toBe(false);
-      expect(isRouteAccessibleForUser('/directory', verifExecUser)).toBe(false);
+      expect(isRouteAccessibleForUser('/directory', verifExecUser)).toBe(true);
     });
   });
 
@@ -213,6 +213,12 @@ describe('Unified Directory Module Specification for Super Admin', () => {
       expect(workersTab).toBeInTheDocument();
       expect(customersTab).toBeInTheDocument();
       expect(workersTab).toHaveAttribute('aria-selected', 'true');
+
+      // Verify authoritative counts on both tabs are rendered immediately
+      await waitFor(() => {
+        expect(workersTab.textContent).toContain('1');
+        expect(customersTab.textContent).toContain('1');
+      });
 
       // Verify Workers Table fields
       expect(await screen.findByText('W-DIR-001')).toBeInTheDocument();
@@ -357,6 +363,44 @@ describe('Unified Directory Module Specification for Super Admin', () => {
 
       // Only View Profile action exists
       expect(screen.getAllByRole('button', { name: /view profile/i })[0]).toBeInTheDocument();
+    });
+
+    it('loads and displays authoritative customer count immediately on initial load without clicking Customers tab', async () => {
+      vi.spyOn(workerRepository, 'getWorkersPage').mockResolvedValue({
+        items: [mockWorker],
+        total: 37,
+        page: 1,
+        limit: 25,
+        hasMore: true,
+      });
+      vi.spyOn(customerRepository, 'getCustomersPage').mockResolvedValue({
+        items: [mockCustomer],
+        total: 42,
+        page: 1,
+        limit: 20,
+        hasMore: true,
+      });
+
+      renderWithProviders(<DirectoryPage />);
+
+      // On initial load, Workers tab is selected
+      const workersTab = screen.getByRole('tab', { name: /Workers/i });
+      const customersTab = screen.getByRole('tab', { name: /Customers/i });
+      expect(workersTab).toHaveAttribute('aria-selected', 'true');
+      expect(customersTab).toHaveAttribute('aria-selected', 'false');
+
+      // Both counts are displayed immediately without clicking the Customers tab
+      await waitFor(() => {
+        expect(workersTab.textContent).toContain('37');
+        expect(customersTab.textContent).toContain('42');
+      });
+
+      // Header summary badge also reflects worker count on load
+      expect(screen.getByText(/37 Verified Workers Onboarded/i)).toBeInTheDocument();
+
+      // Both repository methods were called
+      expect(workerRepository.getWorkersPage).toHaveBeenCalled();
+      expect(customerRepository.getCustomersPage).toHaveBeenCalled();
     });
   });
 });

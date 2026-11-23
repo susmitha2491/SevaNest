@@ -1,10 +1,11 @@
-/* global BroadcastChannel, MessageEvent */
+/* global BroadcastChannel, MessageEvent, StorageEvent, MouseEvent, Event */
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Clock, LogOut, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Clock, LogOut, ShieldCheck, Loader2 } from 'lucide-react';
 import { useAuthStore } from './authStore';
-import { useSessionSecurityStore } from './sessionSecurityStore';
+import { useSessionSecurityStore, POLICY_STORAGE_KEY } from './sessionSecurityStore';
 import { requestTokenRefresh } from './tokenRefreshCoordinator';
+import { getStoredRefreshToken } from './tokenStorage';
 import { useBodyScrollLock } from '../../shared/hooks/useBodyScrollLock';
 
 export const SessionInactivityGuard: React.FC = () => {
@@ -20,12 +21,34 @@ export const SessionInactivityGuard: React.FC = () => {
 
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(warningDurationSeconds);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useBodyScrollLock(isAuthenticated && showWarningModal);
 
-  const lastEventThrottleRef = useRef<number>(Date.now());
+  const showWarningModalRef = useRef<boolean>(showWarningModal);
+  useEffect(() => {
+    showWarningModalRef.current = showWarningModal;
+  }, [showWarningModal]);
+
+  const lastEventThrottleRef = useRef<number>(0);
+  const lastCoordinatesRef = useRef<{ x: number; y: number } | null>(null);
   const isTerminatingRef = useRef<boolean>(false);
+  const isRefreshingRef = useRef<boolean>(false);
   const syncChannelRef = useRef<BroadcastChannel | null>(null);
+
+  // Session termination handler
+  const handleTerminateSession = useCallback(() => {
+    if (isTerminatingRef.current) return;
+    isTerminatingRef.current = true;
+    setShowWarningModal(false);
+    showWarningModalRef.current = false;
+
+    try {
+      clearSession(true);
+    } finally {
+      navigate('/auth/login', { replace: true, state: null });
+    }
+  }, [clearSession, navigate]);
 
   // Broadcast Channel setup for multi-tab activity coordination
   useEffect(() => {
@@ -42,9 +65,30 @@ export const SessionInactivityGuard: React.FC = () => {
         if (!data || typeof data !== 'object') return;
 
         if (data.type === 'USER_ACTIVITY' || data.type === 'STAY_LOGGED_IN') {
+          // Verify tab has not already expired before accepting cross-tab activity
+          const now = Date.now();
+          const totalTimeoutMs = useSessionSecurityStore.getState().timeoutMinutes * 60 * 1000;
+          const currentLast = useSessionSecurityStore.getState().lastActivityTime;
+          if (useSessionSecurityStore.getState().autoLogoutEnabled && now >= currentLast + totalTimeoutMs) {
+            handleTerminateSession();
+            return;
+          }
           recordActivity();
           setShowWarningModal(false);
+          showWarningModalRef.current = false;
           isTerminatingRef.current = false;
+        }
+
+        if (data.type === 'POLICY_UPDATE' && data.policy && typeof data.policy === 'object') {
+          const { autoLogoutEnabled: syncEnabled, timeoutMinutes: syncTimeout } = data.policy as {
+            autoLogoutEnabled?: boolean;
+            timeoutMinutes?: number;
+          };
+          useSessionSecurityStore.setState((state) => ({
+            ...state,
+            ...(typeof syncEnabled === 'boolean' ? { autoLogoutEnabled: syncEnabled } : {}),
+            ...(typeof syncTimeout === 'number' ? { timeoutMinutes: syncTimeout } : {}),
+          }));
         }
       };
 
@@ -55,33 +99,260 @@ export const SessionInactivityGuard: React.FC = () => {
     } catch {
       // Ignore BroadcastChannel initialization failures
     }
-  }, [recordActivity]);
+  }, [recordActivity, handleTerminateSession]);
 
-  // Genuine user interaction event listener with throttling (2000ms)
-  const handleUserActivity = useCallback(() => {
-    const now = Date.now();
-    if (now - lastEventThrottleRef.current < 2000) {
+  // Storage event listener for cross-tab policy updates
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === POLICY_STORAGE_KEY && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (parsed && typeof parsed === 'object') {
+            useSessionSecurityStore.setState((state) => ({
+              ...state,
+              ...(typeof parsed.autoLogoutEnabled === 'boolean' ? { autoLogoutEnabled: parsed.autoLogoutEnabled } : {}),
+              ...(typeof parsed.timeoutMinutes === 'number' ? { timeoutMinutes: parsed.timeoutMinutes } : {}),
+            }));
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, []);
+
+  // "Stay Logged In" handler - authoritatively refreshes session before resetting timer
+  const handleStayLoggedIn = useCallback(async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    setIsRefreshing(true);
+
+    try {
+      // 1. Authoritative backend token refresh when refresh token is available
+      const storedToken = useAuthStore.getState().refreshToken || getStoredRefreshToken();
+      if (storedToken) {
+        await requestTokenRefresh();
+      }
+
+      // 2. ONLY after successful continuation, reset inactivity timer and dismiss warning
+      const now = Date.now();
+      lastEventThrottleRef.current = now;
+      recordActivity();
+      setShowWarningModal(false);
+      showWarningModalRef.current = false;
+      isTerminatingRef.current = false;
+
+      // Broadcast to other tabs
+      if (syncChannelRef.current) {
+        try {
+          syncChannelRef.current.postMessage({ type: 'STAY_LOGGED_IN', timestamp: now });
+        } catch {
+          // Broadcast ignore
+        }
+      }
+    } catch {
+      // If token refresh fails (session invalid/revoked on backend), terminate immediately
+      handleTerminateSession();
+    } finally {
+      isRefreshingRef.current = false;
+      setIsRefreshing(false);
+    }
+  }, [recordActivity, handleTerminateSession]);
+
+  // Evaluates deadline-based inactivity status (elapsed time relative to authoritative deadline)
+  const evaluateDeadline = useCallback(() => {
+    if (!isAuthenticated || !autoLogoutEnabled) {
+      if (showWarningModalRef.current) {
+        setShowWarningModal(false);
+        showWarningModalRef.current = false;
+      }
       return;
     }
-    lastEventThrottleRef.current = now;
-    recordActivity();
 
-    // Notify other tabs
-    if (syncChannelRef.current) {
-      try {
-        syncChannelRef.current.postMessage({ type: 'USER_ACTIVITY', timestamp: now });
-      } catch {
-        // Broadcast ignore
+    const now = Date.now();
+    const totalTimeoutMs = timeoutMinutes * 60 * 1000;
+    const deadline = lastActivityTime + totalTimeoutMs;
+    const warningDurationMs = Math.min(warningDurationSeconds * 1000, totalTimeoutMs);
+    const warningThreshold = deadline - warningDurationMs;
+
+    if (now >= deadline) {
+      handleTerminateSession();
+      return;
+    }
+
+    if (now >= warningThreshold) {
+      const remainingSeconds = Math.max(1, Math.ceil((deadline - now) / 1000));
+      setShowWarningModal(true);
+      showWarningModalRef.current = true;
+      setSecondsRemaining(remainingSeconds);
+    } else {
+      if (showWarningModalRef.current) {
+        setShowWarningModal(false);
+        showWarningModalRef.current = false;
       }
     }
-  }, [recordActivity]);
+  }, [
+    isAuthenticated,
+    autoLogoutEnabled,
+    lastActivityTime,
+    timeoutMinutes,
+    warningDurationSeconds,
+    handleTerminateSession,
+  ]);
+
+  // Scheduled timeout deadlines & periodic fallback interval (runs every 1000ms)
+  useEffect(() => {
+    if (!isAuthenticated || !autoLogoutEnabled) {
+      setShowWarningModal(false);
+      showWarningModalRef.current = false;
+      return;
+    }
+
+    // Evaluate immediately on mount or dependency change
+    evaluateDeadline();
+
+    const now = Date.now();
+    const totalTimeoutMs = timeoutMinutes * 60 * 1000;
+    const deadline = lastActivityTime + totalTimeoutMs;
+    const warningDurationMs = Math.min(warningDurationSeconds * 1000, totalTimeoutMs);
+    const warningThreshold = deadline - warningDurationMs;
+
+    const msUntilWarning = Math.max(0, warningThreshold - now);
+    const msUntilDeadline = Math.max(0, deadline - now);
+
+    // Schedule exact timeouts for deadline and warning
+    const warningTimeoutId = window.setTimeout(() => {
+      evaluateDeadline();
+    }, msUntilWarning);
+
+    const deadlineTimeoutId = window.setTimeout(() => {
+      evaluateDeadline();
+    }, msUntilDeadline);
+
+    // Periodic check interval (runs every 1000ms to update countdown and catch clock drift)
+    const intervalId = window.setInterval(() => {
+      evaluateDeadline();
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(warningTimeoutId);
+      window.clearTimeout(deadlineTimeoutId);
+      window.clearInterval(intervalId);
+    };
+  }, [
+    isAuthenticated,
+    autoLogoutEnabled,
+    lastActivityTime,
+    timeoutMinutes,
+    warningDurationSeconds,
+    evaluateDeadline,
+  ]);
+
+  // Tab visibility, focus, and pageshow listeners (immediately checks deadline when tab wakes or focuses)
+  useEffect(() => {
+    if (!isAuthenticated || !autoLogoutEnabled) return;
+
+    const handleVisibilityOrFocus = () => {
+      evaluateDeadline();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    window.addEventListener('pageshow', handleVisibilityOrFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      window.removeEventListener('pageshow', handleVisibilityOrFocus);
+    };
+  }, [isAuthenticated, autoLogoutEnabled, evaluateDeadline]);
+
+  // Genuine user interaction event listener with throttling
+  const handleUserActivity = useCallback(
+    (event?: Event) => {
+      if (!isAuthenticated || !autoLogoutEnabled) return;
+
+      const now = Date.now();
+      const totalTimeoutMs = timeoutMinutes * 60 * 1000;
+      const deadline = lastActivityTime + totalTimeoutMs;
+
+      // 1. If deadline has already passed, do NOT allow user activity to revive an expired session!
+      if (now >= deadline) {
+        handleTerminateSession();
+        return;
+      }
+
+      // 2. If warning modal is actively displayed, do NOT let passive pointer/scroll reset the warning!
+      // The user must click "Stay Logged In" to extend the session.
+      if (showWarningModalRef.current) {
+        return;
+      }
+
+      // 3. Coordinate check for mousemove / pointermove to ignore micro-jitter / synthetic events
+      if (event && (event.type === 'mousemove' || event.type === 'pointermove')) {
+        const me = event as MouseEvent;
+        if (typeof me.clientX === 'number' && typeof me.clientY === 'number') {
+          if (
+            lastCoordinatesRef.current &&
+            lastCoordinatesRef.current.x === me.clientX &&
+            lastCoordinatesRef.current.y === me.clientY
+          ) {
+            return;
+          }
+          lastCoordinatesRef.current = { x: me.clientX, y: me.clientY };
+        }
+      }
+
+      // 4. Throttle activity recording to at most once per 1000ms
+      if (now - lastEventThrottleRef.current < 1000) {
+        return;
+      }
+      lastEventThrottleRef.current = now;
+
+      recordActivity();
+
+      // Notify other tabs
+      if (syncChannelRef.current) {
+        try {
+          syncChannelRef.current.postMessage({ type: 'USER_ACTIVITY', timestamp: now });
+        } catch {
+          // Broadcast ignore
+        }
+      }
+    },
+    [
+      isAuthenticated,
+      autoLogoutEnabled,
+      lastActivityTime,
+      timeoutMinutes,
+      handleTerminateSession,
+      recordActivity,
+    ]
+  );
 
   // Attach DOM interaction listeners to window
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    const interactionEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'];
-    const listener = () => handleUserActivity();
+    const interactionEvents = [
+      'mousedown',
+      'mouseup',
+      'keydown',
+      'keyup',
+      'touchstart',
+      'touchend',
+      'pointerdown',
+      'mousemove',
+      'scroll',
+    ];
+    const listener = (e: Event) => handleUserActivity(e);
 
     interactionEvents.forEach((event) => {
       window.addEventListener(event, listener, { passive: true });
@@ -93,82 +364,6 @@ export const SessionInactivityGuard: React.FC = () => {
       });
     };
   }, [isAuthenticated, handleUserActivity]);
-
-  // Session termination handler
-  const handleTerminateSession = useCallback(() => {
-    if (isTerminatingRef.current) return;
-    isTerminatingRef.current = true;
-    setShowWarningModal(false);
-
-    try {
-      clearSession(true);
-    } finally {
-      navigate('/auth/login', { replace: true, state: null });
-    }
-  }, [clearSession, navigate]);
-
-  // "Stay Logged In" handler
-  const handleStayLoggedIn = useCallback(async () => {
-    const now = Date.now();
-    lastEventThrottleRef.current = now;
-    recordActivity();
-    setShowWarningModal(false);
-    isTerminatingRef.current = false;
-
-    // Broadcast to other tabs
-    if (syncChannelRef.current) {
-      try {
-        syncChannelRef.current.postMessage({ type: 'STAY_LOGGED_IN', timestamp: now });
-      } catch {
-        // Broadcast ignore
-      }
-    }
-
-    // Refresh backend token silently in the background
-    try {
-      await requestTokenRefresh();
-    } catch {
-      // Quiet refresh error handled gracefully by coordinator
-    }
-  }, [recordActivity]);
-
-  // Periodic inactivity check interval (runs every 1000ms)
-  useEffect(() => {
-    if (!isAuthenticated || !autoLogoutEnabled) {
-      setShowWarningModal(false);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      const now = Date.now();
-      const elapsedSeconds = Math.floor((now - lastActivityTime) / 1000);
-      const totalTimeoutSeconds = timeoutMinutes * 60;
-      const remaining = totalTimeoutSeconds - elapsedSeconds;
-
-      if (remaining <= 0) {
-        handleTerminateSession();
-      } else if (remaining <= warningDurationSeconds) {
-        setShowWarningModal(true);
-        setSecondsRemaining(remaining);
-      } else {
-        if (showWarningModal) {
-          setShowWarningModal(false);
-        }
-      }
-    }, 1000);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [
-    isAuthenticated,
-    autoLogoutEnabled,
-    lastActivityTime,
-    timeoutMinutes,
-    warningDurationSeconds,
-    showWarningModal,
-    handleTerminateSession,
-  ]);
 
   if (!isAuthenticated || !showWarningModal) {
     return null;
@@ -238,7 +433,7 @@ export const SessionInactivityGuard: React.FC = () => {
             <h3
               id="inactivity-warning-title"
               style={{
-                fontSize: 'var(--font-size-md, 16px)',
+                fontSize: 'var(--font-size-md, 15px)',
                 fontWeight: 700,
                 color: 'var(--color-warning-dark, #92400e)',
                 margin: 0,
@@ -262,7 +457,7 @@ export const SessionInactivityGuard: React.FC = () => {
         <div className="modal-scrollable-body" style={{ padding: 'var(--space-6)', overscrollBehavior: 'contain' }}>
           <p
             style={{
-              fontSize: 'var(--font-size-sm, 14px)',
+              fontSize: 'var(--font-size-sm, 13px)',
               color: 'var(--color-text-secondary, #475569)',
               lineHeight: 1.5,
               margin: '0 0 var(--space-4) 0',
@@ -329,6 +524,7 @@ export const SessionInactivityGuard: React.FC = () => {
             type="button"
             data-testid="logout-now-button"
             onClick={handleTerminateSession}
+            disabled={isRefreshing}
             style={{
               padding: '8px 16px',
               borderRadius: 'var(--radius-md, 6px)',
@@ -337,7 +533,7 @@ export const SessionInactivityGuard: React.FC = () => {
               color: 'var(--color-text-secondary, #475569)',
               fontSize: 'var(--font-size-sm, 13px)',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: isRefreshing ? 'not-allowed' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
@@ -351,23 +547,33 @@ export const SessionInactivityGuard: React.FC = () => {
             type="button"
             data-testid="stay-logged-in-button"
             onClick={handleStayLoggedIn}
+            disabled={isRefreshing}
             style={{
               padding: '8px 18px',
               borderRadius: 'var(--radius-md, 6px)',
               border: 'none',
-              backgroundColor: 'var(--color-brand-600, #2563eb)',
+              backgroundColor: isRefreshing ? 'var(--color-brand-400, #60a5fa)' : 'var(--color-brand-600, #2563eb)',
               color: '#ffffff',
               fontSize: 'var(--font-size-sm, 13px)',
               fontWeight: 600,
-              cursor: 'pointer',
+              cursor: isRefreshing ? 'wait' : 'pointer',
               display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
               boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
             }}
           >
-            <ShieldCheck size={16} />
-            Stay Logged In
+            {isRefreshing ? (
+              <>
+                <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+                <span>Refreshing Session...</span>
+              </>
+            ) : (
+              <>
+                <ShieldCheck size={16} />
+                <span>Stay Logged In</span>
+              </>
+            )}
           </button>
         </div>
       </div>

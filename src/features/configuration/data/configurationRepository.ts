@@ -4,11 +4,12 @@ import {
   FeePlanItem,
   NotificationTemplateItem,
   RolePermissionDefinition,
+  PermissionCatalogItem,
   AppSettingItem,
   NotificationEventDefinition,
   IConfigurationRepository,
 } from '../domain/types';
-import { PERMISSIONS } from '../../../core/rbac/permissions';
+import { SUPER_ADMIN_ONLY_PERMISSIONS } from '../../../core/rbac/permissions';
 import { AdminRole } from '../../../core/auth/authTypes';
 import { getDefaultPermissionsForRole } from '../../auth/data/authRepository';
 import { httpClient } from '../../../core/api/httpClient';
@@ -85,7 +86,9 @@ export function mapBackendRoleToDefinition(raw: Record<string, unknown>): RolePe
   const description = String(raw.description || getRoleDefaultDescription(role));
   const isImmutable = typeof raw.isImmutable === 'boolean' ? raw.isImmutable : isSuperAdmin;
   const accountsCount =
-    typeof raw.accountsCount === 'number'
+    typeof raw.userCount === 'number'
+      ? raw.userCount
+      : typeof raw.accountsCount === 'number'
       ? raw.accountsCount
       : typeof raw.accountCount === 'number'
       ? raw.accountCount
@@ -100,8 +103,53 @@ export function mapBackendRoleToDefinition(raw: Record<string, unknown>): RolePe
     permissions,
     isImmutable,
     accountsCount,
+    userCount: accountsCount,
   };
 }
+
+export const AUTHORITATIVE_BACKEND_PERMISSIONS: PermissionCatalogItem[] = [
+  { code: 'admin.manage_users', description: 'Create admin accounts and change admin account status', superAdminOnly: true },
+  { code: 'alert.manage', description: 'Acknowledge and resolve operational alerts', superAdminOnly: false },
+  { code: 'alert.view', description: 'See operational alerts addressed to the permissions this role holds', superAdminOnly: false },
+  { code: 'area.manage', description: 'View and manage service areas', superAdminOnly: false },
+  { code: 'attendance.manage', description: 'Record and correct attendance on behalf of the parties (audited)', superAdminOnly: false },
+  { code: 'attendance.view', description: 'View attendance records', superAdminOnly: false },
+  { code: 'audit.view', description: 'Read the audit log', superAdminOnly: true },
+  { code: 'booking.manage', description: 'Match, schedule, confirm, cancel and otherwise move bookings on behalf of the parties', superAdminOnly: false },
+  { code: 'booking.view', description: 'View bookings and their timeline', superAdminOnly: false },
+  { code: 'category.manage', description: 'View and manage service categories', superAdminOnly: false },
+  { code: 'config.manage', description: 'Edit the app start-up settings (update policy, support contact, policy text) and the rating tag catalogue', superAdminOnly: false },
+  { code: 'customer.manage', description: 'Change customer verification status and add notes', superAdminOnly: false },
+  { code: 'customer.view', description: 'View customer profiles, addresses and notes', superAdminOnly: false },
+  { code: 'matching.run', description: 'Run manual worker matching for a requirement', superAdminOnly: false },
+  { code: 'notification.manage', description: 'Manage notification templates and view the delivery log', superAdminOnly: false },
+  { code: 'payment.manage', description: 'Configure fees and reconcile a payment with the gateway', superAdminOnly: false },
+  { code: 'payment.refund', description: 'Initiate a refund', superAdminOnly: false },
+  { code: 'payment.view', description: 'View payments, receipts and fee configuration', superAdminOnly: false },
+  { code: 'rating.moderate', description: 'Hide or restore a rating or review (abusive content, audited)', superAdminOnly: false },
+  { code: 'rating.view', description: 'View all ratings and reviews', superAdminOnly: false },
+  { code: 'replacement.manage', description: 'Approve or reject replacement requests and select the replacement worker', superAdminOnly: false },
+  { code: 'replacement.view', description: 'View replacement requests', superAdminOnly: false },
+  { code: 'report.view', description: 'View the read-only operational reports', superAdminOnly: false },
+  { code: 'role.manage', description: 'View roles and permissions and change which permissions a role holds', superAdminOnly: true },
+  { code: 'support.category.manage', description: 'Manage the configured list of support categories', superAdminOnly: false },
+  { code: 'support.manage', description: 'Assign, prioritise, escalate and close support tickets', superAdminOnly: false },
+  { code: 'support.view', description: 'View support tickets and their history', superAdminOnly: false },
+  { code: 'user.status.manage', description: 'Suspend or reactivate customer and worker accounts', superAdminOnly: false },
+  { code: 'user.view', description: 'View a user account', superAdminOnly: false },
+  { code: 'verification.configure', description: 'Choose which checks are required for a worker to count as verified', superAdminOnly: false },
+  { code: 'verification.decide', description: 'Approve or reject a verification check, trigger a re-check', superAdminOnly: false },
+  { code: 'verification.document.view', description: 'Open KYC documents (a short-lived link is issued and audited)', superAdminOnly: false },
+  { code: 'verification.reassign', description: 'Release or reassign a verification check claimed by another reviewer', superAdminOnly: false },
+  { code: 'verification.review', description: 'View the verification queue and worker verification status, start a review', superAdminOnly: false },
+  { code: 'verification.signoff', description: 'Give the final verification sign-off for a worker once all required checks are approved', superAdminOnly: false },
+  { code: 'worker.activate', description: 'Activate a signed-off worker so they appear in search and matching', superAdminOnly: false },
+  { code: 'worker.blacklist', description: 'Blacklist a worker: excluded from search and matching, account suspended, open bookings flagged', superAdminOnly: false },
+  { code: 'worker.blacklist.lift', description: 'Lift a worker blacklisting (Super Admin only)', superAdminOnly: true },
+  { code: 'worker.manage', description: 'Edit worker profiles and availability on a worker behalf (assisted onboarding)', superAdminOnly: false },
+  { code: 'worker.reveal_emergency_contact', description: 'Reveal a worker emergency contact with a stated reason (every reveal is audited)', superAdminOnly: false },
+  { code: 'worker.view', description: 'View worker profiles and availability', superAdminOnly: false },
+];
 
 /**
  * Mock Configuration Repository for offline demo and isolated test suites.
@@ -287,61 +335,76 @@ export class MockConfigurationRepository implements IConfigurationRepository {
       role: 'SUPER_ADMIN',
       roleName: 'Super Admin',
       description: 'System master configuration, role delegation, financial policy approvals, and audit trail oversight.',
-      permissions: Object.values(PERMISSIONS),
+      permissions: AUTHORITATIVE_BACKEND_PERMISSIONS.map((p) => p.code),
       isImmutable: true,
       accountsCount: 1,
+      userCount: 1,
     },
     {
       role: 'OPERATIONS_ADMIN',
       roleName: 'Operations Admin',
       description: 'Candidate matching, replacement fulfillment, booking lifecycle management, and financial refunds.',
       permissions: [
-        PERMISSIONS.DASHBOARD_VIEW,
-        PERMISSIONS.CUSTOMER_VIEW,
-        PERMISSIONS.CUSTOMERS_MANAGE,
-        PERMISSIONS.CUSTOMERS_MANAGE_STATUS,
-        PERMISSIONS.WORKER_VIEW,
-        PERMISSIONS.WORKERS_MANAGE,
-        PERMISSIONS.WORKERS_MANAGE_STATUS,
-        PERMISSIONS.BOOKINGS_VIEW,
-        PERMISSIONS.BOOKINGS_MANAGE,
-        PERMISSIONS.PAYMENTS_VIEW,
-        PERMISSIONS.REFUNDS_MANAGE,
-        PERMISSIONS.SUPPORT_VIEW,
-        PERMISSIONS.SUPPORT_MANAGE,
-        PERMISSIONS.REPORTS_VIEW,
-        PERMISSIONS.EXPORTS_GENERATE,
+        'alert.manage',
+        'alert.view',
+        'area.manage',
+        'attendance.manage',
+        'attendance.view',
+        'booking.manage',
+        'booking.view',
+        'category.manage',
+        'customer.manage',
+        'customer.view',
+        'matching.run',
+        'notification.manage',
+        'payment.view',
+        'rating.moderate',
+        'rating.view',
+        'replacement.manage',
+        'replacement.view',
+        'report.view',
+        'support.view',
+        'user.view',
+        'verification.reassign',
+        'verification.signoff',
+        'worker.activate',
+        'worker.manage',
+        'worker.view',
       ],
       isImmutable: false,
-      accountsCount: 3,
+      accountsCount: 1,
+      userCount: 1,
     },
     {
       role: 'VERIFICATION_EXECUTIVE',
       roleName: 'Verification Executive',
       description: 'Worker document vetting, Aadhaar & address proof validation, and reference phone checks.',
       permissions: [
-        PERMISSIONS.WORKER_VIEW,
-        PERMISSIONS.VERIFICATION_REVIEW,
-        PERMISSIONS.VERIFICATION_DECIDE,
-        PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+        'alert.view',
+        'verification.decide',
+        'verification.document.view',
+        'verification.review',
+        'worker.view',
       ],
       isImmutable: false,
-      accountsCount: 4,
+      accountsCount: 1,
+      userCount: 1,
     },
     {
       role: 'SUPPORT_EXECUTIVE',
       roleName: 'Support Executive',
       description: 'Household grievance mediation, telephonic dispute logging, SLA countdowns, and Operations escalation.',
       permissions: [
-        PERMISSIONS.DASHBOARD_VIEW,
-        PERMISSIONS.CUSTOMERS_VIEW,
-        PERMISSIONS.WORKER_VIEW,
-        PERMISSIONS.BOOKINGS_VIEW,
-        PERMISSIONS.SUPPORT_VIEW,
-        PERMISSIONS.SUPPORT_MANAGE,
+        'booking.view',
+        'customer.view',
+        'rating.view',
+        'support.manage',
+        'support.view',
+        'worker.view',
       ],
       isImmutable: false,
-      accountsCount: 6,
+      accountsCount: 1,
+      userCount: 1,
     },
   ];
 
@@ -526,7 +589,11 @@ export class MockConfigurationRepository implements IConfigurationRepository {
   }
 
   async getPermissionCatalog(): Promise<string[]> {
-    return Object.values(PERMISSIONS);
+    return AUTHORITATIVE_BACKEND_PERMISSIONS.map((p) => p.code);
+  }
+
+  async getPermissionCatalogItems(): Promise<PermissionCatalogItem[]> {
+    return JSON.parse(JSON.stringify(AUTHORITATIVE_BACKEND_PERMISSIONS));
   }
 }
 
@@ -669,37 +736,59 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async getPermissionCatalog(): Promise<string[]> {
     try {
+      const items = await this.getPermissionCatalogItems();
+      return items.map((p) => p.code);
+    } catch (err: unknown) {
+      throw mapHttpErrorToDomainError(err);
+    }
+  }
+
+  async getPermissionCatalogItems(): Promise<PermissionCatalogItem[]> {
+    try {
       const response = await httpClient.get('/admin/permissions');
       const data = response.data;
+      let list: unknown[] = [];
       if (Array.isArray(data)) {
-        return data
-          .map((item) => {
-            if (typeof item === 'string') return item;
-            if (item && typeof item === 'object') {
-              const rec = item as Record<string, unknown>;
-              return String(rec.code || rec.permissionCode || rec.name || '');
-            }
-            return '';
-          })
-          .filter(Boolean);
-      }
-      if (data && typeof data === 'object') {
+        list = data;
+      } else if (data && typeof data === 'object') {
         const rec = data as Record<string, unknown>;
-        const list = rec.permissions || rec.catalog || rec.data || rec.items;
-        if (Array.isArray(list)) {
-          return list
-            .map((item) => {
-              if (typeof item === 'string') return item;
-              if (item && typeof item === 'object') {
-                const r = item as Record<string, unknown>;
-                return String(r.code || r.permissionCode || r.name || '');
-              }
-              return '';
-            })
-            .filter(Boolean);
+        const rawList = rec.permissions || rec.catalog || rec.data || rec.items;
+        if (Array.isArray(rawList)) {
+          list = rawList;
         }
       }
-      throw new ServerFailureError('Unexpected response shape from permission catalog endpoint.');
+
+      if (!Array.isArray(list) || list.length === 0) {
+        throw new ServerFailureError('Authoritative permissions catalog is empty or unavailable on the backend server.');
+      }
+
+      return list
+        .map((item) => {
+          if (typeof item === 'string') {
+            return {
+              code: item,
+              description: item,
+              superAdminOnly: SUPER_ADMIN_ONLY_PERMISSIONS.has(item),
+            };
+          }
+          if (item && typeof item === 'object') {
+            const rec = item as Record<string, unknown>;
+            const code = String(rec.code || rec.permissionCode || rec.name || '');
+            if (!code) return null;
+            const description = String(rec.description || rec.desc || code);
+            const superAdminOnly =
+              typeof rec.superAdminOnly === 'boolean'
+                ? rec.superAdminOnly
+                : SUPER_ADMIN_ONLY_PERMISSIONS.has(code);
+            return {
+              code,
+              description,
+              superAdminOnly,
+            };
+          }
+          return null;
+        })
+        .filter((item): item is PermissionCatalogItem => item !== null);
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }

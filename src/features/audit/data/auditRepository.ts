@@ -222,6 +222,7 @@ export const ACTION_DESCRIPTIONS: Record<string, { label: string; outcome: strin
   'user.role_change': { label: 'Admin User Role Modified', outcome: 'MUTATED' },
   'security.access_denied': { label: 'Attempted Access Denied (Unauthorized)', outcome: 'DENIED' },
   'security.access_denied_repeated': { label: 'Repeated Unauthorized Access Blocked', outcome: 'BLOCKED' },
+  'role.permissions_set': { label: 'Role Permissions Modified', outcome: 'MUTATED' },
   'role.permissions_update': { label: 'Role Permission Matrix Updated', outcome: 'MUTATED' },
   'report.export': { label: 'Operational Analytics Report Exported', outcome: 'EXPORTED' },
   // Backward compatibility labels for mock fixtures
@@ -254,6 +255,7 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   booking: 'Household Booking',
   payment: 'Payment Transaction',
   configuration: 'System Configuration',
+  role: 'Administrative Role',
   WORKER: 'Worker Profile',
   CUSTOMER: 'Customer Profile',
   BOOKING: 'Household Booking',
@@ -337,6 +339,8 @@ export function mapBackendAuditLogToItem(raw: Record<string, unknown>): AuditLog
         summary = `${actionLookup.label} (${metadata.from} → ${metadata.to})`;
       } else if (metadata.method) {
         summary = `${actionLookup.label} (via ${metadata.method})`;
+      } else if (metadata.roleCode) {
+        summary = `${actionLookup.label} (${metadata.roleCode})`;
       }
     }
   } else {
@@ -393,6 +397,10 @@ export function mapBackendAuditLogToItem(raw: Record<string, unknown>): AuditLog
     operationalRemarks = `Reason code: ${metadata.reasonCode.trim()}`;
   } else if (typeof metadata?.justification === 'string' && metadata.justification.trim()) {
     operationalRemarks = metadata.justification.trim();
+  } else if (typeof metadata?.auditReason === 'string' && metadata.auditReason.trim()) {
+    operationalRemarks = metadata.auditReason.trim();
+  } else if (typeof raw.auditReason === 'string' && raw.auditReason.trim()) {
+    operationalRemarks = raw.auditReason.trim();
   }
 
   // 6. Before vs After State Snapshots
@@ -402,6 +410,21 @@ export function mapBackendAuditLogToItem(raw: Record<string, unknown>): AuditLog
 
   if (raw.changedFields && Array.isArray(raw.changedFields)) {
     changedFields = raw.changedFields.map(String);
+  }
+
+  // Handle role.permissions_set metadata snapshots
+  if (rawAction === 'role.permissions_set' && metadata) {
+    if (Array.isArray(metadata.added) || Array.isArray(metadata.removed)) {
+      preMutationState = {
+        roleCode: metadata.roleCode,
+        removedPermissions: Array.isArray(metadata.removed) ? metadata.removed : [],
+      };
+      postMutationState = {
+        roleCode: metadata.roleCode,
+        addedPermissions: Array.isArray(metadata.added) ? metadata.added : [],
+      };
+      changedFields = ['permissions'];
+    }
   }
 
   // If explicit snapshots were not recorded, check if metadata records 'from' and 'to'

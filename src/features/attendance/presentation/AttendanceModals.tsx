@@ -211,13 +211,13 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
             <div>
               <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Check-In Timestamp</div>
               <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                {entry.checkInTime ? formatDateTimeIST(entry.checkInTime) : 'Not recorded'}
+                {entry.checkInTime ? formatDateTimeIST(entry.checkInTime) : 'Not captured'}
               </div>
             </div>
             <div>
               <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>Check-Out Timestamp</div>
               <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginTop: '2px' }}>
-                {entry.checkOutTime ? formatDateTimeIST(entry.checkOutTime) : 'Not recorded'}
+                {entry.checkOutTime ? formatDateTimeIST(entry.checkOutTime) : 'Not captured'}
               </div>
             </div>
             <div>
@@ -672,6 +672,10 @@ export const CorrectAttendanceModal: React.FC<CorrectAttendanceModalProps> = ({
 
   const handleSubmit = () => {
     if (isSubmitting) return;
+    if (proposedStatus === entry.status && note.trim() === (entry.note || '').trim()) {
+      setValidationError('Update the attendance status or note before saving a correction.');
+      return;
+    }
     if (reason.trim().length < 3) {
       setValidationError('A correction reason is required (minimum 3 characters).');
       return;
@@ -686,10 +690,6 @@ export const CorrectAttendanceModal: React.FC<CorrectAttendanceModalProps> = ({
     }
     if (note.trim().length > 500) {
       setValidationError('Operational note must be 500 characters or fewer.');
-      return;
-    }
-    if (proposedStatus === entry.status && note.trim() === (entry.note || '').trim()) {
-      setValidationError('Update the attendance status or note before saving a correction.');
       return;
     }
     if (!confirmChecked) {

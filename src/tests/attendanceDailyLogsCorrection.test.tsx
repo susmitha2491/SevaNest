@@ -771,4 +771,533 @@ describe('Attendance & Daily Logs — Customer Name Resolution & Enrichment', ()
     expect(overview.bookings[0].assignedWorkerName).toBe('Pushpa Lingam');
     expect(overview.bookings[0].customerName).toBe('Customer Details Unavailable');
   });
+
+  describe('Check-In / Check-Out Timestamps Handling & Regression Tests', () => {
+    it('correctly maps and displays formatted IST timestamps when backend provides checkInAt and checkOutAt', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-WITH-TIME',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'PRESENT',
+            checkInTime: '2026-11-10T03:30:00.000Z', // 09:00 AM IST
+            checkOutTime: '2026-11-10T11:30:00.000Z', // 05:00 PM IST
+            note: 'On time',
+            markedByRole: 'WORKER',
+            updatedAt: '2026-11-10T11:35:00.000Z',
+            history: [],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: /Attendance & Daily Logs/i })).toBeInTheDocument();
+
+      // Check-in and check-out cells should render formatted IST times
+      expect(await screen.findByText(/10 Nov 2026, 09:00 AM IST/i)).toBeInTheDocument();
+      expect(screen.getByText(/10 Nov 2026, 05:00 PM IST/i)).toBeInTheDocument();
+
+      // Click Details button to check the modal display
+      const detailsBtn = screen.getByRole('button', { name: /^Details$/i });
+      fireEvent.click(detailsBtn);
+
+      expect(await screen.findByRole('heading', { name: /Attendance Log Details/i })).toBeInTheDocument();
+      expect(screen.getAllByText(/10 Nov 2026, 09:00 AM IST/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText(/10 Nov 2026, 05:00 PM IST/i).length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('displays "Not captured" without fabricating times when checkInTime and checkOutTime are missing for PRESENT record', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-NO-TIME',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'PRESENT',
+            checkInTime: null,
+            checkOutTime: null,
+            note: null,
+            markedByRole: 'ADMIN',
+            updatedAt: '2026-11-10T10:00:00.000Z',
+            history: [],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: /Attendance & Daily Logs/i })).toBeInTheDocument();
+
+      // Check-in and check-out columns should display "Not captured"
+      const notCapturedBadges = await screen.findAllByText('Not captured');
+      expect(notCapturedBadges.length).toBe(2); // One for check-in, one for check-out
+
+      // Verify check-in and check-out cells do not fabricate times from updatedAt or service date
+      const entryRow = notCapturedBadges[0].closest('tr')!;
+      const cells = within(entryRow).getAllByRole('cell');
+      expect(cells[5]).toHaveTextContent('Not captured'); // Check-in column
+      expect(cells[6]).toHaveTextContent('Not captured'); // Check-out column
+      expect(cells[5]).not.toHaveTextContent(/IST/i);
+      expect(cells[6]).not.toHaveTextContent(/IST/i);
+
+      // Summary counts should still accurately reflect 1 Present
+      const summarySection = screen.getByRole('region', { name: 'Attendance summary' });
+      expect(within(summarySection).getByText('Present').closest('div')).toHaveTextContent('1');
+
+      // Click Details to verify modal also displays "Not captured"
+      const detailsBtn = screen.getByRole('button', { name: /^Details$/i });
+      fireEvent.click(detailsBtn);
+
+      expect(await screen.findByRole('heading', { name: /Attendance Log Details/i })).toBeInTheDocument();
+      const modalNotCaptured = screen.getAllByText('Not captured');
+      expect(modalNotCaptured.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('HttpBookingRepository maps various backend timestamp property names and handles nulls safely', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string) => {
+        if (url === `/admin/attendance/bookings/${BOOKING_ID}`) {
+          return {
+            data: {
+              data: [
+                {
+                  id: 'ATT-BACKEND-1',
+                  bookingId: BOOKING_ID,
+                  workerId: 'WRK-1',
+                  date: '2026-11-10',
+                  status: 'PRESENT',
+                  checkInAt: '2026-11-10T04:00:00.000Z',
+                  checkOutAt: '2026-11-10T12:00:00.000Z',
+                  recordedBy: 'WORKER',
+                  updatedAt: '2026-11-10T12:05:00.000Z',
+                },
+                {
+                  id: 'ATT-BACKEND-2',
+                  bookingId: BOOKING_ID,
+                  workerId: 'WRK-1',
+                  date: '2026-11-09',
+                  status: 'PRESENT',
+                  checkInAt: null,
+                  checkOutAt: null,
+                  recordedBy: 'ADMIN',
+                  updatedAt: '2026-11-09T10:00:00.000Z',
+                },
+              ],
+              meta: { page: 1, limit: 100, total: 2 },
+            },
+          } as never;
+        }
+        return { data: { data: [] } } as never;
+      });
+
+      const repo = new RealBookingRepository();
+      const pageResult = await repo.getBookingAttendancePage(BOOKING_ID);
+
+      expect(pageResult.items).toHaveLength(2);
+      expect(pageResult.items[0].checkInTime).toBe('2026-11-10T04:00:00.000Z');
+      expect(pageResult.items[0].checkOutTime).toBe('2026-11-10T12:00:00.000Z');
+      expect(pageResult.items[1].checkInTime).toBeNull();
+      expect(pageResult.items[1].checkOutTime).toBeNull();
+    });
+  });
+
+  describe('Attendance Management & Correction Workflow Tests', () => {
+    it('opens Correct Attendance modal, validates mandatory audit reason and confirmation, submits PATCH payload, and updates UI on success', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      const user = userEvent.setup();
+
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-CORR-1',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'PRESENT',
+            checkInTime: null,
+            checkOutTime: null,
+            note: 'Initial entry',
+            markedByRole: 'WORKER',
+            updatedAt: '2026-11-10T09:00:00.000Z',
+            etag: 'W/"att-corr-1"',
+            history: [],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      const correctSpy = vi
+        .spyOn(bookingRepository as Required<typeof bookingRepository>, 'correctBookingAttendance')
+        .mockResolvedValueOnce();
+
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: /Attendance & Daily Logs/i })).toBeInTheDocument();
+
+      // Click "Correct" action button on the record
+      const correctBtn = await screen.findByRole('button', { name: /Correct/i });
+      await user.click(correctBtn);
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: /Correct Attendance/i })).toBeInTheDocument();
+      expect(within(dialog).getByText(/Current:/i)).toBeInTheDocument();
+      expect(within(dialog).getByText(/Proposed:/i)).toBeInTheDocument();
+
+      // 1. Trying to submit without changing status or note triggers validation
+      const saveBtn = within(dialog).getByRole('button', { name: /Save Correction/i });
+      await user.click(saveBtn);
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        /Update the attendance status or note before saving a correction/i
+      );
+      expect(correctSpy).not.toHaveBeenCalled();
+
+      // 2. Change proposed status to ABSENT
+      const statusSelect = within(dialog).getByLabelText(/Proposed Attendance Status/i);
+      fireEvent.change(statusSelect, { target: { value: 'ABSENT' } });
+
+      // 3. Trying to submit without mandatory reason triggers validation
+      await user.click(saveBtn);
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        /A correction reason is required \(minimum 3 characters\)/i
+      );
+      expect(correctSpy).not.toHaveBeenCalled();
+
+      // 4. Fill in audit reason
+      const reasonInput = within(dialog).getByLabelText(/Correction Reason/i);
+      fireEvent.change(reasonInput, { target: { value: 'Worker reported sickness and did not arrive.' } });
+
+      // 5. Trying to submit without confirmation checkbox triggers validation
+      await user.click(saveBtn);
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        /Please confirm this audited attendance correction before submitting/i
+      );
+      expect(correctSpy).not.toHaveBeenCalled();
+
+      // 6. Check confirmation checkbox and submit
+      const confirmCheckbox = within(dialog).getByRole('checkbox');
+      await user.click(confirmCheckbox);
+      await user.click(saveBtn);
+
+      await waitFor(() => {
+        expect(correctSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(correctSpy).toHaveBeenCalledWith('ATT-CORR-1', {
+        status: 'ABSENT',
+        reason: 'Worker reported sickness and did not arrive.',
+        note: 'Initial entry',
+        etag: 'W/"att-corr-1"',
+      });
+
+      // Modal closes and success feedback banner appears
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(await screen.findByText(/Attendance record corrected and logged in audit history/i)).toBeInTheDocument();
+    });
+
+    it('validates operational note requirement when correcting status to EXCEPTION', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      const user = userEvent.setup();
+
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-EXC-1',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'PRESENT',
+            checkInTime: null,
+            checkOutTime: null,
+            note: null,
+            markedByRole: 'WORKER',
+            updatedAt: '2026-11-10T09:00:00.000Z',
+            history: [],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      const correctSpy = vi
+        .spyOn(bookingRepository as Required<typeof bookingRepository>, 'correctBookingAttendance')
+        .mockResolvedValueOnce();
+
+      renderPage();
+
+      const correctBtn = await screen.findByRole('button', { name: /Correct/i });
+      await user.click(correctBtn);
+
+      const dialog = await screen.findByRole('dialog');
+
+      // Change proposed status to EXCEPTION
+      const statusSelect = within(dialog).getByLabelText(/Proposed Attendance Status/i);
+      fireEvent.change(statusSelect, { target: { value: 'EXCEPTION' } });
+
+      const reasonInput = within(dialog).getByLabelText(/Correction Reason/i);
+      fireEvent.change(reasonInput, { target: { value: 'Customer reported delayed arrival due to transit breakdown.' } });
+
+      const confirmCheckbox = within(dialog).getByRole('checkbox');
+      await user.click(confirmCheckbox);
+
+      // Attempt submit without operational note
+      const saveBtn = within(dialog).getByRole('button', { name: /Save Correction/i });
+      await user.click(saveBtn);
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        /An operational note is required when changing attendance status to EXCEPTION/i
+      );
+      expect(correctSpy).not.toHaveBeenCalled();
+
+      // Enter valid operational note
+      const noteInput = within(dialog).getByLabelText(/Operational Note/i);
+      fireEvent.change(noteInput, { target: { value: 'Bus breakdown on highway; arrived 2 hours late.' } });
+
+      await user.click(saveBtn);
+
+      await waitFor(() => {
+        expect(correctSpy).toHaveBeenCalledTimes(1);
+      });
+      expect(correctSpy).toHaveBeenCalledWith('ATT-EXC-1', {
+        status: 'EXCEPTION',
+        reason: 'Customer reported delayed arrival due to transit breakdown.',
+        note: 'Bus breakdown on highway; arrived 2 hours late.',
+        etag: undefined,
+      });
+    });
+
+    it('surfaces backend error messages in Record and Correct modals when API rejects', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      const user = userEvent.setup();
+
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-ERR-1',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'PRESENT',
+            checkInTime: null,
+            checkOutTime: null,
+            note: null,
+            markedByRole: 'WORKER',
+            updatedAt: '2026-11-10T09:00:00.000Z',
+            history: [],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      // 1. Correct modal rejection test
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'correctBookingAttendance').mockRejectedValueOnce(
+        new Error('Attendance record cannot be updated: booking is closed.')
+      );
+
+      renderPage();
+
+      const correctBtn = await screen.findByRole('button', { name: /Correct/i });
+      await user.click(correctBtn);
+
+      let dialog = await screen.findByRole('dialog');
+      fireEvent.change(within(dialog).getByLabelText(/Proposed Attendance Status/i), { target: { value: 'LATE' } });
+      fireEvent.change(within(dialog).getByLabelText(/Correction Reason/i), { target: { value: 'Late arrival.' } });
+      await user.click(within(dialog).getByRole('checkbox'));
+      await user.click(within(dialog).getByRole('button', { name: /Save Correction/i }));
+
+      // Error appears in dialog alert and dialog remains open for correction
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Attendance record cannot be updated: booking is closed.'
+      );
+      expect(dialog).toBeInTheDocument();
+
+      // Close modal
+      await user.click(within(dialog).getByRole('button', { name: /Cancel/i }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
+      // 2. Record modal rejection test
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'recordBookingAttendance').mockRejectedValueOnce(
+        new Error('Attendance for this date is already recorded; only staff can correct it')
+      );
+
+      const recordBtn = await screen.findByRole('button', { name: /Record Attendance/i });
+      await user.click(recordBtn);
+
+      dialog = await screen.findByRole('dialog');
+      await user.click(within(dialog).getByRole('checkbox'));
+      await user.click(within(dialog).getByRole('button', { name: /Save Attendance/i }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Attendance for this date is already recorded; only staff can correct it'
+      );
+      expect(dialog).toBeInTheDocument();
+    });
+
+    it('enforces RBAC permissions: hides action buttons when lacking attendance.manage, and blocks page when lacking attendance.view', async () => {
+      // 1. User with attendance.view only (no attendance.manage)
+      useAuthStore.getState().setSession(
+        {
+          id: 'support-1',
+          name: 'Support Executive',
+          email: 'support.executive@sevanest.example.com',
+          role: 'SUPPORT_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.DASHBOARD_VIEW,
+            PERMISSIONS.BOOKINGS_VIEW,
+            PERMISSIONS.ATTENDANCE_VIEW,
+          ],
+        },
+        'support-tok'
+      );
+
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: SAMPLE_ENTRIES,
+        bookings: SAMPLE_BOOKINGS,
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      const { unmount } = renderPage();
+
+      expect(await screen.findByRole('heading', { name: /Attendance & Daily Logs/i })).toBeInTheDocument();
+      expect(await screen.findByText('Vikram Singh')).toBeInTheDocument();
+
+      // "Record Attendance" and "Correct" buttons should NOT be rendered
+      expect(screen.queryByRole('button', { name: /Record Attendance/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Correct/i })).not.toBeInTheDocument();
+
+      // "Details" button should still be present
+      expect(screen.getAllByRole('button', { name: /^Details$/i }).length).toBeGreaterThan(0);
+
+      unmount();
+
+      // 2. User without attendance.view
+      useAuthStore.getState().setSession(
+        {
+          id: 've-1',
+          name: 'Verification Executive',
+          email: 'verification.executive@sevanest.example.com',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.DASHBOARD_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+          ],
+        },
+        've-tok'
+      );
+
+      renderPage();
+
+      expect(screen.queryByRole('heading', { name: /Attendance & Daily Logs/i })).not.toBeInTheDocument();
+      expect(await screen.findByText(/Access Restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(/attendance\.view/i)).toBeInTheDocument();
+    });
+
+    it('AttendanceDetailModal displays full audit history and allows direct transition to Correct modal', async () => {
+      const BOOKING_ID = '01a11ef8-6593-7737-a1f2-95764ebbf14d';
+      const user = userEvent.setup();
+
+      vi.spyOn(bookingRepository as Required<typeof bookingRepository>, 'getAllAttendanceOverview').mockResolvedValue({
+        entries: [
+          {
+            id: 'ATT-HIST-1',
+            bookingId: BOOKING_ID,
+            workerId: 'WRK-101',
+            date: '2026-11-10',
+            status: 'LEAVE',
+            checkInTime: null,
+            checkOutTime: null,
+            note: 'Approved family emergency',
+            markedByRole: 'ADMIN',
+            updatedAt: '2026-11-11T08:00:00.000Z',
+            history: [
+              {
+                id: 'HIST-1',
+                previousStatus: 'PRESENT',
+                newStatus: 'LEAVE',
+                reason: 'Family emergency reported by customer',
+                note: 'Approved family emergency',
+                actorKind: 'ADMIN',
+                changedAt: '2026-11-11T08:00:00.000Z',
+              },
+            ],
+          },
+        ],
+        bookings: [
+          {
+            ...SAMPLE_BOOKINGS[0],
+            id: BOOKING_ID,
+          },
+        ],
+        isComplete: true,
+        failedBookingsCount: 0,
+      });
+
+      renderPage();
+
+      const detailsBtn = await screen.findByRole('button', { name: /^Details$/i });
+      await user.click(detailsBtn);
+
+      const detailDialog = await screen.findByRole('dialog');
+      expect(within(detailDialog).getByRole('heading', { name: /Attendance Log Details/i })).toBeInTheDocument();
+
+      // Check audit history display
+      expect(within(detailDialog).getByText(/Audit Change History \(1\)/i)).toBeInTheDocument();
+      expect(within(detailDialog).getByText('PRESENT')).toBeInTheDocument();
+      expect(within(detailDialog).getAllByText('LEAVE').length).toBeGreaterThanOrEqual(1);
+      expect(within(detailDialog).getByText(/· By ADMIN/i)).toBeInTheDocument();
+      expect(within(detailDialog).getByText(/Reason: Family emergency reported by customer/i)).toBeInTheDocument();
+
+      // Click "Correct Record" inside Details modal
+      const correctFromDetailBtn = within(detailDialog).getByRole('button', { name: /Correct Record/i });
+      await user.click(correctFromDetailBtn);
+
+      // Detail modal closes and Correct modal opens
+      await waitFor(() => {
+        expect(screen.getByRole('heading', { name: /Correct Attendance/i })).toBeInTheDocument();
+      });
+    });
+  });
 });

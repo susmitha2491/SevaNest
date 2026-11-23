@@ -74,6 +74,13 @@ export interface RolePermissionDefinition {
   permissions: string[];
   isImmutable: boolean;
   accountsCount?: number;
+  userCount?: number;
+}
+
+export interface PermissionCatalogItem {
+  code: string;
+  description: string;
+  superAdminOnly: boolean;
 }
 
 export interface BackendReferenceData {
@@ -119,6 +126,7 @@ export interface IConfigurationRepository {
   getRolePermission?(roleCode: string): Promise<RolePermissionDefinition>;
   updateRolePermissions(role: string, permissions: string[], rationale: string): Promise<RolePermissionDefinition>;
   getPermissionCatalog?(): Promise<string[]>;
+  getPermissionCatalogItems?(): Promise<PermissionCatalogItem[]>;
   getAppSettings?(): Promise<AppSettingItem[]>;
   updateAppSetting?(key: string, value: string | boolean): Promise<AppSettingItem>;
   getNotificationEvents?(): Promise<NotificationEventDefinition[]>;

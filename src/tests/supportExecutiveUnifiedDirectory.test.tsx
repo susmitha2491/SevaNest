@@ -197,10 +197,15 @@ describe('Support Executive: Unified Workers & Customers Directory Specification
       expect(workersTab).toHaveAttribute('aria-selected', 'true');
       expect(customersTab).toHaveAttribute('aria-selected', 'false');
 
-      // Workers query called on initial load
+      // Both workers and customers queries called on initial load so counts display immediately
       expect(workerRepository.getWorkersPage).toHaveBeenCalled();
-      // Customers query NOT called initially while Workers tab is active
-      expect(customerRepository.getCustomersPage).not.toHaveBeenCalled();
+      expect(customerRepository.getCustomersPage).toHaveBeenCalled();
+
+      // Both counts displayed immediately
+      await waitFor(() => {
+        expect(workersTab.textContent).toContain('1');
+        expect(customersTab.textContent).toContain('1');
+      });
 
       // Displays worker row
       expect(await screen.findByText('Sunita Sharma')).toBeInTheDocument();
@@ -425,7 +430,7 @@ describe('Support Executive: Unified Workers & Customers Directory Specification
       expect(isRouteAccessibleForUser('/directory', opsAdminUser)).toBe(false);
     });
 
-    it('blocks Verification Executive from /directory route', () => {
+    it('authorizes Verification Executive for /directory route', () => {
       const verifExecUser = {
         id: 've-01',
         name: 'Verif Exec',
@@ -433,7 +438,7 @@ describe('Support Executive: Unified Workers & Customers Directory Specification
         role: 'VERIFICATION_EXECUTIVE' as const,
         permissions: [PERMISSIONS.WORKER_VIEW, PERMISSIONS.VERIFICATION_REVIEW],
       };
-      expect(isRouteAccessibleForUser('/directory', verifExecUser)).toBe(false);
+      expect(isRouteAccessibleForUser('/directory', verifExecUser)).toBe(true);
     });
   });
 });
