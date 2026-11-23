@@ -20,6 +20,17 @@ describe('Backend Wake-Up & Cold-Start Auto-Retry', () => {
     expect(isCredentialError).toBe(false);
   });
 
+  it('classifies Cloudflare security challenge as non-credential error allowing password retention and retry', () => {
+    const cfError = new ServerFailureError(
+      'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
+      'ref-cf-123',
+      'CLOUDFLARE_CHALLENGE'
+    );
+
+    const isCredentialError = cfError.errorCode === 'INVALID_CREDENTIALS' || cfError.errorCode === 'UNAUTHORIZED';
+    expect(isCredentialError).toBe(false);
+  });
+
   it('exposes RealAuthRepository with login method that correctly handles responses', async () => {
     const repo = new RealAuthRepository();
     vi.spyOn(httpClient, 'post').mockResolvedValueOnce({

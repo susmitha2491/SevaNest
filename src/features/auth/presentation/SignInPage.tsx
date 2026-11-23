@@ -9,7 +9,7 @@ import { authRepository, invalidateSessionOnServer } from '../data/authRepositor
 import { useAuthStore } from '../../../core/auth/authStore';
 import { queryClient } from '../../../core/api/queryClient';
 import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
-import { DomainError, UnauthorizedError } from '../../../core/errors/DomainError';
+import { DomainError, UnauthorizedError, RateLimitExceededError } from '../../../core/errors/DomainError';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 import { isQuickLoginEnabled } from '../../../core/config/env';
 import { QuickLoginSection } from './QuickLoginSection';
@@ -29,9 +29,20 @@ export const SignInPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [wakeUpStatus, setWakeUpStatus] = useState<{ attempt: number; maxRetries: number } | null>(null);
+  const [isRetryableError, setIsRetryableError] = useState(false);
+  const [retryCooldown, setRetryCooldown] = useState(0);
   const showQuickLogin = isQuickLoginEnabled();
   const setSession = useAuthStore((state) => state.setSession);
   const navigate = useNavigate();
+
+  // Cooldown countdown timer for rate-limit / Cloudflare security challenges
+  useEffect(() => {
+    if (retryCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setRetryCooldown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [retryCooldown]);
 
   // Pre-warm the backend on Render when user visits the sign-in page
   useEffect(() => {
@@ -108,16 +119,19 @@ export const SignInPage: React.FC = () => {
     setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
     setAuthError(null);
     setAuthCorrelationId(null);
+    setIsRetryableError(false);
+    setRetryCooldown(0);
     setSelectedRoleId(role.id);
   };
 
   const onSubmit = async (values: SignInFormValues) => {
-    if (isSubmitting) return;
+    if (isSubmitting || retryCooldown > 0) return;
     try {
       setIsSubmitting(true);
       setWakeUpStatus(null);
       setAuthError(null);
       setAuthCorrelationId(null);
+      setIsRetryableError(false);
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
       setSession(loggedInUser, accessToken, refreshToken);
       const userLanding = getDefaultLandingRoute(loggedInUser);
@@ -135,6 +149,20 @@ export const SignInPage: React.FC = () => {
       if (isCredentialError) {
         setValue('password', '');
         setSelectedRoleId(null);
+        setIsRetryableError(false);
+        setRetryCooldown(0);
+      } else {
+        setIsRetryableError(true);
+        const isRateLimitOrChallenge =
+          err instanceof RateLimitExceededError ||
+          errorMessage.toLowerCase().includes('cloudflare') ||
+          errorMessage.toLowerCase().includes('challenge') ||
+          errorMessage.toLowerCase().includes('rate limit');
+        if (isRateLimitOrChallenge) {
+          setRetryCooldown(5);
+        } else {
+          setRetryCooldown(0);
+        }
       }
     } finally {
       setIsSubmitting(false);
@@ -204,11 +232,11 @@ export const SignInPage: React.FC = () => {
               {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
             </span>
           </div>
-          {(authError.includes('waking up on Render') || authError.includes('temporarily unavailable')) && (
+          {(isRetryableError || authError.includes('waking up on Render') || authError.includes('temporarily unavailable') || authError.toLowerCase().includes('cloudflare') || authError.toLowerCase().includes('challenge') || authError.toLowerCase().includes('rate limit')) && (
             <button
               type="button"
               onClick={handleSubmit(onSubmit)}
-              disabled={isSubmitting}
+              disabled={isSubmitting || retryCooldown > 0}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -219,14 +247,14 @@ export const SignInPage: React.FC = () => {
                 fontSize: '11px',
                 fontWeight: 600,
                 color: '#ffffff',
-                backgroundColor: 'var(--color-primary)',
+                backgroundColor: isSubmitting || retryCooldown > 0 ? 'var(--color-bg-disabled, #94a3b8)' : 'var(--color-primary)',
                 border: 'none',
                 borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
+                cursor: isSubmitting || retryCooldown > 0 ? 'not-allowed' : 'pointer',
               }}
             >
-              <RotateCw size={12} />
-              <span>Retry Sign In Now</span>
+              <RotateCw size={12} style={isSubmitting ? { animation: 'spin 1s linear infinite' } : undefined} />
+              <span>{retryCooldown > 0 ? `Retry available in ${retryCooldown}s` : 'Retry Sign In Now'}</span>
             </button>
           )}
         </div>
@@ -253,6 +281,8 @@ export const SignInPage: React.FC = () => {
                   setAuthError(null);
                   setAuthCorrelationId(null);
                   setSelectedRoleId(null);
+                  setIsRetryableError(false);
+                  setRetryCooldown(0);
                 },
               })}
               disabled={isSubmitting}
@@ -286,6 +316,8 @@ export const SignInPage: React.FC = () => {
                   setAuthError(null);
                   setAuthCorrelationId(null);
                   setSelectedRoleId(null);
+                  setIsRetryableError(false);
+                  setRetryCooldown(0);
                 },
               })}
               disabled={isSubmitting}
@@ -312,15 +344,15 @@ export const SignInPage: React.FC = () => {
 
         <button
           type="submit"
-          disabled={isSubmitting}
+          disabled={isSubmitting || retryCooldown > 0}
           aria-label="Sign In to Operations Console"
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             gap: '6px',
-            backgroundColor: isSubmitting ? 'var(--color-bg-disabled)' : 'var(--color-primary)',
-            color: isSubmitting ? 'var(--color-text-disabled)' : '#ffffff',
+            backgroundColor: isSubmitting || retryCooldown > 0 ? 'var(--color-bg-disabled)' : 'var(--color-primary)',
+            color: isSubmitting || retryCooldown > 0 ? 'var(--color-text-disabled)' : '#ffffff',
             padding: '0 12px',
             height: '44px',
             minHeight: '44px',
@@ -328,7 +360,7 @@ export const SignInPage: React.FC = () => {
             fontSize: 'var(--font-size-base)',
             fontWeight: 600,
             marginTop: '2px',
-            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+            cursor: isSubmitting || retryCooldown > 0 ? 'not-allowed' : 'pointer',
             transition: 'background-color var(--transition-fast)',
             border: 'none',
           }}
@@ -338,9 +370,16 @@ export const SignInPage: React.FC = () => {
               <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
               <span>Waking Server ({wakeUpStatus.attempt}/{wakeUpStatus.maxRetries})...</span>
             </>
+          ) : isSubmitting ? (
+            <>
+              <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} />
+              <span>Authenticating...</span>
+            </>
+          ) : retryCooldown > 0 ? (
+            <span>Wait {retryCooldown}s to Sign In</span>
           ) : (
             <>
-              <span>{isSubmitting ? 'Authenticating...' : 'Sign In to Operations Console'}</span>
+              <span>Sign In to Operations Console</span>
               <ArrowRight size={16} />
             </>
           )}

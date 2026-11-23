@@ -1,5 +1,5 @@
 import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto, ChangePasswordDto } from '../../../core/auth/authTypes';
-import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
+import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError, ConcurrencyConflictError, RateLimitExceededError } from '../../../core/errors/DomainError';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -413,7 +413,7 @@ export class RealAuthRepository implements IAuthRepository {
     }
 
     const isTestMode = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
-    const maxWakeRetries = isTestMode ? 0 : 12;
+    const maxWakeRetries = isTestMode ? 0 : 6;
     let wakeAttempts = 0;
 
     while (true) {
@@ -488,9 +488,13 @@ export class RealAuthRepository implements IAuthRepository {
            domainErr.message.includes('waking up on Render') ||
            domainErr.message.includes('temporarily unavailable'));
 
-        if (isWakingUp && wakeAttempts < maxWakeRetries) {
+        const isCloudflareChallenge =
+          domainErr instanceof RateLimitExceededError &&
+          (domainErr.errorCode === 'CLOUDFLARE_CHALLENGE' || domainErr.message.includes('Cloudflare'));
+
+        if ((isWakingUp || (isCloudflareChallenge && wakeAttempts > 0)) && wakeAttempts < maxWakeRetries) {
           wakeAttempts++;
-          logger.info(`Render backend is waking up. Retrying login attempt ${wakeAttempts}/${maxWakeRetries}...`);
+          logger.info(`Render backend is waking up (attempt ${wakeAttempts}/${maxWakeRetries}). Waiting for backend to become available...`);
           if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
             window.dispatchEvent(
               new window.CustomEvent('backend-waking-up', {
@@ -498,7 +502,39 @@ export class RealAuthRepository implements IAuthRepository {
               })
             );
           }
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+
+          // Rather than repeatedly hammering POST /auth/admin/login with credentials (which trips Cloudflare
+          // rate-limiting and bot-protection challenges during cold starts), poll GET /app-config until Render is ready.
+          let isAwake = false;
+          while (wakeAttempts < maxWakeRetries && !isAwake) {
+            await new Promise((resolve) => setTimeout(resolve, 4000));
+            try {
+              const probeUrl = `${(env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')}/app-config`;
+              const res = await fetch(probeUrl, { method: 'GET', cache: 'no-store' });
+              if (res.ok) {
+                isAwake = true;
+                logger.info('Render backend is online and responding. Retrying login...');
+                break;
+              }
+            } catch {
+              // Server still waking up
+            }
+
+            wakeAttempts++;
+            if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+              window.dispatchEvent(
+                new window.CustomEvent('backend-waking-up', {
+                  detail: { attempt: wakeAttempts, maxRetries: maxWakeRetries },
+                })
+              );
+            }
+          }
+
+          // Brief delay after awake detection to ensure database connections are ready
+          if (isAwake) {
+            await new Promise((resolve) => setTimeout(resolve, 800));
+          }
+
           continue;
         }
 
