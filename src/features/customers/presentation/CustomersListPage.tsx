@@ -22,6 +22,12 @@ import { SearchInput } from '../../../components/common/SearchInput';
 
 type CustomerSortField = 'registeredDate' | 'name' | 'id' | 'totalBookings';
 
+function formatShortCustomerId(id: string): string {
+  if (!id) return '';
+  if (id.length <= 12) return id;
+  return `…${id.slice(-8)}`;
+}
+
 function parseRegisteredTimestamp(raw: string | undefined): number {
   if (!raw) return NaN;
   const ms = Date.parse(raw);
@@ -56,7 +62,21 @@ export const CustomersListPage: React.FC = () => {
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const viewportScrollbarRef = useRef<HTMLDivElement>(null);
+  const isSyncingScrollRef = useRef<boolean>(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  const [scrollbarStyle, setScrollbarStyle] = useState<React.CSSProperties>({
+    display: 'none',
+  });
+  const [tableScrollWidth, setTableScrollWidth] = useState<number>(0);
+
+  // Ensure table starts cleanly positioned at far left
+  useEffect(() => {
+    if (tableContainerRef.current) {
+      tableContainerRef.current.scrollLeft = 0;
+    }
+  }, []);
 
   // Sync debounced search term to URL
   useEffect(() => {
@@ -232,17 +252,92 @@ export const CustomersListPage: React.FC = () => {
 
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedCustomers.length;
 
-  // Scroll event listener on the scrollable table container
+  // Viewport-anchored horizontal scrollbar positioning & bidirectional synchronization
+  useEffect(() => {
+    const tableEl = tableContainerRef.current;
+    if (!tableEl) return;
+
+    const updatePosition = () => {
+      const rect = tableEl.getBoundingClientRect();
+      const winH = window.innerHeight;
+      const isOverflowing = tableEl.scrollWidth > tableEl.clientWidth + 1;
+      const isVisible = isOverflowing && rect.top < winH && rect.bottom > 40;
+
+      if (!isVisible) {
+        setScrollbarStyle((prev) => (prev.display === 'none' ? prev : { display: 'none' }));
+        return;
+      }
+
+      const bottomOffset = Math.max(0, winH - rect.bottom);
+
+      setScrollbarStyle({
+        position: 'fixed',
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        bottom: `${bottomOffset}px`,
+        zIndex: 35,
+        display: 'block',
+      });
+      setTableScrollWidth(tableEl.scrollWidth);
+
+      if (viewportScrollbarRef.current && Math.abs(viewportScrollbarRef.current.scrollLeft - tableEl.scrollLeft) > 1) {
+        viewportScrollbarRef.current.scrollLeft = tableEl.scrollLeft;
+      }
+    };
+
+    updatePosition();
+
+    // ResizeObserver tracks table layout changes, window resize, and sidebar expand/collapse
+    const ro = typeof window !== 'undefined' && typeof window.ResizeObserver !== 'undefined'
+      ? new window.ResizeObserver(updatePosition)
+      : null;
+    if (ro) ro.observe(tableEl);
+
+    const mainEl = document.querySelector('.app-main-viewport');
+    if (mainEl) mainEl.addEventListener('scroll', updatePosition, { passive: true });
+    window.addEventListener('scroll', updatePosition, { passive: true });
+    window.addEventListener('resize', updatePosition);
+
+    return () => {
+      ro?.disconnect();
+      if (mainEl) mainEl.removeEventListener('scroll', updatePosition);
+      window.removeEventListener('scroll', updatePosition);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [filteredAndSortedCustomers.length, isLoading]);
+
+  // Scroll event listener on the table container (for continuous background loading & scrollbar sync)
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    const { scrollTop, scrollHeight, clientHeight, scrollLeft } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 150) {
       if (hasNextPage && !isFetchingNextPage) {
         fetchNextPage();
       }
     }
+
+    // Synchronize to viewport-anchored horizontal scrollbar
+    if (viewportScrollbarRef.current && Math.abs(viewportScrollbarRef.current.scrollLeft - scrollLeft) > 1) {
+      if (!isSyncingScrollRef.current) {
+        isSyncingScrollRef.current = true;
+        viewportScrollbarRef.current.scrollLeft = scrollLeft;
+        isSyncingScrollRef.current = false;
+      }
+    }
   };
 
-  // IntersectionObserver for continuous background loading
+  // Synchronize viewport-anchored horizontal scrollbar to table container
+  const handleViewportScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const scrollLeft = e.currentTarget.scrollLeft;
+    if (tableContainerRef.current && Math.abs(tableContainerRef.current.scrollLeft - scrollLeft) > 1) {
+      if (!isSyncingScrollRef.current) {
+        isSyncingScrollRef.current = true;
+        tableContainerRef.current.scrollLeft = scrollLeft;
+        isSyncingScrollRef.current = false;
+      }
+    }
+  };
+
+  // IntersectionObserver for continuous background loading on natural page scroll
   useEffect(() => {
     if (!sentinelRef.current || !hasNextPage || isFetchingNextPage) return;
     if (typeof IntersectionObserver === 'undefined') return;
@@ -253,12 +348,27 @@ export const CustomersListPage: React.FC = () => {
         }
       },
       {
-        root: tableContainerRef.current,
-        rootMargin: '120px',
+        root: null, // natural page/viewport vertical scroll
+        rootMargin: '250px',
       }
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // Window scroll fallback for natural page vertical scrolling
+  useEffect(() => {
+    const handleWindowScroll = () => {
+      if (!hasNextPage || isFetchingNextPage) return;
+      const scrollY = window.scrollY || window.pageYOffset;
+      const windowHeight = window.innerHeight;
+      const documentHeight = document.documentElement.scrollHeight;
+      if (documentHeight - scrollY - windowHeight < 350) {
+        fetchNextPage();
+      }
+    };
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleWindowScroll);
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Auto-dismiss success notification
@@ -574,9 +684,10 @@ export const CustomersListPage: React.FC = () => {
         />
       </div>
 
-      {/* Customer Directory Table with Continuous Scroll and Sticky Header */}
+      {/* Customer Directory Table with Natural Page Scroll and Dedicated Horizontal Scrollbar */}
       <div
         data-testid="customer-table-scroll-container"
+        className="table-responsive-container customer-table-scroll"
         ref={tableContainerRef}
         onScroll={handleScroll}
         style={{
@@ -585,26 +696,48 @@ export const CustomersListPage: React.FC = () => {
           boxShadow: 'var(--shadow-sm)',
           border: '1px solid var(--color-border-subtle)',
           overflowX: 'auto',
-          overflowY: 'auto',
-          maxHeight: '620px',
           position: 'relative',
+          width: '100%',
+          maxWidth: '100%',
         }}
       >
-        <table style={{ width: '100%', minWidth: '760px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-          <thead
-            style={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 10,
-              backgroundColor: 'var(--color-bg-subtle)',
-              borderBottom: '1px solid var(--color-border-subtle)',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-            }}
-          >
-            <tr>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Customer ID
-              </th>
+        <table
+          style={{
+            width: '100%',
+            minWidth: '1060px',
+            borderCollapse: 'separate',
+            borderSpacing: 0,
+            textAlign: 'left',
+            fontSize: 'var(--font-size-xs)',
+          }}
+        >
+            <thead
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 10,
+                backgroundColor: 'var(--color-bg-subtle)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+                boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              }}
+            >
+              <tr>
+                <th
+                  style={{
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    padding: '10px 12px',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    color: 'var(--color-text-muted)',
+                    textTransform: 'uppercase',
+                    whiteSpace: 'nowrap',
+                    width: '130px',
+                    minWidth: '130px',
+                    maxWidth: '130px',
+                  }}
+                >
+                  Customer ID
+                </th>
               <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Customer Name
               </th>
@@ -700,8 +833,22 @@ export const CustomersListPage: React.FC = () => {
                   }}
                   style={{ borderBottom: '1px solid var(--color-border-subtle)' }}
                 >
-                  <td style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-                    {customer.id}
+                  <td
+                    style={{
+                      padding: '8px 12px',
+                      fontWeight: 700,
+                      color: 'var(--color-accent)',
+                      fontFamily: 'monospace',
+                      whiteSpace: 'nowrap',
+                      width: '130px',
+                      minWidth: '130px',
+                      maxWidth: '130px',
+                    }}
+                    title={`Full Customer ID: ${customer.id}`}
+                  >
+                    <span data-testid="customer-short-id" data-full-id={customer.id}>
+                      {formatShortCustomerId(customer.id)}
+                    </span>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', whiteSpace: 'nowrap' }}>{customer.name}</div>
@@ -832,6 +979,19 @@ export const CustomersListPage: React.FC = () => {
             All {totalCount} customer records loaded • Continuous scroll
           </div>
         )}
+      </div>
+
+      {/* Viewport-anchored horizontal scrollbar permanently accessible while table is in view */}
+      <div
+        data-testid="customer-viewport-scrollbar"
+        className="customer-viewport-scrollbar"
+        ref={viewportScrollbarRef}
+        onScroll={handleViewportScroll}
+        tabIndex={-1}
+        aria-hidden="true"
+        style={scrollbarStyle}
+      >
+        <div style={{ width: `${tableScrollWidth || 1060}px`, height: '1px' }} />
       </div>
 
       {/* Customer Detail Modal */}

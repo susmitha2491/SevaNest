@@ -126,19 +126,19 @@ describe('Customer Management — Continuous Scrollable Table & Infinite Loading
     expect(await screen.findByText('Aarav Patel')).toBeInTheDocument();
     expect(await screen.findByText('Bhavna Sharma')).toBeInTheDocument();
 
-    // Verify vertically scrollable container
+    // Verify horizontal scroll container with natural page vertical flow
     const scrollContainer = screen.getByTestId('customer-table-scroll-container');
     expect(scrollContainer).toBeInTheDocument();
     expect(scrollContainer).toHaveStyle({
-      overflowY: 'auto',
-      maxHeight: '620px',
+      overflowX: 'auto',
     });
 
-    // Verify sticky headers
+    // Verify sticky headers (Customer ID header has no sticky/frozen positioning, remaining columns have sticky top)
     const headers = screen.getAllByRole('columnheader');
     expect(headers.length).toBe(8);
-    for (const th of headers) {
-      expect(th).toHaveStyle({ position: 'sticky', top: '0px' });
+    expect(headers[0]).not.toHaveStyle({ position: 'sticky' });
+    for (let i = 1; i < headers.length; i++) {
+      expect(headers[i]).toHaveStyle({ position: 'sticky', top: '0px' });
     }
 
     // Verify complete removal of pagination buttons and footer
@@ -272,6 +272,71 @@ describe('Customer Management — Continuous Scrollable Table & Infinite Loading
     fireEvent.change(searchInput, { target: { value: 'pr' } });
     expect(searchInput).toBeInTheDocument();
     expect(screen.queryByText('Loading customer directory...')).not.toBeInTheDocument();
+  });
+
+  it('renders shortened customer ID with ellipsis for long UUIDs while preserving full ID in search and details', async () => {
+    const uuidCustomer: CustomerPageResult = {
+      items: [
+        {
+          id: '01a1e0bf-f8d8-742e-af03-49cf1388599b',
+          name: 'Vikram Malhotra',
+          maskedPhone: '+91 91**** **99',
+          maskedEmail: 'v****@gmail.com',
+          locality: 'Jubilee Hills',
+          status: 'ACTIVE',
+          verificationStatus: 'VERIFIED',
+          totalBookings: 7,
+          registeredDate: '2026-03-20',
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 20,
+      hasMore: false,
+    };
+
+    vi.spyOn(customerRepository, 'getCustomersPage').mockResolvedValue(uuidCustomer);
+
+    renderComponent();
+
+    // 1. Shortened readable ID displayed in table cell
+    expect(await screen.findByText('…1388599b')).toBeInTheDocument();
+    // Full UUID should not be raw text in table cell
+    expect(screen.queryByText('01a1e0bf-f8d8-742e-af03-49cf1388599b')).not.toBeInTheDocument();
+
+    // 2. Full ID is in title/tooltip and data attribute
+    const idCell = screen.getByTestId('customer-short-id');
+    expect(idCell).toHaveAttribute('data-full-id', '01a1e0bf-f8d8-742e-af03-49cf1388599b');
+
+    // 3. Copy full ID button is removed as per design requirements
+    expect(screen.queryByRole('button', { name: /Copy customer ID/i })).not.toBeInTheDocument();
+
+    // 4. Customer ID column is NOT frozen/sticky on the left (scrolls naturally with table)
+    const headerId = screen.getAllByRole('columnheader')[0];
+    expect(headerId).not.toHaveStyle({ position: 'sticky' });
+    expect(headerId).not.toHaveStyle({ left: '0px' });
+    expect(idCell.closest('td')).not.toHaveStyle({ position: 'sticky' });
+    expect(idCell.closest('td')).not.toHaveStyle({ left: '0px' });
+
+    // 5. Viewport-anchored horizontal scrollbar is present and synchronized
+    const tableScrollContainer = screen.getByTestId('customer-table-scroll-container');
+    const viewportScrollbar = screen.getByTestId('customer-viewport-scrollbar');
+    expect(tableScrollContainer).toHaveStyle({ overflowX: 'auto' });
+    expect(viewportScrollbar).toBeInTheDocument();
+
+    // Fire scroll on viewport scrollbar -> syncs tableContainer
+    fireEvent.scroll(viewportScrollbar, { target: { scrollLeft: 85 } });
+    expect(tableScrollContainer.scrollLeft).toBe(85);
+
+    // Fire scroll on table container -> syncs viewportScrollbar
+    fireEvent.scroll(tableScrollContainer, { target: { scrollLeft: 35 } });
+    expect(viewportScrollbar.scrollLeft).toBe(35);
+
+    // 6. Searching by full UUID preserves customer search
+    const searchInput = screen.getByPlaceholderText(/Search by customer name/i);
+    fireEvent.change(searchInput, { target: { value: '01a1e0bf-f8d8-742e-af03-49cf1388599b' } });
+
+    expect(screen.getByText('Vikram Malhotra')).toBeInTheDocument();
   });
 });
 
