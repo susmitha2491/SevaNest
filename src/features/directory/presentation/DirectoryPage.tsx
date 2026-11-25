@@ -100,6 +100,9 @@ export const DirectoryPage: React.FC = () => {
       const next = new window.URLSearchParams(prev);
       if (id) {
         next.set('workerId', id);
+        if (!next.has('workerTab')) {
+          next.set('workerTab', 'details');
+        }
       } else {
         next.delete('workerId');
         next.delete('workerTab');

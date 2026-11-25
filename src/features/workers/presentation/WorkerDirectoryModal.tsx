@@ -202,7 +202,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
       next.set('workerTab', newTab);
       if (newTab !== 'documents') next.delete('docId');
       return next;
-    }, { replace: true });
+    });
   };
 
   // Handle document inspection click
@@ -225,11 +225,15 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
 
   const handleCloseInspectDoc = () => {
     setInspectingDoc(null);
-    setSearchParams((prev) => {
-      const next = new window.URLSearchParams(prev);
-      next.delete('docId');
-      return next;
-    });
+    if (window.history.length > 1 && searchParams.get('docId')) {
+      navigate(-1);
+    } else {
+      setSearchParams((prev) => {
+        const next = new window.URLSearchParams(prev);
+        next.delete('docId');
+        return next;
+      }, { replace: true });
+    }
   };
 
   const docUrl = docLinkData?.signedUrl || docLinkData?.url || inspectingDoc?.url;
@@ -339,10 +343,26 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', marginTop: '4px', flexWrap: 'wrap' }}>
               <button
                 type="button"
+                data-testid="open-verification-dossier-btn"
                 onClick={() => {
-                  onClose();
                   const currentPath = window.location.pathname;
-                  navigate(`/verification?workerId=${encodeURIComponent(workerId)}&returnTo=${encodeURIComponent(`${currentPath}?workerId=${workerId}&workerTab=${activeTab}`)}`);
+                  const currentSearch = window.location.search;
+                  const targetReturnTo = currentSearch && currentSearch.includes('workerId')
+                    ? `${currentPath}${currentSearch}`
+                    : `${currentPath}?workerId=${encodeURIComponent(workerId)}&workerTab=${encodeURIComponent(activeTab)}${inspectingDoc ? `&docId=${encodeURIComponent(inspectingDoc.id)}` : ''}`;
+
+                  navigate(
+                    `/verification?workerId=${encodeURIComponent(workerId)}&returnTo=${encodeURIComponent(targetReturnTo)}`,
+                    {
+                      state: {
+                        fromWorkerProfile: true,
+                        returnTo: targetReturnTo,
+                        workerId,
+                        workerTab: activeTab,
+                        docId: inspectingDoc?.id,
+                      },
+                    }
+                  );
                 }}
                 style={{
                   display: 'inline-flex',

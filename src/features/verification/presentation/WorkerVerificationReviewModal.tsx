@@ -1,5 +1,6 @@
 /* global HTMLElement, CustomEvent */
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   X,
@@ -23,6 +24,7 @@ import {
   Eye,
   RotateCcw,
   History,
+  ArrowLeft,
 } from 'lucide-react';
 import { ValidationError } from '../../../core/errors/DomainError';
 import { evaluateVerificationWorkflow, VerificationStepDefinition } from '../domain/verificationWorkflow';
@@ -76,6 +78,12 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 }) => {
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+  const hasProfileReturn = Boolean(
+    searchParams.get('returnTo') ||
+    (location.state as { fromWorkerProfile?: boolean } | null)?.fromWorkerProfile
+  );
 
   // Strict read-only mode for historical decision records in Review History
   const isReadOnly = Boolean(
@@ -1511,16 +1519,45 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   </div>
                 </div>
 
-                <button
-                  ref={closeButtonRef}
-                  onClick={onClose}
-                  className="modal-close-btn"
-                  aria-label="Close dossier view"
-                  title="Close dossier"
-                  type="button"
-                >
-                  <X size={18} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {hasProfileReturn && (
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      data-testid="dossier-back-to-profile-btn"
+                      aria-label="Back to Worker Profile"
+                      title="Back to Worker Profile"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 10px',
+                        borderRadius: 'var(--radius-md, 6px)',
+                        border: '1px solid var(--color-border)',
+                        backgroundColor: 'var(--color-surface)',
+                        fontSize: 'var(--font-size-xs, 12px)',
+                        fontWeight: 600,
+                        color: 'var(--color-text-primary)',
+                        cursor: 'pointer',
+                        transition: 'all var(--transition-fast)',
+                      }}
+                    >
+                      <ArrowLeft size={14} />
+                      <span>Back to Profile</span>
+                    </button>
+                  )}
+
+                  <button
+                    ref={closeButtonRef}
+                    onClick={onClose}
+                    className="modal-close-btn"
+                    aria-label="Close dossier view"
+                    title="Close dossier"
+                    type="button"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               {/* Backend Contract Inconsistency Warning Banner */}

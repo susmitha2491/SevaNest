@@ -145,10 +145,23 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   const handleCloseModal = useCallback(() => {
     const returnTo = searchParams.get('returnTo');
     setSelectedDossierId(null);
-    if (returnTo) {
-      navigate(returnTo);
+
+    const state = location.state as { fromWorkerProfile?: boolean; returnTo?: string } | null;
+    const hasProfileHistory = Boolean(
+      state?.fromWorkerProfile ||
+      (typeof window !== 'undefined' && (window.history?.state?.usr as { fromWorkerProfile?: boolean } | undefined)?.fromWorkerProfile)
+    );
+
+    if (hasProfileHistory) {
+      navigate(-1);
       return;
     }
+
+    if (returnTo) {
+      navigate(returnTo, { replace: true });
+      return;
+    }
+
     setSearchParams((prev) => {
       const next = new window.URLSearchParams(prev);
       next.delete('workerId');
@@ -160,7 +173,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
         triggerElementRef.current.focus();
       }
     }, 0);
-  }, [setSearchParams, searchParams, navigate]);
+  }, [setSearchParams, searchParams, navigate, location.state]);
 
   // Synchronize state when URL params change externally
   useEffect(() => {

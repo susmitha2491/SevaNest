@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   Users,
@@ -42,10 +42,36 @@ export const WorkersDirectoryPage: React.FC = () => {
   const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
   const [searchTerm, setSearchTerm] = useState('');
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedCategory, setSelectedCategory] = useState('ALL');
-  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(null);
+  const [selectedWorkerId, setSelectedWorkerId] = useState<string | null>(() => searchParams.get('workerId'));
   const [page, setPage] = useState(1);
   const pageSize = 25;
+
+  useEffect(() => {
+    const wid = searchParams.get('workerId');
+    if (wid !== selectedWorkerId) {
+      setSelectedWorkerId(wid);
+    }
+  }, [searchParams, selectedWorkerId]);
+
+  const handleSelectWorker = (id: string | null) => {
+    setSelectedWorkerId(id);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      if (id) {
+        next.set('workerId', id);
+        if (!next.has('workerTab')) {
+          next.set('workerTab', 'details');
+        }
+      } else {
+        next.delete('workerId');
+        next.delete('workerTab');
+        next.delete('docId');
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     setPage(1);
@@ -311,7 +337,7 @@ export const WorkersDirectoryPage: React.FC = () => {
                         if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                           return;
                         }
-                        setSelectedWorkerId(worker.id);
+                        handleSelectWorker(worker.id);
                       }}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
@@ -320,7 +346,7 @@ export const WorkersDirectoryPage: React.FC = () => {
                             return;
                           }
                           e.preventDefault();
-                          setSelectedWorkerId(worker.id);
+                          handleSelectWorker(worker.id);
                         }
                       }}
                       style={{
@@ -451,7 +477,7 @@ export const WorkersDirectoryPage: React.FC = () => {
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedWorkerId(worker.id);
+                              handleSelectWorker(worker.id);
                             }}
                             style={{
                               padding: '4px 6px',
@@ -541,7 +567,7 @@ export const WorkersDirectoryPage: React.FC = () => {
       {selectedWorkerId && (
         <WorkerDirectoryModal
           workerId={selectedWorkerId}
-          onClose={() => setSelectedWorkerId(null)}
+          onClose={() => handleSelectWorker(null)}
         />
       )}
     </div>
