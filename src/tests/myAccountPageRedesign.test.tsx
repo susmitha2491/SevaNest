@@ -112,14 +112,13 @@ describe('My Account & Staff Profile Redesign', () => {
       expect(screen.getByTestId('account-user-status')).toHaveTextContent('ACTIVE');
     });
 
-    it('renders Assigned Permissions Scope card and badges in the UI (BUG-001)', async () => {
+    it('confirms Assigned Permissions Scope card and badges are absent from the UI (BUG-001)', async () => {
       renderApp('/account');
 
       expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
-      expect(await screen.findByTestId('account-permissions-scope-card')).toBeInTheDocument();
-      expect(screen.getByText(/Assigned Permissions Scope/i)).toBeInTheDocument();
-      expect(screen.getByText(/Authoritative permissions granted by backend security tokens/i)).toBeInTheDocument();
-      expect(screen.getByText('support.manage')).toBeInTheDocument();
+      expect(screen.queryByTestId('account-permissions-scope-card')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Assigned Permissions Scope/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Authoritative permissions granted by backend security tokens/i)).not.toBeInTheDocument();
     });
   });
 

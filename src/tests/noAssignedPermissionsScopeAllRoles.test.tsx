@@ -162,18 +162,16 @@ describe('Account Page: Removal of Assigned Permissions Scope Across All Admin R
         useAuthStore.getState().setSession(user, `token-${role}`);
       });
 
-      it('renders the Assigned Permissions Scope card and authoritative permission details (BUG-001)', async () => {
+      it('confirms the Assigned Permissions Scope section is absent from My Account (BUG-001)', async () => {
         renderApp('/account');
 
         // Confirm page loaded
         expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
 
-        // 1. Permissions card test ID must be present
-        expect(await screen.findByTestId('account-permissions-scope-card')).toBeInTheDocument();
-
-        // 2. Headings and descriptive labels must be present
-        expect(screen.getByText(/Assigned Permissions Scope/i)).toBeInTheDocument();
-        expect(screen.getByText(/Authoritative permissions granted by backend security tokens/i)).toBeInTheDocument();
+        // Permissions card and texts must NOT be present
+        expect(screen.queryByTestId('account-permissions-scope-card')).not.toBeInTheDocument();
+        expect(screen.queryByText(/Assigned Permissions Scope/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Authoritative permissions granted by backend security tokens/i)).not.toBeInTheDocument();
       });
 
       it('preserves account profile information, role designation, and Staff ID', async () => {

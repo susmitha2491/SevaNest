@@ -49,13 +49,13 @@ describe('Super Admin Manual Testing Report Bug Fixes Verification', () => {
     });
   });
 
-  // BUG-001: Assigned Permissions Scope section rendered on My Account page
-  it('BUG-001: Renders Assigned Permissions Scope on My Account page', async () => {
+  // BUG-001: Assigned Permissions Scope section must NOT be rendered on My Account page
+  it('BUG-001: Assigned Permissions Scope section is permanently absent on My Account page', async () => {
     renderWithProviders(<MyAccountPage />);
 
-    expect(await screen.findByText(/Assigned Permissions Scope/i)).toBeInTheDocument();
-    expect(screen.getByTestId('account-permissions-scope-card')).toBeInTheDocument();
-    expect(screen.getByText('bookings.view')).toBeInTheDocument();
+    expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
+    expect(screen.queryByText(/Assigned Permissions Scope/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('account-permissions-scope-card')).not.toBeInTheDocument();
   });
 
   // BUG-002: Redundant or duplicate navigation paths ('View Profile' and 'Edit Profile')
