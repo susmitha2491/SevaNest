@@ -1,5 +1,5 @@
 import { AdminRole, AdminUser, LoginCredentials, IAuthRepository, ActiveSessionItem, UpdateProfileDto, ChangePasswordDto } from '../../../core/auth/authTypes';
-import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError, ConcurrencyConflictError, RateLimitExceededError } from '../../../core/errors/DomainError';
+import { UnauthorizedError, ForbiddenError, ServerFailureError, ValidationError, ConcurrencyConflictError, RateLimitExceededError, OfflineError, DomainError } from '../../../core/errors/DomainError';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { httpClient } from '../../../core/api/httpClient';
 import { env } from '../../../core/config/env';
@@ -413,7 +413,9 @@ export class RealAuthRepository implements IAuthRepository {
     }
 
     const isTestMode = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
-    const maxWakeRetries = isTestMode ? 0 : 6;
+    const maxWakeRetries = (credentials as { _maxWakeRetries?: number })._maxWakeRetries !== undefined
+      ? (credentials as { _maxWakeRetries?: number })._maxWakeRetries!
+      : (isTestMode ? 0 : 6);
     let wakeAttempts = 0;
 
     while (true) {
@@ -479,20 +481,22 @@ export class RealAuthRepository implements IAuthRepository {
         return { user, accessToken, refreshToken };
       } catch (err: unknown) {
         const domainErr = mapHttpErrorToDomainError(err);
+
+        const isOffline =
+          domainErr instanceof OfflineError ||
+          (domainErr instanceof DomainError && domainErr.code === 'OFFLINE_ERROR') ||
+          (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+          domainErr.message.toLowerCase().includes('no internet connection');
+
+        // Only genuine Render hibernate/wake-up errors trigger the wake-up polling loop!
+        // Do NOT treat HTTP 429 (rate limits), Cloudflare challenges, generic 502/503, or offline errors as sleeping!
         const isWakingUp =
+          !isOffline &&
           domainErr instanceof ServerFailureError &&
           (domainErr.errorCode === 'BACKEND_WAKING_UP' ||
-           domainErr.errorCode === 'HTTP_502' ||
-           domainErr.errorCode === 'HTTP_503' ||
-           domainErr.errorCode === 'HTTP_504' ||
-           domainErr.message.includes('waking up on Render') ||
-           domainErr.message.includes('temporarily unavailable'));
+           domainErr.message.toLowerCase().includes('waking up on render'));
 
-        const isCloudflareChallenge =
-          domainErr instanceof RateLimitExceededError &&
-          (domainErr.errorCode === 'CLOUDFLARE_CHALLENGE' || domainErr.message.includes('Cloudflare'));
-
-        if ((isWakingUp || (isCloudflareChallenge && wakeAttempts > 0)) && wakeAttempts < maxWakeRetries) {
+        if (isWakingUp && wakeAttempts < maxWakeRetries) {
           wakeAttempts++;
           logger.info(`Render backend is waking up (attempt ${wakeAttempts}/${maxWakeRetries}). Waiting for backend to become available...`);
           if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
@@ -503,21 +507,66 @@ export class RealAuthRepository implements IAuthRepository {
             );
           }
 
-          // Rather than repeatedly hammering POST /auth/admin/login with credentials (which trips Cloudflare
-          // rate-limiting and bot-protection challenges during cold starts), poll GET /app-config until Render is ready.
+          // Rather than repeatedly hammering POST /auth/admin/login with credentials (which trips
+          // rate-limiting during cold starts), poll GET /app-config until Render is ready.
           let isAwake = false;
           while (wakeAttempts < maxWakeRetries && !isAwake) {
-            await new Promise((resolve) => setTimeout(resolve, 4000));
+            // Abort immediately if the browser loses network connection during polling
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+              if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+                window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
+              }
+              throw new OfflineError('No internet connection. Please check your network and try again.');
+            }
+
+            const retryDelayMs = isTestMode ? 10 : Math.min(4000 + wakeAttempts * 2000, 10000);
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+              if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+                window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
+              }
+              throw new OfflineError('No internet connection. Please check your network and try again.');
+            }
+
+            const probeController = typeof window !== 'undefined' && window.AbortController
+              ? new window.AbortController()
+              : null;
+            const probeTimeout = probeController ? setTimeout(() => probeController.abort(), 6000) : null;
+
             try {
               const probeUrl = `${(env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')}/app-config`;
-              const res = await fetch(probeUrl, { method: 'GET', cache: 'no-store' });
+              const res = await fetch(probeUrl, {
+                method: 'GET',
+                cache: 'no-store',
+                signal: probeController?.signal,
+              });
               if (res.ok) {
                 isAwake = true;
                 logger.info('Render backend is online and responding. Retrying login...');
                 break;
               }
-            } catch {
-              // Server still waking up
+              if (res.status === 429) {
+                // If probe is rate limited, stop polling immediately to avoid extending rate limits
+                logger.warn('Render probe rate limited (HTTP 429). Terminating wake-up loop.');
+                if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+                  window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
+                }
+                throw new RateLimitExceededError('Too many requests. Please wait a moment before trying again.');
+              }
+            } catch (probeErr) {
+              if (probeErr instanceof RateLimitExceededError) {
+                throw probeErr;
+              }
+              if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+                if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+                  window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
+                }
+                throw new OfflineError('No internet connection. Please check your network and try again.');
+              }
+              // Server still waking up or probe aborted
+            } finally {
+              if (probeTimeout) clearTimeout(probeTimeout);
             }
 
             wakeAttempts++;
@@ -530,12 +579,23 @@ export class RealAuthRepository implements IAuthRepository {
             }
           }
 
+          if (!isAwake) {
+            if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+              window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
+            }
+            throw domainErr;
+          }
+
           // Brief delay after awake detection to ensure database connections are ready
           if (isAwake) {
-            await new Promise((resolve) => setTimeout(resolve, 800));
+            await new Promise((resolve) => setTimeout(resolve, isTestMode ? 10 : 800));
           }
 
           continue;
+        }
+
+        if (typeof window !== 'undefined' && typeof window.CustomEvent === 'function') {
+          window.dispatchEvent(new window.CustomEvent('backend-waking-up-stopped'));
         }
 
         throw domainErr;
@@ -543,11 +603,26 @@ export class RealAuthRepository implements IAuthRepository {
     }
   }
 
-  async logout(): Promise<void> {
+  async logout(token?: string): Promise<void> {
     try {
-      await httpClient.post('/auth/logout');
+      const activeToken = token || useAuthStore.getState().accessToken;
+      if (activeToken) {
+        await httpClient.post('/auth/logout', undefined, {
+          headers: {
+            Authorization: `Bearer ${activeToken}`,
+          },
+        });
+      } else {
+        await httpClient.post('/auth/logout');
+      }
     } catch (err: unknown) {
-      throw mapHttpErrorToDomainError(err);
+      const domainErr = mapHttpErrorToDomainError(err);
+      // HTTP 401 on logout means the server-side token is already invalid, expired, or revoked.
+      // The session invalidation goal has already been achieved on the server.
+      if (domainErr instanceof UnauthorizedError) {
+        return;
+      }
+      throw domainErr;
     }
   }
 
@@ -761,7 +836,7 @@ export class MockAuthRepository implements IAuthRepository {
     };
   }
 
-  async logout(): Promise<void> {
+  async logout(_token?: string): Promise<void> {
     return Promise.resolve();
   }
 
@@ -931,13 +1006,18 @@ let serverLogoutPromise: Promise<void> | null = null;
  * Revokes the server-side session via POST /api/v1/auth/logout safely without throwing
  * or executing duplicate concurrent requests.
  */
-export async function invalidateSessionOnServer(): Promise<void> {
+export async function invalidateSessionOnServer(token?: string): Promise<void> {
   if (serverLogoutPromise) {
     return serverLogoutPromise;
   }
-  serverLogoutPromise = authRepository.logout().catch((err: unknown) => {
+  const currentToken = token || useAuthStore.getState().accessToken;
+  serverLogoutPromise = authRepository.logout(currentToken ?? undefined).catch((err: unknown) => {
+    // If token was already revoked/expired (HTTP 401), session termination on server is already complete.
+    if (err instanceof UnauthorizedError || (err && typeof err === 'object' && 'statusCode' in err && (err as { statusCode: number }).statusCode === 401)) {
+      return;
+    }
     // Failure to reach server or server error must not prevent client session termination
-    console.warn('Backend logout notification failed during session invalidation, proceeding with client termination:', err);
+    console.warn('Backend logout notification encountered non-critical error during session invalidation, proceeding with client termination:', err);
   }).finally(() => {
     serverLogoutPromise = null;
   });

@@ -11,7 +11,7 @@ const envSchema = z.object({
     (val) => (isTestEnv ? true : (val !== undefined ? val === 'true' || val === true : false)),
     z.boolean()
   ).default(isTestEnv),
-  VITE_API_TIMEOUT_MS: z.coerce.number().default(15000),
+  VITE_API_TIMEOUT_MS: z.coerce.number().default(45000),
   VITE_ENABLE_TELEMETRY: z.coerce.boolean().default(false),
   VITE_ENABLE_QUICK_LOGIN: z.preprocess((val) => {
     if (val === undefined || val === '') return true;
@@ -33,7 +33,7 @@ export const env: AppEnv = parsedEnv.success
       VITE_API_BASE_URL: defaultApiBaseUrl,
       VITE_APP_ENV: isDev ? 'development' : 'production',
       VITE_USE_MOCK_AUTH: isTestEnv,
-      VITE_API_TIMEOUT_MS: 15000,
+      VITE_API_TIMEOUT_MS: 45000,
       VITE_ENABLE_TELEMETRY: false,
       VITE_ENABLE_QUICK_LOGIN: true,
     };

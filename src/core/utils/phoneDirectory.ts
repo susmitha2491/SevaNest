@@ -2,6 +2,7 @@ import { httpClient } from '../api/httpClient';
 
 const customerPhoneMap = new Map<string, string>();
 const workerPhoneMap = new Map<string, string>();
+const workerLocalityMap = new Map<string, string>();
 const customerEmailMap = new Map<string, string>();
 const customerNameMap = new Map<string, string>();
 const workerNameMap = new Map<string, string>();
@@ -132,6 +133,18 @@ export function setWorkerName(idOrUserId: string, name: string): void {
 export function getWorkerName(idOrUserId?: string): string | undefined {
   if (!idOrUserId) return undefined;
   return workerNameMap.get(idOrUserId);
+}
+
+export function setWorkerLocality(idOrUserId: string, locality: string): void {
+  if (!idOrUserId || !locality) return;
+  const cleaned = locality.trim();
+  if (!cleaned || cleaned.toLowerCase() === 'hyderabad') return;
+  workerLocalityMap.set(idOrUserId, cleaned);
+}
+
+export function getWorkerLocality(idOrUserId?: string): string | undefined {
+  if (!idOrUserId) return undefined;
+  return workerLocalityMap.get(idOrUserId);
 }
 
 export async function preloadCustomerPhones(): Promise<void> {

@@ -704,9 +704,10 @@ export class RealPaymentRepository implements IPaymentRepository {
     try {
       const hasSearch = Boolean(filter?.searchTerm?.trim());
       const hasFeeFilter = Boolean(filter?.feeType && filter.feeType !== 'ALL');
+      const hasRefundFilter = Boolean(filter?.refunded);
 
-      // If text search or fee filter is active, fetch across all pages to ensure no truncated search
-      if (hasSearch || hasFeeFilter) {
+      // If text search, fee filter, or refund filter is active, fetch across all pages to ensure no truncated search
+      if (hasSearch || hasFeeFilter || hasRefundFilter) {
         const allTransactions = await this.getAllFilteredTransactions(filter);
         const pageSize = filter?.pageSize || 10;
         const page = filter?.page || 1;
@@ -839,12 +840,12 @@ export class RealPaymentRepository implements IPaymentRepository {
   async getTransactionById(id: string): Promise<PaymentTransaction | null> {
     try {
       const [res, customerMap, bookingMap] = await Promise.all([
-        httpClient.get<{ success?: boolean; data?: Record<string, unknown> }>(`/admin/payments/${id}`),
+        httpClient.get<Record<string, unknown>>(`/admin/payments/${id}`),
         getCustomerRegistry(),
         getBookingRegistry(),
       ]);
-      const raw = res.data?.data;
-      if (!raw) return null;
+      const raw = (((res.data as Record<string, unknown>)?.data || res.data) || {}) as Record<string, unknown>;
+      if (!raw || !raw.id) return null;
 
       const custKey = String(raw.customerUserId || raw.customerId || '');
       const custObj = custKey ? customerMap.get(custKey) : undefined;
@@ -965,8 +966,31 @@ export class RealPaymentRepository implements IPaymentRepository {
         getBookingRegistry(),
       ]);
       return mapBackendPaymentToDomain(raw, customerMap, bookingMap);
-    } catch (err) {
-      throw mapHttpErrorToDomainError(err);
+    } catch (err: unknown) {
+      const domainErr = mapHttpErrorToDomainError(err);
+      const isGatewayUnavailable =
+        domainErr.code === 'SERVICE_UNAVAILABLE' ||
+        domainErr.code === 'PAYMENT_PROVIDER_UNAVAILABLE' ||
+        domainErr.message.toLowerCase().includes('gateway') ||
+        domainErr.message.toLowerCase().includes('unavailable') ||
+        (err as { response?: { status?: number } })?.response?.status === 503;
+
+      // When the payment gateway is unavailable, inspect the authoritative backend record.
+      // If the backend has recorded the refund as REFUND_PENDING, return the updated record.
+      if (isGatewayUnavailable) {
+        try {
+          const currentTxn = await this.getTransactionById(paymentId);
+          if (
+            currentTxn &&
+            (currentTxn.status === 'REFUND_PENDING' || currentTxn.refundStatus === 'REFUND_PENDING')
+          ) {
+            return currentTxn;
+          }
+        } catch {
+          // If retrieving backend state fails, rethrow domain error
+        }
+      }
+      throw domainErr;
     }
   }
 
@@ -1031,6 +1055,21 @@ export class RealPaymentRepository implements IPaymentRepository {
     }
 
     let filtered = allItems;
+    if (filter?.refunded) {
+      filtered = filtered.filter(
+        (t) =>
+          t.status === 'REFUNDED' ||
+          t.status === 'REFUND_PENDING' ||
+          t.status === 'REFUND_FAILED' ||
+          t.refundStatus === 'REFUNDED' ||
+          t.refundStatus === 'REFUND_PENDING' ||
+          t.refundStatus === 'REFUND_FAILED' ||
+          Boolean(t.refund)
+      );
+    }
+    if (filter?.status && filter.status !== 'ALL') {
+      filtered = filtered.filter((t) => t.status === filter.status);
+    }
     if (filter?.feeType && filter.feeType !== 'ALL') {
       filtered = filtered.filter((t) => t.feeType === filter.feeType);
     }

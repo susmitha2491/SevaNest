@@ -1883,16 +1883,84 @@ export class RealDashboardRepository implements IDashboardRepository {
         }
       };
 
-      const [pendingRes, inReviewRes, rejectedRes, approvedRes] = await Promise.all([
+      const fetchWorkersSafe = async () => {
+        try {
+          return await httpClient.get<{
+            data?: Array<Record<string, unknown>>;
+            items?: Array<Record<string, unknown>>;
+          }>('/admin/workers', { params: { limit: 100 } });
+        } catch {
+          return null;
+        }
+      };
+
+      const [pendingRes, inReviewRes, rejectedRes, approvedRes, workersRes] = await Promise.all([
         fetchQueueSafe('SUBMITTED', 'PENDING_REVIEW'),
         fetchQueueSafe('IN_REVIEW'),
         fetchQueueSafe('REJECTED'),
         fetchQueueSafe('APPROVED'),
+        fetchWorkersSafe(),
       ]);
+
+      const rawWorkersList = Array.isArray(workersRes?.data?.data)
+        ? workersRes.data.data
+        : Array.isArray(workersRes?.data?.items)
+        ? workersRes.data.items
+        : Array.isArray(workersRes?.data)
+        ? (workersRes.data as Array<Record<string, unknown>>)
+        : [];
+
+      const workerDirectoryMap = new Map<string, {
+        id: string;
+        fullName?: string;
+        category?: string;
+        applicationStatus?: string;
+        verificationLevel?: string;
+        isFullyVerified?: boolean;
+        signedOffAt?: string | null;
+        createdAt?: string;
+      }>();
+
+      for (const w of rawWorkersList) {
+        if (w && typeof w === 'object' && w.id) {
+          const wId = String(w.id);
+          const categories = Array.isArray(w.categories) ? (w.categories as Array<{ name?: string }>) : [];
+          workerDirectoryMap.set(wId, {
+            id: wId,
+            fullName: String(w.fullName || w.name || '').trim() || undefined,
+            category: categories[0]?.name || (typeof w.category === 'string' ? w.category : undefined),
+            applicationStatus: w.applicationStatus ? String(w.applicationStatus).toUpperCase() : undefined,
+            verificationLevel: w.verificationLevel ? String(w.verificationLevel).toUpperCase() : undefined,
+            isFullyVerified: Boolean(w.isFullyVerified),
+            signedOffAt: w.signedOffAt ? String(w.signedOffAt) : null,
+            createdAt: w.createdAt ? String(w.createdAt) : undefined,
+          });
+        }
+      }
 
       const parseQueueItems = (items: Record<string, unknown>[] | undefined, fallbackStatus: string, defaultAction: string): VerificationDashboardQueueItem[] => {
         if (!Array.isArray(items)) return [];
-        return items.map((raw) => {
+        return items
+          .filter((raw) => {
+            const worker = (raw.worker && typeof raw.worker === 'object') ? (raw.worker as Record<string, unknown>) : undefined;
+            const wId = String(raw.workerId || worker?.id || raw.id || '');
+            if (!wId) return true;
+            const entry = workerDirectoryMap.get(wId);
+            if (!entry) return true;
+            const isApproved =
+              entry.verificationLevel === 'APPROVED' ||
+              entry.verificationLevel === 'VERIFIED' ||
+              entry.verificationLevel === 'LEVEL_3' ||
+              entry.isFullyVerified === true ||
+              entry.applicationStatus === 'ACTIVE' ||
+              entry.applicationStatus === 'VERIFIED' ||
+              Boolean(entry.signedOffAt);
+            if (isApproved && (fallbackStatus === 'PENDING_REVIEW' || fallbackStatus === 'IN_REVIEW')) {
+              return false;
+            }
+            return true;
+          })
+          .map((raw) => {
           const worker = (raw.worker && typeof raw.worker === 'object') ? (raw.worker as Record<string, unknown>) : undefined;
           let pendingCheckTypes: string[] = [];
           if (Array.isArray(raw.pendingCheckTypes)) {
@@ -1960,10 +2028,11 @@ export class RealDashboardRepository implements IDashboardRepository {
         const wId = String(raw.workerId || worker?.id || raw.id || '');
         if (!wId) return;
 
-        const wName = String(raw.workerName || worker?.fullName || 'Worker');
+        const directoryEntry = workerDirectoryMap.get(wId);
+        const wName = String(raw.workerName || worker?.fullName || worker?.name || directoryEntry?.fullName || 'Worker');
         const appRef = String(raw.applicationReference || raw.id || wId);
-        const category = String(raw.category || worker?.category || raw.checkType || 'General Service');
-        const subDate = String(raw.applicationSubmittedAt || raw.submittedAt || raw.createdAt || raw.submissionTime || '');
+        const category = String(raw.category || worker?.category || directoryEntry?.category || raw.checkType || 'General Service');
+        const subDate = String(raw.applicationSubmittedAt || raw.submittedAt || raw.createdAt || raw.submissionTime || directoryEntry?.createdAt || '');
         const checkStatus = String(raw.status || fallbackStatus).toUpperCase();
         const isOverdue = Boolean(raw.isOverdue || (Array.isArray(raw.slaFlags) && raw.slaFlags.includes('OVERDUE')));
         const slaFlags = Array.isArray(raw.slaFlags) ? raw.slaFlags.map(String) : [];
@@ -2013,8 +2082,25 @@ export class RealDashboardRepository implements IDashboardRepository {
         ? Number(dashboardWorkers.verifiedAndActive)
         : null;
 
-      // Resolve application-level status from check statuses
+      // Resolve application-level status from check statuses and authoritative worker directory
       const getAppLevelStatus = (app: WorkerAppAggregate): 'PENDING_REVIEW' | 'IN_REVIEW' | 'RECHECK_DUE' | 'REJECTED' | 'APPROVED' => {
+        const directoryEntry = workerDirectoryMap.get(app.workerId);
+        const upperLevel = directoryEntry?.verificationLevel || '';
+        const appStatus = directoryEntry?.applicationStatus || '';
+
+        // Authoritative approval check from worker directory
+        const isAuthoritativelyApproved =
+          upperLevel === 'APPROVED' ||
+          upperLevel === 'VERIFIED' ||
+          upperLevel === 'LEVEL_3' ||
+          directoryEntry?.isFullyVerified === true ||
+          appStatus === 'ACTIVE' ||
+          appStatus === 'VERIFIED' ||
+          Boolean(directoryEntry?.signedOffAt);
+
+        if (isAuthoritativelyApproved) return 'APPROVED';
+        if (appStatus === 'REJECTED' || appStatus === 'ACTION_REQUIRED' || upperLevel === 'REJECTED') return 'REJECTED';
+
         const statuses = app.checkStatuses;
         if (statuses.includes('REJECTED')) return 'REJECTED';
         if (statuses.includes('RECHECK_DUE') || app.rawChecks.some(isRecheckItem)) return 'RECHECK_DUE';
@@ -2053,7 +2139,10 @@ export class RealDashboardRepository implements IDashboardRepository {
       const approvedTotal = workerMap.size > 0 ? approvedAppCount : (approvedRes?.data?.meta?.totalItems ?? approvedRes?.data?.meta?.total ?? approvedItems.length);
 
       const recentAttentionApplications: VerificationAttentionApplication[] = Array.from(workerMap.values())
-        .filter((app) => getAppLevelStatus(app) !== 'APPROVED')
+        .filter((app) => {
+          const status = getAppLevelStatus(app);
+          return status === 'PENDING_REVIEW' || status === 'IN_REVIEW' || status === 'RECHECK_DUE';
+        })
         .map((app) => ({
           id: app.applicationId || app.workerId,
           workerId: app.workerId,
@@ -2067,9 +2156,32 @@ export class RealDashboardRepository implements IDashboardRepository {
           dueAt: app.dueAt,
         }))
         .sort((a, b) => {
-          if (!a.submissionDate) return 1;
-          if (!b.submissionDate) return -1;
-          return new Date(a.submissionDate).getTime() - new Date(b.submissionDate).getTime();
+          // 1. SLA Urgency: Overdue items first (breached SLA)
+          const aOverdue = Boolean(a.isOverdue || (a.slaFlags && a.slaFlags.includes('OVERDUE')));
+          const bOverdue = Boolean(b.isOverdue || (b.slaFlags && b.slaFlags.includes('OVERDUE')));
+          if (aOverdue && !bOverdue) return -1;
+          if (!aOverdue && bOverdue) return 1;
+
+          // If both overdue, sort by earliest deadline / oldest overdue
+          if (aOverdue && bOverdue) {
+            const aDue = a.dueAt ? new Date(a.dueAt).getTime() : 0;
+            const bDue = b.dueAt ? new Date(b.dueAt).getTime() : 0;
+            if (aDue && bDue && aDue !== bDue) return aDue - bDue;
+            const aSub = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+            const bSub = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+            return aSub - bSub;
+          }
+
+          // 2. Approaching SLA next
+          const aApproaching = Boolean(a.slaFlags && a.slaFlags.includes('APPROACHING'));
+          const bApproaching = Boolean(b.slaFlags && b.slaFlags.includes('APPROACHING'));
+          if (aApproaching && !bApproaching) return -1;
+          if (!aApproaching && bApproaching) return 1;
+
+          // 3. Within normal SLA: Newest submissions first (recency)
+          const aTime = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+          const bTime = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+          return bTime - aTime;
         });
 
       let withinSla = 0;

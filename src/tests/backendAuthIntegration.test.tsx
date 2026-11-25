@@ -537,7 +537,7 @@ describe('SevaNest Backend Integration Foundation & Authentication', () => {
         timeout: 15000,
       });
 
-      expect(otherConfig.timeout).toBe(15000);
+      expect(otherConfig.timeout).toBe(45000);
     });
 
     it('does not retry 401 on /auth/admin/login and propagates credentials rejection', async () => {

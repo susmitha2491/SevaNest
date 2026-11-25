@@ -854,9 +854,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     it('renders the official SevaNest logo on the login page', async () => {
       renderAuthFlow('/auth/login');
 
-      const logo = await screen.findByAltText('SevaNest logo');
-      expect(logo).toBeInTheDocument();
-      expect(logo.getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
+      const logos = await screen.findAllByAltText('SevaNest logo');
+      expect(logos.length).toBeGreaterThan(0);
+      expect(logos[0]).toBeInTheDocument();
+      expect(logos[0].getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
     });
 
     it('renders the official SevaNest logo in the authenticated shell sidebar', async () => {
@@ -873,9 +874,10 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
 
       renderAuthFlow('/dashboard');
 
-      const logo = await screen.findByAltText('SevaNest logo');
-      expect(logo).toBeInTheDocument();
-      expect(logo.getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
+      const logos = await screen.findAllByAltText('SevaNest logo');
+      expect(logos.length).toBeGreaterThan(0);
+      expect(logos[0]).toBeInTheDocument();
+      expect(logos[0].getAttribute('src')).toMatch(/\/(SevaNest_logo-removebg-preview|sevanest-logo)\.png/);
     });
   });
 

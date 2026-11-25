@@ -506,8 +506,6 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     ).length;
   }, [mandatoryChecks]);
 
-  const allMandatoryPassed = totalMandatoryCount > 0 && approvedChecksCount === totalMandatoryCount;
-
   const hasRejectedCheck = useMemo(() => {
     return Boolean(
       workflow?.hasRejectedCheck ||
@@ -516,6 +514,14 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       dossier?.applicationStatus === 'REJECTED'
     );
   }, [workflow?.hasRejectedCheck, dossier?.checks, dossier?.status, dossier?.applicationStatus]);
+
+  const allMandatoryPassed = useMemo(() => {
+    if (hasRejectedCheck) return false;
+    if (dossier?.status === 'REJECTED' || dossier?.applicationStatus === 'REJECTED' || dossier?.applicationStatus === 'ACTION_REQUIRED') {
+      return false;
+    }
+    return totalMandatoryCount > 0 && approvedChecksCount === totalMandatoryCount;
+  }, [hasRejectedCheck, dossier?.status, dossier?.applicationStatus, totalMandatoryCount, approvedChecksCount]);
 
   // Dynamic list of checks for Step 3, ensuring backend-driven checks are not restricted to a fixed 5-item list
   const allCheckItems = useMemo(() => {
@@ -571,23 +577,25 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     );
   }, [dossier?.status, allMandatoryPassed, dossier?.contractInconsistency, hasPendingOrInReviewChecks]);
 
-  // Authoritative approved status strictly determined from backend response
-  const isApprovedDossier = useMemo(() => {
-    return Boolean(
-      dossier?.status === 'APPROVED' ||
-      dossier?.applicationStatus === 'APPROVED' ||
-      dossier?.applicationStatus === 'VERIFIED' ||
-      isHistoricallyVerified ||
-      isOnboardedSuccess
-    );
-  }, [dossier?.status, dossier?.applicationStatus, isHistoricallyVerified, isOnboardedSuccess]);
-
   const isApplicationRejected = useMemo(() => {
     return Boolean(
       dossier?.status === 'REJECTED' ||
       dossier?.applicationStatus === 'REJECTED'
     );
   }, [dossier?.status, dossier?.applicationStatus]);
+
+  // Authoritative approved status strictly determined from backend response
+  const isApprovedDossier = useMemo(() => {
+    if (isApplicationRejected || hasRejectedCheck) return false;
+    return Boolean(
+      (dossier?.status === 'APPROVED' ||
+      dossier?.applicationStatus === 'APPROVED' ||
+      dossier?.applicationStatus === 'VERIFIED' ||
+      isHistoricallyVerified ||
+      isOnboardedSuccess) &&
+      !dossier?.contractInconsistency
+    );
+  }, [isApplicationRejected, hasRejectedCheck, dossier?.status, dossier?.applicationStatus, isHistoricallyVerified, isOnboardedSuccess, dossier?.contractInconsistency]);
 
   const isTerminalDisqualified = useMemo(() => {
     if (!dossier?.checks) return false;
@@ -644,13 +652,14 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   // Step 5: Final Approval is completed ONLY if worker is actually approved in backend records
   const isFinalApprovalStepCompleted = useMemo(() => {
+    if (isApplicationRejected || hasRejectedCheck) return false;
     return Boolean(
       isApprovedDossier ||
       dossier?.status === 'APPROVED' ||
       isOnboardedSuccess ||
       isHistoricallyVerified
     );
-  }, [isApprovedDossier, dossier?.status, isOnboardedSuccess, isHistoricallyVerified]);
+  }, [isApplicationRejected, hasRejectedCheck, isApprovedDossier, dossier?.status, isOnboardedSuccess, isHistoricallyVerified]);
 
   type StepVerificationState = 'COMPLETED' | 'IN_REVIEW' | 'REJECTED' | 'PENDING';
 
@@ -693,7 +702,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
       case 5:
         if (isFinalApprovalStepCompleted) return 'COMPLETED';
-        if (isApplicationRejected || dossier.status === 'REJECTED') return 'REJECTED';
+        if (isApplicationRejected || dossier.status === 'REJECTED' || hasRejectedCheck) return 'REJECTED';
         if (dossier.status === 'IN_REVIEW') return 'IN_REVIEW';
         return 'PENDING';
 
@@ -1028,6 +1037,11 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       setRejectApplicationRemarks('');
       setRejectApplicationError(null);
       invalidateRelated();
+      queryClient.invalidateQueries({ queryKey: ['verification', 'dossier', dossierId] });
+      queryClient.invalidateQueries({ queryKey: ['verification-dossier', dossierId] });
+      queryClient.invalidateQueries({ queryKey: ['verification', 'queue'] });
+      queryClient.invalidateQueries({ queryKey: ['verification'] });
+      queryClient.invalidateQueries({ queryKey: ['workers'] });
       refetchDossier();
       const workerName = dossier?.workerName || 'Worker';
       window.dispatchEvent(
@@ -1038,8 +1052,8 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           },
         })
       );
-      setFeedbackMessage(`Application for ${workerName} rejected successfully.`);
-      setTimeout(() => setFeedbackMessage(null), 4000);
+      setFeedbackMessage(null);
+      setCurrentStep(4);
     },
     onError: (err: unknown) => {
       const msg = (err as Error)?.message || 'Failed to reject application.';
@@ -1420,7 +1434,14 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     >
                       Verification Dossier: {dossier.workerName}
                     </h2>
-                    <StatusBadge status={dossier.status} />
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>App Status:</span>
+                      <StatusBadge status={dossier.applicationStatus || dossier.status} />
+                    </div>
+                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>KYC Level:</span>
+                      <StatusBadge status={dossier.level || 'IN_PROGRESS'} />
+                    </div>
 
                     {isReadOnly && (
                       <span
@@ -1527,7 +1548,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
               )}
 
               {/* All Criteria Satisfied Authoritative Acceptance Banner */}
-              {allMandatoryPassed && !dossier.contractInconsistency && (
+              {allMandatoryPassed && !dossier.contractInconsistency && !isApplicationRejected && !hasRejectedCheck && (
                 <div
                   style={{
                     backgroundColor: 'var(--color-status-success-bg)',
@@ -1545,10 +1566,10 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
                     <CheckCircle2 size={14} />
-                    <span>All {totalMandatoryCount} Verification Criteria Satisfied</span>
+                    <span>All {totalMandatoryCount} Mandatory KYC Verification Criteria Satisfied</span>
                   </div>
                   <div style={{ fontSize: '11px', display: 'flex', gap: 'var(--space-3)', alignItems: 'center' }}>
-                    <strong>Authoritative Status: VERIFIED</strong>
+                    <strong>Authoritative KYC Status: {dossier.level === 'VERIFIED' ? 'VERIFIED' : 'KYC READY FOR SIGNOFF'}</strong>
                     <span style={{ color: 'var(--color-text-secondary)' }}>(ARCH-VERIF-01)</span>
                   </div>
                 </div>
@@ -1591,12 +1612,37 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                   }}
                 >
                   <AlertTriangle size={14} />
-                  <span>Worker Application Rejected — Dossier is in Read-Only Mode</span>
+                  <span>
+                    <strong>Authoritative Application Status: REJECTED</strong> — Worker application has been rejected and closed.
+                  </span>
+                </div>
+              )}
+
+              {/* Action Required Banner when check(s) are rejected */}
+              {!isApplicationRejected && hasRejectedCheck && (
+                <div
+                  data-testid="application-action-required-header-banner"
+                  style={{
+                    backgroundColor: 'rgba(234, 88, 12, 0.08)',
+                    border: '1px solid rgba(234, 88, 12, 0.3)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: 'var(--font-size-xs)',
+                    color: '#c2410c',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'var(--space-2)',
+                  }}
+                >
+                  <AlertTriangle size={14} color="#ea580c" />
+                  <span>
+                    <strong>Authoritative Application Status: {dossier.applicationStatus || 'ACTION_REQUIRED'}</strong> — One or more verification checks have been rejected and require candidate correction.
+                  </span>
                 </div>
               )}
 
               {/* Feedback Message */}
-              {feedbackMessage && (
+              {feedbackMessage && !isApplicationRejected && (
                 <div
                   style={{
                     backgroundColor: 'var(--color-primary-subtle)',
@@ -4011,8 +4057,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </h4>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px', fontSize: 'var(--font-size-xs)' }}>
                       {mandatoryChecks.map((item, idx) => {
-                        const isApproved = item.status === 'APPROVED' || (item.isPreCheck && item.status === 'PASSED');
-                        const isNotRequired = !item.required && item.status !== 'APPROVED';
+                        const isRejected = item.status === 'REJECTED' || (item.check && item.check.status === 'REJECTED');
+                        const isApproved = !isRejected && (item.status === 'APPROVED' || (item.isPreCheck && item.status === 'PASSED'));
+                        const isNotRequired = !isRejected && !item.required && item.status !== 'APPROVED';
                         return (
                           <div
                             key={idx}
@@ -4040,7 +4087,9 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 ? (item.isPreCheck ? 'Passed' : 'Approved')
                                 : isNotRequired
                                   ? '(Not Required by Protocol)'
-                                  : 'Pending Approval'}
+                                  : isRejected
+                                    ? 'Rejected (Candidate Action Required)'
+                                    : 'Pending Approval'}
                             </span>
                           </div>
                         );
@@ -4048,8 +4097,60 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                     </div>
                   </div>
 
+                  {/* Application Rejected Alert Card in Step 5 */}
+                  {isApplicationRejected && (
+                    <div
+                      data-testid="application-rejected-step5-card"
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor: '#fef2f2',
+                        border: '1px solid #fecaca',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                        <AlertTriangle size={18} color="#dc2626" />
+                        <strong style={{ fontSize: 'var(--font-size-sm)', color: '#991b1b' }}>
+                          Worker Application Rejected — Final Approval Closed
+                        </strong>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: '#7f1d1d', lineHeight: 1.5 }}>
+                        This worker application has been rejected and closed. Final verification sign-off and commercial platform activation are disabled.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Action Required Alert Card in Step 5 */}
+                  {!isApplicationRejected && hasRejectedCheck && (
+                    <div
+                      data-testid="application-action-required-step5-card"
+                      style={{
+                        padding: 'var(--space-4)',
+                        backgroundColor: '#fffbeb',
+                        border: '1px solid #fde68a',
+                        borderRadius: 'var(--radius-md)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 'var(--space-2)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+                        <AlertTriangle size={18} color="#d97706" />
+                        <strong style={{ fontSize: 'var(--font-size-sm)', color: '#92400e' }}>
+                          Prerequisites Incomplete — Candidate Correction Required
+                        </strong>
+                      </div>
+                      <p style={{ margin: 0, fontSize: 'var(--font-size-xs)', color: '#78350f', lineHeight: 1.5 }}>
+                        One or more verification checks have been rejected with <strong>ACTION REQUIRED</strong>. Final verification sign-off and commercial activation are blocked until all prerequisite checks are satisfied.
+                      </p>
+                    </div>
+                  )}
+
                   {/* RBAC Permission Callout if Unauthorized */}
-                  {!canApproveWorker && !isHistoricallyVerified && dossier.status !== 'APPROVED' && (
+                  {!canApproveWorker && !isHistoricallyVerified && dossier.status !== 'APPROVED' && !isApplicationRejected && !hasRejectedCheck && (
                     <div
                       style={{
                         padding: 'var(--space-3) var(--space-4)',
@@ -4632,54 +4733,59 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                             {rejectApplicationMutation.isPending ? 'Rejecting...' : 'Reject Application'}
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => setIsConfirmFinalApproveOpen(true)}
-                          disabled={
-                            !allMandatoryPassed ||
-                            !canApproveWorker ||
-                            finalApproveMutation.isPending
-                          }
-                          title={
-                            !allMandatoryPassed
-                              ? 'All mandatory checks must be approved before final sign-off'
-                              : !canApproveWorker
-                                ? 'Missing permission to approve worker'
-                                : 'Approve and onboard worker'
-                          }
-                          style={{
-                            padding: 'var(--space-2) var(--space-6)',
-                            borderRadius: 'var(--radius-md)',
-                            backgroundColor:
-                              allMandatoryPassed && canApproveWorker
-                                ? 'var(--color-success)'
-                                : '#e2e8f0',
-                            color:
-                              allMandatoryPassed && canApproveWorker
-                                ? '#ffffff'
-                                : '#475569',
-                            border:
-                              allMandatoryPassed && canApproveWorker
-                                ? '1px solid #15803d'
-                                : '1px solid #cbd5e1',
-                            fontSize: 'var(--font-size-sm)',
-                            fontWeight: 700,
-                            cursor:
-                              allMandatoryPassed && canApproveWorker && !finalApproveMutation.isPending
-                                ? 'pointer'
-                                : 'not-allowed',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            boxShadow:
-                              allMandatoryPassed && canApproveWorker
-                                ? '0 2px 6px rgba(22, 163, 74, 0.3)'
-                                : 'none',
-                          }}
-                        >
-                          <CheckCircle2 size={16} />
-                          {finalApproveMutation.isPending ? 'Approving Worker...' : 'Approve Verification Worker'}
-                        </button>
+                        {!isApplicationRejected && (
+                          <button
+                            type="button"
+                            onClick={() => setIsConfirmFinalApproveOpen(true)}
+                            disabled={
+                              !allMandatoryPassed ||
+                              !canApproveWorker ||
+                              hasRejectedCheck ||
+                              finalApproveMutation.isPending
+                            }
+                            title={
+                              hasRejectedCheck
+                                ? 'One or more verification checks are rejected. Corrections are required before approval.'
+                                : !allMandatoryPassed
+                                  ? 'All mandatory checks must be approved before final sign-off'
+                                  : !canApproveWorker
+                                    ? 'Missing permission to approve worker'
+                                    : 'Approve and onboard worker'
+                            }
+                            style={{
+                              padding: 'var(--space-2) var(--space-6)',
+                              borderRadius: 'var(--radius-md)',
+                              backgroundColor:
+                                allMandatoryPassed && canApproveWorker && !hasRejectedCheck
+                                  ? 'var(--color-success)'
+                                  : '#e2e8f0',
+                              color:
+                                allMandatoryPassed && canApproveWorker && !hasRejectedCheck
+                                  ? '#ffffff'
+                                  : '#475569',
+                              border:
+                                allMandatoryPassed && canApproveWorker && !hasRejectedCheck
+                                  ? '1px solid #15803d'
+                                  : '1px solid #cbd5e1',
+                              fontSize: 'var(--font-size-sm)',
+                              fontWeight: 700,
+                              cursor:
+                                allMandatoryPassed && canApproveWorker && !hasRejectedCheck && !finalApproveMutation.isPending
+                                  ? 'pointer'
+                                  : 'not-allowed',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              boxShadow:
+                                allMandatoryPassed && canApproveWorker && !hasRejectedCheck
+                                  ? '0 2px 6px rgba(22, 163, 74, 0.3)'
+                                  : 'none',
+                            }}
+                          >
+                            <CheckCircle2 size={16} />
+                            {finalApproveMutation.isPending ? 'Approving Worker...' : 'Approve Verification Worker'}
+                          </button>
+                        )}
                       </div>
                     )
                   )}

@@ -16,7 +16,7 @@ import {
   UpdateWorkerAvailabilityPayload,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName, getWorkerLocality, setWorkerLocality } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { hasPermission, PERMISSIONS } from '../../../core/rbac/permissions';
@@ -668,6 +668,12 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   );
 
   const rawId = String(item.workerId || item.id || '');
+  const itemArea = (item.address as { area?: string } | undefined)?.area;
+  if (itemArea && itemArea.toLowerCase() !== 'hyderabad') {
+    setWorkerLocality(rawId, itemArea);
+    if (item.userId) setWorkerLocality(String(item.userId), itemArea);
+  }
+  const cachedLocality = getWorkerLocality(rawId) || (item.userId ? getWorkerLocality(String(item.userId)) : undefined);
   const cachedPhone = getWorkerPhone(rawId) || getWorkerPhone(String(item.userId || ''));
   const rawPhoneCandidate = item.phone ? String(item.phone) : item.mobile ? String(item.mobile) : undefined;
   const rawCleanPhone = cachedPhone || (rawPhoneCandidate && !rawPhoneCandidate.includes('*') ? formatPhoneNumber(rawPhoneCandidate) : undefined);
@@ -770,9 +776,11 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     experienceYears: expYears,
     ratingAverage: ratingAvg,
     totalReviews: Number(item.totalReviews || 0),
-    locality: Array.isArray(item.serviceAreas) && item.serviceAreas.length > 0
-      ? String((item.serviceAreas[0] as { name?: string }).name || 'Hyderabad')
-      : String(item.locality || 'Hyderabad'),
+    locality: cachedLocality ||
+      itemArea ||
+      (Array.isArray(item.serviceAreas) && item.serviceAreas.length > 0
+        ? String((item.serviceAreas[0] as { name?: string }).name || 'Hyderabad')
+        : String(item.locality || 'Hyderabad')),
     isFullyVerified: item.isFullyVerified !== undefined ? Boolean(item.isFullyVerified) : isVerified,
     status: calculatedStatus,
     accountStatus: (item.accountStatus === 'SUSPENDED' || item.status === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE') as Worker['accountStatus'],
@@ -1519,7 +1527,7 @@ export class RealWorkerRepository implements IWorkerRepository {
 
       const uncachedWorkerIds = list
         .map((item) => String(item.id || item.workerId || ''))
-        .filter((id) => id && !getWorkerPhone(id));
+        .filter((id) => id && (!getWorkerPhone(id) || !getWorkerLocality(id)));
       if (uncachedWorkerIds.length > 0) {
         await Promise.all(
           uncachedWorkerIds.map(async (id) => {
@@ -1531,6 +1539,11 @@ export class RealWorkerRepository implements IWorkerRepository {
                 const formatted = formatPhoneNumber(mobile);
                 setWorkerPhone(id, formatted);
                 if (detail.userId) setWorkerPhone(String(detail.userId), formatted);
+              }
+              const area = (detail?.address as { area?: string } | undefined)?.area || (detail?.locality as string | undefined);
+              if (area && area.toLowerCase() !== 'hyderabad') {
+                setWorkerLocality(id, area);
+                if (detail.userId) setWorkerLocality(String(detail.userId), area);
               }
             } catch {
               // Ignore failure
@@ -1787,6 +1800,33 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
+      const uncachedPageWorkerIds = list
+        .map((item) => String(item.id || item.workerId || ''))
+        .filter((id) => id && (!getWorkerPhone(id) || !getWorkerLocality(id)));
+      if (uncachedPageWorkerIds.length > 0) {
+        await Promise.all(
+          uncachedPageWorkerIds.map(async (id) => {
+            try {
+              const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${id}`);
+              const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
+              const mobile = String(detail?.mobile || detail?.phone || '');
+              if (mobile && !mobile.includes('*')) {
+                const formatted = formatPhoneNumber(mobile);
+                setWorkerPhone(id, formatted);
+                if (detail.userId) setWorkerPhone(String(detail.userId), formatted);
+              }
+              const area = (detail?.address as { area?: string } | undefined)?.area || (detail?.locality as string | undefined);
+              if (area && area.toLowerCase() !== 'hyderabad') {
+                setWorkerLocality(id, area);
+                if (detail.userId) setWorkerLocality(String(detail.userId), area);
+              }
+            } catch {
+              // Ignore failure
+            }
+          })
+        );
+      }
+
       const mappedItems = list.map((item) => {
         const id = String(item.id || item.workerId || '');
         const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
@@ -1892,6 +1932,12 @@ export class RealWorkerRepository implements IWorkerRepository {
 
       // If worker profile does not exist, return null immediately without making useless sub-requests
       if (!rawWorker || Object.keys(rawWorker).length === 0) return null;
+
+      const workerArea = (rawWorker.address as { area?: string } | undefined)?.area || (rawWorker.locality as string | undefined);
+      if (workerArea && workerArea.toLowerCase() !== 'hyderabad') {
+        setWorkerLocality(effectiveId, workerArea);
+        if (rawWorker.userId) setWorkerLocality(String(rawWorker.userId), workerArea);
+      }
 
       // Only fetch verification sub-resource if current user has verification permission (avoids 403 Forbidden)
       const user = useAuthStore.getState().user;

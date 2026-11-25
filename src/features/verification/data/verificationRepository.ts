@@ -1340,29 +1340,27 @@ export class MockVerificationRepository implements IVerificationRepository {
       });
 
       dossier.status = 'REJECTED';
-      dossier.level = 'REJECTED';
+      dossier.level = 'NOT_STARTED';
       dossier.applicationStatus = 'REJECTED';
       dossier.overallRemarks = remarks;
       if (dossier.checks) {
         Object.values(dossier.checks).forEach((c) => {
-          if (c.status !== 'APPROVED') {
-            if (!c.history) {
-              c.history = [];
-            }
-            c.history.push({
-              fromStatus: c.status || 'IN_REVIEW',
-              toStatus: 'REJECTED',
-              rejectionCode: (category as string),
-              remarks,
-              actorUserId: 'admin',
-              createdAt: now,
-            });
-            c.status = 'REJECTED';
-            c.rejectionCategory = (category as RejectionReasonCategory) || 'OTHER';
-            c.rejectionCode = (category as string);
-            c.rejectionRemarks = remarks;
-            c.terminal = isTerminal;
+          if (!c.history) {
+            c.history = [];
           }
+          c.history.push({
+            fromStatus: c.status || 'IN_REVIEW',
+            toStatus: 'REJECTED',
+            rejectionCode: (category as string),
+            remarks,
+            actorUserId: 'admin',
+            createdAt: now,
+          });
+          c.status = 'REJECTED';
+          c.rejectionCategory = (category as RejectionReasonCategory) || 'OTHER';
+          c.rejectionCode = (category as string);
+          c.rejectionRemarks = remarks;
+          c.terminal = isTerminal;
         });
       }
     }
@@ -1877,6 +1875,11 @@ interface WorkerEnrichmentInfo {
 let cachedWorkerEnrichment: Map<string, WorkerEnrichmentInfo> | null = null;
 let lastWorkerEnrichmentFetch = 0;
 
+export function clearWorkerEnrichmentCache(): void {
+  cachedWorkerEnrichment = null;
+  lastWorkerEnrichmentFetch = 0;
+}
+
 async function getWorkerEnrichmentMap(): Promise<Map<string, WorkerEnrichmentInfo>> {
   const now = Date.now();
   if (cachedWorkerEnrichment && now - lastWorkerEnrichmentFetch < 60000) {
@@ -2289,14 +2292,14 @@ export class RealVerificationRepository implements IVerificationRepository {
 
         if (hasRejected || upperLevel === 'REJECTED' || enriched?.applicationStatus === 'REJECTED') {
           status = 'REJECTED';
+        } else if (backendClaimsApproved || allRetrievedChecksApproved) {
+          status = 'APPROVED';
         } else if (hasInReview || upperLevel === 'IN_REVIEW' || enriched?.applicationStatus === 'UNDER_REVIEW') {
           status = 'IN_REVIEW';
         } else if (hasRecheck || upperLevel === 'RECHECK_DUE') {
           status = 'RECHECK_DUE';
         } else if (hasSubmitted) {
           status = 'PENDING_REVIEW';
-        } else if (backendClaimsApproved || allRetrievedChecksApproved) {
-          status = 'APPROVED';
         } else {
           status = 'PENDING_REVIEW';
         }
@@ -2578,18 +2581,20 @@ export class RealVerificationRepository implements IVerificationRepository {
       const isWorkerOnboardingDraft = workerData?.onboardingStatus === 'DRAFT';
 
       if (rawChecksGiven) {
-        if (backendClaimsApproved && incompleteRequiredChecks.length > 0) {
+        if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (backendClaimsApproved && incompleteRequiredChecks.length > 0) {
           hasContractInconsistency = true;
           contractInconsistency = `Contract Inconsistency: Backend reports application as ${level || raw.applicationStatus || 'VERIFIED'} / signed-off, but required KYC checks (${incompleteRequiredChecks.join(', ')}) remain incomplete. In compliance with SevaNest verification rules, full approval is withheld until all required checks are verified.`;
-          status = hasTerminalRejection ? 'REJECTED' : hasNonTerminalRejection ? 'PENDING_REVIEW' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
-        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
+          status = hasNonTerminalRejection ? 'PENDING_REVIEW' : hasInReview ? 'IN_REVIEW' : hasRecheck ? 'RECHECK_DUE' : 'PENDING_REVIEW';
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
           status = 'IN_REVIEW';
         } else if (hasSubmitted) {
           status = 'PENDING_REVIEW';
         } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
           status = 'RECHECK_DUE';
-        } else if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
-          status = 'REJECTED';
+        } else if (hasNonTerminalRejection || rawAppStatus === 'ACTION_REQUIRED' || rawAppStatus === 'CORRECTIONS_REQUIRED') {
+          status = 'PENDING_REVIEW';
         } else if (allRequiredChecksApproved && (backendClaimsApproved || raw.signedOffAt)) {
           if (isWorkerOnboardingDraft) {
             hasContractInconsistency = true;
@@ -2598,25 +2603,23 @@ export class RealVerificationRepository implements IVerificationRepository {
           } else {
             status = 'APPROVED';
           }
-        } else if (hasNonTerminalRejection || rawAppStatus === 'ACTION_REQUIRED' || rawAppStatus === 'CORRECTIONS_REQUIRED') {
-          status = 'PENDING_REVIEW';
         } else if (allRequiredChecksApproved) {
           status = 'APPROVED';
         } else {
           status = 'PENDING_REVIEW';
         }
       } else {
-        if (isWorkerOnboardingDraft) {
+        if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
+          status = 'REJECTED';
+        } else if (isWorkerOnboardingDraft) {
           hasContractInconsistency = true;
           contractInconsistency = `Contract Inconsistency: Worker onboarding status is DRAFT, but verification level is reported as ${level || raw.applicationStatus || 'VERIFIED'}. Full approval requires completed onboarding and verification.`;
           status = 'PENDING_REVIEW';
         } else if (backendClaimsApproved) {
           status = 'APPROVED';
-        } else if (hasTerminalRejection || upperStatus === 'REJECTED' || upperLevel === 'REJECTED' || rawAppStatus === 'REJECTED') {
-          status = 'REJECTED';
         } else if (hasNonTerminalRejection || rawAppStatus === 'ACTION_REQUIRED' || rawAppStatus === 'CORRECTIONS_REQUIRED') {
           status = 'PENDING_REVIEW';
-        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperStatus === 'IN_PROGRESS' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
+        } else if (hasInReview || upperStatus === 'IN_REVIEW' || upperLevel === 'IN_REVIEW' || rawAppStatus === 'UNDER_REVIEW') {
           status = 'IN_REVIEW';
         } else if (hasRecheck || upperStatus === 'RECHECK_DUE' || upperLevel === 'RECHECK_DUE') {
           status = 'RECHECK_DUE';
@@ -3324,6 +3327,7 @@ export class RealVerificationRepository implements IVerificationRepository {
         const targetChecks = priorityChecks.length > 0 ? priorityChecks : actionableChecks;
 
         let latestVerif: AdminWorkerVerificationResponse | null = null;
+        let lastError: unknown = null;
         for (const check of targetChecks) {
           try {
             if (check.status === 'SUBMITTED') {
@@ -3331,6 +3335,16 @@ export class RealVerificationRepository implements IVerificationRepository {
                 await httpClient.post(`/admin/verification/checks/${encodeURIComponent(check.checkId)}/start-review`, {});
               } catch {
                 // Ignore conflict if already in review
+              }
+            } else if (check.status === 'APPROVED') {
+              // A check that is APPROVED cannot move directly to REJECTED.
+              // Backend requires /recheck first (which transitions status to IN_REVIEW)
+              try {
+                await httpClient.post(`/admin/verification/checks/${encodeURIComponent(check.checkId)}/recheck`, {
+                  remarks: cleanRemarks,
+                });
+              } catch (recheckErr) {
+                console.warn(`Failed to recheck approved check ${check.checkId}:`, recheckErr);
               }
             }
 
@@ -3348,29 +3362,32 @@ export class RealVerificationRepository implements IVerificationRepository {
             latestVerif = rejData;
           } catch (chkErr) {
             console.warn(`Failed to reject check ${check.checkId}:`, chkErr);
+            lastError = chkErr;
           }
         }
 
         if (latestVerif) {
           return latestVerif;
         }
+        if (lastError) {
+          throw mapHttpErrorToDomainError(lastError);
+        }
+      } else {
+        // All checks are already rejected on backend
+        return verifResponse;
       }
     }
 
-    // Construct and return authoritative rejected response when no check IDs were actionable (e.g. DRAFT worker)
-    return {
-      workerId: cleanWorkerId,
-      applicationStatus: 'REJECTED',
-      level: 'NOT_STARTED',
-      requiredChecks: verifResponse?.requiredChecks || ['IDENTITY'],
-      checks: (verifResponse?.checks || []).map((c) => ({
-        ...c,
-        status: 'REJECTED' as AdminCheckView['status'],
-        rejectionCode: reasonCode,
-        rejectionMessage: cleanRemarks,
-        remarks: cleanRemarks,
-      })),
-    };
+    if (verifResponse) {
+      return verifResponse;
+    }
+
+    throw new ValidationError(
+      'Worker rejection could not be executed: No verification record or actionable checks exist for this worker on the backend.',
+      undefined,
+      undefined,
+      'NO_ACTIONABLE_CHECKS'
+    );
   }
 
   async reconsiderApplication(

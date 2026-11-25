@@ -150,6 +150,7 @@ html, body {
 
 #root {
   min-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--color-bg-app);
@@ -679,15 +680,92 @@ tbody tr:hover {
   background: var(--color-text-disabled);
 }
 
-/* Sidebar scrollbar concealment */
-.sidebar-nav-scroll {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+/* ==========================================================================
+   App Shell Two-Pane Independent Scrolling Architecture
+   ========================================================================== */
+
+/* Outer App Container: Locks viewport height, prevents document scroll chaining */
+.app-shell-root {
+  display: flex;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
+  width: 100%;
+  overflow: hidden;
+  background-color: var(--color-bg-app);
 }
+
+/* Sidebar Column: Fixed full height, contained layout */
+aside.portal-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  flex-shrink: 0;
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: var(--color-bg-surface);
+  border-right: 1px solid var(--color-border-subtle);
+  transition: width var(--transition-normal);
+  z-index: 40;
+}
+
+/* Dedicated Independent Sidebar Navigation Scroll Container */
+.sidebar-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+}
+
+.sidebar-nav-scroll:hover {
+  scrollbar-color: rgba(148, 163, 184, 0.4) transparent;
+}
+
 .sidebar-nav-scroll::-webkit-scrollbar {
-  display: none;
-  width: 0;
-  height: 0;
+  width: 4px;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-nav-scroll::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.sidebar-nav-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.4);
+}
+
+/* Right Main Column: Separate independent layout region */
+.app-main-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Main Viewport Content: Dedicated independent vertical scroll container */
+main.app-main-viewport {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Interactive Table Rows (Worker Verification Queue) */
@@ -1355,6 +1433,39 @@ html:has(body.modal-scroll-locked) {
   .booking-modal-workspace {
     padding: 12px 14px;
     gap: 12px;
+  }
+}
+
+/* ==========================================================================
+   Transaction & Refund Details Modal Responsive Layout
+   ========================================================================== */
+.txn-detail-modal-content {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-xl);
+  max-width: 740px;
+  width: calc(100vw - 32px);
+  max-height: min(92vh, 860px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.txn-detail-grid-2col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+@media (max-width: 640px) {
+  .txn-detail-modal-content {
+    max-height: calc(100vh - 16px);
+    width: 100%;
+    border-radius: var(--radius-lg);
+  }
+  .txn-detail-grid-2col {
+    grid-template-columns: 1fr;
   }
 }
 

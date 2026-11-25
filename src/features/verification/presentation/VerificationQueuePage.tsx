@@ -332,9 +332,9 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       {/* Header Banner */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+        <div style={{ minWidth: 0, flex: 1, maxWidth: '780px' }}>
+          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)', margin: 0, lineHeight: 1.25 }}>
             {effectiveViewMode === 'my-reviews'
               ? 'My Reviews Workstation'
               : effectiveViewMode === 'rechecks'
@@ -345,7 +345,7 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               ? 'Authoritative Review History & Audit'
               : 'Worker Verification & Trust Operations'}
           </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
+          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)', marginBottom: 0 }}>
             {effectiveViewMode === 'my-reviews'
               ? 'Active in-progress dossiers and ongoing verification reviews under operational evaluation.'
               : effectiveViewMode === 'rechecks'
@@ -357,7 +357,24 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
               : 'Mandatory 6-point verification (1 pre-check phone OTP + 5 operations checks: Identity, Address, Emergency Contact, Employer Reference, Police Clearance).'}
           </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', flexShrink: 0, marginLeft: 'auto' }}>
+          <div
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              padding: 'var(--space-2) var(--space-3)',
+              backgroundColor: 'var(--color-primary-subtle)',
+              border: '1px solid var(--color-border-subtle)',
+              borderRadius: 'var(--radius-md)',
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-primary)',
+              fontWeight: 600,
+            }}
+          >
+            <ShieldCheck size={16} />
+            <span>Operational Verification SLA: 48 Hours</span>
+          </div>
           <button
             type="button"
             onClick={() => refetch()}
@@ -386,23 +403,6 @@ export const VerificationQueuePage: React.FC<VerificationQueuePageProps> = ({
             />
             <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-primary-subtle)',
-              border: '1px solid var(--color-border-subtle)',
-              borderRadius: 'var(--radius-md)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-primary)',
-              fontWeight: 600,
-            }}
-          >
-            <ShieldCheck size={16} />
-            <span>Operational Verification SLA: 48 Hours</span>
-          </div>
         </div>
       </div>
 

@@ -3406,16 +3406,24 @@ export const ConfigurationMastersPage: React.FC = () => {
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
               <button
+                type="button"
                 onClick={() => setIsCategoryModalOpen(false)}
+                disabled={saveCategoryMutation.isPending}
                 style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
-                onClick={() => setIsCategoryPublishOpen(true)}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+                type="button"
+                disabled={saveCategoryMutation.isPending}
+                onClick={() => {
+                  if (categoryDraft) {
+                    saveCategoryMutation.mutate({ category: categoryDraft, rationale: 'Category taxonomy and engagement update' });
+                  }
+                }}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: saveCategoryMutation.isPending ? 'not-allowed' : 'pointer', opacity: saveCategoryMutation.isPending ? 0.7 : 1 }}
               >
-                Save Category Draft
+                {saveCategoryMutation.isPending ? 'Saving...' : 'Save Category Draft'}
               </button>
             </div>
           </div>
@@ -3579,12 +3587,14 @@ export const ConfigurationMastersPage: React.FC = () => {
                   setIsAreaModalOpen(false);
                   setAreaModalError(null);
                 }}
+                disabled={saveAreaMutation.isPending}
                 style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
               >
                 Cancel
               </button>
               <button
                 type="button"
+                disabled={saveAreaMutation.isPending}
                 onClick={() => {
                   if (!areaDraft.clusterName.trim()) {
                     setAreaModalError('Cluster / Locality name is required.');
@@ -3595,11 +3605,11 @@ export const ConfigurationMastersPage: React.FC = () => {
                     return;
                   }
                   setAreaModalError(null);
-                  setIsAreaPublishOpen(true);
+                  saveAreaMutation.mutate({ area: areaDraft, remarks: 'Operational area cluster update' });
                 }}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
+                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: saveAreaMutation.isPending ? 'not-allowed' : 'pointer', opacity: saveAreaMutation.isPending ? 0.7 : 1 }}
               >
-                Save Area
+                {saveAreaMutation.isPending ? 'Saving...' : 'Save Area'}
               </button>
             </div>
           </div>

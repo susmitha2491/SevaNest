@@ -162,26 +162,18 @@ describe('Account Page: Removal of Assigned Permissions Scope Across All Admin R
         useAuthStore.getState().setSession(user, `token-${role}`);
       });
 
-      it('does NOT render the Assigned Permissions Scope card or permission badges', async () => {
+      it('renders the Assigned Permissions Scope card and authoritative permission details (BUG-001)', async () => {
         renderApp('/account');
 
         // Confirm page loaded
         expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
 
-        // 1. Permissions card test ID must not be present
-        expect(screen.queryByTestId('account-permissions-scope-card')).not.toBeInTheDocument();
+        // 1. Permissions card test ID must be present
+        expect(await screen.findByTestId('account-permissions-scope-card')).toBeInTheDocument();
 
-        // 2. Headings and descriptive labels must not be present
-        expect(screen.queryByText(/Assigned Permissions Scope/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/Authoritative permissions granted by backend security tokens/i)).not.toBeInTheDocument();
-
-        // 3. Fine-grained permission strings must not be rendered as badges
-        expect(screen.queryByText('admin.manage_users')).not.toBeInTheDocument();
-        expect(screen.queryByText('user.view')).not.toBeInTheDocument();
-        expect(screen.queryByText('verification.review')).not.toBeInTheDocument();
-        expect(screen.queryByText('payment.refund')).not.toBeInTheDocument();
-        expect(screen.queryByText('support.manage')).not.toBeInTheDocument();
-        expect(screen.queryByText('audit.view')).not.toBeInTheDocument();
+        // 2. Headings and descriptive labels must be present
+        expect(screen.getByText(/Assigned Permissions Scope/i)).toBeInTheDocument();
+        expect(screen.getByText(/Authoritative permissions granted by backend security tokens/i)).toBeInTheDocument();
       });
 
       it('preserves account profile information, role designation, and Staff ID', async () => {

@@ -55,7 +55,7 @@ export interface ChangePasswordDto {
 
 export interface IAuthRepository {
   login(credentials: LoginCredentials): Promise<{ user: AdminUser; accessToken: string; refreshToken?: string }>;
-  logout(): Promise<void>;
+  logout(token?: string): Promise<void>;
   refreshToken(token?: string): Promise<{ accessToken: string; refreshToken?: string; user?: AdminUser }>;
   getCurrentSession(accessToken?: string): Promise<AdminUser | null>;
   getAdminProfile?(): Promise<AdminUser>;

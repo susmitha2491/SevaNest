@@ -59,10 +59,10 @@ describe('Customer & Worker Management Workflows', () => {
       // Verify masked PII default state
       expect(screen.getAllByText(/\+91 \d{2}\*{4} \*{2}\d{2}/).length).toBeGreaterThan(0);
 
-      // Verify scrollable table container exists and pagination indicator is absent
+      // Verify scrollable table container exists (horizontal scroll for responsiveness) and pagination indicator is absent
       const scrollContainer = screen.getByTestId('customer-table-scroll-container');
       expect(scrollContainer).toBeInTheDocument();
-      expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
+      expect(scrollContainer).toHaveStyle({ overflowX: 'auto' });
       expect(screen.queryByText(/Page 1 of \d+/)).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Previous/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Next page/i })).not.toBeInTheDocument();

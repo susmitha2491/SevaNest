@@ -397,11 +397,10 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                       key={cand.workerId}
                       onClick={() => {
                         setSelectedCandidate(cand);
-                        if (cand.dailyRateEstimate) {
-                          setTrialFee(Math.max(150, Math.round((cand.dailyRateEstimate / 8) * durationHours)));
-                        } else {
-                          setTrialFee(durationHours * 150);
-                        }
+                        const safeDailyRate = typeof cand.dailyRateEstimate === 'number' && Number.isFinite(cand.dailyRateEstimate) && cand.dailyRateEstimate > 0 && cand.dailyRateEstimate <= 10000
+                          ? cand.dailyRateEstimate
+                          : 350;
+                        setTrialFee(Math.min(10000, Math.max(150, Math.round((safeDailyRate / 8) * durationHours))));
                         setActionError(null);
                       }}
                       style={{
@@ -570,11 +569,10 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                       onChange={(e) => {
                         const h = Math.max(1, Math.min(8, Number(e.target.value) || 1));
                         setDurationHours(h);
-                        if (selectedCandidate?.dailyRateEstimate) {
-                          setTrialFee(Math.max(150, Math.round((selectedCandidate.dailyRateEstimate / 8) * h)));
-                        } else {
-                          setTrialFee(h * 150);
-                        }
+                        const safeDailyRate = typeof selectedCandidate?.dailyRateEstimate === 'number' && Number.isFinite(selectedCandidate.dailyRateEstimate) && selectedCandidate.dailyRateEstimate > 0 && selectedCandidate.dailyRateEstimate <= 10000
+                          ? selectedCandidate.dailyRateEstimate
+                          : 350;
+                        setTrialFee(Math.min(10000, Math.max(150, Math.round((safeDailyRate / 8) * h))));
                       }}
                       style={{
                         width: '100%',
@@ -599,7 +597,10 @@ export const CandidateMatchingModal: React.FC<CandidateMatchingModalProps> = ({
                         aria-label="Trial Fee INR"
                         min={0}
                         value={trialFee}
-                        onChange={(e) => setTrialFee(Math.max(0, Number(e.target.value) || 0))}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setTrialFee(Number.isFinite(val) && val >= 0 ? Math.min(50000, Math.round(val)) : 0);
+                        }}
                         style={{
                           width: '100%',
                           padding: 'var(--space-2)',

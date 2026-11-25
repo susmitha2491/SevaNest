@@ -142,8 +142,25 @@ export class ServerFailureError extends DomainError {
 }
 
 export class NetworkError extends DomainError {
-  public readonly code = 'NETWORK_ERROR';
+  public readonly code: string = 'NETWORK_ERROR';
   constructor(message = 'Unable to reach the server. Please check your network connection.', correlationId?: string) {
+    super(message, correlationId);
+  }
+}
+
+export class OfflineError extends NetworkError {
+  public override readonly code = 'OFFLINE_ERROR';
+  constructor(message = 'No internet connection. Please check your network and try again.', correlationId?: string) {
+    super(message, correlationId);
+  }
+}
+
+export class TimeoutError extends DomainError {
+  public readonly code = 'TIMEOUT_ERROR';
+  constructor(
+    message = 'Request timed out. The server took too long to respond. The backend may be waking up or experiencing high load. Please try again.',
+    correlationId?: string
+  ) {
     super(message, correlationId);
   }
 }

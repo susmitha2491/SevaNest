@@ -242,8 +242,8 @@ describe('Workers Management in Verification Executive Sidebar', () => {
     it('highlights Verification as active when navigating to /verification', async () => {
       renderPortal('/verification');
 
-      const verificationLink = screen.getByRole('link', { name: /^Verification$/i });
-      expect(verificationLink).toHaveClass('active');
+      const allAppsLink = screen.getByRole('link', { name: /^All Applications$/i });
+      expect(allAppsLink).toHaveClass('active');
 
       const workersLink = screen.getByRole('link', { name: /^Workers Management$/i });
       expect(workersLink).not.toHaveClass('active');

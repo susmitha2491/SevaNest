@@ -67,10 +67,10 @@ describe('Customer Management Module — PRD Capability Audit & Validation', () 
       expect(screen.getAllByText('Kondapur').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Gachibowli').length).toBeGreaterThan(0);
 
-      // Verify scrollable table container exists
+      // Verify scrollable table container exists (horizontal scroll for responsiveness, natural page vertical scroll)
       const scrollContainer = screen.getByTestId('customer-table-scroll-container');
       expect(scrollContainer).toBeInTheDocument();
-      expect(scrollContainer).toHaveStyle({ overflowY: 'auto' });
+      expect(scrollContainer).toHaveStyle({ overflowX: 'auto' });
 
       // Verify pagination buttons are completely removed
       expect(screen.queryByText(/Page 1 of \d+/)).not.toBeInTheDocument();

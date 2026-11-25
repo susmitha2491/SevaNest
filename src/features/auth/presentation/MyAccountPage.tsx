@@ -1721,6 +1721,95 @@ export const MyAccountPage: React.FC = () => {
           </form>
         </div>
       </div>
+
+      {/* 4. Granted Permissions & Role Security Scope Card */}
+      <div
+        data-testid="account-permissions-scope-card"
+        style={{
+          backgroundColor: 'var(--color-surface)',
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: 'var(--shadow-sm)',
+          border: '1px solid var(--color-border)',
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            padding: 'var(--space-4) var(--space-6)',
+            borderBottom: '1px solid var(--color-border)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: 'var(--color-bg-subtle)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
+            <ShieldCheck size={18} style={{ color: 'var(--color-brand-600)' }} />
+            <h3
+              style={{
+                fontSize: 'var(--font-size-md)',
+                fontWeight: 700,
+                color: 'var(--color-text-primary)',
+                margin: 0,
+              }}
+            >
+              Assigned Permissions Scope ({user.permissions?.length || 0})
+            </h3>
+          </div>
+          <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', fontWeight: 600 }}>
+            Role-Based Access Control
+          </span>
+        </div>
+
+        <div style={{ padding: 'var(--space-6)' }}>
+          <p
+            style={{
+              fontSize: 'var(--font-size-xs)',
+              color: 'var(--color-text-secondary)',
+              marginTop: 0,
+              marginBottom: 'var(--space-4)',
+            }}
+          >
+            Authoritative permissions granted by backend security tokens for the <strong>{getRoleLabel(user.role)}</strong> role:
+          </p>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '6px',
+            }}
+          >
+            {user.permissions && user.permissions.length > 0 ? (
+              Array.from(new Set(user.permissions)).map((perm) => (
+                <div
+                  key={perm}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    fontWeight: 600,
+                    padding: '4px 10px',
+                    borderRadius: 'var(--radius-md)',
+                    backgroundColor: 'var(--color-bg-subtle)',
+                    color: 'var(--color-brand-800)',
+                    border: '1px solid var(--color-border)',
+                  }}
+                >
+                  <ShieldCheck size={12} style={{ color: 'var(--color-brand-600)' }} />
+                  <span>{perm === '*' ? 'Full Platform Super Admin Authority (*)' : perm}</span>
+                </div>
+              ))
+            ) : (
+              <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)' }}>
+                No explicit fine-grained permissions attached.
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

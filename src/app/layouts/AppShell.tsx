@@ -23,12 +23,20 @@ export const AppShell: React.FC = () => {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [globalToast, setGlobalToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const profileMenuRef = useRef<React.ComponentRef<'div'>>(null);
+  const mainViewportRef = useRef<React.ComponentRef<'main'>>(null);
   const user = useAuthStore((state) => state.user);
   const clearSession = useAuthStore((state) => state.clearSession);
   const navigate = useNavigate();
   const location = useLocation();
 
   const accessibleModules = getAccessibleNavigation(user);
+
+  // Reset main content scroll position to top on route navigation
+  useEffect(() => {
+    if (mainViewportRef.current) {
+      mainViewportRef.current.scrollTop = 0;
+    }
+  }, [location.pathname]);
 
   // Expandable sidebar modules state (automatically expanded when viewing module routes)
   const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>(() => ({
@@ -108,7 +116,17 @@ export const AppShell: React.FC = () => {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', backgroundColor: 'var(--color-bg-app)' }}>
+    <div
+      className="app-shell-root"
+      style={{
+        display: 'flex',
+        height: '100vh',
+        maxHeight: '100vh',
+        overflow: 'hidden',
+        backgroundColor: 'var(--color-bg-app)',
+        width: '100%',
+      }}
+    >
       {/* Mobile Drawer Backdrop */}
       <div
         className={`mobile-sidebar-backdrop ${mobileMenuOpen ? 'active' : ''}`}
@@ -126,9 +144,10 @@ export const AppShell: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           transition: 'width var(--transition-normal)',
-          position: 'sticky',
-          top: 0,
-          height: '100vh',
+          height: '100%',
+          maxHeight: '100%',
+          overflow: 'hidden',
+          overscrollBehavior: 'contain',
           zIndex: 40,
           flexShrink: 0,
         }}
@@ -216,12 +235,14 @@ export const AppShell: React.FC = () => {
         {/* Nav Sections */}
         <div
           className="sidebar-nav-scroll"
+          data-testid="sidebar-nav-scroll"
           style={{
             flex: 1,
             minHeight: 0,
             overflowY: 'auto',
-            padding: 'var(--space-2) 0',
-            scrollbarWidth: 'none',
+            overflowX: 'hidden',
+            overscrollBehavior: 'contain',
+            padding: 'var(--space-2) 0 var(--space-4) 0',
           }}
         >
           <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: sidebarOpen ? '0 var(--space-2)' : '0 4px' }}>
@@ -510,7 +531,19 @@ export const AppShell: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div
+        className="app-main-column"
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+          height: '100%',
+          maxHeight: '100%',
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
         {/* Top Header Bar */}
         <header
           style={{
@@ -522,11 +555,10 @@ export const AppShell: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: 'var(--space-2) var(--space-4)',
-            position: 'sticky',
-            top: 0,
             zIndex: 45,
             flexWrap: 'wrap',
             gap: '8px',
+            flexShrink: 0,
           }}
         >
           {/* Mobile Navigation Trigger & Brand */}
@@ -724,7 +756,20 @@ export const AppShell: React.FC = () => {
         )}
 
         {/* Main Viewport Content */}
-        <main style={{ flex: 1, padding: 'var(--space-3) var(--space-4)', minWidth: 0, backgroundColor: 'var(--color-bg-app)', overflowX: 'auto' }}>
+        <main
+          ref={mainViewportRef}
+          className="app-main-viewport"
+          data-testid="app-main-viewport"
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto',
+            overflowX: 'auto',
+            overscrollBehavior: 'contain',
+            padding: 'var(--space-3) var(--space-4)',
+            backgroundColor: 'var(--color-bg-app)',
+          }}
+        >
           <Outlet />
         </main>
         <SessionInactivityGuard />

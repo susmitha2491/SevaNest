@@ -147,9 +147,37 @@ export const PaymentsListPage: React.FC = () => {
       setSelectedTxn(verifiedTxn);
       queryClient.invalidateQueries({ queryKey: ['payments'] });
     } catch (err: unknown) {
-      const errorMsg = `Failed to verify payment status: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      let isVerifiedPending = false;
+      let errorMsg = `Failed to verify payment status: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      let feedbackType: 'error' | 'info' = 'error';
+
+      try {
+        const current = await paymentRepository.getTransactionById(txn.id);
+        if (current) {
+          if (current.status === 'REFUND_PENDING' || current.refundStatus === 'REFUND_PENDING') {
+            isVerifiedPending = true;
+            errorMsg = `Payment gateway is temporarily unavailable. Authoritative backend status verified: Refund Pending (awaiting settlement).`;
+            feedbackType = 'info';
+            setSelectedTxn(current);
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+          } else if (current.status === 'REFUNDED' || current.refundStatus === 'REFUNDED') {
+            isVerifiedPending = true;
+            errorMsg = `Payment status confirmed: Successfully settled as REFUNDED.`;
+            feedbackType = 'info';
+            setSelectedTxn(current);
+            queryClient.invalidateQueries({ queryKey: ['payments'] });
+          }
+        }
+      } catch {
+        // Fallback to error message
+      }
+
+      if (!isVerifiedPending && err instanceof Error) {
+        errorMsg = `Failed to verify payment status: ${err.message}`;
+      }
+
       setActionFeedback(errorMsg);
-      setModalFeedback({ type: 'error', message: errorMsg });
+      setModalFeedback({ type: feedbackType, message: errorMsg });
     } finally {
       setIsVerifying(false);
       setTimeout(() => setActionFeedback(null), 5000);
@@ -191,6 +219,7 @@ export const PaymentsListPage: React.FC = () => {
       const errorMsg = `Failed to process refund: ${err instanceof Error ? err.message : 'Unknown error'}`;
       setActionFeedback(errorMsg);
       setModalFeedback({ type: 'error', message: errorMsg });
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
       throw err;
     } finally {
       setIsProcessingRefund(false);
@@ -772,7 +801,11 @@ export const PaymentsListPage: React.FC = () => {
                   </thead>
                   <tbody>
                     {paymentsData.items.map((txn) => {
-                      const isRefunded = txn.status === 'REFUNDED' || txn.status === 'REFUND_PENDING';
+                      const isRefunded =
+                        txn.status === 'REFUNDED' ||
+                        txn.status === 'REFUND_PENDING' ||
+                        txn.refundStatus === 'REFUNDED' ||
+                        txn.refundStatus === 'REFUND_PENDING';
                       return (
                         <tr
                           key={txn.id}
@@ -862,6 +895,32 @@ export const PaymentsListPage: React.FC = () => {
                                 <Eye size={12} />
                                 <span>View</span>
                               </button>
+
+                              {/* Reconcile Action for pending refunds */}
+                              {canRefund && (txn.status === 'REFUND_PENDING' || txn.refundStatus === 'REFUND_PENDING') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleVerifyPaymentStatus(txn)}
+                                  disabled={isVerifying}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: 'var(--radius-sm)',
+                                    border: '1px solid #fde68a',
+                                    backgroundColor: '#fffbeb',
+                                    color: '#92400e',
+                                    cursor: isVerifying ? 'not-allowed' : 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 700,
+                                  }}
+                                  title="Reconcile refund status with payment gateway"
+                                >
+                                  <RefreshCw size={12} className={isVerifying ? 'animate-spin' : ''} />
+                                  <span>Reconcile</span>
+                                </button>
+                              )}
 
                               {/* Direct Refund Action for Super Admin with permission */}
                               {canRefund && (txn.status === 'PAID' || txn.status === 'SUCCEEDED') && !isRefunded && (

@@ -22,6 +22,7 @@ import { HorizontalBarChart } from './analytics/charts/HorizontalBarChart';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
+import { clearWorkerEnrichmentCache } from '../../verification/data/verificationRepository';
 
 export const VerificationExecutiveDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -39,6 +40,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
   });
 
   const handleRefresh = async () => {
+    clearWorkerEnrichmentCache();
     await Promise.all([
       refetch(),
       queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
@@ -132,17 +134,6 @@ export const VerificationExecutiveDashboard: React.FC = () => {
       isOverdue: false,
       slaFlags: [],
     })),
-    ...(data.queues.REJECTED || []).map((q) => ({
-      id: q.id,
-      workerId: q.workerId,
-      applicationId: q.id,
-      applicantName: q.workerName,
-      serviceCategory: q.category,
-      submissionDate: q.submissionTime,
-      status: q.status,
-      isOverdue: false,
-      slaFlags: [],
-    })),
     ...(data.queues.RECHECK_DUE || []).map((q) => ({
       id: q.id,
       workerId: q.workerId,
@@ -154,7 +145,11 @@ export const VerificationExecutiveDashboard: React.FC = () => {
       isOverdue: false,
       slaFlags: [],
     })),
-  ];
+  ].sort((a, b) => {
+    const aTime = a.submissionDate ? new Date(a.submissionDate).getTime() : 0;
+    const bTime = b.submissionDate ? new Date(b.submissionDate).getTime() : 0;
+    return bTime - aTime;
+  });
 
   const slaOverview = data.slaOverview || {
     withinSla: Math.max(0, overview.pendingApplications - (data.kpis.overdueReviews ?? 0)),
@@ -477,7 +472,7 @@ export const VerificationExecutiveDashboard: React.FC = () => {
               Recent Applications Requiring Attention
             </h2>
             <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-              Non-approved applications prioritized oldest-first for SLA compliance
+              Actionable applications prioritized by SLA urgency and submission recency
             </p>
           </div>
           <span

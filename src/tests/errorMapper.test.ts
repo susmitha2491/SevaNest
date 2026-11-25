@@ -9,6 +9,8 @@ import {
   ValidationError,
   RateLimitExceededError,
   ServerFailureError,
+  TimeoutError,
+  NetworkError,
 } from '../core/errors/DomainError';
 
 function createMockAxiosError(status: number, data: Record<string, unknown>, headers: Record<string, string> = {}) {
@@ -103,5 +105,32 @@ describe('HTTP-to-Domain Error Mapper', () => {
     const domainError = mapHttpErrorToDomainError(error);
     expect(domainError).toBeInstanceOf(ServerFailureError);
     expect(domainError.code).toBe('SERVER_FAILURE');
+  });
+
+  it('maps ECONNABORTED timeout without response to TimeoutError with user-friendly message', () => {
+    const error = new AxiosError(
+      'timeout of 15000ms exceeded',
+      'ECONNABORTED',
+      undefined,
+      undefined,
+      undefined
+    );
+    const domainError = mapHttpErrorToDomainError(error);
+    expect(domainError).toBeInstanceOf(TimeoutError);
+    expect(domainError.code).toBe('TIMEOUT_ERROR');
+    expect(domainError.message).toContain('Request timed out. The server took too long to respond.');
+  });
+
+  it('maps generic network errors without response to NetworkError', () => {
+    const error = new AxiosError(
+      'Network Error',
+      'ERR_NETWORK',
+      undefined,
+      undefined,
+      undefined
+    );
+    const domainError = mapHttpErrorToDomainError(error);
+    expect(domainError).toBeInstanceOf(NetworkError);
+    expect(domainError.code).toBe('NETWORK_ERROR');
   });
 });

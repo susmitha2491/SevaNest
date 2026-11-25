@@ -9,6 +9,8 @@ import {
   RateLimitExceededError,
   ServerFailureError,
   NetworkError,
+  TimeoutError,
+  OfflineError,
 } from './DomainError';
 
 interface ApiErrorPayload {
@@ -59,8 +61,26 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
       readHeaderValue(headers, 'cf-mitigated')?.toLowerCase() === 'challenge' ||
       (typeof payload === 'string' && /<title>Just a moment\.\.\.<\/title>|challenges\.cloudflare\.com/i.test(payload));
 
-    // Network / CORS connectivity failure
+    // Network / CORS connectivity failure or Client-side Timeout
     if (!axiosError.response) {
+      const isTimeout =
+        axiosError.code === 'ECONNABORTED' ||
+        (typeof axiosError.message === 'string' && axiosError.message.toLowerCase().includes('timeout'));
+
+      if (isTimeout) {
+        return new TimeoutError(
+          'Request timed out. The server took too long to respond. The backend may be waking up or experiencing high load. Please try again.',
+          correlationId
+        );
+      }
+
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        return new OfflineError(
+          'No internet connection. Please check your network and try again.',
+          correlationId
+        );
+      }
+
       const isCorsOrNetwork = axiosError.code === 'ERR_NETWORK' || axiosError.message?.toLowerCase().includes('network');
       const networkMsg = isCorsOrNetwork
         ? 'Unable to connect to SevaNest Backend API. Please check your network connection or CORS configuration.'
@@ -211,7 +231,7 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
           retrySec && retrySec > 0 && !/retry (available )?in \d+/i.test(baseMessage)
             ? `${baseMessage} Try again in ${retrySec}s.`
             : baseMessage;
-        return new RateLimitExceededError(fullMessage, correlationId, payload?.code);
+        return new RateLimitExceededError(fullMessage, correlationId, payload?.code || 'RATE_LIMIT_EXCEEDED');
       }
       case 500:
       case 502:
@@ -232,23 +252,25 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
             payload.code
           );
         }
-        if (
-          !serverMessage &&
-          status === 503 &&
-          readHeaderValue(headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error'
-        ) {
-          return new ServerFailureError(
-            'Authentication backend is waking up on Render (HTTP 503). Please retry in a few seconds.',
-            correlationId,
-            'BACKEND_WAKING_UP'
-          );
-        }
-        if (!serverMessage && (status === 502 || status === 503 || status === 504)) {
-          return new ServerFailureError(
-            `Authentication service is temporarily unavailable (HTTP ${status}). Please try again in a few moments.`,
-            correlationId,
-            `HTTP_${status}`
-          );
+        {
+          const isHibernateError = readHeaderValue(headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error';
+          if (status === 502 || status === 503 || status === 504) {
+            if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+              return new OfflineError(
+                'No internet connection. Please check your network and try again.',
+                correlationId
+              );
+            }
+
+            const defaultMsg = isHibernateError
+              ? 'Authentication backend is waking up on Render (HTTP 503). Please retry in a few seconds.'
+              : `Authentication service is temporarily unavailable (HTTP ${status}). Please try again in a few moments.`;
+            return new ServerFailureError(
+              serverMessage || defaultMsg,
+              correlationId,
+              isHibernateError ? 'BACKEND_WAKING_UP' : (payload?.code || `HTTP_${status}`)
+            );
+          }
         }
         return new ServerFailureError(serverMessage || 'Internal server error occurred.', correlationId, payload?.code);
     }

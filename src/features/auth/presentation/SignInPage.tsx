@@ -9,15 +9,15 @@ import { authRepository, invalidateSessionOnServer } from '../data/authRepositor
 import { useAuthStore } from '../../../core/auth/authStore';
 import { queryClient } from '../../../core/api/queryClient';
 import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
-import { DomainError, UnauthorizedError, RateLimitExceededError } from '../../../core/errors/DomainError';
+import { DomainError, UnauthorizedError, RateLimitExceededError, OfflineError } from '../../../core/errors/DomainError';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
-import { isQuickLoginEnabled } from '../../../core/config/env';
+import { isQuickLoginEnabled, env } from '../../../core/config/env';
 import { QuickLoginSection } from './QuickLoginSection';
 import { QuickLoginRole } from './quickLoginRoles';
 
 const signInSchema = z.object({
-  email: z.string().email('Please enter a valid administrative email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+    email: z.string().email('Please enter a valid administrative email address'),
+    password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 type SignInFormValues = z.infer<typeof signInSchema>;
@@ -44,22 +44,72 @@ export const SignInPage: React.FC = () => {
     return () => clearInterval(timer);
   }, [retryCooldown]);
 
-  // Pre-warm the backend on Render when user visits the sign-in page
+  // Pre-warm the backend on Render when user visits the sign-in page (online only)
   useEffect(() => {
-    fetch('/api/v1/app-config', { method: 'GET', cache: 'no-store' }).catch(() => {});
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    const controller = typeof window !== 'undefined' && window.AbortController
+      ? new window.AbortController()
+      : null;
+    const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
+    const probeUrl = `${(env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')}/app-config`;
+    fetch(probeUrl, { method: 'GET', cache: 'no-store', signal: controller?.signal }).catch(() => {});
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (controller) controller.abort();
+    };
   }, []);
 
-  // Listen for backend waking-up progress events during authentication
+  // Listen for browser online / offline connectivity changes
+  useEffect(() => {
+    const handleOffline = () => {
+      setWakeUpStatus(null);
+      setIsSubmitting(false);
+      setAuthError('No internet connection. Please check your network and try again.');
+      setIsRetryableError(true);
+    };
+
+    const handleOnline = () => {
+      setAuthError((prev) => {
+        if (prev && prev.includes('No internet connection')) {
+          return null;
+        }
+        return prev;
+      });
+      setIsRetryableError(false);
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      handleOffline();
+    }
+
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
+
+  // Listen for backend waking-up progress and wake-up stopped events
   useEffect(() => {
     const handleWakingUp: Parameters<typeof window.addEventListener>[1] = (e) => {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        setWakeUpStatus(null);
+        return;
+      }
       const detail = (e as { detail?: { attempt: number; maxRetries: number } })?.detail;
       if (detail) {
         setWakeUpStatus(detail);
       }
     };
+    const handleWakingUpStopped = () => {
+      setWakeUpStatus(null);
+    };
     window.addEventListener('backend-waking-up', handleWakingUp);
+    window.addEventListener('backend-waking-up-stopped', handleWakingUpStopped);
     return () => {
       window.removeEventListener('backend-waking-up', handleWakingUp);
+      window.removeEventListener('backend-waking-up-stopped', handleWakingUpStopped);
     };
   }, []);
 
@@ -81,51 +131,61 @@ export const SignInPage: React.FC = () => {
     }
   }, []);
 
-  // When Sign-In page is accessed (e.g. browser Back button from dashboard):
-  // Authoritatively invalidate any existing session on backend and frontend,
-  // clear query caches, and enforce fresh authentication.
-  useEffect(() => {
-    const hasActiveSession = useAuthStore.getState().isAuthenticated || Boolean(getStoredRefreshToken());
-    if (hasActiveSession) {
-      invalidateSessionOnServer().finally(() => {
-        useAuthStore.getState().clearSession(true);
-      });
-      useAuthStore.getState().clearSession(false);
-      try {
-        queryClient.cancelQueries();
-        queryClient.clear();
-      } catch {
-        // Ignore
-      }
-    }
-  }, []);
 
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    formState: { errors },
-  } = useForm<SignInFormValues>({
-    resolver: zodResolver(signInSchema),
-    defaultValues: {
-      email: '',
-      password: '',
-    },
-  });
+    // When Sign-In page is accessed (e.g. browser Back button from dashboard):
+    // Authoritatively invalidate any existing session on backend and frontend,
+    // clear query caches, and enforce fresh authentication.
+    useEffect(() => {
+        const hasActiveSession = useAuthStore.getState().isAuthenticated || Boolean(getStoredRefreshToken());
+        if (hasActiveSession) {
+            invalidateSessionOnServer().finally(() => {
+                useAuthStore.getState().clearSession(true);
+            });
+            useAuthStore.getState().clearSession(false);
+            try {
+                queryClient.cancelQueries();
+                queryClient.clear();
+            } catch {
+                // Ignore
+            }
+        }
+    }, []);
 
-  const handleSelectRole = (role: QuickLoginRole) => {
-    // Populate form fields with role email and credentials without auto-submitting
-    setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
-    setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
-    setAuthError(null);
-    setAuthCorrelationId(null);
-    setIsRetryableError(false);
-    setRetryCooldown(0);
-    setSelectedRoleId(role.id);
-  };
+    const {
+        register,
+        handleSubmit,
+        setValue,
+        formState: { errors },
+    } = useForm<SignInFormValues>({
+        resolver: zodResolver(signInSchema),
+        defaultValues: {
+            email: '',
+            password: '',
+        },
+    });
+
+    const handleSelectRole = (role: QuickLoginRole) => {
+      // Populate form fields with role email and credentials without auto-submitting
+      setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
+      setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
+      setAuthError(null);
+      setAuthCorrelationId(null);
+      setIsRetryableError(false);
+      setRetryCooldown(0);
+      setSelectedRoleId(role.id);
+    };
 
   const onSubmit = async (values: SignInFormValues) => {
     if (isSubmitting || retryCooldown > 0) return;
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setWakeUpStatus(null);
+      setAuthError('No internet connection. Please check your network and try again.');
+      setIsRetryableError(true);
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setWakeUpStatus(null);
@@ -142,6 +202,35 @@ export const SignInPage: React.FC = () => {
       const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
       setAuthError(errorMessage);
       setAuthCorrelationId(err instanceof DomainError && err.correlationId ? err.correlationId : null);
+
+      const isOfflineError =
+        err instanceof OfflineError ||
+        (err instanceof DomainError && err.code === 'OFFLINE_ERROR') ||
+        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
+        errorMessage.toLowerCase().includes('no internet connection');
+
+      if (isOfflineError) {
+        setWakeUpStatus(null);
+        setIsRetryableError(true);
+        setRetryCooldown(0);
+        return;
+      }
+
+      const isRateLimitOrChallenge =
+        err instanceof RateLimitExceededError ||
+        (err instanceof DomainError && err.code === 'RATE_LIMIT_EXCEEDED') ||
+        errorMessage.toLowerCase().includes('cloudflare') ||
+        errorMessage.toLowerCase().includes('challenge') ||
+        errorMessage.toLowerCase().includes('rate limit') ||
+        errorMessage.toLowerCase().includes('too many requests');
+
+      if (isRateLimitOrChallenge) {
+        setWakeUpStatus(null);
+        setIsRetryableError(true);
+        setRetryCooldown(10);
+        return;
+      }
+
       // Security: Clear password input ONLY on invalid credentials, NOT on server/network/waking errors
       const isCredentialError =
         err instanceof UnauthorizedError ||
@@ -153,16 +242,7 @@ export const SignInPage: React.FC = () => {
         setRetryCooldown(0);
       } else {
         setIsRetryableError(true);
-        const isRateLimitOrChallenge =
-          err instanceof RateLimitExceededError ||
-          errorMessage.toLowerCase().includes('cloudflare') ||
-          errorMessage.toLowerCase().includes('challenge') ||
-          errorMessage.toLowerCase().includes('rate limit');
-        if (isRateLimitOrChallenge) {
-          setRetryCooldown(5);
-        } else {
-          setRetryCooldown(0);
-        }
+        setRetryCooldown(0);
       }
     } finally {
       setIsSubmitting(false);
@@ -181,7 +261,7 @@ export const SignInPage: React.FC = () => {
         </p>
       </div>
 
-      {wakeUpStatus && (
+      {wakeUpStatus && !authError && (
         <div
           style={{
             display: 'flex',
@@ -232,7 +312,7 @@ export const SignInPage: React.FC = () => {
               {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
             </span>
           </div>
-          {(isRetryableError || authError.includes('waking up on Render') || authError.includes('temporarily unavailable') || authError.toLowerCase().includes('cloudflare') || authError.toLowerCase().includes('challenge') || authError.toLowerCase().includes('rate limit')) && (
+          {(isRetryableError || authError.includes('No internet connection') || authError.includes('waking up on Render') || authError.includes('temporarily unavailable') || authError.toLowerCase().includes('cloudflare') || authError.toLowerCase().includes('challenge') || authError.toLowerCase().includes('rate limit')) && (
             <button
               type="button"
               onClick={handleSubmit(onSubmit)}
@@ -386,32 +466,13 @@ export const SignInPage: React.FC = () => {
         </button>
       </form>
 
-      {/* 2. Quick Login Section below the Sign In form */}
-      {showQuickLogin && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', margin: '4px 0' }}>
-          <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border)' }} />
-          <span
-            style={{
-              fontSize: '11px',
-              color: 'var(--color-text-muted)',
-              fontWeight: 600,
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}
-          >
-            or quick login
-          </span>
-          <div style={{ flex: 1, height: '1px', backgroundColor: 'var(--color-border)' }} />
+            {showQuickLogin && (
+                <QuickLoginSection
+                    selectedRoleId={selectedRoleId}
+                    onSelectRole={handleSelectRole}
+                    disabled={isSubmitting}
+                />
+            )}
         </div>
-      )}
-
-      {showQuickLogin && (
-        <QuickLoginSection
-          selectedRoleId={selectedRoleId}
-          onSelectRole={handleSelectRole}
-          disabled={isSubmitting}
-        />
-      )}
-    </div>
-  );
+    );
 };

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, AlertTriangle, ShieldCheck, RefreshCw, RotateCcw } from 'lucide-react';
 import { PaymentTransaction, RefundDto } from '../domain/types';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
@@ -23,10 +23,22 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
   const [hasConfirmedApproval, setHasConfirmedApproval] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Prepopulate reason if transaction already has an audited justification
+  useEffect(() => {
+    if (transaction) {
+      setReason(transaction.refund?.refundReason || '');
+      setHasConfirmedApproval(false);
+      setError(null);
+    }
+  }, [transaction, isOpen]);
+
   // Global reference-counted modal scroll lock
   useBodyScrollLock(isOpen && Boolean(transaction));
 
   if (!isOpen || !transaction) return null;
+
+  const isPendingRetry =
+    transaction.status === 'REFUND_PENDING' || transaction.refundStatus === 'REFUND_PENDING';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,14 +109,24 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
           style={{
             padding: 'var(--space-4) var(--space-6)',
             borderBottom: '1px solid var(--color-border)',
-            backgroundColor: '#fff1f2', // Soft red warning
+            backgroundColor: isPendingRetry ? '#fffbeb' : '#fff1f2',
           }}
         >
           <div className="modal-header-content" style={{ flexDirection: 'row', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <AlertTriangle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
+            {isPendingRetry ? (
+              <RotateCcw size={20} color="#b45309" style={{ flexShrink: 0 }} />
+            ) : (
+              <AlertTriangle size={20} color="#e11d48" style={{ flexShrink: 0 }} />
+            )}
             <h2
               id="refund-modal-title"
-              style={{ fontSize: 'var(--font-size-md)', fontWeight: 800, color: '#9f1239', margin: 0, wordBreak: 'break-word' }}
+              style={{
+                fontSize: 'var(--font-size-md)',
+                fontWeight: 800,
+                color: isPendingRetry ? '#92400e' : '#9f1239',
+                margin: 0,
+                wordBreak: 'break-word',
+              }}
             >
               Approve & Initiate Full Refund
             </h2>
@@ -168,6 +190,28 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
               </strong>
             </div>
           </div>
+
+          {/* Previously Recorded Justification if present (Requirement 2 Part 3) */}
+          {transaction.refund?.refundReason && (
+            <div
+              style={{
+                padding: 'var(--space-2) var(--space-3)',
+                backgroundColor: '#fefce8',
+                border: '1px solid #fef08a',
+                borderRadius: 'var(--radius-md)',
+                fontSize: '11px',
+                color: '#854d0e',
+                lineHeight: 1.4,
+              }}
+            >
+              <strong>Previously Recorded Justification:</strong> {transaction.refund.refundReason}
+              {transaction.refund.refundedByUserId && (
+                <div style={{ marginTop: '2px', color: '#a16207' }}>
+                  Recorded by: {transaction.refund.refundedByUserId}
+                </div>
+              )}
+            </div>
+          )}
 
           <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: 0, lineHeight: 1.5 }}>
             In accordance with platform & backend governance, issuing a full refund is an audited administrative action.
@@ -292,4 +336,3 @@ export const RefundProcessingModal: React.FC<RefundProcessingModalProps> = ({
     </div>
   );
 };
-

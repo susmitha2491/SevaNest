@@ -255,4 +255,98 @@ describe('Worker Application Reject Action Workflow', () => {
     expect(screen.queryByRole('button', { name: /Approve Verification Worker/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId('reject-application-btn')).not.toBeInTheDocument();
   });
+
+  it('prevents contradictory state: does NOT display criteria satisfied banner or signoff callout when application is rejected', async () => {
+    const rejectedDossier: VerificationDossier = {
+      ...mockDossierApprovedChecks,
+      status: 'REJECTED',
+      applicationStatus: 'REJECTED',
+      level: 'NOT_STARTED',
+    };
+
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(
+      JSON.parse(JSON.stringify(rejectedDossier))
+    );
+
+    const user = userEvent.setup();
+    renderModal({ dossierId: 'W-TEST-REJECT-01', initialDossier: rejectedDossier });
+
+    await screen.findByRole('dialog');
+
+    // Header displays Application Status and KYC Level distinctly
+    expect(screen.getByText(/App Status:/i)).toBeInTheDocument();
+    expect(screen.getByText(/KYC Level:/i)).toBeInTheDocument();
+
+    // Contradictory criteria satisfied banner MUST NOT be present
+    expect(screen.queryByText(/Verification Criteria Satisfied/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Authoritative Status: VERIFIED/i)).not.toBeInTheDocument();
+
+    // Rejection banner is present
+    expect(screen.getByTestId('application-rejected-header-banner')).toBeInTheDocument();
+
+    // Navigate to Step 5
+    await user.click(screen.getByTestId('step-bubble-5'));
+    expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+
+    // Rejection alert card is present in Step 5
+    expect(screen.getByTestId('application-rejected-step5-card')).toBeInTheDocument();
+
+    // RBAC signoff permission restriction notice is NOT present because application is rejected
+    expect(screen.queryByText(/Permission Restricted: You do not have the required permission/i)).not.toBeInTheDocument();
+  });
+
+  it('handles Action Required state (Angel scenario): rejected KYC check prevents criteria satisfied banner and blocks approval', async () => {
+    const actionRequiredDossier: VerificationDossier = {
+      ...mockDossierApprovedChecks,
+      status: 'PENDING_REVIEW',
+      applicationStatus: 'ACTION_REQUIRED',
+      level: 'IN_PROGRESS',
+      requiredChecks: ['IDENTITY'],
+      checks: {
+        ...mockDossierApprovedChecks.checks,
+        IDENTITY: {
+          id: 'chk-id-01',
+          type: 'IDENTITY',
+          title: 'Identity Proof',
+          status: 'REJECTED',
+          required: true,
+          rejectionCode: 'BLURRY_IMAGE',
+          evaluationMethod: 'DOCUMENT_INSPECTION',
+        },
+      } as unknown as Record<string, VerificationCheck>,
+    };
+
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(
+      JSON.parse(JSON.stringify(actionRequiredDossier))
+    );
+
+    const user = userEvent.setup();
+    renderModal({ dossierId: 'W-TEST-REJECT-01', initialDossier: actionRequiredDossier });
+
+    await screen.findByRole('dialog');
+
+    // Header displays Application: Action required and KYC Level: In progress
+    expect(screen.getByText(/App Status:/i)).toBeInTheDocument();
+    expect(screen.getByText(/KYC Level:/i)).toBeInTheDocument();
+
+    // Action Required banner is displayed
+    expect(screen.getByTestId('application-action-required-header-banner')).toBeInTheDocument();
+
+    // Contradictory criteria satisfied banner MUST NOT be present
+    expect(screen.queryByText(/Verification Criteria Satisfied/i)).not.toBeInTheDocument();
+
+    // Navigate to Step 5
+    await user.click(screen.getByTestId('step-bubble-5'));
+    expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+
+    // Action Required alert card is present in Step 5
+    expect(screen.getByTestId('application-action-required-step5-card')).toBeInTheDocument();
+
+    // Prerequisite item displays Rejected (Candidate Action Required)
+    expect(screen.getByText(/Identity Proof Rejected \(Candidate Action Required\)/i)).toBeInTheDocument();
+
+    // Approve Verification Worker button is disabled
+    const approveBtn = screen.getByRole('button', { name: /Approve Verification Worker/i });
+    expect(approveBtn).toBeDisabled();
+  });
 });

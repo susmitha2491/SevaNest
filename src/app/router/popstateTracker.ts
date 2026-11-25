@@ -85,7 +85,8 @@ if (typeof window !== 'undefined') {
 
     // If browser Back navigates into the sign-in page from an authenticated session:
     if (isAuthPage && hasActiveSession) {
-      invalidateSessionOnServer().finally(() => {
+      const currentToken = useAuthStore.getState().accessToken;
+      invalidateSessionOnServer(currentToken ?? undefined).finally(() => {
         useAuthStore.getState().clearSession(true);
       });
       useAuthStore.getState().clearSession(false);

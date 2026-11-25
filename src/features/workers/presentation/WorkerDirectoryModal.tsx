@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -35,8 +35,12 @@ interface WorkerDirectoryModalProps {
 
 export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ workerId, onClose }) => {
   const navigate = useNavigate();
-  const [, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'details' | 'work' | 'documents'>('details');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState<'details' | 'work' | 'documents'>(() => {
+    const tab = searchParams.get('workerTab');
+    if (tab === 'work' || tab === 'documents') return tab;
+    return 'details';
+  });
   const [inspectingDoc, setInspectingDoc] = useState<{
     id: string;
     title: string;
@@ -99,59 +103,107 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
     verifiedAt?: string;
     checkType: VerificationCheckType;
     url?: string;
-  }> = [];
+  }> = useMemo(() => {
+    const list: Array<{
+      id: string;
+      documentType: string;
+      documentTypeName: string;
+      docNumberMasked?: string;
+      status: string;
+      submittedAt?: string;
+      verifiedAt?: string;
+      checkType: VerificationCheckType;
+      url?: string;
+    }> = [];
+    const seenDocIds = new Set<string>();
 
-  const seenDocIds = new Set<string>();
+    if (worker?.documents && Array.isArray(worker.documents)) {
+      worker.documents.forEach((doc: WorkerDocumentMetadata) => {
+        const docId = doc.documentId || doc.id;
+        if (docId && !seenDocIds.has(docId)) {
+          seenDocIds.add(docId);
+          let checkType: VerificationCheckType = 'IDENTITY';
+          const typeStr = String(doc.documentType || '').toUpperCase();
+          if (typeStr.includes('ADDR')) checkType = 'ADDRESS';
+          else if (typeStr.includes('POLICE')) checkType = 'POLICE_VERIFICATION';
+          else if (typeStr.includes('REF') || typeStr.includes('EXP')) checkType = 'REFERENCE';
+          else if (typeStr.includes('EMERG')) checkType = 'EMERGENCY_CONTACT';
 
-  if (worker?.documents && Array.isArray(worker.documents)) {
-    worker.documents.forEach((doc: WorkerDocumentMetadata) => {
-      const docId = doc.documentId || doc.id;
-      if (docId && !seenDocIds.has(docId)) {
-        seenDocIds.add(docId);
-        let checkType: VerificationCheckType = 'IDENTITY';
-        const typeStr = String(doc.documentType || '').toUpperCase();
-        if (typeStr.includes('ADDR')) checkType = 'ADDRESS';
-        else if (typeStr.includes('POLICE')) checkType = 'POLICE_VERIFICATION';
-        else if (typeStr.includes('REF') || typeStr.includes('EXP')) checkType = 'REFERENCE';
-        else if (typeStr.includes('EMERG')) checkType = 'EMERGENCY_CONTACT';
+          list.push({
+            id: docId,
+            documentType: doc.documentType,
+            documentTypeName: doc.documentTypeName || doc.documentType || 'Verification Document',
+            docNumberMasked: doc.docNumberMasked,
+            status: doc.status || 'VERIFIED',
+            submittedAt: doc.submittedAt,
+            verifiedAt: doc.verifiedAt,
+            checkType,
+            url: doc.signedUrl || (doc as unknown as { url?: string }).url,
+          });
+        }
+      });
+    }
 
-        documents.push({
-          id: docId,
-          documentType: doc.documentType,
-          documentTypeName: doc.documentTypeName || doc.documentType || 'Verification Document',
-          docNumberMasked: doc.docNumberMasked,
-          status: doc.status || 'VERIFIED',
-          submittedAt: doc.submittedAt,
-          verifiedAt: doc.verifiedAt,
-          checkType,
-          url: doc.signedUrl || (doc as unknown as { url?: string }).url,
+    if (dossier?.checks) {
+      Object.entries(dossier.checks).forEach(([cType, check]) => {
+        if (check && Array.isArray(check.documents)) {
+          check.documents.forEach((d) => {
+            const docId = d.documentId || d.id;
+            if (docId && !seenDocIds.has(docId)) {
+              seenDocIds.add(docId);
+              list.push({
+                id: docId,
+                documentType: cType,
+                documentTypeName: d.documentTypeName || check.title || 'Verification Document',
+                docNumberMasked: d.docNumberMasked,
+                status: check.status || 'VERIFIED',
+                submittedAt: d.submittedAt || d.createdAt,
+                checkType: cType as VerificationCheckType,
+                url: (d as { signedUrl?: string; url?: string; fileUrl?: string }).signedUrl || (d as { url?: string }).url || (d as { fileUrl?: string }).fileUrl,
+              });
+            }
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [worker?.documents, dossier?.checks]);
+
+  // Synchronize tabs and document inspection state with searchParams (BUG-004)
+  useEffect(() => {
+    const tab = searchParams.get('workerTab');
+    if (tab === 'details' || tab === 'work' || tab === 'documents') {
+      setActiveTab(tab);
+    }
+    const docId = searchParams.get('docId');
+    if (!docId) {
+      setInspectingDoc(null);
+    } else if (!inspectingDoc || inspectingDoc.id !== docId) {
+      const targetDoc = documents.find((d) => d.id === docId);
+      if (targetDoc) {
+        setInspectingDoc({
+          id: targetDoc.id,
+          title: targetDoc.documentTypeName,
+          checkType: targetDoc.checkType,
+          url: targetDoc.url,
         });
       }
-    });
-  }
+    }
+  }, [searchParams, documents, inspectingDoc]);
 
-  if (dossier?.checks) {
-    Object.entries(dossier.checks).forEach(([cType, check]) => {
-      if (check && Array.isArray(check.documents)) {
-        check.documents.forEach((d) => {
-          const docId = d.documentId || d.id;
-          if (docId && !seenDocIds.has(docId)) {
-            seenDocIds.add(docId);
-            documents.push({
-              id: docId,
-              documentType: cType,
-              documentTypeName: d.documentTypeName || check.title || 'Verification Document',
-              docNumberMasked: d.docNumberMasked,
-              status: check.status || 'VERIFIED',
-              submittedAt: d.submittedAt || d.createdAt,
-              checkType: cType as VerificationCheckType,
-              url: (d as { signedUrl?: string; url?: string; fileUrl?: string }).signedUrl || (d as { url?: string }).url || (d as { fileUrl?: string }).fileUrl,
-            });
-          }
-        });
-      }
-    });
-  }
+  const handleTabChange = (newTab: 'details' | 'work' | 'documents') => {
+    setActiveTab(newTab);
+    if (newTab !== 'documents') {
+      setInspectingDoc(null);
+    }
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      next.set('workerTab', newTab);
+      if (newTab !== 'documents') next.delete('docId');
+      return next;
+    }, { replace: true });
+  };
 
   // Handle document inspection click
   const handleInspectDoc = (doc: { id: string; documentTypeName: string; checkType: VerificationCheckType; url?: string }) => {
@@ -180,7 +232,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
     });
   };
 
-  const docUrl = docLinkData?.signedUrl || docLinkData?.url;
+  const docUrl = docLinkData?.signedUrl || docLinkData?.url || inspectingDoc?.url;
   const isImage = docUrl && /\.(jpg|jpeg|png|webp|gif)($|\?)/i.test(docUrl);
   const isPdf = docUrl && /\.pdf($|\?)/i.test(docUrl);
 
@@ -289,7 +341,8 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
                 type="button"
                 onClick={() => {
                   onClose();
-                  navigate(`/verification?workerId=${encodeURIComponent(workerId)}`);
+                  const currentPath = window.location.pathname;
+                  navigate(`/verification?workerId=${encodeURIComponent(workerId)}&returnTo=${encodeURIComponent(`${currentPath}?workerId=${workerId}&workerTab=${activeTab}`)}`);
                 }}
                 style={{
                   display: 'inline-flex',
@@ -338,10 +391,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
             type="button"
             role="tab"
             aria-selected={activeTab === 'details'}
-            onClick={() => {
-              setActiveTab('details');
-              setInspectingDoc(null);
-            }}
+            onClick={() => handleTabChange('details')}
             style={{
               padding: '12px 18px',
               border: 'none',
@@ -365,10 +415,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
             type="button"
             role="tab"
             aria-selected={activeTab === 'work'}
-            onClick={() => {
-              setActiveTab('work');
-              setInspectingDoc(null);
-            }}
+            onClick={() => handleTabChange('work')}
             style={{
               padding: '12px 18px',
               border: 'none',
@@ -392,7 +439,7 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
             type="button"
             role="tab"
             aria-selected={activeTab === 'documents'}
-            onClick={() => setActiveTab('documents')}
+            onClick={() => handleTabChange('documents')}
             style={{
               padding: '12px 18px',
               border: 'none',

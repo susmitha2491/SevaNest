@@ -453,7 +453,7 @@ describe('Unauthorized History Navigation & Route Guard Security', () => {
         await router.navigate(1);
       });
       await waitFor(() => {
-        expect(router.state.location.pathname).toBe('/verification/rechecks');
+        expect(router.state.location.pathname).toBe('/verification');
       });
 
       // 5. Sign Out

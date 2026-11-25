@@ -1,7 +1,16 @@
 import React from 'react';
-import { Outlet } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
+import { useAuthStore } from '../../core/auth/authStore';
+import { getDefaultLandingRoute } from '../../core/rbac/permissions';
+import { isPopStateNavigation } from '../router/popstateTracker';
 
 export const PublicLayout: React.FC = () => {
+  const { isAuthenticated, user } = useAuthStore();
+
+  if (isAuthenticated && user && !isPopStateNavigation()) {
+    return <Navigate to={getDefaultLandingRoute(user)} replace />;
+  }
+
   return (
     <div className="public-layout-container">
       <div className="public-layout-content">
