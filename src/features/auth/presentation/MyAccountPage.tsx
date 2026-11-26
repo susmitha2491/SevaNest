@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User,
@@ -12,7 +12,6 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Camera,
   KeyRound,
   ShieldCheck,
   BadgeCheck,
@@ -44,13 +43,6 @@ export const MyAccountPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  // Photo state
-  const [photoPreview, setPhotoPreview] = useState<string | null>(user?.avatarUrl || null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoError, setPhotoError] = useState<string | null>(null);
-  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Password change state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -91,9 +83,6 @@ export const MyAccountPage: React.FC = () => {
         email: user.email || '',
         phone: user.phone || user.mobile || '',
       });
-      if (user.avatarUrl) {
-        setPhotoPreview(user.avatarUrl);
-      }
     }
   }, [user]);
 
@@ -115,72 +104,6 @@ export const MyAccountPage: React.FC = () => {
   const handleBackToWorkstation = () => {
     const target = getDefaultLandingRoute(user);
     navigate(target);
-  };
-
-  // --- Photo Handling ---
-  const handlePhotoFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPhotoError(null);
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Allowed mime types: image/png, image/jpeg, image/webp
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
-    if (!allowedTypes.includes(file.type.toLowerCase())) {
-      setPhotoError('Invalid image format. Allowed formats: PNG, JPEG, WebP.');
-      return;
-    }
-
-    // Max 2MB (2 * 1024 * 1024 bytes)
-    const maxBytes = 2 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      setPhotoError('Image file exceeds the 2MB size limit. Please choose a smaller photo.');
-      return;
-    }
-
-    setPhotoFile(file);
-    const reader = new FileReader();
-    reader.onload = () => {
-      setPhotoPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemovePhoto = () => {
-    setPhotoFile(null);
-    setPhotoPreview(null);
-    setPhotoError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-    if (user) {
-      setUser({ ...user, avatarUrl: null });
-    }
-  };
-
-  const handleUploadPhotoNow = async () => {
-    if (!photoFile) return;
-    setIsUploadingPhoto(true);
-    setPhotoError(null);
-    try {
-      if (authRepository.uploadProfilePhoto) {
-        const result = await authRepository.uploadProfilePhoto(photoFile);
-        if (user) {
-          setUser({ ...user, avatarUrl: result.photoUrl });
-        }
-        setPhotoPreview(result.photoUrl);
-        setPhotoFile(null);
-        setSaveSuccess('Profile photo uploaded and updated successfully.');
-      } else {
-        setPhotoError(
-          'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint.'
-        );
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to upload photo.';
-      setPhotoError(msg);
-    } finally {
-      setIsUploadingPhoto(false);
-    }
   };
 
   // --- Profile Validation & Submit ---
@@ -568,9 +491,10 @@ export const MyAccountPage: React.FC = () => {
         >
           {/* Avatar and Identity Details */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-5)', flexWrap: 'wrap' }}>
-            {/* Avatar with Camera badge */}
-            <div style={{ position: 'relative', flexShrink: 0 }}>
+            {/* Non-clickable initials avatar */}
+            <div style={{ flexShrink: 0 }}>
               <div
+                data-testid="account-avatar"
                 style={{
                   width: '90px',
                   height: '90px',
@@ -587,54 +511,12 @@ export const MyAccountPage: React.FC = () => {
                   fontSize: '32px',
                 }}
               >
-                {photoPreview ? (
-                  <img
-                    src={photoPreview}
-                    alt={user.name}
-                    data-testid="profile-photo-preview"
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : user.name ? (
+                {user.name ? (
                   user.name.charAt(0).toUpperCase()
                 ) : (
                   <User size={36} />
                 )}
               </div>
-
-              {/* Quick photo change upload badge */}
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload or change profile photo"
-                style={{
-                  position: 'absolute',
-                  bottom: 0,
-                  right: 0,
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: 'var(--radius-full)',
-                  backgroundColor: 'var(--color-brand-600)',
-                  color: '#fff',
-                  border: '2px solid #fff',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  transition: 'background-color var(--transition-fast)',
-                }}
-              >
-                <Camera size={14} />
-              </button>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                data-testid="profile-photo-input"
-                accept="image/png,image/jpeg,image/webp"
-                style={{ display: 'none' }}
-                onChange={handlePhotoFileSelect}
-              />
             </div>
 
             {/* User Meta */}
@@ -724,60 +606,6 @@ export const MyAccountPage: React.FC = () => {
                   ID: {user.staffId || user.id}
                 </span>
               </div>
-
-              {photoError && (
-                <div
-                  style={{
-                    marginTop: '8px',
-                    fontSize: '11px',
-                    color: 'var(--color-status-danger-text)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                  }}
-                >
-                  <AlertTriangle size={12} />
-                  <span>{photoError}</span>
-                </div>
-              )}
-
-              {photoFile && (
-                <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={handleUploadPhotoNow}
-                    disabled={isUploadingPhoto}
-                    style={{
-                      padding: '3px 10px',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'var(--color-brand-600)',
-                      color: '#fff',
-                      fontSize: '11px',
-                      fontWeight: 600,
-                      border: 'none',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {isUploadingPhoto ? 'Uploading...' : 'Save New Photo'}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="remove-photo-button"
-                    onClick={handleRemovePhoto}
-                    style={{
-                      padding: '3px 8px',
-                      borderRadius: 'var(--radius-sm)',
-                      backgroundColor: 'transparent',
-                      color: 'var(--color-text-secondary)',
-                      fontSize: '11px',
-                      border: '1px solid var(--color-border)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    Discard
-                  </button>
-                </div>
-              )}
             </div>
           </div>
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, within, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -78,20 +78,19 @@ describe('Worker Application & Verification Complete Workflow', () => {
       renderWithProviders(<WorkersListPage />);
 
       // Filter tabs separating verified roster from pending applications
-      expect(await screen.findByRole('button', { name: /All Registered Workers/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Active & Verified Roster/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Pending Verification \/ Incomplete KYC/i })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /^All Workers$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Active$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Pending Verification$/i })).toBeInTheDocument();
 
-      // Check Matching Eligibility column exists
-      expect(screen.getByText('Matching Eligibility')).toBeInTheDocument();
+      // Simplified table columns show Verification Status and Account Status instead of redundant Matching Eligibility column
+      expect(screen.getByText('Verification Status')).toBeInTheDocument();
+      expect(screen.getByText('Account Status')).toBeInTheDocument();
 
-      // Unverified worker Ramesh Yadav has "Ineligible (KYC Pending)" badge
-      const ineligibleBadges = await screen.findAllByText('Ineligible (KYC Pending)');
-      expect(ineligibleBadges.length).toBeGreaterThan(0);
+      // Unverified worker Ramesh Yadav shows Pending badge
+      expect((await screen.findAllByText('Pending')).length).toBeGreaterThan(0);
 
-      // Verified worker Sunita Devi has "Eligible" badge
-      const eligibleBadges = screen.getAllByText('Eligible');
-      expect(eligibleBadges.length).toBeGreaterThan(0);
+      // Verified worker Sunita Devi shows Verified badge
+      expect(screen.getAllByText('Verified').length).toBeGreaterThan(0);
 
       // Action buttons: Independent KYC Approve/Reject buttons are removed from Worker Management; View Profile is rendered
       expect(screen.queryByRole('button', { name: /Approve verification for/i })).not.toBeInTheDocument();
@@ -209,7 +208,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       );
     });
 
-    it('allows requesting re-verification with mandatory worker instructions', async () => {
+    it('allows requesting re-verification for an approved document in Step 2 with mandatory reason', async () => {
       const user = userEvent.setup();
       const recheckSpy = vi.spyOn(verificationRepository, 'requestReVerification');
 
@@ -218,31 +217,39 @@ describe('Worker Application & Verification Complete Workflow', () => {
       const inspectButtons = await screen.findAllByRole('button', { name: /Open verification dossier for/i });
       await user.click(inspectButtons[0]);
 
-      // Navigate to Step 3: KYC Verification
+      // Approve Identity Proof in Step 3 so its document becomes eligible (APPROVED) for re-verification
       const dialog = await screen.findByRole('dialog');
-      const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
-      await user.click(nextBtn1);
-      const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
-      await user.click(nextBtn2);
+      await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+      await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
 
-      const recheckBtn = (await screen.findAllByRole('button', { name: /Request Re-Verification/i }))[0];
+      const idCard = await screen.findByTestId('check-card-IDENTITY');
+      await user.click(within(idCard).getByRole('button', { name: /Approve Check/i }));
+      await user.click(await screen.findByRole('button', { name: /Confirm Approval/i }));
+
+      // Return to Step 2: Documents Review where Request Re-verification lives
+      await user.click(within(dialog).getByRole('button', { name: /^Previous/i }));
+      expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+
+      const recheckBtn = await screen.findByRole('button', { name: /Request Re-verification/i });
       await user.click(recheckBtn);
 
-      expect(await screen.findByText(/Request Document Re-Verification/i)).toBeInTheDocument();
-      const confirmBtn = screen.getByRole('button', { name: /Issue Re-Verification Request/i });
+      expect(await screen.findByText(/Request Re-verification:/i)).toBeInTheDocument();
+      const confirmBtn = screen.getByRole('button', { name: /Confirm Re-verification/i });
       expect(confirmBtn).toBeDisabled();
 
-      const remarksInput = screen.getByPlaceholderText(/Enter mandatory instructions for the worker/i);
+      const remarksInput = screen.getByPlaceholderText(/Enter reason \/ instructions for re-verification/i);
       await user.type(remarksInput, 'Please upload fresh address proof with matching name.');
 
       expect(confirmBtn).toBeEnabled();
       await user.click(confirmBtn);
 
-      expect(recheckSpy).toHaveBeenCalledWith(
-        'chk-identity-101',
-        ['IDENTITY'],
-        'Please upload fresh address proof with matching name.'
-      );
+      await waitFor(() => {
+        expect(recheckSpy).toHaveBeenCalledWith(
+          'chk-identity-101',
+          ['IDENTITY'],
+          'Please upload fresh address proof with matching name.'
+        );
+      });
     });
   });
 
@@ -934,7 +941,7 @@ describe('Worker Application & Verification Complete Workflow', () => {
       expect(viewBtn).toBeInTheDocument();
 
       // KYC status is displayed as read-only information
-      expect(screen.getAllByText('Pending KYC').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Pending').length).toBeGreaterThan(0);
     });
 
     it('after authorized final approval, worker appears in Worker Management as Verified and Active', async () => {
@@ -966,12 +973,11 @@ describe('Worker Application & Verification Complete Workflow', () => {
       renderWithProviders(<WorkersListPage />, '/workers');
 
       expect(await screen.findByText('Domestic Worker Roster & Profiles')).toBeInTheDocument();
-      expect(await screen.findByText('Kavitha Reddy')).toBeInTheDocument();
+      const kavithaRow = (await screen.findByText('Kavitha Reddy')).closest('tr')!;
 
-      // Verified and Active status displayed
-      expect(screen.getByText('Verified')).toBeInTheDocument();
-      expect(screen.getByText(/Signed Off.*Activated/i)).toBeInTheDocument();
-      expect(screen.getByText('Eligible')).toBeInTheDocument();
+      // Verified and Active status displayed in Kavitha Reddy's row
+      expect(within(kavithaRow).getByText('Verified')).toBeInTheDocument();
+      expect(within(kavithaRow).getByText('Active')).toBeInTheDocument();
 
       // In Worker Management, actions column displays View Profile (no independent Approve/Reject buttons)
       expect(screen.getByRole('button', { name: 'View profile for Kavitha Reddy' })).toBeInTheDocument();

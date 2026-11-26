@@ -185,6 +185,22 @@ describe('Account Page: Removal of Assigned Permissions Scope Across All Admin R
         expect(screen.getByTestId('account-user-id')).toHaveTextContent(user.staffId || user.id);
       });
 
+      it('confirms the profile picture camera/upload icon and upload controls are absent', async () => {
+        renderApp('/account');
+
+        expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
+        // Initials avatar is present and non-clickable
+        expect(screen.getByTestId('account-avatar')).toBeInTheDocument();
+        expect(screen.getByTestId('account-avatar')).toHaveTextContent(user.name.charAt(0).toUpperCase());
+
+        // Camera icon, file input, photo upload button must NOT exist
+        expect(screen.queryByTitle(/Upload or change profile photo/i)).not.toBeInTheDocument();
+        expect(screen.queryByTestId('profile-photo-input')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('profile-photo-preview')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('remove-photo-button')).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Save New Photo/i })).not.toBeInTheDocument();
+      });
+
       it('preserves Change Password card and interactive security functionality', async () => {
         renderApp('/account');
 

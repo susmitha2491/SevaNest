@@ -331,7 +331,7 @@ describe('Verification Executive — Review History Strict Read-Only Dossier Aud
     expect(screen.queryByRole('button', { name: /^Request Re-Verification$/i })).not.toBeInTheDocument();
   });
 
-  it('5. In Step 3: Check cards display audit trail and remarks, but omit all mutation buttons', async () => {
+  it('5. In Step 3: Check cards display clean check names and read-only states without mutation buttons', async () => {
     renderModal({
       dossierId: 'HIST-DOSSIER-001',
       initialDossier: mockHistoricalApprovedDossier,
@@ -344,11 +344,12 @@ describe('Verification Executive — Review History Strict Read-Only Dossier Aud
 
     await waitFor(() => {
       expect(screen.getByText('Identity Proof')).toBeInTheDocument();
-      expect(screen.getByText(/Aadhaar verified successfully/i)).toBeInTheDocument();
+      expect(screen.getByText('Police Certificate')).toBeInTheDocument();
     });
 
-    // Verify Open Document button is present for inspecting documents
-    expect(screen.getByTestId('open-document-IDENTITY')).toBeInTheDocument();
+    // Audit trail clutter and Open Document link are omitted in simplified Step 3
+    expect(screen.queryByText(/Aadhaar verified successfully/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('open-document-IDENTITY')).not.toBeInTheDocument();
 
     // Verify NO mutation buttons are rendered
     expect(screen.queryByRole('button', { name: /Start Review/i })).not.toBeInTheDocument();
@@ -426,11 +427,9 @@ describe('Verification Executive — Review History Strict Read-Only Dossier Aud
     await user.click(step3Bubble);
 
     await waitFor(() => {
-      // Identity is IN_REVIEW, so Release Review, Approve Check, Reject Check should appear
-      expect(screen.getAllByRole('button', { name: /Release Review/i }).length).toBeGreaterThan(0);
+      // Simplified Step 3 displays only Approve Check and Reject Check for pending checks
       expect(screen.getAllByRole('button', { name: /Approve Check/i }).length).toBeGreaterThan(0);
       expect(screen.getAllByRole('button', { name: /Reject Check/i }).length).toBeGreaterThan(0);
-      expect(screen.getAllByRole('button', { name: /Request Re-Verification/i }).length).toBeGreaterThan(0);
     });
   });
 

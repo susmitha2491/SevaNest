@@ -10,6 +10,7 @@ export type VerificationCheckType =
   | 'LICENSE';
 
 export type VerificationCheckStatus =
+  | 'NOT_SUBMITTED'
   | 'PENDING'
   | 'SUBMITTED'
   | 'IN_REVIEW'
@@ -333,7 +334,7 @@ export interface IVerificationRepository {
     checkId: string,
     checkTypes?: VerificationCheckType[],
     instructions?: string
-  ): Promise<void>;
+  ): Promise<AdminWorkerVerificationResponse | void>;
   getSignedDocumentUrl(
     workerId: string,
     checkType: VerificationCheckType,

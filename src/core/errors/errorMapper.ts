@@ -179,12 +179,19 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
             }
           }
 
+          const fieldsForMsg = missingFieldsList.length > 0 ? missingFieldsList : ['referenceNumber', 'expiresOn'];
+          const baseMsg =
+            serverMessage || 'This check cannot be approved yet. Required document details must be recorded before approval.';
+          const enrichedMsg = baseMsg.toLowerCase().includes('missing')
+            ? baseMsg
+            : `${baseMsg} (Missing fields: ${fieldsForMsg.join(', ')})`;
+
           return new ValidationError(
-            serverMessage || 'This check cannot be approved yet. Required document details must be recorded before approval.',
+            enrichedMsg,
             {
               errorCode: payload.code,
               correlationId,
-              details: missingFieldsList.length > 0 ? missingFieldsList : ['referenceNumber', 'expiresOn'],
+              details: fieldsForMsg,
               fieldErrors,
             }
           );

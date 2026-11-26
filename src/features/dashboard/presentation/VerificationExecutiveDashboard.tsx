@@ -34,8 +34,8 @@ export const VerificationExecutiveDashboard: React.FC = () => {
   const { data, isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['dashboard', 'verification-exec'],
     queryFn: () => dashboardRepository.getVerificationExecutiveDashboard(),
-    staleTime: 0,
-    refetchOnMount: 'always',
+    staleTime: 1000 * 60, // Display cached real data immediately on return, refresh in background once stale
+    refetchOnMount: true,
     enabled: canViewDashboard,
   });
 

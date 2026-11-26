@@ -153,9 +153,9 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
       maxHeight: '620px',
     });
 
-    // Verify sticky headers
+    // Verify sticky headers across the 6 simplified columns
     const headers = screen.getAllByRole('columnheader');
-    expect(headers.length).toBe(10);
+    expect(headers.length).toBe(6);
     for (const th of headers) {
       expect(th).toHaveStyle({ position: 'sticky', top: '0px' });
     }
@@ -248,12 +248,12 @@ describe('Worker Management — Continuous Scrollable Table & Infinite Loading',
     expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
     // Verify all 6 tabs exist
-    const tabAll = screen.getByRole('button', { name: /All Registered Workers/i });
-    const tabActive = screen.getByRole('button', { name: /Active & Verified Roster/i });
-    const tabPending = screen.getByRole('button', { name: /Pending Verification \/ Incomplete KYC/i });
-    const tabInReview = screen.getByRole('button', { name: /In Review Pipeline/i });
-    const tabRejected = screen.getByRole('button', { name: /Rejected \/ Corrections/i });
-    const tabRecheck = screen.getByRole('button', { name: /Re-Check Due/i });
+    const tabAll = screen.getByRole('button', { name: /^All Workers$/i });
+    const tabActive = screen.getByRole('button', { name: /^Active$/i });
+    const tabPending = screen.getByRole('button', { name: /^Pending Verification$/i });
+    const tabInReview = screen.getByRole('button', { name: /^In Review$/i });
+    const tabRejected = screen.getByRole('button', { name: /^Rejected \/ Corrections$/i });
+    const tabRecheck = screen.getByRole('button', { name: /^Re-check Due$/i });
 
     expect(tabAll).toBeInTheDocument();
     expect(tabActive).toBeInTheDocument();

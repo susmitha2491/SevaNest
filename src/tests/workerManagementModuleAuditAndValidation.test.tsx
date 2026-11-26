@@ -66,22 +66,16 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
 
-      // Profile identifiers and masked contacts
-      expect(screen.getByText('W-10482')).toBeInTheDocument();
+      // Masked contacts displayed beneath worker name (Worker ID column omitted from main table)
       expect(screen.getAllByText(/\+91 98765 \*{5}/i).length).toBeGreaterThan(0);
+      expect(screen.queryByText('W-10482')).not.toBeInTheDocument();
 
-      // Skills & categories
+      // Primary skills & compact experience
       expect(screen.getAllByText('House Maid').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Driver').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/\d+ yrs/i).length).toBeGreaterThan(0);
 
-      // Ratings
-      expect(screen.getByText('4.8')).toBeInTheDocument();
-      expect(screen.getByText('4.5')).toBeInTheDocument();
-
-      // Availability & matching eligibility
-      expect(screen.getAllByText(/Eligible/i).length).toBeGreaterThan(0);
-
-      // Status badges
+      // Account status badges
       expect(screen.getAllByText('Active').length).toBeGreaterThan(0);
     });
 
@@ -99,7 +93,7 @@ describe('Worker Management Module Audit & Validation (PRD Section 7 & Section 3
       expect(viewBtn).toBeInTheDocument();
 
       // Verification status is displayed as read-only information
-      expect(screen.getAllByText('Pending KYC').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Pending').length).toBeGreaterThan(0);
     });
 
     it('opens WorkerDetailModal and renders the simplified 2-step workflow without route deviation', async () => {

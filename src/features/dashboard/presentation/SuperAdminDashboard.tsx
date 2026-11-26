@@ -130,37 +130,10 @@ export const SuperAdminDashboard: React.FC = () => {
       }
     },
     enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
-    staleTime: 30000,
+    staleTime: 1000 * 60 * 2,
   });
 
-  // Fast direct query for Gross Collections MTD revenue to render without lag
-  const {
-    data: collectionsKpiINR,
-    isLoading: isCollectionsKpiLoading,
-    refetch: refetchCollectionsKpi,
-    isFetching: isCollectionsKpiFetching,
-  } = useQuery({
-    queryKey: ['dashboard', 'payment-collections-kpi'],
-    queryFn: async () => {
-      try {
-        const res = await httpClient.get<Record<string, unknown>>('/admin/reports/payment-collections', {
-          params: { from: '2026-01-01', to: '2026-12-31', interval: 'month' },
-        });
-        const raw = (res.data?.data || res.data) as Record<string, unknown>;
-        const totals = Array.isArray(raw?.totalsByFeeType)
-          ? (raw.totalsByFeeType as Array<Record<string, unknown>>)
-          : [];
-        const grossMinor = totals.reduce((sum, item) => sum + Number(item.grossMinor || 0), 0);
-        return Math.round(grossMinor / 100);
-      } catch {
-        return null;
-      }
-    },
-    enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
-    staleTime: 60000,
-  });
-
-  // Direct query for customer total count when not in test mode
+  // Direct query for customer total count when not in test mode (and not already returned by /admin/dashboard)
   const {
     data: customersCount,
     refetch: refetchCustomers,
@@ -180,28 +153,30 @@ export const SuperAdminDashboard: React.FC = () => {
         return null;
       }
     },
-    enabled: import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH,
-    staleTime: 30000,
+    enabled:
+      import.meta.env.MODE !== 'test' &&
+      !env.VITE_USE_MOCK_AUTH &&
+      data?.kpis.registeredCustomers == null &&
+      data?.sections?.customers?.registered === undefined,
+    staleTime: 1000 * 60 * 2,
   });
 
   const isAnyFetching =
     isFetching ||
     isAnalyticsFetching ||
-    (import.meta.env.MODE !== 'test' && (isPoliceFetching || isCollectionsKpiFetching || isCustomersFetching));
+    (import.meta.env.MODE !== 'test' && (isPoliceFetching || isCustomersFetching));
 
   const handleRefreshAll = () => {
     refetch();
     refetchAnalytics();
     if (import.meta.env.MODE !== 'test') {
       refetchPolice();
-      refetchCollectionsKpi();
       refetchCustomers();
     }
   };
 
-  const isDashboardLoading =
-    isLoading ||
-    (import.meta.env.MODE !== 'test' && !env.VITE_USE_MOCK_AUTH && isCollectionsKpiLoading);
+  // Render main KPI cards & sections as soon as primary /admin/dashboard resolves without blocking on 12 analytics reports
+  const isDashboardLoading = isLoading;
 
   if (isDashboardLoading) {
     return <LoadingSpinner message="Loading Executive Platform Metrics..." />;
@@ -257,9 +232,9 @@ export const SuperAdminDashboard: React.FC = () => {
       : (sections?.collections && sections.collections.length > 0 && sections.collections[0].monthToDateINR !== undefined && sections.collections[0].monthToDateINR > 0
         ? sections.collections[0].monthToDateINR
         : (sections
-          ? (collectionsKpiINR !== undefined && collectionsKpiINR !== null
-            ? collectionsKpiINR
-            : (analyticsGrossMinor !== undefined && analyticsGrossMinor > 0 ? Math.round(analyticsGrossMinor / 100) : null))
+          ? (analyticsGrossMinor !== undefined && analyticsGrossMinor > 0
+            ? Math.round(analyticsGrossMinor / 100)
+            : (sections.collections?.[0]?.monthToDateINR ?? null))
           : null));
 
   const derivedPoliceVerifDue =

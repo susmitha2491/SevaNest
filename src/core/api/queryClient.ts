@@ -1,8 +1,11 @@
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   ForbiddenError,
   NotFoundError,
+  OfflineError,
   RateLimitExceededError,
+  ServerFailureError,
+  TimeoutError,
   UnauthorizedError,
   ValidationError,
 } from '../errors/DomainError';
@@ -17,8 +20,12 @@ export const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes fresh cache
       gcTime: 1000 * 60 * 30, // 30 minutes garbage collection
+      placeholderData: keepPreviousData, // Preserve real cached data during background refetches
       retry: (failureCount, error) => {
         if (
+          error instanceof TimeoutError ||
+          error instanceof OfflineError ||
+          error instanceof ServerFailureError ||
           error instanceof RateLimitExceededError ||
           error instanceof UnauthorizedError ||
           error instanceof ForbiddenError ||
@@ -30,14 +37,15 @@ export const queryClient = new QueryClient({
         const status =
           (error as { statusCode?: number; response?: { status?: number } })?.statusCode ||
           (error as { response?: { status?: number } })?.response?.status;
-        // Do not retry client authorization, rate-limit, validation, or not-found errors
+        // Do not amplify slow/failing requests or client auth/validation errors with query-level retries
         if (
           status === 404 ||
           status === 403 ||
           status === 401 ||
           status === 400 ||
           status === 422 ||
-          status === 429
+          status === 429 ||
+          (typeof status === 'number' && status >= 500)
         ) {
           return false;
         }

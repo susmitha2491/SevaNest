@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { screen, waitFor, within, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
@@ -239,23 +239,8 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
     const aadhaarRow = screen.getByText('Aadhaar Card').closest('tr');
     expect(aadhaarRow).toBeInTheDocument();
 
-    // 1. Click "Re-verify" -> only Re-Verification dialog opens
-    const recheckBtn = within(aadhaarRow!).getByRole('button', { name: /re-verify/i });
-    await user.click(recheckBtn);
-
-    await waitFor(() => {
-      expect(screen.getByText(/request re-verification: IDENTITY/i)).toBeInTheDocument();
-    });
-    expect(screen.queryByText(/reject IDENTITY verification check/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/approve Aadhaar Card/i)).not.toBeInTheDocument();
-
-    // Cancel closes recheck dialog
-    const cancelBtn1 = screen.getByRole('button', { name: /^cancel$/i });
-    await user.click(cancelBtn1);
-
-    await waitFor(() => {
-      expect(screen.queryByText(/request re-verification: IDENTITY/i)).not.toBeInTheDocument();
-    });
+    // 1. Non-approved check must NOT show Request Re-verification
+    expect(within(aadhaarRow!).queryByRole('button', { name: /re-verify|request re-verification/i })).not.toBeInTheDocument();
 
     // 2. Click "Reject" -> only Rejection dialog opens
     const rejectBtn = within(aadhaarRow!).getByRole('button', { name: /^reject$/i });
@@ -264,7 +249,7 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
     await waitFor(() => {
       expect(screen.getByText(/reject IDENTITY verification check/i)).toBeInTheDocument();
     });
-    expect(screen.queryByText(/request re-verification: IDENTITY/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/request re-verification:/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/approve Aadhaar Card/i)).not.toBeInTheDocument();
 
     // Cancel closes rejection dialog
@@ -283,7 +268,7 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
       expect(screen.getByText(/approve Aadhaar Card/i)).toBeInTheDocument();
     });
     expect(screen.queryByText(/reject IDENTITY verification check/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/request re-verification: IDENTITY/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/request re-verification:/i)).not.toBeInTheDocument();
 
     // Cancel closes approval dialog
     const cancelBtn3 = screen.getByRole('button', { name: /^cancel$/i });
@@ -294,18 +279,44 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
     });
   });
 
-  it('ISSUE 1: Document Preview modal actions open dialogs immediately on top of the preview with no stacked popups', async () => {
+  it('ISSUE 1b: Approved document exposes Request Re-verification button opening its own confirmation dialog', async () => {
     const user = userEvent.setup();
+    const approvedDossier = createDossier();
+    approvedDossier.checks.IDENTITY.status = 'APPROVED';
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(approvedDossier);
+
     renderModal();
     await navigateToKycTab();
 
-    // Open document preview for Aadhaar
+    const aadhaarRow = screen.getByText('Aadhaar Card').closest('tr');
+    const recheckBtn = within(aadhaarRow!).getByRole('button', { name: /request re-verification/i });
+    await user.click(recheckBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/request re-verification: Aadhaar Card/i)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/reject IDENTITY verification check/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/approve Aadhaar Card/i)).not.toBeInTheDocument();
+  });
+
+  it('ISSUE 1: Document Preview modal actions open dialogs immediately on top of the preview with no stacked popups', async () => {
+    const user = userEvent.setup();
+    const approvedDossier = createDossier();
+    approvedDossier.checks.IDENTITY.status = 'APPROVED';
+
+    renderModal();
+    await navigateToKycTab();
+
+    // Open document preview for Aadhaar (IN_REVIEW)
     const inspectBtn = screen.getAllByRole('button', { name: /inspect/i })[0];
     await user.click(inspectBtn);
 
     await waitFor(() => {
       expect(screen.getByText('Close Preview')).toBeInTheDocument();
     });
+
+    // Non-approved check preview must not show Request Re-verification
+    expect(screen.queryByRole('button', { name: /request re-verification/i })).not.toBeInTheDocument();
 
     // In preview decision bar, click "Reject Document"
     const rejectDocBtn = screen.getByRole('button', { name: /reject document/i });
@@ -328,12 +339,23 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
     // Preview modal is still open
     expect(screen.getByText('Close Preview')).toBeInTheDocument();
 
-    // Now click "Request Re-Verification" inside preview
-    const recheckDocBtn = screen.getByRole('button', { name: /request re-verification/i });
+    // Close preview and test Request Re-verification inside preview for APPROVED document
+    await user.click(screen.getByText('Close Preview'));
+    cleanup();
+    vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(approvedDossier);
+    renderModal();
+    await navigateToKycTab();
+
+    await user.click(screen.getAllByRole('button', { name: /inspect/i })[0]);
+    await waitFor(() => {
+      expect(screen.getByText('Close Preview')).toBeInTheDocument();
+    });
+
+    const recheckDocBtn = screen.getByTestId('inspect-request-reverification-IDENTITY');
     await user.click(recheckDocBtn);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { level: 2, name: /request re-verification: IDENTITY/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: /request re-verification: Aadhaar Card/i })).toBeInTheDocument();
     });
     expect(screen.queryByRole('heading', { level: 2, name: /reject IDENTITY verification check/i })).not.toBeInTheDocument();
 
@@ -342,7 +364,7 @@ describe('Worker KYC Document Review – Popup State Management & Backend Approv
     await user.click(cancelBtnRecheck);
 
     await waitFor(() => {
-      expect(screen.queryByRole('heading', { level: 2, name: /request re-verification: IDENTITY/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('heading', { level: 2, name: /request re-verification: Aadhaar Card/i })).not.toBeInTheDocument();
     });
     expect(screen.getByText('Close Preview')).toBeInTheDocument();
   });

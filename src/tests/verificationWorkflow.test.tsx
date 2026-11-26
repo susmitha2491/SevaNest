@@ -96,18 +96,18 @@ describe('Worker Verification & Trust Workstation', () => {
     await user.click(nextBtn2);
     expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-    // Check automated Pre-Check banner
-    expect(screen.getAllByText(/Mobile OTP Pre-Check/i).length).toBeGreaterThan(0);
+    // Simplified Step 3 omits redundant pre-check banner clutter
+    expect(screen.queryByText(/Mobile OTP Pre-Check/i)).not.toBeInTheDocument();
 
     // Check all required operational checks
     expect(screen.getAllByText('Identity Proof').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Address Proof').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Emergency Contact').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Employer Reference').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Police Clearance').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Police Certificate').length).toBeGreaterThan(0);
   });
 
-  it('allows viewing emergency contact details and telephonic vetting notes in top-to-bottom layout', async () => {
+  it('allows reviewing emergency contact check with Approve and Reject actions in simplified Step 3', async () => {
     const user = userEvent.setup();
     renderWithProviders(<VerificationQueuePage />);
 
@@ -122,9 +122,12 @@ describe('Worker Verification & Trust Workstation', () => {
     await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
     expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-    // Verify contact record rendered in Emergency Contact check
-    expect((await screen.findAllByText(/Emergency Contact/i)).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Rajesh Devi/i)).toBeInTheDocument();
+    // Emergency Contact check is displayed with Approve and Reject buttons without metadata clutter
+    const ecCard = screen.getByTestId('check-card-EMERGENCY_CONTACT');
+    expect(within(ecCard).getByText('Emergency Contact')).toBeInTheDocument();
+    expect(within(ecCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
+    expect(within(ecCard).getByRole('button', { name: /Reject Check/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Rajesh Devi/i)).not.toBeInTheDocument();
   });
 
   it('approves an individual verification check', async () => {

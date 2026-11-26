@@ -338,8 +338,9 @@ describe('Critical KYC Workflow Correction Audit', () => {
       const workflow = evaluateVerificationWorkflow(checks as unknown as Record<VerificationCheckType, VerificationCheck>, true);
       workflow.steps.forEach((step) => {
         expect(step.isLocked).toBe(false);
-        expect(step.prerequisiteBlockers).toEqual([]);
       });
+      // Prerequisite metadata remains preserved while UI cards are never locked
+      expect(workflow.steps.find((s) => s.type === 'IDENTITY')?.prerequisiteBlockers).toEqual([]);
     });
 
     it('renders all 5 checks in Step 3 without locked badges or locked notices', async () => {
@@ -371,9 +372,8 @@ describe('Critical KYC Workflow Correction Audit', () => {
         expect(screen.queryByTestId(`locked-notice-${type}`)).not.toBeInTheDocument();
       });
 
-      // All cards have action buttons directly available
+      // All cards have Approve and Reject buttons directly available without Start Review clutter
       const polCard = screen.getByTestId('check-card-POLICE_CLEARANCE');
-      expect(within(polCard).getByRole('button', { name: /Start Review/i })).toBeInTheDocument();
       expect(within(polCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
       expect(within(polCard).getByRole('button', { name: /Reject Check/i })).toBeInTheDocument();
     });
@@ -408,26 +408,23 @@ describe('Critical KYC Workflow Correction Audit', () => {
   });
 
   describe('3. Document Inspection, Format Rendering & Vault Error Handling', () => {
-    it('opens reviewable document directly from Step 3 check card into Step 2', async () => {
+    it('omits Open Document button from simplified Step 3 while preserving document inspection in Step 2', async () => {
       const dossier = createFullyApprovedDossier();
       vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(dossier);
 
       const user = userEvent.setup();
       renderModal({ dossierId: dossier.workerId, initialDossier: dossier });
 
-      // Navigate to Step 3
+      // Navigate to Step 3: simplified view omits document links
       const step3Bubble = screen.getByTestId('step-bubble-3');
       await user.click(step3Bubble);
+      expect(screen.queryByTestId('open-document-IDENTITY')).not.toBeInTheDocument();
 
-      const idCard = screen.getByTestId('check-card-IDENTITY');
-      const openDocBtn = within(idCard).getByTestId('open-document-IDENTITY');
-      expect(openDocBtn).toBeInTheDocument();
-
-      // Click "Open Document"
-      await user.click(openDocBtn);
-
-      // Successfully transitions to Step 2
+      // Navigate to Step 2: Documents Review shows reviewable documents
+      const step2Bubble = screen.getByTestId('step-bubble-2');
+      await user.click(step2Bubble);
       expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+      expect((await screen.findAllByRole('button', { name: /View Document/i })).length).toBeGreaterThan(0);
     });
 
     it('renders image preview and "Open in New Tab" link for image document', async () => {
@@ -590,7 +587,7 @@ describe('Critical KYC Workflow Correction Audit', () => {
       renderModal({ dossierId: fullDossier.workerId, initialDossier: fullDossier });
 
       // In Step 1, all criteria satisfied banner appears
-      expect(await screen.findByText(/All 6 Verification Criteria Satisfied/i)).toBeInTheDocument();
+      expect(await screen.findByText(/All 6 Mandatory KYC Verification Criteria Satisfied/i)).toBeInTheDocument();
 
       // Advance through Step 2, 3, 4 to Step 5
       const step5Bubble = screen.getByTestId('step-bubble-5');

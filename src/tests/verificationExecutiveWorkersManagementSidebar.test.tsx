@@ -254,16 +254,14 @@ describe('Workers Management in Verification Executive Sidebar', () => {
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       expect(screen.getByText('Ramesh Kumar')).toBeInTheDocument();
-      expect(screen.getByText('W-10482')).toBeInTheDocument();
-      expect(screen.getByText('W-10892')).toBeInTheDocument();
 
       // All 6 tabs must be present
-      expect(screen.getByRole('button', { name: /All Registered Workers/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Active & Verified Roster/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Pending Verification/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /In Review Pipeline/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Rejected \/ Corrections/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Re-Check Due/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^All Workers$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Active$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Pending Verification$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^In Review$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Rejected \/ Corrections$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Re-check Due$/i })).toBeInTheDocument();
 
       expect(workerRepository.getWorkersPage).toHaveBeenCalled();
     });

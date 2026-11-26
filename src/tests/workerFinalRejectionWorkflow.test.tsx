@@ -353,13 +353,15 @@ describe('Worker Final Rejection Workflow and Strict Backend Safety', () => {
       expect(poojaRow).not.toBeNull();
 
       if (poojaRow) {
-        // 1. Verification badge shows REJECTED in Pooja's row
+        // 1. Verification badge shows Rejected in Pooja's row
         expect(within(poojaRow).getByTestId('verification-badge-rejected')).toBeInTheDocument();
+        expect(within(poojaRow).getByText('Rejected')).toBeInTheDocument();
 
-        // 2. Matching column shows Ineligible (Rejected)
-        expect(within(poojaRow).getByText(/Ineligible \(Rejected\)/i)).toBeInTheDocument();
+        // 2. Account Status shows Inactive
+        expect(within(poojaRow).getByText('Inactive')).toBeInTheDocument();
 
-        // 3. Pending KYC must NOT be displayed for Pooja Sharma
+        // 3. Pending / Pending KYC must NOT be displayed for Pooja Sharma
+        expect(within(poojaRow).queryByText('Pending')).not.toBeInTheDocument();
         expect(within(poojaRow).queryByText('Pending KYC')).not.toBeInTheDocument();
       }
     });

@@ -73,20 +73,21 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
     it('renders the complete worker directory with all 6 operational verification tabs', async () => {
       renderApp('/workers');
 
-      expect(await screen.findByRole('button', { name: /All Registered Workers/i }, { timeout: 10000 })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Active & Verified Roster/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Pending Verification/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /In Review Pipeline/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Rejected \/ Corrections/i })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Re-Check Due/i })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: /^All Workers$/i }, { timeout: 10000 })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Active$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Pending Verification$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^In Review$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Rejected \/ Corrections$/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /^Re-check Due$/i })).toBeInTheDocument();
     });
 
     it('displays actual backend-provided worker records and verification statuses', async () => {
       renderApp('/workers');
 
-      // Workers from directory should be visible
+      // Workers from directory should be visible with name and mobile underneath
       expect(await screen.findByText('Sunita Devi', {}, { timeout: 10000 })).toBeInTheDocument();
-      expect(screen.getByText('W-10482')).toBeInTheDocument();
+      expect(screen.getByText('+91 98765 *****')).toBeInTheDocument();
+      expect(screen.getAllByText('Verified').length).toBeGreaterThan(0);
     });
 
     it('provides View Profile action buttons in the workers roster and enforces read-only verification separation', async () => {
@@ -104,8 +105,8 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
     it('filters workers by verification status without conflating commercial active status', async () => {
       renderApp('/workers');
 
-      // Click "Active & Verified Roster (Matching Eligible)" tab
-      const verifiedTab = await screen.findByText('Active & Verified Roster (Matching Eligible)');
+      // Click "Active" tab
+      const verifiedTab = await screen.findByRole('button', { name: /^Active$/i });
       fireEvent.click(verifiedTab);
 
       // Sunita Devi is verified and should remain visible
@@ -114,10 +115,10 @@ describe('SevaNest Admin Portal: Verification Executive Workflow & Customer Data
       });
     });
 
-    it('supports search by name, id, and locality', async () => {
+    it('supports search by name, id, and mobile', async () => {
       renderApp('/workers');
 
-      const searchInput = await screen.findByPlaceholderText(/Search by worker name, ID, category, or locality/i);
+      const searchInput = await screen.findByPlaceholderText(/Search by worker name/i);
       fireEvent.change(searchInput, { target: { value: 'Devi' } });
 
       await waitFor(() => {

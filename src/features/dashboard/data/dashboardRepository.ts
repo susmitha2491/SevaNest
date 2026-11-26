@@ -1732,14 +1732,61 @@ export class RealDashboardRepository implements IDashboardRepository {
     };
 
     try {
-      // 1. Attempt dedicated /admin/dashboard endpoint if available and authorized
+      // Run /admin/dashboard concurrently with verification queue & worker directory requests
+      const fetchQueueSafe = async (primaryStatus: string, fallbackStatus?: string) => {
+        try {
+          return await httpClient.get<{
+            success?: boolean;
+            data: Record<string, unknown>[];
+            meta?: { total?: number; totalItems?: number };
+          }>('/admin/verification/queue', { params: { status: primaryStatus, limit: 50 } });
+        } catch (err: unknown) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          const shouldTryFallback = Boolean(fallbackStatus) && (status === 400 || status === 404 || status === 422);
+          if (shouldTryFallback && fallbackStatus) {
+            try {
+              return await httpClient.get<{
+                success?: boolean;
+                data: Record<string, unknown>[];
+                meta?: { total?: number; totalItems?: number };
+              }>('/admin/verification/queue', { params: { status: fallbackStatus, limit: 50 } });
+            } catch {
+              return null;
+            }
+          }
+          return null;
+        }
+      };
+
+      const fetchWorkersSafe = async () => {
+        try {
+          return await httpClient.get<{
+            data?: Array<Record<string, unknown>>;
+            items?: Array<Record<string, unknown>>;
+          }>('/admin/workers', { params: { limit: 100 } });
+        } catch {
+          return null;
+        }
+      };
+
+      const [dashboardRes, pendingRes, inReviewRes, rejectedRes, approvedRes, workersRes] = await Promise.all([
+        httpClient
+          .get<Record<string, unknown>>('/admin/dashboard')
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error })),
+        fetchQueueSafe('SUBMITTED', 'PENDING_REVIEW'),
+        fetchQueueSafe('IN_REVIEW'),
+        fetchQueueSafe('REJECTED'),
+        fetchQueueSafe('APPROVED'),
+        fetchWorkersSafe(),
+      ]);
+
       let dashboardPendingKyc: { submitted?: number; inReview?: number } | undefined;
       let dashboardWorkers: { registered?: number; verifiedAndActive?: number } | undefined;
       let dashboardAlerts: { open?: number; critical?: number; warning?: number } | undefined;
 
-      try {
-        const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
-        const root = res.data;
+      if (dashboardRes.ok) {
+        const root = dashboardRes.value.data;
         if (root && typeof root === 'object') {
           const raw = (root.data && typeof root.data === 'object' && !Array.isArray(root.data))
             ? (root.data as Record<string, unknown>)
@@ -1851,56 +1898,10 @@ export class RealDashboardRepository implements IDashboardRepository {
             }
           }
         }
-      } catch (err: unknown) {
+      } else if (dashboardRes.error instanceof ServerFailureError) {
         // Strict contract validation failures must propagate
-        if (err instanceof ServerFailureError) {
-          throw err;
-        }
-        // If 403 Forbidden (no dashboard.view) or 404 Not Found, fall back to authorized verification queue endpoint
+        throw dashboardRes.error;
       }
-
-      // 2. Derive accurately from authorized verification queue API: GET /admin/verification/queue
-      const fetchQueueSafe = async (primaryStatus: string, fallbackStatus?: string) => {
-        try {
-          return await httpClient.get<{
-            success?: boolean;
-            data: Record<string, unknown>[];
-            meta?: { total?: number; totalItems?: number };
-          }>('/admin/verification/queue', { params: { status: primaryStatus, limit: 50 } });
-        } catch {
-          if (fallbackStatus) {
-            try {
-              return await httpClient.get<{
-                success?: boolean;
-                data: Record<string, unknown>[];
-                meta?: { total?: number; totalItems?: number };
-              }>('/admin/verification/queue', { params: { status: fallbackStatus, limit: 50 } });
-            } catch {
-              return null;
-            }
-          }
-          return null;
-        }
-      };
-
-      const fetchWorkersSafe = async () => {
-        try {
-          return await httpClient.get<{
-            data?: Array<Record<string, unknown>>;
-            items?: Array<Record<string, unknown>>;
-          }>('/admin/workers', { params: { limit: 100 } });
-        } catch {
-          return null;
-        }
-      };
-
-      const [pendingRes, inReviewRes, rejectedRes, approvedRes, workersRes] = await Promise.all([
-        fetchQueueSafe('SUBMITTED', 'PENDING_REVIEW'),
-        fetchQueueSafe('IN_REVIEW'),
-        fetchQueueSafe('REJECTED'),
-        fetchQueueSafe('APPROVED'),
-        fetchWorkersSafe(),
-      ]);
 
       const rawWorkersList = Array.isArray(workersRes?.data?.data)
         ? workersRes.data.data
@@ -2643,9 +2644,23 @@ export class RealDashboardRepository implements IDashboardRepository {
       let complaintsSection: Record<string, unknown> | undefined;
       let rawQueues: Record<string, unknown> | undefined;
 
-      try {
-        const res = await httpClient.get<Record<string, unknown>>('/admin/dashboard');
-        const root = res.data;
+      // Fetch /admin/dashboard and /admin/support/tickets concurrently instead of sequentially
+      const [dashboardResult, ticketsResult] = await Promise.all([
+        httpClient
+          .get<Record<string, unknown>>('/admin/dashboard')
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error })),
+        fetchAllSupportTickets()
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error })),
+      ]);
+
+      if (!dashboardResult.ok) {
+        if (dashboardResult.error instanceof ServerFailureError) {
+          throw dashboardResult.error;
+        }
+      } else {
+        const root = dashboardResult.value.data;
         if (root && typeof root === 'object') {
           const raw = (root.data && typeof root.data === 'object' && !Array.isArray(root.data))
             ? (root.data as Record<string, unknown>)
@@ -2780,13 +2795,12 @@ export class RealDashboardRepository implements IDashboardRepository {
             rawQueues = raw.queues as Record<string, unknown>;
           }
         }
-      } catch (err: unknown) {
-        if (err instanceof ServerFailureError) {
-          throw err;
-        }
       }
 
-      const { rawTickets, metaTotal } = await fetchAllSupportTickets();
+      if (!ticketsResult.ok) {
+        throw ticketsResult.error;
+      }
+      const { rawTickets, metaTotal } = ticketsResult.value;
 
       return buildSupportFromTickets(rawTickets, metaTotal, complaintsSection, rawQueues);
     } catch (err) {

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
 import { WorkerVerificationReviewModal } from '../features/verification/presentation/WorkerVerificationReviewModal';
 import { verificationRepository, RealVerificationRepository } from '../features/verification/data/verificationRepository';
 import { httpClient } from '../core/api/httpClient';
@@ -22,11 +23,13 @@ function renderModal(props: {
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <WorkerVerificationReviewModal
-        dossierId={props.dossierId}
-        initialDossier={props.initialDossier}
-        onClose={props.onClose || vi.fn()}
-      />
+      <MemoryRouter>
+        <WorkerVerificationReviewModal
+          dossierId={props.dossierId}
+          initialDossier={props.initialDossier}
+          onClose={props.onClose || vi.fn()}
+        />
+      </MemoryRouter>
     </QueryClientProvider>
   );
 }
@@ -167,10 +170,10 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
 
     expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-    // Employer Reference is accessible and shows Start Review + Approve Check
+    // Employer Reference is accessible and shows Approve Check & Reject Check in simplified Step 3
     const refCard = screen.getByTestId('check-card-REFERENCE');
-    expect(within(refCard).getByRole('button', { name: /Start Review/i })).toBeInTheDocument();
     expect(within(refCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
+    expect(within(refCard).getByRole('button', { name: /Reject Check/i })).toBeInTheDocument();
 
     // Police Certificate must NOT be locked and must be directly accessible
     const polCard = screen.getByTestId('check-card-POLICE_CLEARANCE');
@@ -181,10 +184,11 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
     expect(within(polCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
   });
 
-  it('allows executive to start review explicitly on Employer Reference transitioning to IN_REVIEW', async () => {
+  it('auto-claims SUBMITTED Employer Reference when executive approves directly from simplified Step 3', async () => {
     const dossier = createMockDossier();
     vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(dossier);
     const claimSpy = vi.spyOn(verificationRepository, 'claimCheck').mockResolvedValue();
+    const approveSpy = vi.spyOn(verificationRepository, 'approveCheck').mockResolvedValue();
 
     const user = userEvent.setup();
     renderModal({ dossierId: 'W-TEST-001', initialDossier: dossier });
@@ -194,15 +198,13 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
     await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
 
     const refCard = await screen.findByTestId('check-card-REFERENCE');
-    const startReviewBtn = within(refCard).getByRole('button', { name: /Start Review/i });
-
-    await user.click(startReviewBtn);
+    await user.click(within(refCard).getByRole('button', { name: /Approve Check/i }));
+    await user.click(await screen.findByRole('button', { name: /Confirm Approval/i }));
 
     await waitFor(() => {
       expect(claimSpy).toHaveBeenCalledWith('chk-ref-001');
+      expect(approveSpy).toHaveBeenCalledWith('chk-ref-001', 'REFERENCE', expect.any(String));
     });
-
-    expect(await screen.findByText(/Check review started\. Status updated to In Review\./i)).toBeInTheDocument();
   });
 
   it('approves Employer Reference when SUBMITTED via auto-transition SUBMITTED -> IN_REVIEW -> APPROVED', async () => {
@@ -318,9 +320,9 @@ describe('Manual Approval for Employer Reference and Police Certificate', () => 
     expect(within(polCard).queryByTestId('locked-notice-POLICE_CLEARANCE')).not.toBeInTheDocument();
 
     // Action buttons must be present
-    expect(within(polCard).getByRole('button', { name: /Start Review/i })).toBeInTheDocument();
     const polApproveBtn = within(polCard).getByRole('button', { name: /Approve Check/i });
     expect(polApproveBtn).toBeInTheDocument();
+    expect(within(polCard).getByRole('button', { name: /Reject Check/i })).toBeInTheDocument();
 
     // Approve Police Certificate directly without digital document attachment
     await user.click(polApproveBtn);

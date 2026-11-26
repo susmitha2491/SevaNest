@@ -105,18 +105,19 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       // Residential address / locality
       expect(screen.getAllByText(/Kondapur/i).length).toBeGreaterThan(0);
 
-      // Navigate to Step 2 -> Step 3 for Emergency Contact
+      // Navigate to Step 2 -> Step 3 for Emergency Contact check
       const dialog = await screen.findByRole('dialog');
       const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn1);
       const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn2);
 
-      expect(screen.getByText('Rajesh Devi')).toBeInTheDocument();
-      expect(screen.getByText(/Spouse/i)).toBeInTheDocument();
+      const ecCard = screen.getByTestId('check-card-EMERGENCY_CONTACT');
+      expect(within(ecCard).getByText('Emergency Contact')).toBeInTheDocument();
+      expect(within(ecCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
     });
 
-    it('displays Work Profile in Step 1 and Step 3 with applied categories, experience, and prior employer', async () => {
+    it('displays Work Profile in Step 1 and clean Employer Reference check in Step 3', async () => {
       const user = userEvent.setup();
       renderWithProviders(<VerificationQueuePage />);
 
@@ -134,7 +135,9 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
       await user.click(nextBtn2);
 
-      expect(screen.getByText(/Mrs\. S\. Sharma/i)).toBeInTheDocument();
+      const refCard = screen.getByTestId('check-card-REFERENCE');
+      expect(within(refCard).getByText('Employer Reference')).toBeInTheDocument();
+      expect(within(refCard).getByRole('button', { name: /Approve Check/i })).toBeInTheDocument();
     });
 
     it('displays submitted documents in Step 2 and opens secure document viewer when requested', async () => {
@@ -179,12 +182,11 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
 
       expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
       expect(screen.getByText(/Checks Approved/i)).toBeInTheDocument();
-      expect(screen.getAllByText(/Mobile OTP Pre-Check/i).length).toBeGreaterThan(0);
       expect(screen.getByRole('heading', { name: /Identity Proof/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Address Proof/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Emergency Contact/i })).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: /Employer Reference/i })).toBeInTheDocument();
-      expect(screen.getByRole('heading', { name: /Police Clearance/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Police Certificate/i })).toBeInTheDocument();
     });
 
     it('displays review ownership and claim status for the verification executive', async () => {
@@ -231,12 +233,12 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
   });
 
   describe('4. Workers Directory Consistency & Matching Eligibility', () => {
-    it('filters Active & Verified Roster strictly to isFullyVerified && ACTIVE workers', async () => {
+    it('filters Active tab strictly to isFullyVerified && ACTIVE workers', async () => {
       const user = userEvent.setup();
       renderWithProviders(<WorkersListPage />);
 
-      // Switch to Active & Verified Roster tab
-      const verifiedTab = await screen.findByRole('button', { name: /Active & Verified Roster/i }, { timeout: 10000 });
+      // Switch to Active tab
+      const verifiedTab = await screen.findByRole('button', { name: /^Active$/i }, { timeout: 10000 });
       await user.click(verifiedTab);
 
       // Sunita Devi is fully verified and active
@@ -246,12 +248,12 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       expect(screen.queryByText('Ramesh Yadav')).not.toBeInTheDocument();
     });
 
-    it('filters Pending Verification / Incomplete KYC tab to unverified workers', async () => {
+    it('filters Pending Verification tab to unverified workers', async () => {
       const user = userEvent.setup();
       renderWithProviders(<WorkersListPage />);
 
       // Switch to Pending Verification tab
-      const pendingTab = await screen.findByRole('button', { name: /Pending Verification \/ Incomplete KYC/i }, { timeout: 10000 });
+      const pendingTab = await screen.findByRole('button', { name: /^Pending Verification$/i }, { timeout: 10000 });
       await user.click(pendingTab);
 
       // Ramesh Yadav is pending verification

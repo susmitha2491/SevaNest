@@ -682,15 +682,12 @@ describe('Worker Verification Queue UX & Actions Suite', () => {
       await user.click(nextBtn2);
       expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
 
-      // Mobile OTP Pre-Check
-      expect(screen.getAllByText(/Mobile OTP Pre-Check/i).length).toBeGreaterThan(0);
-
-      // Operational checks rendered in Step 3
+      // Operational checks rendered in simplified Step 3
       expect(screen.getAllByText('Identity Proof').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Address Proof').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Emergency Contact').length).toBeGreaterThan(0);
       expect(screen.getAllByText('Employer Reference').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Police Clearance').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Police Certificate').length).toBeGreaterThan(0);
     });
   });
 });

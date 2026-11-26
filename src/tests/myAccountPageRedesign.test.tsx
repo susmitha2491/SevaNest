@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { RouterProvider, createMemoryRouter } from 'react-router-dom';
@@ -122,67 +121,22 @@ describe('My Account & Staff Profile Redesign', () => {
     });
   });
 
-  describe('3. Profile Photo Handling & Validation', () => {
-    it('validates file size <= 2MB and format (PNG, JPG, WebP)', async () => {
+  describe('3. Profile Photo Removal & Non-clickable Initials Display', () => {
+    it('confirms photo upload input, camera icon button, and preview controls are absent', async () => {
       renderApp('/account');
 
-      const fileInput = await screen.findByTestId('profile-photo-input');
+      expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
 
-      // 1. Invalid file format: .txt
-      const invalidFile = new File(['dummy content'], 'document.txt', { type: 'text/plain' });
-      fireEvent.change(fileInput, { target: { files: [invalidFile] } });
+      // Simple initials-based avatar is present
+      expect(screen.getByTestId('account-avatar')).toBeInTheDocument();
+      expect(screen.getByTestId('account-avatar')).toHaveTextContent('R');
 
-      expect(await screen.findByText(/Invalid image format/i)).toBeInTheDocument();
-
-      // 2. Oversized file: 3MB
-      const largeContent = new Uint8Array(3 * 1024 * 1024);
-      const oversizedFile = new File([largeContent], 'large-photo.jpg', { type: 'image/jpeg' });
-      fireEvent.change(fileInput, { target: { files: [oversizedFile] } });
-
-      expect(await screen.findByText(/exceeds the 2MB size limit/i)).toBeInTheDocument();
-    });
-
-    it('previews valid photo and allows discarding selection', async () => {
-      renderApp('/account');
-
-      const fileInput = await screen.findByTestId('profile-photo-input');
-
-      // Valid 100KB PNG photo
-      const validContent = new Uint8Array(100 * 1024);
-      const validPhoto = new File([validContent], 'avatar.png', { type: 'image/png' });
-
-      fireEvent.change(fileInput, { target: { files: [validPhoto] } });
-
-      // Save New Photo button and Discard button appear
-      const discardBtn = await screen.findByTestId('remove-photo-button');
-      expect(discardBtn).toBeInTheDocument();
-
-      fireEvent.click(discardBtn);
-
-      await waitFor(() => {
-        expect(screen.queryByTestId('remove-photo-button')).not.toBeInTheDocument();
-      });
-    });
-
-    it('surfaces backend contract gap if backend lacks photo upload endpoint', async () => {
-      vi.spyOn(authRepository as any, 'uploadProfilePhoto').mockRejectedValue(
-        new Error(
-          'Backend API contract gap: The SevaNest backend does not currently provide an admin profile photo upload endpoint ("POST /api/v1/admin/account/photo" or "POST /api/v1/users/me/photo").'
-        )
-      );
-
-      renderApp('/account');
-
-      const fileInput = await screen.findByTestId('profile-photo-input');
-      const validPhoto = new File([new Uint8Array(50 * 1024)], 'avatar.webp', { type: 'image/webp' });
-      fireEvent.change(fileInput, { target: { files: [validPhoto] } });
-
-      const savePhotoBtn = await screen.findByRole('button', { name: /Save New Photo/i });
-      fireEvent.click(savePhotoBtn);
-
-      expect(
-        await screen.findByText(/Backend API contract gap: The SevaNest backend does not currently provide/i)
-      ).toBeInTheDocument();
+      // Camera button, file input, and photo action controls are removed
+      expect(screen.queryByTitle(/Upload or change profile photo/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('profile-photo-input')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('profile-photo-preview')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('remove-photo-button')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Save New Photo/i })).not.toBeInTheDocument();
     });
   });
 

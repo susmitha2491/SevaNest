@@ -1,21 +1,20 @@
-/* global HTMLDivElement, IntersectionObserver */
+/* global HTMLDivElement, IntersectionObserver, Node */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import {
-  ShieldAlert,
-  Star,
   RefreshCw,
   Clock,
   CheckCircle2,
   ExternalLink,
   Eye,
   AlertTriangle,
+  AlertCircle,
+  ArrowUpDown,
+  Check,
 } from 'lucide-react';
 import { workerRepository, resolveCategoryId } from '../data/workerRepository';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
-import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
-import { VerificationBadge } from '../../../shared/components/VerificationBadge/VerificationBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { NoAccessView } from '../../../shared/components/NoAccessView/NoAccessView';
 import { useAuthStore } from '../../../core/auth/authStore';
@@ -24,6 +23,112 @@ import { WorkerDetailModal } from './WorkerDetailModal';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+
+type VerificationFilterValue = 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE';
+type WorkerSortOption = 'recently_added' | 'name_asc';
+
+const WORKER_TABS: Array<{ key: VerificationFilterValue; label: string }> = [
+  { key: 'ALL', label: 'All Workers' },
+  { key: 'VERIFIED', label: 'Active' },
+  { key: 'PENDING', label: 'Pending Verification' },
+  { key: 'IN_REVIEW', label: 'In Review' },
+  { key: 'REJECTED', label: 'Rejected / Corrections' },
+  { key: 'RECHECK_DUE', label: 'Re-check Due' },
+];
+
+function getPrimarySkillDisplay(worker: Worker): { primarySkill: string; extraCount: number } {
+  const fromCategories = Array.isArray(worker.categories)
+    ? worker.categories.map((c) => String(c).trim()).filter(Boolean)
+    : [];
+  const fromCategoryStr =
+    typeof worker.category === 'string'
+      ? worker.category.split(',').map((c) => c.trim()).filter(Boolean)
+      : [];
+  const explicitPrimary =
+    typeof worker.category === 'string' && !worker.category.includes(',')
+      ? worker.category.trim()
+      : '';
+
+  const seen = new Set<string>();
+  const uniqueSkills: string[] = [];
+  for (const raw of [
+    ...(explicitPrimary ? [explicitPrimary] : []),
+    ...(fromCategories.length > 0 ? fromCategories : fromCategoryStr),
+  ]) {
+    const key = raw.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueSkills.push(raw);
+    }
+  }
+
+  const primarySkill = uniqueSkills[0] || 'Domestic Worker';
+  const extraCount = uniqueSkills.length > 1 ? uniqueSkills.length - 1 : 0;
+  return { primarySkill, extraCount };
+}
+
+function getVerificationBadgeSpec(worker: Worker) {
+  const isRejected =
+    worker.verificationStatus === 'REJECTED' ||
+    worker.applicationStatus === 'REJECTED' ||
+    worker.status === 'REJECTED';
+  const isRecheckDue = worker.verificationStatus === 'RECHECK_DUE';
+  const isVerified = worker.isFullyVerified || worker.verificationLevel === 'VERIFIED';
+  const isInReview =
+    worker.verificationStatus === 'IN_REVIEW' ||
+    worker.verificationLevel === 'IN_PROGRESS' ||
+    worker.applicationStatus === 'UNDER_REVIEW';
+
+  if (isRejected) {
+    return {
+      key: 'REJECTED' as const,
+      label: 'Rejected',
+      bg: 'var(--color-status-danger-bg)',
+      border: 'var(--color-status-danger-border)',
+      color: 'var(--color-status-danger-text)',
+      testId: 'verification-badge-rejected',
+      Icon: AlertTriangle,
+    };
+  }
+  if (isRecheckDue) {
+    return {
+      key: 'RECHECK_DUE' as const,
+      label: 'Re-check Due',
+      bg: 'var(--color-status-warning-bg)',
+      border: 'var(--color-status-warning-border)',
+      color: 'var(--color-status-warning-text)',
+      Icon: RefreshCw,
+    };
+  }
+  if (isVerified) {
+    return {
+      key: 'VERIFIED' as const,
+      label: 'Verified',
+      bg: 'var(--color-status-success-bg)',
+      border: 'var(--color-status-success-border)',
+      color: 'var(--color-status-success-text)',
+      Icon: CheckCircle2,
+    };
+  }
+  if (isInReview) {
+    return {
+      key: 'IN_REVIEW' as const,
+      label: 'In Review',
+      bg: 'var(--color-status-info-bg)',
+      border: 'var(--color-status-info-border)',
+      color: 'var(--color-status-info-text)',
+      Icon: Clock,
+    };
+  }
+  return {
+    key: 'PENDING' as const,
+    label: 'Pending',
+    bg: 'var(--color-status-warning-bg)',
+    border: 'var(--color-status-warning-border)',
+    color: 'var(--color-status-warning-text)',
+    Icon: AlertCircle,
+  };
+}
 
 export const WorkersListPage: React.FC = () => {
   const navigate = useNavigate();
@@ -34,24 +139,11 @@ export const WorkersListPage: React.FC = () => {
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const lastSyncedSearchRef = useRef<string>(searchTerm);
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') || 'ALL');
-  const [verificationFilter, setVerificationFilter] = useState<
-    'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
-  >(
-    () =>
-      (searchParams.get('verificationStatus') as
-        | 'ALL'
-        | 'VERIFIED'
-        | 'PENDING'
-        | 'IN_REVIEW'
-        | 'REJECTED'
-        | 'RECHECK_DUE') || 'ALL'
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilterValue>(
+    () => (searchParams.get('verificationStatus') as VerificationFilterValue) || 'ALL'
   );
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED'>(
-    () => (searchParams.get('status') as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED') || 'ALL'
-  );
-  const [localityFilter, setLocalityFilter] = useState(() => searchParams.get('locality') || 'ALL');
-  const [sortField, setSortField] = useState<'ratingAverage' | 'experienceYears' | 'name' | 'id'>('ratingAverage');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [sortOption, setSortOption] = useState<WorkerSortOption>('recently_added');
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
 
   const [detailModalId, setDetailModalId] = useState<string | null>(
     () => searchParams.get('workerId') || searchParams.get('applicationId') || null
@@ -60,6 +152,25 @@ export const WorkersListPage: React.FC = () => {
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const sortMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isSortMenuOpen) return;
+    const handleOutside = (e: { target: unknown }) => {
+      if (sortMenuRef.current && !sortMenuRef.current.contains(e.target as Node)) {
+        setIsSortMenuOpen(false);
+      }
+    };
+    const handleEsc = (e: { key: string }) => {
+      if (e.key === 'Escape') setIsSortMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [isSortMenuOpen]);
 
   // Sync debounced search to URL without reloading or thrashing
   useEffect(() => {
@@ -90,23 +201,26 @@ export const WorkersListPage: React.FC = () => {
     }
     const verif = searchParams.get('verificationStatus');
     if (verif) {
-      setVerificationFilter(
-        verif as 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
-      );
-    }
-    const stat = searchParams.get('status');
-    if (stat) {
-      setStatusFilter(stat as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED');
+      setVerificationFilter(verif as VerificationFilterValue);
     }
     const cat = searchParams.get('category');
     if (cat) {
       setCategoryFilter(cat);
     }
-    const loc = searchParams.get('locality');
-    if (loc) {
-      setLocalityFilter(loc);
-    }
   }, [searchParams]);
+
+  const handleVerificationFilterChange = (nextVal: VerificationFilterValue) => {
+    setVerificationFilter(nextVal);
+    setSearchParams((prev) => {
+      const next = new window.URLSearchParams(prev);
+      if (nextVal !== 'ALL') {
+        next.set('verificationStatus', nextVal);
+      } else {
+        next.delete('verificationStatus');
+      }
+      return next;
+    }, { replace: true });
+  };
 
   const handleOpenDetailModal = (id: string) => {
     setDetailModalId(id);
@@ -146,8 +260,6 @@ export const WorkersListPage: React.FC = () => {
       debouncedSearchTerm,
       categoryFilter,
       verificationFilter,
-      statusFilter,
-      localityFilter,
     ],
     queryFn: async ({ pageParam = 1 }) => {
       let verifiedParam: boolean | undefined = undefined;
@@ -160,8 +272,6 @@ export const WorkersListPage: React.FC = () => {
       const criteria: WorkerFilterCriteria = {
         searchTerm: debouncedSearchTerm,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
-        locality: localityFilter !== 'ALL' ? localityFilter : undefined,
-        status: statusFilter !== 'ALL' ? statusFilter : undefined,
         verified: verifiedParam,
       };
 
@@ -233,38 +343,35 @@ export const WorkersListPage: React.FC = () => {
       } else if (verificationFilter === 'PENDING') {
         result = result.filter((w) => !w.isFullyVerified);
       } else if (verificationFilter === 'IN_REVIEW') {
-        result = result.filter((w) => w.verificationStatus === 'IN_REVIEW');
+        result = result.filter(
+          (w) => w.verificationStatus === 'IN_REVIEW' || w.applicationStatus === 'UNDER_REVIEW'
+        );
       } else if (verificationFilter === 'REJECTED') {
-        result = result.filter((w) => w.verificationStatus === 'REJECTED');
+        result = result.filter(
+          (w) => w.verificationStatus === 'REJECTED' || w.applicationStatus === 'REJECTED'
+        );
       } else if (verificationFilter === 'RECHECK_DUE') {
         result = result.filter((w) => w.verificationStatus === 'RECHECK_DUE');
       }
     }
 
-    if (statusFilter !== 'ALL') {
-      result = result.filter((w) => w.status === statusFilter);
-    }
-
-    if (localityFilter !== 'ALL') {
-      result = result.filter((w) => w.locality === localityFilter);
-    }
-
     result.sort((a, b) => {
-      let comparison = 0;
-      if (sortField === 'ratingAverage') {
-        comparison = a.ratingAverage - b.ratingAverage;
-      } else if (sortField === 'experienceYears') {
-        comparison = a.experienceYears - b.experienceYears;
-      } else if (sortField === 'name') {
-        comparison = a.name.localeCompare(b.name);
-      } else if (sortField === 'id') {
-        comparison = a.id.localeCompare(b.id);
+      if (sortOption === 'name_asc') {
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
       }
-      return sortOrder === 'asc' ? comparison : -comparison;
+      // Recently Added: sort newest-first using backend timestamps (with ID fallback)
+      const timeA = Date.parse(a.createdAt || a.registeredAt || '');
+      const timeB = Date.parse(b.createdAt || b.registeredAt || '');
+      if (Number.isFinite(timeA) && Number.isFinite(timeB) && timeA !== timeB) {
+        return timeB - timeA;
+      }
+      if (Number.isFinite(timeB) && !Number.isFinite(timeA)) return 1;
+      if (Number.isFinite(timeA) && !Number.isFinite(timeB)) return -1;
+      return b.id.localeCompare(a.id);
     });
 
     return result;
-  }, [allWorkers, categoryFilter, verificationFilter, statusFilter, localityFilter, sortField, sortOrder]);
+  }, [allWorkers, categoryFilter, verificationFilter, sortOption]);
 
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedWorkers.length;
 
@@ -279,28 +386,16 @@ export const WorkersListPage: React.FC = () => {
     ];
     const set = new Set<string>(canonicalCategories);
     allWorkers.forEach((w) => {
-      if (w.category && w.category !== 'ALL') set.add(w.category);
       w.categories?.forEach((c) => {
-        if (c && c !== 'ALL') set.add(c);
+        const trimmed = c?.trim();
+        if (trimmed && trimmed !== 'ALL') set.add(trimmed);
       });
-    });
-    return ['ALL', ...Array.from(set)];
-  }, [allWorkers]);
-
-  const localities = useMemo(() => {
-    const canonicalLocalities = [
-      'Banjara Hills',
-      'Gachibowli',
-      'HITEC City',
-      'Jubilee Hills',
-      'Kondapur',
-      'Kukatpally',
-      'Madhapur',
-      'Miyapur',
-    ];
-    const set = new Set<string>(canonicalLocalities);
-    allWorkers.forEach((w) => {
-      if (w.locality && w.locality !== 'ALL') set.add(w.locality);
+      if (w.category && w.category !== 'ALL') {
+        w.category.split(',').forEach((part) => {
+          const trimmed = part.trim();
+          if (trimmed && trimmed !== 'ALL') set.add(trimmed);
+        });
+      }
     });
     return ['ALL', ...Array.from(set)];
   }, [allWorkers]);
@@ -366,11 +461,11 @@ export const WorkersListPage: React.FC = () => {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
         <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.25 }}>
+          <h1 style={{ fontSize: 'var(--font-size-2xl)', fontWeight: 700, color: 'var(--color-navy)', lineHeight: 1.25 }}>
             Domestic Worker Roster & Profiles
           </h1>
           <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-            Workforce catalog with 6-point verification badge, skill ratings, cluster distribution, and disciplinary controls.
+            Manage worker profiles, skills, and verification status.
           </p>
         </div>
         <button
@@ -425,39 +520,40 @@ export const WorkersListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Operational Scope Tabs */}
-      <div style={{ display: 'flex', gap: '6px', borderBottom: '1px solid var(--color-border-subtle)', paddingBottom: 'var(--space-2)', flexWrap: 'wrap' }}>
-        {[
-          { key: 'ALL', label: 'All Registered Workers' },
-          { key: 'VERIFIED', label: 'Active & Verified Roster (Matching Eligible)' },
-          { key: 'PENDING', label: 'Pending Verification / Incomplete KYC' },
-          { key: 'IN_REVIEW', label: 'In Review Pipeline' },
-          { key: 'REJECTED', label: 'Rejected / Corrections' },
-          { key: 'RECHECK_DUE', label: 'Re-Check Due' },
-        ].map((tab) => {
+      {/* Worker Category Tabs */}
+      <div
+        role="tablist"
+        aria-label="Worker verification filters"
+        style={{
+          display: 'flex',
+          gap: '4px',
+          borderBottom: '1px solid var(--color-border-subtle)',
+          paddingBottom: '6px',
+          overflowX: 'auto',
+          flexWrap: 'nowrap',
+        }}
+      >
+        {WORKER_TABS.map((tab) => {
           const isActive = verificationFilter === tab.key;
           return (
             <button
               key={tab.key}
-              onClick={() => {
-                setVerificationFilter(
-                  tab.key as 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE'
-                );
-              }}
+              type="button"
+              onClick={() => handleVerificationFilterChange(tab.key)}
               style={{
-                padding: '5px 12px',
+                padding: '6px 12px',
                 borderRadius: 'var(--radius-md)',
-                border: 'none',
-                backgroundColor: isActive ? 'var(--color-brand-600, var(--color-primary))' : 'var(--color-bg-subtle)',
+                border: isActive ? '1px solid transparent' : '1px solid transparent',
+                backgroundColor: isActive ? 'var(--color-brand-600, var(--color-primary))' : 'transparent',
                 color: isActive ? '#ffffff' : 'var(--color-text-secondary)',
-                fontWeight: 600,
+                fontWeight: isActive ? 600 : 500,
                 fontSize: 'var(--font-size-xs)',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
-                gap: '5px',
                 whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease',
+                flexShrink: 0,
+                transition: 'background-color 0.15s ease, color 0.15s ease',
               }}
             >
               <span>{tab.label}</span>
@@ -470,7 +566,7 @@ export const WorkersListPage: React.FC = () => {
       {verificationFilter === 'PENDING' && (
         <div
           style={{
-            padding: 'var(--space-3) var(--space-4)',
+            padding: '8px 12px',
             backgroundColor: 'var(--color-status-info-bg)',
             border: '1px solid var(--color-status-info-border)',
             borderRadius: 'var(--radius-md)',
@@ -479,17 +575,18 @@ export const WorkersListPage: React.FC = () => {
             alignItems: 'center',
             fontSize: 'var(--font-size-xs)',
             color: 'var(--color-status-info-text)',
-            gap: 'var(--space-3)',
+            gap: 'var(--space-2)',
             flexWrap: 'wrap',
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-            <Clock size={16} />
+            <Clock size={15} />
             <span>
-              <strong>Pending Worker Applications:</strong> These workers have submitted onboarding details but have not completed all 6 verification checks. They cannot be matched to bookings until approved by a Verification Executive.
+              Pending verification workers are excluded from booking matches until Verification Executive review completes.
             </span>
           </div>
           <button
+            type="button"
             onClick={() => navigate('/verification')}
             style={{
               padding: '4px 10px',
@@ -512,30 +609,28 @@ export const WorkersListPage: React.FC = () => {
         </div>
       )}
 
-      {/* Filter and Search Bar */}
+      {/* Compact Filter Bar */}
       <div
         style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: '12px',
+          gap: '10px',
           alignItems: 'center',
           backgroundColor: 'var(--color-bg-surface, #ffffff)',
-          padding: '16px',
+          padding: '10px 12px',
           borderRadius: 'var(--radius-lg, 12px)',
           border: '1px solid var(--color-border, #e2e8f0)',
           boxShadow: 'var(--shadow-sm, 0 1px 2px 0 rgba(0, 0, 0, 0.05))',
         }}
       >
-        {/* Search */}
         <SearchInput
           value={searchTerm}
           onChange={(val) => setSearchTerm(val)}
-          placeholder="Search by worker name, ID, category, or locality..."
+          placeholder="Search by worker name, mobile, or ID..."
           ariaLabel="Search workers"
-          containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
+          containerStyle={{ flex: '1 1 260px', minWidth: 'min(100%, 220px)' }}
         />
 
-        {/* Category Filter */}
         <CustomSelect
           value={categoryFilter}
           onChange={(val) => {
@@ -552,452 +647,462 @@ export const WorkersListPage: React.FC = () => {
           }}
           options={categories.map((cat) => ({
             value: cat,
-            label: cat === 'ALL' ? 'Category: All Skills' : cat,
+            label: cat === 'ALL' ? 'Category: All' : cat,
           }))}
           ariaLabel="Filter by skill category"
-          minWidth="160px"
+          minWidth="165px"
         />
 
-        {/* Verification Status Filter */}
         <CustomSelect
           value={verificationFilter}
-          onChange={(val) => {
-            const nextVal = val as 'ALL' | 'VERIFIED' | 'PENDING';
-            setVerificationFilter(nextVal);
-            setSearchParams((prev) => {
-              const next = new window.URLSearchParams(prev);
-              if (nextVal !== 'ALL') {
-                next.set('verificationStatus', nextVal);
-              } else {
-                next.delete('verificationStatus');
-              }
-              return next;
-            }, { replace: true });
-          }}
+          onChange={(val) => handleVerificationFilterChange(val as VerificationFilterValue)}
           options={[
             { value: 'ALL', label: 'Verification: All' },
-            { value: 'VERIFIED', label: 'Fully Verified Only' },
-            { value: 'PENDING', label: 'Pending Verification' },
+            { value: 'VERIFIED', label: 'Verification: Verified' },
+            { value: 'PENDING', label: 'Verification: Pending' },
+            { value: 'IN_REVIEW', label: 'Verification: In Review' },
+            { value: 'REJECTED', label: 'Verification: Rejected' },
+            { value: 'RECHECK_DUE', label: 'Verification: Re-check Due' },
           ]}
           ariaLabel="Filter by verification state"
           minWidth="170px"
         />
-
-        {/* Status Filter */}
-        <CustomSelect
-          value={statusFilter}
-          onChange={(val) => {
-            const nextVal = val as 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';
-            setStatusFilter(nextVal);
-            setSearchParams((prev) => {
-              const next = new window.URLSearchParams(prev);
-              if (nextVal !== 'ALL') {
-                next.set('status', nextVal);
-              } else {
-                next.delete('status');
-              }
-              return next;
-            }, { replace: true });
-          }}
-          options={[
-            { value: 'ALL', label: 'Status: All' },
-            { value: 'ACTIVE', label: 'Active' },
-            { value: 'SUSPENDED', label: 'Suspended' },
-            { value: 'BLACKLISTED', label: 'Blacklisted' },
-          ]}
-          ariaLabel="Filter by account status"
-          minWidth="150px"
-        />
-
-        {/* Locality Filter */}
-        <CustomSelect
-          value={localityFilter}
-          onChange={(val) => {
-            setLocalityFilter(val);
-            setSearchParams((prev) => {
-              const next = new window.URLSearchParams(prev);
-              if (val !== 'ALL') {
-                next.set('locality', val);
-              } else {
-                next.delete('locality');
-              }
-              return next;
-            }, { replace: true });
-          }}
-          options={localities.map((loc) => ({
-            value: loc,
-            label: loc === 'ALL' ? 'Locality: All Clusters' : loc,
-          }))}
-          ariaLabel="Filter by operating locality"
-          minWidth="160px"
-        />
-
-        {/* Sort Field */}
-        <CustomSelect
-          value={`${sortField}-${sortOrder}`}
-          onChange={(val) => {
-            const [field, order] = val.split('-') as ['ratingAverage' | 'experienceYears' | 'name' | 'id', 'asc' | 'desc'];
-            setSortField(field);
-            setSortOrder(order);
-          }}
-          options={[
-            { value: 'ratingAverage-desc', label: 'Sort: Highest Rating' },
-            { value: 'experienceYears-desc', label: 'Sort: Most Experience' },
-            { value: 'name-asc', label: 'Sort: Worker Name (A-Z)' },
-            { value: 'id-asc', label: 'Sort: Worker ID' },
-          ]}
-          ariaLabel="Sort worker roster"
-          minWidth="175px"
-        />
       </div>
 
-      {/* Workers Roster Table with Continuous Scroll and Sticky Header */}
+      {/* Table Section Header + Compact Sort Control */}
       <div
-        data-testid="worker-table-scroll-container"
-        ref={tableContainerRef}
-        onScroll={handleScroll}
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           borderRadius: 'var(--radius-lg)',
           boxShadow: 'var(--shadow-sm)',
           border: '1px solid var(--color-border-subtle)',
-          overflowX: 'auto',
-          overflowY: 'auto',
-          maxHeight: '620px',
-          position: 'relative',
         }}
       >
-        <table style={{ width: '100%', minWidth: '780px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
-          <thead
-            style={{
-              position: 'sticky',
-              top: 0,
-              zIndex: 10,
-              backgroundColor: 'var(--color-bg-subtle)',
-              borderBottom: '1px solid var(--color-border-subtle)',
-              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-            }}
-          >
-            <tr>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Worker ID
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Worker Name
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Primary Skill
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                KYC Status
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Matching Eligibility
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Experience
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Rating
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Cluster
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Account Status
-              </th>
-              <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}>
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading && !data && !isError ? (
-              <tr>
-                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
-                  <LoadingSpinner message="Loading domestic worker roster..." />
-                </td>
-              </tr>
-            ) : isError ? (
-              <tr>
-                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
-                    <AlertTriangle size={24} />
-                    <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>Backend Validation Error</span>
-                    <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', maxWidth: '480px' }}>
-                      {error instanceof Error ? error.message : 'Validation failed while retrieving workers from the backend.'}
-                    </span>
-                    <button
-                      onClick={() => {
-                        setSearchTerm('');
-                        setSearchParams((prev) => {
-                          const next = new window.URLSearchParams(prev);
-                          next.delete('search');
-                          return next;
-                        }, { replace: true });
-                        refetch();
-                      }}
-                      style={{
-                        marginTop: 'var(--space-2)',
-                        padding: '6px 14px',
-                        backgroundColor: 'var(--color-primary)',
-                        color: '#ffffff',
-                        borderRadius: 'var(--radius-md)',
-                        border: 'none',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Clear Search & Reset
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ) : filteredAndSortedWorkers.length === 0 ? (
-              <tr>
-                <td colSpan={10} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
-                  No domestic workers match your search and filter criteria.
-                </td>
-              </tr>
-            ) : (
-              filteredAndSortedWorkers.map((worker: Worker) => (
-                <tr
-                  key={worker.id}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`View profile for ${worker.name} (${worker.id})`}
-                  className="worker-directory-row"
-                  onClick={(e) => {
-                    const target = e.target as { closest?: (selector: string) => unknown };
-                    if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                      return;
-                    }
-                    handleOpenDetailModal(worker.id);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      const target = e.target as { closest?: (selector: string) => unknown };
-                      if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
-                        return;
-                      }
-                      e.preventDefault();
-                      handleOpenDetailModal(worker.id);
-                    }
-                  }}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '8px',
+            padding: '10px 14px',
+            borderBottom: '1px solid var(--color-border-subtle)',
+            backgroundColor: 'var(--color-bg-surface)',
+            borderTopLeftRadius: 'var(--radius-lg)',
+            borderTopRightRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: 'var(--font-size-sm)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
+              Worker Directory
+            </h2>
+            <span
+              style={{
+                fontSize: '11px',
+                fontWeight: 600,
+                padding: '1px 8px',
+                borderRadius: 'var(--radius-full)',
+                backgroundColor: 'var(--color-bg-subtle)',
+                color: 'var(--color-text-secondary)',
+                border: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              {filteredAndSortedWorkers.length}
+              {totalCount > filteredAndSortedWorkers.length ? ` of ${totalCount}` : ''}
+            </span>
+
+            <div ref={sortMenuRef} style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <button
+                type="button"
+                onClick={() => setIsSortMenuOpen((prev) => !prev)}
+                aria-label="Sort worker roster"
+                aria-haspopup="menu"
+                aria-expanded={isSortMenuOpen}
+                title={`Sort: ${sortOption === 'name_asc' ? 'Name A–Z' : 'Recently Added'}`}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 8px',
+                  borderRadius: 'var(--radius-sm)',
+                  border: '1px solid var(--color-border-subtle)',
+                  backgroundColor: isSortMenuOpen ? 'var(--color-bg-subtle)' : 'var(--color-bg-surface)',
+                  color: 'var(--color-text-secondary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <ArrowUpDown size={12} />
+                <span>{sortOption === 'name_asc' ? 'Name A–Z' : 'Recently Added'}</span>
+              </button>
+
+              {isSortMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="Sort options"
                   style={{
-                    borderBottom: '1px solid var(--color-border-subtle)',
-                    cursor: 'pointer',
-                    transition: 'background-color 0.15s ease',
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    minWidth: '150px',
+                    backgroundColor: 'var(--color-bg-surface, #ffffff)',
+                    border: '1px solid var(--color-border, #e2e8f0)',
+                    borderRadius: 'var(--radius-md)',
+                    boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.1))',
+                    padding: '4px',
+                    zIndex: 30,
                   }}
                 >
-                  <td style={{ padding: '14px 16px', fontWeight: 700, color: 'var(--color-accent)', fontFamily: 'monospace' }}>
-                    <div>{worker.id}</div>
-                    {worker.applicationId && worker.applicationId !== worker.id && (
-                      <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 500 }}>
-                        App: {worker.applicationId}
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                      {detailModalId === worker.id ? `${worker.name} (Viewing)` : worker.name}
-                    </div>
-                    {worker.phoneMasked && (
-                      <div style={{ fontSize: '11px', color: 'var(--color-text-muted)' }}>{worker.phoneMasked}</div>
-                    )}
-                  </td>
-                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                    <div style={{ fontWeight: 500 }}>{worker.category}</div>
-                    {worker.categories && worker.categories.length > 1 && (
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '3px' }}>
-                        {worker.categories
-                          .filter((c) => c !== worker.category)
-                          .map((cat) => (
-                            <span
-                              key={cat}
-                              style={{
-                                fontSize: '10px',
-                                padding: '1px 5px',
-                                borderRadius: 'var(--radius-sm)',
-                                backgroundColor: 'var(--color-bg-subtle)',
-                                border: '1px solid var(--color-border-subtle)',
-                                color: 'var(--color-text-tertiary)',
-                              }}
-                            >
-                              +{cat}
-                            </span>
-                          ))}
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    {(() => {
-                      const isVerified = worker.isFullyVerified || worker.verificationLevel === 'VERIFIED';
-                      const isRejected = worker.verificationStatus === 'REJECTED' || worker.applicationStatus === 'REJECTED';
-                      const isInProgress = worker.verificationLevel === 'IN_PROGRESS' || worker.applicationStatus === 'UNDER_REVIEW';
-                      const statusToShow = isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : isInProgress ? 'IN_REVIEW' : 'PENDING';
-                      return (
-                        <div>
-                          <VerificationBadge isFullyVerified={isVerified} status={statusToShow} />
-                          {worker.signedOffAt && (
-                            <div style={{ fontSize: '10px', color: 'var(--color-success)', marginTop: '2px', fontWeight: 600 }}>
-                              Signed Off{worker.activatedAt ? ' • Activated' : ''}
-                            </div>
-                          )}
-                          {!worker.signedOffAt && isVerified && (
-                            <div style={{ fontSize: '10px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                              Awaiting Sign-Off
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    {(() => {
-                      const isEligible = worker.matchingEligible ?? (worker.isFullyVerified && (worker.accountStatus === 'ACTIVE' || worker.status === 'ACTIVE') && (!worker.signedOffAt || Boolean(worker.signedOffAt && worker.activatedAt)));
-                      if (isEligible) {
-                        return (
-                          <span style={{ color: 'var(--color-status-success-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                            <CheckCircle2 size={13} /> Eligible
-                          </span>
-                        );
-                      }
-                      if (worker.verificationStatus === 'REJECTED' || worker.applicationStatus === 'REJECTED') {
-                        return (
-                          <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                            <ShieldAlert size={13} /> Ineligible (Rejected)
-                          </span>
-                        );
-                      }
-                      if (worker.accountStatus === 'SUSPENDED' || worker.status === 'SUSPENDED') {
-                        return (
-                          <span style={{ color: 'var(--color-status-danger-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                            <ShieldAlert size={13} /> Ineligible (Suspended)
-                          </span>
-                        );
-                      }
-                      if (worker.isFullyVerified && worker.signedOffAt && !worker.activatedAt) {
-                        return (
-                          <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                            <Clock size={13} /> Ineligible (Pending Activation)
-                          </span>
-                        );
-                      }
-                      if (worker.isFullyVerified && !worker.signedOffAt) {
-                        return (
-                          <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                            <Clock size={13} /> Ineligible (Pending Sign-Off)
-                          </span>
-                        );
-                      }
-                      return (
-                        <span style={{ color: 'var(--color-status-warning-text)', display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '11px', fontWeight: 600 }}>
-                          <Clock size={13} /> Ineligible (KYC Pending)
-                        </span>
-                      );
-                    })()}
-                  </td>
-                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                    {worker.experienceYears} Years
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontWeight: 600, color: '#b45309' }}>
-                      <Star size={13} fill="#f59e0b" color="#f59e0b" /> {worker.ratingAverage}
-                    </span>
-                  </td>
-                  <td style={{ padding: '14px 16px', color: 'var(--color-text-secondary)' }}>
-                    {worker.locality}
-                  </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    {worker.status === 'SUSPENDED' || worker.status === 'BLACKLISTED' ? (
-                      <StatusBadge status={worker.status} />
-                    ) : worker.verificationStatus === 'REJECTED' || (worker.onboardingStatus as string) === 'REJECTED' || worker.status === 'REJECTED' ? (
-                      <StatusBadge status="REJECTED" />
-                    ) : (
-                      <StatusBadge status={worker.status} />
-                    )}
-                  </td>
-                  <td
-                    style={{ padding: '8px 12px', textAlign: 'right', whiteSpace: 'nowrap', width: '1%' }}
-                  >
-                    <div
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
+                  {(
+                    [
+                      { value: 'recently_added', label: 'Recently Added' },
+                      { value: 'name_asc', label: 'Name A–Z' },
+                    ] as const
+                  ).map((opt) => {
+                    const active = sortOption === opt.value;
+                    return (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenDetailModal(worker.id);
+                        key={opt.value}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => {
+                          setSortOption(opt.value);
+                          setIsSortMenuOpen(false);
                         }}
-                        aria-label={`View profile for ${worker.name}`}
                         style={{
-                          padding: '4px 10px',
-                          borderRadius: 'var(--radius-sm)',
-                          border: '1px solid var(--color-border-subtle)',
-                          backgroundColor: 'var(--color-surface)',
-                          color: 'var(--color-primary)',
-                          fontSize: 'var(--font-size-xs)',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          display: 'inline-flex',
+                          width: '100%',
+                          display: 'flex',
                           alignItems: 'center',
-                          gap: '4px',
+                          justifyContent: 'space-between',
+                          gap: '8px',
+                          padding: '6px 8px',
+                          borderRadius: 'var(--radius-sm)',
+                          border: 'none',
+                          backgroundColor: active ? 'var(--color-brand-50, #f0fdfa)' : 'transparent',
+                          color: active ? 'var(--color-primary)' : 'var(--color-text-primary)',
+                          fontSize: '12px',
+                          fontWeight: active ? 600 : 500,
+                          cursor: 'pointer',
+                          textAlign: 'left',
                         }}
                       >
-                        <Eye size={13} />
-                        <span>View Profile</span>
+                        <span>{opt.label}</span>
+                        {active && <Check size={13} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Workers Roster Table with Continuous Scroll and Sticky Header */}
+        <div
+          data-testid="worker-table-scroll-container"
+          ref={tableContainerRef}
+          onScroll={handleScroll}
+          style={{
+            overflowX: 'auto',
+            overflowY: 'auto',
+            maxHeight: '620px',
+            position: 'relative',
+          }}
+        >
+          <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', textAlign: 'left', fontSize: 'var(--font-size-xs)' }}>
+            <thead
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 10,
+                backgroundColor: 'var(--color-bg-subtle)',
+                borderBottom: '1px solid var(--color-border-subtle)',
+              }}
+            >
+              <tr>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap', width: '26%' }}>
+                  Worker
+                </th>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap', width: '22%' }}>
+                  Primary Skill
+                </th>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap', width: '18%' }}>
+                  Verification Status
+                </th>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap', width: '11%' }}>
+                  Experience
+                </th>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', whiteSpace: 'nowrap', width: '13%' }}>
+                  Account Status
+                </th>
+                <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 14px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'right', whiteSpace: 'nowrap', width: '10%' }}>
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && !data && !isError ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 'var(--space-8)' }}>
+                    <LoadingSpinner message="Loading domestic worker roster..." />
+                  </td>
+                </tr>
+              ) : isError ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-status-danger-text)' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-2)' }}>
+                      <AlertTriangle size={24} />
+                      <span style={{ fontWeight: 600, fontSize: 'var(--font-size-sm)' }}>Backend Validation Error</span>
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-secondary)', maxWidth: '480px' }}>
+                        {error instanceof Error ? error.message : 'Validation failed while retrieving workers from the backend.'}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setSearchTerm('');
+                          setSearchParams((prev) => {
+                            const next = new window.URLSearchParams(prev);
+                            next.delete('search');
+                            return next;
+                          }, { replace: true });
+                          refetch();
+                        }}
+                        style={{
+                          marginTop: 'var(--space-2)',
+                          padding: '6px 14px',
+                          backgroundColor: 'var(--color-primary)',
+                          color: '#ffffff',
+                          borderRadius: 'var(--radius-md)',
+                          border: 'none',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Clear Search & Reset
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : filteredAndSortedWorkers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 'var(--space-8)', color: 'var(--color-text-muted)' }}>
+                    No domestic workers match your search and filter criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredAndSortedWorkers.map((worker: Worker) => {
+                  const mobileText = worker.phoneMasked || worker.phone || worker.mobile;
+                  const { primarySkill, extraCount } = getPrimarySkillDisplay(worker);
+                  const badge = getVerificationBadgeSpec(worker);
+                  const BadgeIcon = badge.Icon;
+                  const isRejectedWorker =
+                    worker.verificationStatus === 'REJECTED' ||
+                    worker.applicationStatus === 'REJECTED' ||
+                    (worker.onboardingStatus as string) === 'REJECTED' ||
+                    worker.status === 'REJECTED';
+                  const isAccountActive =
+                    !isRejectedWorker &&
+                    worker.status === 'ACTIVE' &&
+                    worker.accountStatus !== 'SUSPENDED';
 
-        {/* Sentinel element for infinite scroll */}
-        <div ref={sentinelRef} style={{ height: '1px' }} />
+                  return (
+                    <tr
+                      key={worker.id}
+                      tabIndex={0}
+                      role="button"
+                      aria-label={`View profile for ${worker.name} (${worker.id})`}
+                      className="worker-directory-row"
+                      onClick={(e) => {
+                        const target = e.target as { closest?: (selector: string) => unknown };
+                        if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                          return;
+                        }
+                        handleOpenDetailModal(worker.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          const target = e.target as { closest?: (selector: string) => unknown };
+                          if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
+                            return;
+                          }
+                          e.preventDefault();
+                          handleOpenDetailModal(worker.id);
+                        }
+                      }}
+                      style={{
+                        borderBottom: '1px solid var(--color-border-subtle)',
+                        cursor: 'pointer',
+                        transition: 'background-color 0.15s ease',
+                      }}
+                    >
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1.3 }}>
+                          {detailModalId === worker.id ? `${worker.name} (Viewing)` : worker.name}
+                        </div>
+                        {mobileText && (
+                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                            {mobileText}
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 14px', color: 'var(--color-text-secondary)' }}>
+                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 500, color: 'var(--color-text-primary)' }}>{primarySkill}</span>
+                          {extraCount > 0 && (
+                            <span
+                              style={{
+                                fontSize: '10px',
+                                fontWeight: 600,
+                                padding: '1px 6px',
+                                borderRadius: 'var(--radius-full)',
+                                backgroundColor: 'var(--color-bg-subtle)',
+                                border: '1px solid var(--color-border-subtle)',
+                                color: 'var(--color-text-muted)',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              +{extraCount} {extraCount === 1 ? 'skill' : 'skills'}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                        <span
+                          data-testid={badge.testId}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: badge.bg,
+                            border: `1px solid ${badge.border}`,
+                            color: badge.color,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <BadgeIcon size={11} />
+                          <span>{badge.label}</span>
+                        </span>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
+                        {Number(worker.experienceYears ?? 0)} yrs
+                      </td>
+                      <td style={{ padding: '10px 14px', whiteSpace: 'nowrap' }}>
+                        <span
+                          role="status"
+                          aria-label={`Account status: ${isAccountActive ? 'Active' : 'Inactive'}`}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            padding: '2px 8px',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: isAccountActive
+                              ? 'var(--color-status-success-bg)'
+                              : 'var(--color-status-neutral-bg)',
+                            border: `1px solid ${
+                              isAccountActive
+                                ? 'var(--color-status-success-border)'
+                                : 'var(--color-status-neutral-border)'
+                            }`,
+                            color: isAccountActive
+                              ? 'var(--color-status-success-text)'
+                              : 'var(--color-status-neutral-text)',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {isAccountActive ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td
+                        style={{ padding: '8px 14px', textAlign: 'right', whiteSpace: 'nowrap' }}
+                      >
+                        <div
+                          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'flex-end', whiteSpace: 'nowrap' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenDetailModal(worker.id);
+                            }}
+                            aria-label={`View profile for ${worker.name}`}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: 'var(--radius-sm)',
+                              border: '1px solid var(--color-border-subtle)',
+                              backgroundColor: 'var(--color-surface)',
+                              color: 'var(--color-primary)',
+                              fontSize: 'var(--font-size-xs)',
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                          >
+                            <Eye size={13} />
+                            <span>View Profile</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
 
-        {/* Loading indicator when fetching additional records */}
-        {isFetchingNextPage && (
-          <div
-            data-testid="loading-more-workers"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: 'var(--space-2)',
-              padding: 'var(--space-3)',
-              color: 'var(--color-primary)',
-              fontSize: 'var(--font-size-xs)',
-              fontWeight: 600,
-              backgroundColor: 'var(--color-bg-subtle)',
-              borderTop: '1px dashed var(--color-border-subtle)',
-            }}
-          >
-            <RefreshCw size={14} className="animate-spin" />
-            <span>Loading more worker records...</span>
-          </div>
-        )}
+          {/* Sentinel element for infinite scroll */}
+          <div ref={sentinelRef} style={{ height: '1px' }} />
 
-        {/* Continuous scroll status indicator when all records are loaded */}
-        {!hasNextPage && filteredAndSortedWorkers.length > 0 && (
-          <div
-            data-testid="continuous-scroll-footer"
-            style={{
-              padding: 'var(--space-2) var(--space-4)',
-              textAlign: 'center',
-              fontSize: '11px',
-              color: 'var(--color-text-muted)',
-              borderTop: '1px solid var(--color-border-subtle)',
-              backgroundColor: 'var(--color-bg-subtle)',
-            }}
-          >
-            All {totalCount} worker records loaded • Continuous scroll
-          </div>
-        )}
+          {/* Loading indicator when fetching additional records */}
+          {isFetchingNextPage && (
+            <div
+              data-testid="loading-more-workers"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 'var(--space-2)',
+                padding: 'var(--space-3)',
+                color: 'var(--color-primary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                backgroundColor: 'var(--color-bg-subtle)',
+                borderTop: '1px dashed var(--color-border-subtle)',
+              }}
+            >
+              <RefreshCw size={14} className="animate-spin" />
+              <span>Loading more worker records...</span>
+            </div>
+          )}
+
+          {/* Continuous scroll status indicator when all records are loaded */}
+          {!hasNextPage && filteredAndSortedWorkers.length > 0 && (
+            <div
+              data-testid="continuous-scroll-footer"
+              style={{
+                padding: 'var(--space-2) var(--space-4)',
+                textAlign: 'center',
+                fontSize: '11px',
+                color: 'var(--color-text-muted)',
+                borderTop: '1px solid var(--color-border-subtle)',
+                backgroundColor: 'var(--color-bg-subtle)',
+              }}
+            >
+              All {totalCount} worker records loaded • Continuous scroll
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Detailed Worker Profile / Operational Dossier Modal (Read-Only KYC in Worker Management) */}

@@ -144,39 +144,40 @@ httpClient.interceptors.response.use(
 
     const isTestEnv = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
 
-    // Safe cold-start retry for idempotent GET requests only
+    // Safe cold-start retry for short-timeout probes only; never double-wait on long (45s) GET timeouts
     // Never auto-retry mutations (POST, PUT, PATCH, DELETE) to prevent duplicate operations!
     const isTimeout =
       error.code === 'ECONNABORTED' ||
       (typeof error.message === 'string' && error.message.toLowerCase().includes('timeout'));
     const isGetRequest = (originalRequest?.method || 'get').toLowerCase() === 'get';
+    const requestTimeoutMs = originalRequest?.timeout ?? 0;
 
-    if (isTimeout && isGetRequest && originalRequest && !isTestEnv) {
+    if (isTimeout && isGetRequest && originalRequest && !isTestEnv && requestTimeoutMs > 0 && requestTimeoutMs <= 15_000) {
       originalRequest._wakeRetryCount = (originalRequest._wakeRetryCount || 0) + 1;
       if (originalRequest._wakeRetryCount <= 1) {
         logger.warn(
-          `Idempotent GET request to ${originalRequest.url} timed out (server may be cold-starting). Retrying once...`
+          `Idempotent GET probe to ${originalRequest.url} timed out. Retrying once...`
         );
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 1500));
         return httpClient(originalRequest);
       }
     }
 
-    // Auto-retry on Render 502/503/504 hibernate-wake-error for non-login endpoints (login has dedicated UI progress retry)
+    // Auto-retry on Render 502/503/504 hibernate-wake-error for idempotent GETs only (login has dedicated UI progress retry)
     const status = error.response?.status;
     const isWakeError =
       (status === 502 || status === 503 || status === 504) &&
       (readHeaderValue(error.response?.headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error' ||
        !error.response?.data?.message);
 
-    if (isWakeError && originalRequest && !originalRequest.url?.includes('/auth/admin/login') && !isTestEnv) {
-      const maxRetries = 8;
+    if (isWakeError && isGetRequest && originalRequest && !originalRequest.url?.includes('/auth/admin/login') && !isTestEnv) {
+      const maxRetries = 3;
       originalRequest._wakeRetryCount = (originalRequest._wakeRetryCount || 0) + 1;
       if (originalRequest._wakeRetryCount <= maxRetries) {
         logger.warn(
-          `Render backend is waking up. Retrying request to ${originalRequest.url} (${originalRequest._wakeRetryCount}/${maxRetries})...`
+          `Render backend is waking up. Retrying GET request to ${originalRequest.url} (${originalRequest._wakeRetryCount}/${maxRetries})...`
         );
-        await new Promise((r) => setTimeout(r, 2500));
+        await new Promise((r) => setTimeout(r, 2000));
         return httpClient(originalRequest);
       }
     }

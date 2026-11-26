@@ -7,7 +7,7 @@ import { routes } from '../app/router/routes';
 import { useAuthStore } from '../core/auth/authStore';
 import { authRepository } from '../features/auth/data/authRepository';
 import { AdminUser, UpdateProfileDto } from '../core/auth/authTypes';
-import { ConcurrencyConflictError, ValidationError } from '../core/errors/DomainError';
+import { ConcurrencyConflictError } from '../core/errors/DomainError';
 
 function renderApp(initialEntry = '/account') {
   const queryClient = new QueryClient({
@@ -176,78 +176,18 @@ describe('Admin Profile Backend API Integration Suite', () => {
     });
   });
 
-  describe('5. Profile Photo Upload (POST /api/v1/admin/me/profile-photo)', () => {
-    it('uploads valid photo via multipart endpoint and updates avatar preview', async () => {
-      const uploadSpy = vi.spyOn(authRepository as any, 'uploadProfilePhoto').mockResolvedValue({
-        photoUrl: 'https://cdn.sevanest.internal/avatars/new-avatar-99.png',
-      });
-
+  describe('5. Profile Photo Controls Absence on My Account', () => {
+    it('confirms photo upload input, camera icon, and photo preview are absent from My Account', async () => {
       renderApp('/account');
 
-      const fileInput = await screen.findByTestId('profile-photo-input');
-      const validPhoto = new File([new Uint8Array(50 * 1024)], 'new-avatar.png', { type: 'image/png' });
+      expect(await screen.findByTestId('account-profile-card')).toBeInTheDocument();
+      expect(screen.getByTestId('account-avatar')).toBeInTheDocument();
 
-      fireEvent.change(fileInput, { target: { files: [validPhoto] } });
-
-      const savePhotoBtn = await screen.findByRole('button', { name: /Save New Photo/i });
-      fireEvent.click(savePhotoBtn);
-
-      await waitFor(() => {
-        expect(uploadSpy).toHaveBeenCalledWith(validPhoto);
-      });
-
-      expect(await screen.findByTestId('profile-edit-success')).toHaveTextContent(
-        'Profile photo uploaded and updated successfully.'
-      );
-      expect(useAuthStore.getState().user?.avatarUrl).toBe(
-        'https://cdn.sevanest.internal/avatars/new-avatar-99.png'
-      );
-    });
-  });
-
-  describe('6. Invalid File Types and Oversized Files', () => {
-    it('rejects unsupported file formats before sending request', async () => {
-      renderApp('/account');
-
-      const fileInput = await screen.findByTestId('profile-photo-input');
-      const invalidPdf = new File(['%PDF-1.4'], 'document.pdf', { type: 'application/pdf' });
-
-      fireEvent.change(fileInput, { target: { files: [invalidPdf] } });
-
-      expect(await screen.findByText(/Invalid image format. Allowed formats: PNG, JPEG, WebP./i)).toBeInTheDocument();
+      expect(screen.queryByTitle(/Upload or change profile photo/i)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('profile-photo-input')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('profile-photo-preview')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('remove-photo-button')).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /Save New Photo/i })).not.toBeInTheDocument();
-    });
-
-    it('rejects files larger than 2MB before sending request', async () => {
-      renderApp('/account');
-
-      const fileInput = await screen.findByTestId('profile-photo-input');
-      const largeFile = new File([new Uint8Array(3 * 1024 * 1024)], 'huge.jpg', { type: 'image/jpeg' });
-
-      fireEvent.change(fileInput, { target: { files: [largeFile] } });
-
-      expect(await screen.findByText(/exceeds the 2MB size limit/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /Save New Photo/i })).not.toBeInTheDocument();
-    });
-  });
-
-  describe('7. Upload Failure Handling', () => {
-    it('surfaces backend upload error clearly without corrupting existing profile', async () => {
-      vi.spyOn(authRepository as any, 'uploadProfilePhoto').mockRejectedValue(
-        new ValidationError('Image dimensions too small or corrupted file data.')
-      );
-
-      renderApp('/account');
-
-      const fileInput = await screen.findByTestId('profile-photo-input');
-      const photo = new File([new Uint8Array(20 * 1024)], 'avatar.webp', { type: 'image/webp' });
-
-      fireEvent.change(fileInput, { target: { files: [photo] } });
-
-      const savePhotoBtn = await screen.findByRole('button', { name: /Save New Photo/i });
-      fireEvent.click(savePhotoBtn);
-
-      expect(await screen.findByText(/Image dimensions too small or corrupted file data/i)).toBeInTheDocument();
     });
   });
 

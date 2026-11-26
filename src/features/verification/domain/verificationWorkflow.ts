@@ -247,40 +247,125 @@ export interface VerificationProgressStage {
   label: string;
 }
 
+type QueueDossierSummary = {
+  checks?: Record<string, VerificationCheck>;
+  status?: string;
+  applicationStatus?: string;
+  signedOffAt?: string;
+  activatedAt?: string;
+  level?: string;
+  requiredChecks?: string[];
+};
+
+function getCheckForStep(checks: Record<string, VerificationCheck>, stepType: VerificationCheckType): VerificationCheck | undefined {
+  return (
+    checks[stepType] ||
+    (stepType === 'REFERENCE' ? checks['PREVIOUS_EMPLOYMENT'] : undefined) ||
+    (stepType === 'POLICE_CLEARANCE' ? checks['POLICE_VERIFICATION'] : undefined)
+  );
+}
+
+function isStepSatisfiedForFinalApproval(chk: VerificationCheck | undefined, requiredKeys?: string[], stepType?: VerificationCheckType): boolean {
+  if (!chk) {
+    if (requiredKeys && requiredKeys.length > 0 && stepType) {
+      const isReq =
+        requiredKeys.includes(stepType) ||
+        (stepType === 'REFERENCE' && requiredKeys.includes('PREVIOUS_EMPLOYMENT')) ||
+        (stepType === 'POLICE_CLEARANCE' && requiredKeys.includes('POLICE_VERIFICATION'));
+      return !isReq;
+    }
+    return false;
+  }
+  if (chk.status === 'APPROVED') return true;
+  if (chk.status === 'NOT_SUBMITTED' && chk.required === false) return true;
+  if (chk.status === 'NOT_SUBMITTED' && requiredKeys && requiredKeys.length > 0 && stepType) {
+    const isReq =
+      requiredKeys.includes(stepType) ||
+      (stepType === 'REFERENCE' && requiredKeys.includes('PREVIOUS_EMPLOYMENT')) ||
+      (stepType === 'POLICE_CLEARANCE' && requiredKeys.includes('POLICE_VERIFICATION'));
+    return !isReq;
+  }
+  return false;
+}
+
+function isFinalSignOffConfirmed(dossier: QueueDossierSummary): boolean {
+  const appStatus = dossier.applicationStatus?.toUpperCase();
+  if (dossier.signedOffAt || dossier.activatedAt) return true;
+  if (appStatus === 'ACTIVE' || appStatus === 'VERIFIED') return true;
+  // When signedOffAt/applicationStatus indicates UNDER_REVIEW, SUBMITTED, ACTION_REQUIRED, or DRAFT,
+  // never treat dossier.status === 'APPROVED' alone as signed off.
+  if (appStatus === 'UNDER_REVIEW' || appStatus === 'SUBMITTED' || appStatus === 'ACTION_REQUIRED' || appStatus === 'DRAFT') {
+    return false;
+  }
+  return dossier.status === 'APPROVED';
+}
+
+function hasMandatoryChecksCompletedWithoutSignOff(dossier: QueueDossierSummary): boolean {
+  if (isFinalSignOffConfirmed(dossier)) return false;
+  const checks = dossier.checks || {};
+  const hasAnyCheck = Object.keys(checks).length > 0;
+  const upperLevel = dossier.level?.toUpperCase();
+  const hasPendingOps = Object.values(checks).some(
+    (c) => c.status === 'SUBMITTED' || c.status === 'IN_REVIEW' || c.status === 'RECHECK_DUE' || c.status === 'REJECTED'
+  );
+  if (upperLevel === 'VERIFIED' && !hasPendingOps) {
+    return true;
+  }
+  if (!hasAnyCheck) return false;
+  if (dossier.requiredChecks && dossier.requiredChecks.length > 0) {
+    const allReqApproved = dossier.requiredChecks.every((k) => {
+      const norm = k === 'PREVIOUS_EMPLOYMENT' ? 'REFERENCE' : k === 'POLICE_VERIFICATION' ? 'POLICE_CLEARANCE' : k;
+      return (checks[norm] || checks[k])?.status === 'APPROVED';
+    });
+    return allReqApproved && !hasPendingOps;
+  }
+  return VERIFICATION_CHECK_ORDER.every((step) =>
+    isStepSatisfiedForFinalApproval(getCheckForStep(checks, step.type), dossier.requiredChecks, step.type)
+  );
+}
+
 /**
  * Calculates current verification stage, completed check count, and progress summary for a worker dossier.
  */
-export function getVerificationProgressStage(dossier?: {
-  checks?: Record<string, VerificationCheck>;
-  status?: string;
-} | null): VerificationProgressStage {
+export function getVerificationProgressStage(dossier?: QueueDossierSummary | null): VerificationProgressStage {
   if (!dossier) {
     return { stage: 'Not Started', stageNumber: 0, totalStages: 5, approvedCount: 0, percent: 0, label: '0/5 Checks' };
   }
 
   const checks = dossier.checks || {};
+  const appStatus = dossier.applicationStatus?.toUpperCase();
   let approvedCount = 0;
   for (const step of VERIFICATION_CHECK_ORDER) {
-    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
+    const chk = getCheckForStep(checks, step.type);
     if (chk?.status === 'APPROVED') {
       approvedCount++;
     }
   }
 
-  if (dossier.status === 'APPROVED') {
-    return { stage: 'Approved & Signed Off', stageNumber: 5, totalStages: 5, approvedCount: 5, percent: 100, label: '5/5 Approved' };
+  if (dossier.status === 'REJECTED' || appStatus === 'REJECTED' || appStatus === 'ACTION_REQUIRED') {
+    return { stage: 'Corrections Required', stageNumber: approvedCount, totalStages: 5, approvedCount, percent: Math.round((approvedCount / 5) * 100), label: 'Corrections Needed' };
   }
   if (dossier.status === 'RECHECK_DUE') {
     return { stage: 'Re-Check Due', stageNumber: approvedCount, totalStages: 5, approvedCount, percent: Math.round((approvedCount / 5) * 100), label: 'Recheck Due' };
   }
-  if (dossier.status === 'REJECTED') {
-    return { stage: 'Corrections Required', stageNumber: approvedCount, totalStages: 5, approvedCount, percent: Math.round((approvedCount / 5) * 100), label: 'Corrections Needed' };
+  if (isFinalSignOffConfirmed(dossier)) {
+    return { stage: 'Approved & Signed Off', stageNumber: 5, totalStages: 5, approvedCount: 5, percent: 100, label: '5/5 Approved' };
+  }
+  if (hasMandatoryChecksCompletedWithoutSignOff(dossier)) {
+    return {
+      stage: 'Awaiting Final Approval',
+      stageNumber: 5,
+      totalStages: 5,
+      approvedCount,
+      percent: 100,
+      label: 'KYC Verified • Pending Final Approval',
+    };
   }
 
-  // Find first unapproved step
+  // Find first unapproved check (skipping optional NOT_SUBMITTED checks)
   for (const step of VERIFICATION_CHECK_ORDER) {
-    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
-    if (chk?.status !== 'APPROVED') {
+    const chk = getCheckForStep(checks, step.type);
+    if (!isStepSatisfiedForFinalApproval(chk, dossier.requiredChecks, step.type)) {
       return {
         stage: step.title,
         stageNumber: step.stepNumber,
@@ -292,26 +377,34 @@ export function getVerificationProgressStage(dossier?: {
     }
   }
 
-  return { stage: 'Ready for Sign-Off', stageNumber: 5, totalStages: 5, approvedCount: 5, percent: 100, label: '5/5 Approved • Pending Sign-Off' };
+  return {
+    stage: 'Awaiting Final Approval',
+    stageNumber: 5,
+    totalStages: 5,
+    approvedCount,
+    percent: 100,
+    label: 'KYC Verified • Pending Final Approval',
+  };
 }
 
 /**
  * Calculates the next required operational action description for a worker dossier.
  */
-export function getNextActionDescription(dossier?: {
-  checks?: Record<string, VerificationCheck>;
-  status?: string;
-} | null): string {
+export function getNextActionDescription(dossier?: QueueDossierSummary | null): string {
   if (!dossier) return 'Open Dossier';
-  if (dossier.status === 'APPROVED') return 'Verification Completed';
+  const appStatus = dossier.applicationStatus?.toUpperCase();
+  if (dossier.status === 'REJECTED' || appStatus === 'REJECTED' || appStatus === 'ACTION_REQUIRED') {
+    return 'Review Corrections';
+  }
   if (dossier.status === 'RECHECK_DUE') return 'Review Expired Credentials';
-  if (dossier.status === 'REJECTED') return 'Review Corrections';
+  if (isFinalSignOffConfirmed(dossier)) return 'Verification Completed';
+  if (hasMandatoryChecksCompletedWithoutSignOff(dossier)) return 'Pending Final Approval';
   if (dossier.status === 'PENDING_REVIEW') return 'Start Review / Claim';
 
   const checks = dossier.checks || {};
   for (const step of VERIFICATION_CHECK_ORDER) {
-    const chk = checks[step.type] || checks[step.type === 'REFERENCE' ? 'PREVIOUS_EMPLOYMENT' : step.type === 'POLICE_CLEARANCE' ? 'POLICE_VERIFICATION' : step.type];
-    if (chk?.status !== 'APPROVED') {
+    const chk = getCheckForStep(checks, step.type);
+    if (!isStepSatisfiedForFinalApproval(chk, dossier.requiredChecks, step.type)) {
       switch (step.type) {
         case 'IDENTITY':
           return 'Inspect Identity Proof';
@@ -329,5 +422,5 @@ export function getNextActionDescription(dossier?: {
     }
   }
 
-  return 'Supervisor Sign-Off';
+  return 'Pending Final Approval';
 }

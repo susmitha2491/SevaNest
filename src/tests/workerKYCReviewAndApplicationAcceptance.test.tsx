@@ -129,7 +129,7 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     expect(screen.getByRole('heading', { name: /Address Proof/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Emergency Contact/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Employer Reference/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /Police Clearance/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Police Certificate/i })).toBeInTheDocument();
   });
 
   it('4. Dependent checks are locked when prerequisite previous checks are pending', async () => {
@@ -228,7 +228,7 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     expect(screen.getByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
   });
 
-  it('7. Request Re-Verification requires instructions and calls repository contract', async () => {
+  it('7. Request Re-Verification requires instructions on approved document in Step 2 and calls repository contract', async () => {
     const user = userEvent.setup();
     const recheckSpy = vi.spyOn(verificationRepository, 'requestReVerification');
 
@@ -236,21 +236,27 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
 
     expect(await screen.findByText(/Verification Dossier: Sunita Devi/i)).toBeInTheDocument();
 
-    // Navigate to Step 3
+    // Navigate to Step 3 and approve IDENTITY so it becomes eligible for re-verification
     const dialog = await screen.findByRole('dialog');
-    const nextBtn1 = within(dialog).getByRole('button', { name: /^Next/i });
-    await user.click(nextBtn1);
-    const nextBtn2 = within(dialog).getByRole('button', { name: /^Next/i });
-    await user.click(nextBtn2);
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
+    await user.click(within(dialog).getByRole('button', { name: /^Next/i }));
 
-    const recheckBtn = (await screen.findAllByRole('button', { name: /Request Re-Verification/i }))[0];
+    const idCard = await screen.findByTestId('check-card-IDENTITY');
+    await user.click(within(idCard).getByRole('button', { name: /Approve Check/i }));
+    await user.click(await screen.findByRole('button', { name: /Confirm Approval/i }));
+
+    // Go back to Step 2: Documents Review
+    await user.click(within(dialog).getByRole('button', { name: /^Previous/i }));
+    expect(await screen.findByText(/Step 2 — Documents Review/i)).toBeInTheDocument();
+
+    const recheckBtn = await screen.findByRole('button', { name: /Request Re-verification/i });
     await user.click(recheckBtn);
 
-    expect(await screen.findByText(/Request Document Re-Verification/i)).toBeInTheDocument();
-    const instructionsInput = screen.getByPlaceholderText(/Enter mandatory instructions for the worker/i);
+    expect(await screen.findByText(/Request Re-verification:/i)).toBeInTheDocument();
+    const instructionsInput = screen.getByPlaceholderText(/Enter reason \/ instructions for re-verification/i);
     await user.type(instructionsInput, 'Please upload clear high-resolution scanned copy.');
 
-    const confirmBtn = screen.getByRole('button', { name: /Issue Re-Verification Request/i });
+    const confirmBtn = screen.getByRole('button', { name: /Confirm Re-verification/i });
     await user.click(confirmBtn);
 
     await waitFor(() => {
@@ -327,8 +333,8 @@ describe('Worker KYC Review & Application Acceptance Workflow (Strict Audit Veri
     expect(await screen.findByText(/Verification Dossier: Suresh Kumar/i)).toBeInTheDocument();
 
     // Authoritative acceptance banner is visible
-    expect(await screen.findByText(/All 6 Verification Criteria Satisfied/i)).toBeInTheDocument();
-    expect(screen.getByText(/Authoritative Status: VERIFIED/i)).toBeInTheDocument();
+    expect(await screen.findByText(/All 6 Mandatory KYC Verification Criteria Satisfied/i)).toBeInTheDocument();
+    expect(screen.getByText(/Authoritative KYC Status:/i)).toBeInTheDocument();
     expect(screen.getByText(/ARCH-VERIF-01/i)).toBeInTheDocument();
   });
 });

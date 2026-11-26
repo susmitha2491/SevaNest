@@ -147,7 +147,7 @@ describe('Customer & Worker Management Workflows', () => {
 
       // Verify verification badges
       expect(screen.getAllByText('Verified').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('Pending KYC').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Pending').length).toBeGreaterThan(0);
     });
 
     it('filters workers by skill category and verification state', async () => {
@@ -163,8 +163,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('opens worker dossier modal and displays the dynamic trust & verification breakdown', async () => {
       renderApp('/workers');
 
-      const viewProfileButtons = await screen.findAllByRole('button', { name: /View profile/i });
-      fireEvent.click(viewProfileButtons[0]);
+      const sunitaViewBtn = await screen.findByRole('button', { name: 'View profile for Sunita Devi' });
+      fireEvent.click(sunitaViewBtn);
 
       // Navigate to Step 2: KYC Verification
       const nextBtn = await screen.findByRole('button', { name: /Next: Verify KYC/i });
@@ -183,8 +183,8 @@ describe('Customer & Worker Management Workflows', () => {
     it('executes worker disciplinary suspension with mandatory operational remarks', async () => {
       renderApp('/workers');
 
-      const viewProfileButtons = await screen.findAllByRole('button', { name: /View profile/i });
-      fireEvent.click(viewProfileButtons[0]);
+      const sunitaViewBtn = await screen.findByRole('button', { name: 'View profile for Sunita Devi' });
+      fireEvent.click(sunitaViewBtn);
 
       const suspendBtn = await screen.findByRole('button', { name: /Suspend Worker/i });
       fireEvent.click(suspendBtn);
