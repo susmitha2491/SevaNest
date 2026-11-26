@@ -11,6 +11,8 @@ import { verificationRepository } from '../data/verificationRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 export interface VerificationDocumentReviewViewProps {
   selectedDossierId: string | null;
@@ -121,10 +123,18 @@ export const VerificationDocumentReviewView: React.FC<VerificationDocumentReview
                 </h3>
                 {activeDossier && <StatusBadge status={activeDossier.status} />}
               </div>
-              <p style={{ margin: '4px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                Worker ID: <code style={{ color: 'var(--color-primary)' }}>{selectedDossierId}</code> •
-                Mobile (Unmasked): <strong>{activeDossier?.phone || activeDossier?.phoneMasked || 'Provided in review'}</strong> •
-                Category: <strong>{activeDossier?.category || 'Household Staff'}</strong>
+              <p style={{ margin: '4px 0 0', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                <span>Worker ID: <code style={{ color: 'var(--color-primary)' }}>{selectedDossierId}</code> •</span>
+                <span>Mobile:</span>
+                <MaskedPhoneText
+                  phone={activeDossier?.phone || activeDossier?.phoneMasked}
+                  unmaskedPhone={activeDossier?.phone}
+                  entityId={selectedDossierId}
+                  entityType="worker"
+                  permissionKey="verification.review"
+                  fallbackText="Provided in review"
+                />
+                <span>• Category: <strong>{activeDossier?.category || 'Household Staff'}</strong></span>
               </p>
             </div>
 

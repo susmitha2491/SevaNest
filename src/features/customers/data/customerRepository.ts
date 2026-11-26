@@ -1,6 +1,7 @@
 import { Customer, CustomerDetail, CustomerFilterCriteria, CustomerPageResult, ICustomerRepository, CustomerAddress, CustomerNote, CustomerBookingSummary, CustomerComplaintSummary } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getCustomerPhone, setCustomerPhone, getCustomerEmail, setCustomerEmail } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getCustomerPhone, setCustomerPhone, getCustomerEmail, setCustomerEmail, extractSearchMobileDigits, extractCanonicalMobileDigits, matchesPhoneDigits, fetchCustomerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
+
 import { env } from '../../../core/config/env';
 import { mapHttpErrorToDomainError } from '../../../core/errors/errorMapper';
 import { ServerFailureError } from '../../../core/errors/DomainError';
@@ -434,13 +435,6 @@ export function mapBackendCustomerDetailToCustomerDetail(
   };
 }
 
-function isIndianMobileNumber(str: string): boolean {
-  if (!str) return false;
-  if (/[a-zA-Z]/.test(str)) return false;
-  const digits = str.replace(/\D/g, '');
-  return digits.length >= 10 && digits.length <= 15;
-}
-
 function isUuidOrCustomerId(str: string): boolean {
   if (!str) return false;
   const trimmed = str.trim();
@@ -454,6 +448,67 @@ function isUuidOrCustomerId(str: string): boolean {
 }
 
 export class RealCustomerRepository implements ICustomerRepository {
+  private async searchCustomersByPartialMobile(
+    searchDigits: string,
+    filter?: CustomerFilterCriteria
+  ): Promise<Customer[]> {
+    const params: Record<string, unknown> = {
+      limit: 100,
+      page: 1,
+    };
+    if (filter?.status && filter.status !== 'ALL') {
+      params.accountStatus = filter.status;
+    }
+    if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+      params.verificationStatus = filter.verificationStatus;
+    }
+
+    const response = await httpClient.get<{
+      items?: Array<Record<string, unknown>>;
+      customers?: Array<Record<string, unknown>>;
+      data?: unknown;
+      meta?: Record<string, unknown>;
+    } | Array<Record<string, unknown>>>('/admin/customers', { params });
+
+    const rawData = response.data as Record<string, unknown>;
+    let list: Record<string, unknown>[] = [];
+    if (Array.isArray(response.data)) {
+      list = response.data;
+    } else if (rawData && typeof rawData === 'object') {
+      if (Array.isArray(rawData.items)) list = rawData.items as Record<string, unknown>[];
+      else if (Array.isArray(rawData.customers)) list = rawData.customers as Record<string, unknown>[];
+      else if (Array.isArray(rawData.data)) list = rawData.data as Record<string, unknown>[];
+      else if (rawData.data && typeof rawData.data === 'object') {
+        const inner = rawData.data as Record<string, unknown>;
+        if (Array.isArray(inner.items)) list = inner.items as Record<string, unknown>[];
+        else if (Array.isArray(inner.customers)) list = inner.customers as Record<string, unknown>[];
+      }
+    }
+
+    const matchedList = (
+      await Promise.all(
+        list.map(async (item) => {
+          const id = String(item.id || item.customerId || '');
+          let phone = getCustomerPhone(id);
+          if (!phone || phone.includes('*')) {
+            phone = await fetchCustomerUnmaskedPhone(id);
+          }
+          const rawMobile = String(item.mobile || item.phone || '');
+          if (matchesPhoneDigits(phone, searchDigits) || matchesPhoneDigits(rawMobile, searchDigits)) {
+            return item;
+          }
+          return null;
+        })
+      )
+    ).filter(Boolean) as Record<string, unknown>[];
+
+    let result = matchedList.map(mapBackendCustomerToCustomer);
+    if (filter?.locality && filter.locality !== 'ALL') {
+      result = result.filter((c) => c.locality.toLowerCase().includes(filter.locality!.toLowerCase()));
+    }
+    return result;
+  }
+
   async getCustomers(filter?: CustomerFilterCriteria): Promise<Customer[]> {
     try {
       const term = filter?.searchTerm?.trim();
@@ -476,8 +531,12 @@ export class RealCustomerRepository implements ICustomerRepository {
       }
 
       if (term) {
-        if (isIndianMobileNumber(term)) {
-          params.mobile = term;
+        const canonicalMobile = extractCanonicalMobileDigits(term);
+        const partialMobile = !canonicalMobile ? extractSearchMobileDigits(term) : null;
+        if (canonicalMobile) {
+          params.mobile = canonicalMobile;
+        } else if (partialMobile) {
+          return this.searchCustomersByPartialMobile(partialMobile, filter);
         } else if (term.length >= 2) {
           params.name = term;
         }
@@ -599,8 +658,22 @@ export class RealCustomerRepository implements ICustomerRepository {
       }
 
       if (term) {
-        if (isIndianMobileNumber(term)) {
-          params.mobile = term;
+        const canonicalMobile = extractCanonicalMobileDigits(term);
+        const partialMobile = !canonicalMobile ? extractSearchMobileDigits(term) : null;
+        if (canonicalMobile) {
+          params.mobile = canonicalMobile;
+        } else if (partialMobile) {
+          const allMatched = await this.searchCustomersByPartialMobile(partialMobile, filter);
+          const total = allMatched.length;
+          const startIndex = (page - 1) * limit;
+          const items = allMatched.slice(startIndex, startIndex + limit);
+          return {
+            items,
+            total,
+            page,
+            limit,
+            hasMore: startIndex + limit < total,
+          };
         } else if (term.length >= 2) {
           params.name = term;
         }
@@ -902,13 +975,35 @@ export class MockCustomerRepository implements ICustomerRepository {
     let result = [...MOCK_CUSTOMERS];
 
     if (filter?.searchTerm) {
-      const term = filter.searchTerm.toLowerCase();
-      result = result.filter(
-        (c) =>
+      const term = filter.searchTerm.toLowerCase().trim();
+      const mobileDigits = extractSearchMobileDigits(term);
+      const cleanDigits = term.replace(/\D/g, '');
+
+      result = result.filter((c) => {
+        if (
           c.name.toLowerCase().includes(term) ||
           c.id.toLowerCase().includes(term) ||
           c.locality.toLowerCase().includes(term)
-      );
+        ) {
+          return true;
+        }
+        const target = mobileDigits || cleanDigits;
+        if (target.length >= 2) {
+          const phoneCandidates = [
+            c.unmaskedPhone,
+            c.phone,
+            c.maskedPhone,
+            getCustomerPhone(c.id),
+          ].filter(Boolean) as string[];
+
+          for (const p of phoneCandidates) {
+            if (matchesPhoneDigits(p, target)) {
+              return true;
+            }
+          }
+        }
+        return false;
+      });
     }
 
     if (filter?.status && filter.status !== 'ALL') {

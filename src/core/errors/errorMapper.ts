@@ -59,7 +59,7 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
     const serverMessage = payload && typeof payload === 'object' ? payload.message : undefined;
     const isCfChallenge =
       readHeaderValue(headers, 'cf-mitigated')?.toLowerCase() === 'challenge' ||
-      (typeof payload === 'string' && /<title>Just a moment\.\.\.<\/title>|challenges\.cloudflare\.com/i.test(payload));
+      (typeof payload === 'string' && /<title>Just a moment\.\.\.<\/title>|challenges\.cloudflare\.com|turnstile|cf-chl/i.test(payload));
 
     // Network / CORS connectivity failure or Client-side Timeout
     if (!axiosError.response) {
@@ -113,6 +113,13 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
       case 401:
         return new UnauthorizedError(serverMessage || 'Session expired or unauthenticated.', correlationId);
       case 403:
+        if (isCfChallenge) {
+          return new RateLimitExceededError(
+            'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
+            correlationId,
+            'CLOUDFLARE_CHALLENGE'
+          );
+        }
         return new ForbiddenError(serverMessage || 'Action forbidden by server authorization policy.', undefined, correlationId);
       case 404:
         if (payload?.code === 'DOCUMENT_OBJECT_MISSING') {
@@ -262,6 +269,13 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
         {
           const isHibernateError = readHeaderValue(headers, 'x-render-routing')?.toLowerCase() === 'hibernate-wake-error';
           if (status === 502 || status === 503 || status === 504) {
+            if (isCfChallenge) {
+              return new RateLimitExceededError(
+                'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
+                correlationId,
+                'CLOUDFLARE_CHALLENGE'
+              );
+            }
             if (typeof navigator !== 'undefined' && navigator.onLine === false) {
               return new OfflineError(
                 'No internet connection. Please check your network and try again.',

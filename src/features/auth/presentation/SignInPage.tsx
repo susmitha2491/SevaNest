@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,7 +9,7 @@ import { authRepository, invalidateSessionOnServer } from '../data/authRepositor
 import { useAuthStore } from '../../../core/auth/authStore';
 import { queryClient } from '../../../core/api/queryClient';
 import { getStoredRefreshToken } from '../../../core/auth/tokenStorage';
-import { DomainError, UnauthorizedError, RateLimitExceededError, OfflineError } from '../../../core/errors/DomainError';
+import { normalizeAuthError } from '../../../core/errors/authErrorNormalizer';
 import { getDefaultLandingRoute } from '../../../core/rbac/permissions';
 import { isQuickLoginEnabled, env } from '../../../core/config/env';
 import { QuickLoginSection } from './QuickLoginSection';
@@ -24,8 +24,8 @@ type SignInFormValues = z.infer<typeof signInSchema>;
 
 export const SignInPage: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
-  const [authCorrelationId, setAuthCorrelationId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
   const [wakeUpStatus, setWakeUpStatus] = useState<{ attempt: number; maxRetries: number } | null>(null);
@@ -169,29 +169,31 @@ export const SignInPage: React.FC = () => {
       setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
       setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
       setAuthError(null);
-      setAuthCorrelationId(null);
       setIsRetryableError(false);
       setRetryCooldown(0);
       setSelectedRoleId(role.id);
     };
 
   const onSubmit = async (values: SignInFormValues) => {
-    if (isSubmitting || retryCooldown > 0) return;
+    // Synchronously block duplicate calls (double-clicks, multiple enter keys, concurrent triggers)
+    if (isSubmittingRef.current || isSubmitting || retryCooldown > 0) return;
 
     if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       setWakeUpStatus(null);
       setAuthError('No internet connection. Please check your network and try again.');
       setIsRetryableError(true);
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
       return;
     }
 
     try {
+      isSubmittingRef.current = true;
       setIsSubmitting(true);
       setWakeUpStatus(null);
       setAuthError(null);
-      setAuthCorrelationId(null);
       setIsRetryableError(false);
+
       const { user: loggedInUser, accessToken, refreshToken } = await authRepository.login(values);
       setSession(loggedInUser, accessToken, refreshToken);
       const userLanding = getDefaultLandingRoute(loggedInUser);
@@ -199,52 +201,19 @@ export const SignInPage: React.FC = () => {
       // creating a history entry so browser Back returns to the sign-in page.
       navigate(userLanding, { replace: false, state: null });
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Authentication failed. Please verify credentials.';
-      setAuthError(errorMessage);
-      setAuthCorrelationId(err instanceof DomainError && err.correlationId ? err.correlationId : null);
-
-      const isOfflineError =
-        err instanceof OfflineError ||
-        (err instanceof DomainError && err.code === 'OFFLINE_ERROR') ||
-        (typeof navigator !== 'undefined' && navigator.onLine === false) ||
-        errorMessage.toLowerCase().includes('no internet connection');
-
-      if (isOfflineError) {
-        setWakeUpStatus(null);
-        setIsRetryableError(true);
-        setRetryCooldown(0);
-        return;
-      }
-
-      const isRateLimitOrChallenge =
-        err instanceof RateLimitExceededError ||
-        (err instanceof DomainError && err.code === 'RATE_LIMIT_EXCEEDED') ||
-        errorMessage.toLowerCase().includes('cloudflare') ||
-        errorMessage.toLowerCase().includes('challenge') ||
-        errorMessage.toLowerCase().includes('rate limit') ||
-        errorMessage.toLowerCase().includes('too many requests');
-
-      if (isRateLimitOrChallenge) {
-        setWakeUpStatus(null);
-        setIsRetryableError(true);
-        setRetryCooldown(10);
-        return;
-      }
+      const normalized = normalizeAuthError(err);
+      setWakeUpStatus(null);
+      setAuthError(normalized.userMessage);
+      setIsRetryableError(normalized.isRetryable);
+      setRetryCooldown(normalized.cooldownSeconds);
 
       // Security: Clear password input ONLY on invalid credentials, NOT on server/network/waking errors
-      const isCredentialError =
-        err instanceof UnauthorizedError ||
-        (err instanceof DomainError && (err.code === 'UNAUTHORIZED' || ('errorCode' in err && (err as { errorCode?: string }).errorCode === 'INVALID_CREDENTIALS')));
-      if (isCredentialError) {
+      if (normalized.isCredentialError) {
         setValue('password', '');
         setSelectedRoleId(null);
-        setIsRetryableError(false);
-        setRetryCooldown(0);
-      } else {
-        setIsRetryableError(true);
-        setRetryCooldown(0);
       }
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
       setWakeUpStatus(null);
     }
@@ -307,12 +276,9 @@ export const SignInPage: React.FC = () => {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
             <AlertCircle size={15} style={{ flexShrink: 0 }} />
-            <span>
-              {authError}
-              {authCorrelationId ? ` (Ref: ${authCorrelationId})` : ''}
-            </span>
+            <span>{authError}</span>
           </div>
-          {(isRetryableError || authError.includes('No internet connection') || authError.includes('waking up on Render') || authError.includes('temporarily unavailable') || authError.toLowerCase().includes('cloudflare') || authError.toLowerCase().includes('challenge') || authError.toLowerCase().includes('rate limit')) && (
+          {isRetryableError && (
             <button
               type="button"
               onClick={handleSubmit(onSubmit)}
@@ -359,7 +325,6 @@ export const SignInPage: React.FC = () => {
               {...register('email', {
                 onChange: () => {
                   setAuthError(null);
-                  setAuthCorrelationId(null);
                   setSelectedRoleId(null);
                   setIsRetryableError(false);
                   setRetryCooldown(0);
@@ -394,7 +359,6 @@ export const SignInPage: React.FC = () => {
               {...register('password', {
                 onChange: () => {
                   setAuthError(null);
-                  setAuthCorrelationId(null);
                   setSelectedRoleId(null);
                   setIsRetryableError(false);
                   setRetryCooldown(0);

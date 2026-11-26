@@ -27,6 +27,75 @@ export function formatPhoneNumber(phone: string): string {
   return cleaned;
 }
 
+/**
+ * Normalizes a user's mobile search query into digits for matching.
+ * Supports partial numbers ('8341', '35477', '83418') and full numbers
+ * ('8341835477', '+91 83418 35477', '+91-83418-35477', '08341835477').
+ *
+ * Rejects inputs containing letters (names or alphanumeric IDs like W-10482).
+ */
+export function extractSearchMobileDigits(term?: string | null): string | null {
+  if (!term) return null;
+  const trimmed = term.trim();
+  if (!trimmed || /[a-zA-Z]/.test(trimmed)) return null;
+  const digits = trimmed.replace(/\D/g, '');
+  if (!digits.length) return null;
+  if ((trimmed.startsWith('+91') || trimmed.startsWith('91')) && digits.startsWith('91') && digits.length > 2) {
+    return digits.slice(2);
+  }
+  if (trimmed.startsWith('0') && digits.startsWith('0') && digits.length > 1) {
+    return digits.slice(1);
+  }
+  if (digits.length === 12 && digits.startsWith('91')) {
+    return digits.slice(2);
+  }
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return digits.slice(1);
+  }
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+/**
+ * Extracts a canonical 10-digit Indian national mobile number
+ * when a user enters 10 or more digits. Returns null for partial queries (< 10 digits)
+ * so that backend endpoints requiring >= 10 digits are not called with invalid params.
+ */
+export function extractCanonicalMobileDigits(term?: string | null): string | null {
+  const digits = extractSearchMobileDigits(term);
+  if (!digits || digits.length !== 10) return null;
+  return digits;
+}
+
+/**
+ * Substring matching for phone numbers against query digits.
+ * Supports numbers stored with country code (+91), spaces, hyphens, leading zero,
+ * or raw digit strings.
+ */
+export function matchesPhoneDigits(phone?: string | null, searchDigits?: string | null): boolean {
+  if (!phone || !searchDigits) return false;
+  const pDigits = phone.replace(/\D/g, '');
+  const sDigits = searchDigits.replace(/\D/g, '');
+  if (!sDigits || !pDigits) return false;
+
+  // Direct substring match
+  if (pDigits.includes(sDigits)) return true;
+
+  // Check national 10-digit number if phone has 91 country code prefix
+  if (pDigits.startsWith('91') && pDigits.length >= 10) {
+    const national = pDigits.slice(2);
+    if (national.includes(sDigits)) return true;
+  }
+
+  // Check national digits if searchDigits had 91 prefix
+  if (sDigits.startsWith('91') && sDigits.length >= 10) {
+    const nationalS = sDigits.slice(2);
+    if (pDigits.includes(nationalS)) return true;
+  }
+
+  return false;
+}
+
+
 export function setCustomerPhone(idOrUserId: string, phone: string): void {
   if (!idOrUserId || !phone) return;
   const formatted = formatPhoneNumber(phone);
@@ -115,6 +184,10 @@ export function getCustomerName(idOrUserId?: string): string | undefined {
 export function setWorkerPhone(idOrUserId: string, phone: string): void {
   if (!idOrUserId || !phone) return;
   const formatted = formatPhoneNumber(phone);
+  // Do not overwrite an unmasked phone with a masked one
+  if (formatted.includes('*') && workerPhoneMap.has(idOrUserId) && !workerPhoneMap.get(idOrUserId)?.includes('*')) {
+    return;
+  }
   workerPhoneMap.set(idOrUserId, formatted);
 }
 
@@ -227,10 +300,10 @@ export async function preloadWorkerPhones(): Promise<void> {
         if (w.userId) setWorkerName(String(w.userId), listName);
       }
       const mobile = String(w.mobile || w.phone || '').trim();
-      if (mobile) {
+      if (mobile && !mobile.includes('*')) {
         const formatted = formatPhoneNumber(mobile);
-        workerPhoneMap.set(id, formatted);
-        if (w.userId) workerPhoneMap.set(String(w.userId), formatted);
+        setWorkerPhone(id, formatted);
+        if (w.userId) setWorkerPhone(String(w.userId), formatted);
       }
     });
   } catch {
@@ -238,6 +311,42 @@ export async function preloadWorkerPhones(): Promise<void> {
   } finally {
     isWorkerLoading = false;
   }
+}
+
+export async function fetchWorkerUnmaskedPhone(idOrUserId: string): Promise<string | undefined> {
+  if (!idOrUserId || idOrUserId === 'W-NA' || idOrUserId.startsWith('W-')) return undefined;
+  const existing = workerPhoneMap.get(idOrUserId);
+  if (existing && !existing.includes('*')) {
+    return existing;
+  }
+  try {
+    const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${idOrUserId}`);
+    const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
+    const detailName = String(detail?.name || detail?.fullName || (detail?.user as Record<string, unknown>)?.fullName || (detail?.user as Record<string, unknown>)?.name || '');
+    if (detailName) {
+      setWorkerName(idOrUserId, detailName);
+      if (detail.id) setWorkerName(String(detail.id), detailName);
+      if (detail.userId) setWorkerName(String(detail.userId), detailName);
+    }
+    const mobile = String(detail?.mobile || detail?.phone || '');
+    if (mobile && !mobile.includes('*')) {
+      const formatted = formatPhoneNumber(mobile);
+      workerPhoneMap.set(idOrUserId, formatted);
+      if (detail.id) workerPhoneMap.set(String(detail.id), formatted);
+      if (detail.userId) workerPhoneMap.set(String(detail.userId), formatted);
+      return formatted;
+    }
+  } catch {
+    // If direct lookup fails, try preloading
+    try {
+      await preloadWorkerPhones();
+      const loaded = workerPhoneMap.get(idOrUserId);
+      if (loaded && !loaded.includes('*')) return loaded;
+    } catch {
+      // Ignore
+    }
+  }
+  return existing && !existing.includes('*') ? existing : undefined;
 }
 
 export async function resolveWorkerName(idOrUserId?: string): Promise<string | undefined> {

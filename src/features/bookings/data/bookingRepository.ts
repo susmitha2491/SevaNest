@@ -997,7 +997,7 @@ function mapBackendBookingToDomain(
     id: String(raw.id || raw.bookingId || ''),
     customerId: custId,
     customerName,
-    customerPhoneMasked: String(cleanCustPhone || raw.customerPhoneMasked || customer?.phoneMasked || custObj?.mobile || '+91 98765 43210'),
+    customerPhoneMasked: String(cleanCustPhone || raw.customerPhoneMasked || customer?.phoneMasked || custObj?.mobile || (raw.customerPhone ? String(raw.customerPhone) : '')),
     customerLocality: localityName,
     serviceCategory: categoryName,
     engagementType: (raw.engagementType as BookingDetail['engagementType']) || 'FULL_TIME_LIVE_OUT',
@@ -1196,7 +1196,7 @@ export class RealBookingRepository implements IBookingRepository {
       const mergedItems = rawItems.map((item) => {
         const id = String(item.id || item.bookingId || '');
         const cached = bookingDetailCache.get(id);
-        let merged = cached ? { ...item, ...cached } : { ...item };
+        let merged = cached ? { ...cached, ...item } : { ...item };
         const r = replMap.get(id);
         if (r && !merged.replacement) {
           merged.replacement = buildReplacement(r, merged);
@@ -1245,7 +1245,7 @@ export class RealBookingRepository implements IBookingRepository {
           const cached = bookingDetailCache.get(b.id);
           if (cached) {
             const rawItem = rawItems.find((r) => String(r.id) === b.id) || {};
-            const merged = { ...rawItem, ...cached };
+            const merged = { ...cached, ...rawItem };
             const r = replMap.get(b.id);
             if (r && !merged.replacement) {
               merged.replacement = buildReplacement(r, merged);

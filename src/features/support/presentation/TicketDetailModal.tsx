@@ -37,6 +37,8 @@ import { ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 interface TicketDetailModalProps {
   ticket: SupportTicketDetail | null;
@@ -619,9 +621,12 @@ export const TicketDetailModal: React.FC<TicketDetailModalProps> = ({
             {/* Phone */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
               <Phone size={12} color="var(--color-primary, #0f766e)" />
-              <strong style={{ color: 'var(--color-text-primary, #0f172a)' }}>
-                {ticket.complainantPhoneMasked}
-              </strong>
+              <MaskedPhoneText
+                phone={ticket.complainantPhoneMasked}
+                entityId={ticket.complainantId}
+                entityType={ticket.complainantType === 'WORKER' ? 'worker' : 'customer'}
+                textStyle={{ color: 'var(--color-text-primary, #0f172a)', fontWeight: 700 }}
+              />
             </div>
 
             {/* Linked Booking */}

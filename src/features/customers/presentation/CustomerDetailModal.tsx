@@ -24,6 +24,8 @@ import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { PermissionGate } from '../../../core/rbac/PermissionGate';
 import { PERMISSIONS } from '../../../core/rbac/permissions';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English (Standard)',
@@ -415,9 +417,15 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)', fontSize: 'var(--font-size-sm)' }}>
                   <div>
                     <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block' }}>Phone Number:</span>
-                    <span style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}>
-                      {effectivePhone}
-                    </span>
+                    <MaskedPhoneText
+                      phone={effectivePhone}
+                      unmaskedPhone={revealedPII?.phone || customer.unmaskedPhone || (customer.phone && !customer.phone.includes('*') ? customer.phone : undefined)}
+                      entityId={customer.id}
+                      entityType="customer"
+                      allowReveal={true}
+                      textStyle={{ fontWeight: 600, color: 'var(--color-text-primary)', fontFamily: 'monospace' }}
+                      initialRevealed={Boolean(revealedPII?.phone || customer.unmaskedPhone)}
+                    />
                   </div>
                   <div>
                     <span style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', display: 'block' }}>Email Address:</span>

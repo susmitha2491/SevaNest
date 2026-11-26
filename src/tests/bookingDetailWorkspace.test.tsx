@@ -138,14 +138,14 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   });
 
   describe('Section 2: Customer Details Dossier', () => {
-    it('renders complete customer dossier with unmasked phone and email for authorized Operations Admin', () => {
+    it('renders complete customer dossier with masked phone and email for authorized Operations Admin', () => {
       renderWithProviders(
         <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="CUSTOMER" />
       );
 
       expect(screen.getByRole('heading', { name: /Customer Profile/i })).toBeInTheDocument();
       expect(screen.getByText('Kavitha Ramachandran')).toBeInTheDocument();
-      expect(screen.getByText(/\+91 98480 12345/)).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}2345/)).toBeInTheDocument();
       expect(screen.getByText('kavitha.ram@example.com')).toBeInTheDocument();
       expect(screen.getByText(/KYC VERIFIED/i)).toBeInTheDocument();
     });
@@ -165,14 +165,14 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
   });
 
   describe('Section 3: Assigned Domestic Worker Details', () => {
-    it('renders assigned worker dossier with unmasked phone, experience, and verification badges', () => {
+    it('renders assigned worker dossier with masked phone, experience, and verification badges', () => {
       renderWithProviders(
         <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="WORKER" />
       );
 
       expect(screen.getByRole('heading', { name: /Assigned Domestic Worker Allocation/i })).toBeInTheDocument();
       expect(screen.getByText('Sujatha Kumari')).toBeInTheDocument();
-      expect(screen.getByText(/\+91 99881 54321/)).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}4321/)).toBeInTheDocument();
       expect(screen.getByText(/Fully Verified Candidate/i)).toBeInTheDocument();
       expect(screen.getByText(/✓ Aadhaar/i)).toBeInTheDocument();
       expect(screen.getByText(/✓ Police Verification/i)).toBeInTheDocument();
@@ -373,6 +373,39 @@ describe('Booking Details & Activity Workspace Specification Suite', () => {
       expect(screen.getByText('Late')).toBeInTheDocument();
       expect(screen.getByText('Leave')).toBeInTheDocument();
       expect(screen.getByText('Exceptions')).toBeInTheDocument();
+    });
+
+    it('renders customer and worker contact details clearly in overview tab with genuine backend data', () => {
+      renderWithProviders(
+        <BookingDetailModal booking={mockFullBooking} isOpen={true} onClose={vi.fn()} initialSection="OVERVIEW" />
+      );
+
+      // Customer contact details
+      expect(screen.getByText(/Customer \/ Booker Details/i)).toBeInTheDocument();
+      expect(screen.getByText('Customer: Kavitha Ramachandran')).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}2345/)).toBeInTheDocument();
+      expect(screen.getByText('Road No 12, Banjara Hills, Hyderabad')).toBeInTheDocument();
+
+      // Assigned worker contact details
+      expect(screen.getByText(/Assigned Worker Details/i)).toBeInTheDocument();
+      expect(screen.getByText('Worker: Sujatha Kumari')).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}4321/)).toBeInTheDocument();
+      expect(screen.getAllByText(/Verified Candidate/i).length).toBeGreaterThan(0);
+    });
+
+    it('displays "Unassigned / Needs Match" clearly for bookings without an assigned worker', () => {
+      renderWithProviders(
+        <BookingDetailModal booking={mockUnassignedBooking} isOpen={true} onClose={vi.fn()} initialSection="OVERVIEW" />
+      );
+
+      // Customer details still present
+      expect(screen.getByText('Customer: Deepak Verma')).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}9887/)).toBeInTheDocument();
+
+      // Worker shows Unassigned / Needs Match
+      const unassignedMatches = screen.getAllByText(/Unassigned \/ Needs Match/i);
+      expect(unassignedMatches.length).toBeGreaterThan(0);
+      expect(screen.getByText(/Awaiting Candidate Match/i)).toBeInTheDocument();
     });
   });
 });

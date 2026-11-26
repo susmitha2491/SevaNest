@@ -813,13 +813,13 @@ export class MockAuthRepository implements IAuthRepository {
       });
 
     if (!accountEntry) {
-      throw new UnauthorizedError('Administrative account not found. Please verify your email address.');
+      throw new UnauthorizedError('Invalid email id or password');
     }
 
     const [, accountConfig] = accountEntry;
     const expectedPassword = accountConfig.password || DEMO_AUTH_PASSWORD;
     if (password !== expectedPassword && password !== DEMO_AUTH_PASSWORD) {
-      throw new UnauthorizedError('Invalid administrative credentials. Please verify your email and password.');
+      throw new UnauthorizedError('Invalid email id or password');
     }
     const rolePrefix = accountConfig.role.split('_')[0].toLowerCase();
 

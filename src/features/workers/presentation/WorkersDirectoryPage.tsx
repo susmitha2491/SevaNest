@@ -24,6 +24,8 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 const CATEGORY_OPTIONS = [
   { value: 'ALL', label: 'All Skill Categories' },
@@ -378,7 +380,12 @@ export const WorkersDirectoryPage: React.FC = () => {
                         <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '12px', whiteSpace: 'nowrap' }}>{worker.name}</div>
                         {(worker.phone || worker.mobile || worker.phoneMasked) && (
                           <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
-                            {worker.phone || worker.mobile || worker.phoneMasked}
+                            <MaskedPhoneText
+                              phone={worker.phone || worker.mobile || worker.phoneMasked}
+                              unmaskedPhone={worker.phone || worker.mobile}
+                              entityId={worker.id}
+                              entityType="worker"
+                            />
                           </div>
                         )}
                       </td>

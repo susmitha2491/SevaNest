@@ -133,7 +133,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     // Verify error banner is rendered with role="alert"
     const alertBanner = await screen.findByRole('alert');
     expect(alertBanner).toBeInTheDocument();
-    expect(alertBanner).toHaveTextContent(/Administrative account not found/i);
+    expect(alertBanner).toHaveTextContent('Invalid email id or password');
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
 
     // Submit recognized email with wrong password
@@ -145,7 +145,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     await user.click(submitBtn);
 
     const updatedAlert = await screen.findByRole('alert');
-    expect(updatedAlert).toHaveTextContent(/Invalid administrative credentials/i);
+    expect(updatedAlert).toHaveTextContent('Invalid email id or password');
 
     // Submit recognized email with an arbitrary unexpected password (verifying positive whitelist check)
     await user.clear(passwordInput);
@@ -153,7 +153,7 @@ describe('SV-7: Authentication Module & Session Management Workflows', () => {
     await user.click(submitBtn);
 
     const unexpectedPassAlert = await screen.findByRole('alert');
-    expect(unexpectedPassAlert).toHaveTextContent(/Invalid administrative credentials/i);
+    expect(unexpectedPassAlert).toHaveTextContent('Invalid email id or password');
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
 

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ArrowRight, ExternalLink, X } from 'lucide-react';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 import {
   BackendAttendanceStatus,
   BookingAttendanceEntry,
@@ -195,7 +197,11 @@ export const AttendanceDetailModal: React.FC<AttendanceDetailModalProps> = ({
               </div>
               {booking?.customerPhoneMasked && (
                 <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '1px' }}>
-                  {booking.customerPhoneMasked}
+                  <MaskedPhoneText
+                    phone={booking.customerPhoneMasked}
+                    entityId={booking.customerId}
+                    entityType="customer"
+                  />
                 </div>
               )}
             </div>

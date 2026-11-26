@@ -16,7 +16,7 @@ import {
   UpdateWorkerAvailabilityPayload,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName, getWorkerLocality, setWorkerLocality } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName, getWorkerLocality, setWorkerLocality, extractSearchMobileDigits, extractCanonicalMobileDigits, matchesPhoneDigits, fetchWorkerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { hasPermission, PERMISSIONS } from '../../../core/rbac/permissions';
@@ -1268,20 +1268,7 @@ export function syncMockWorkerVerification(
 }
 
 export function isPotentialMobileNumber(term: string): boolean {
-  const trimmed = term.trim();
-  if (!trimmed) return false;
-
-  // Reject if it contains alphabetic characters
-  if (/[a-zA-Z]/.test(trimmed)) {
-    return false;
-  }
-
-  // Extract pure digits
-  const digitsOnly = trimmed.replace(/\D/g, '');
-
-  // Backend validation requirement: "mobile must be longer than or equal to 10 characters."
-  // Valid Indian mobile standard: 10 digits (national) up to 15 digits (E.164 with country code)
-  return digitsOnly.length >= 10 && digitsOnly.length <= 15;
+  return extractCanonicalMobileDigits(term) !== null;
 }
 
 export function isWorkerIdFormat(term: string): boolean {
@@ -1391,6 +1378,78 @@ export function resolveAreaId(input?: string): string | null | undefined {
 }
 
 export class RealWorkerRepository implements IWorkerRepository {
+  private async searchWorkersByPartialMobile(
+    searchDigits: string,
+    filter?: WorkerFilterCriteria,
+    verifiedParam?: boolean
+  ): Promise<Worker[]> {
+    const params: Record<string, unknown> = {
+      limit: 100,
+      page: 1,
+      verified: verifiedParam,
+    };
+    if (filter?.category && filter.category !== 'ALL') {
+      const catUuid = resolveCategoryId(filter.category);
+      if (catUuid) params.categoryId = catUuid;
+    }
+    if (filter?.accountStatus) {
+      if (filter.accountStatus === 'ACTIVE' || filter.accountStatus === 'SUSPENDED') {
+        params.accountStatus = filter.accountStatus;
+      }
+    } else if (filter?.status === 'ACTIVE' || filter?.status === 'SUSPENDED') {
+      params.accountStatus = filter.status;
+    }
+    if (filter?.locality && filter.locality !== 'ALL') {
+      const areaUuid = resolveAreaId(filter.locality);
+      if (areaUuid) params.areaId = areaUuid;
+    }
+
+    const response = await httpClient.get<{
+      items?: Array<Record<string, unknown>>;
+      data?: unknown;
+      meta?: Record<string, unknown>;
+    } | Array<Record<string, unknown>>>('/admin/workers', { params });
+
+    const rawData = response.data as Record<string, unknown>;
+    let list: Record<string, unknown>[] = [];
+    if (Array.isArray(response.data)) {
+      list = response.data;
+    } else if (rawData) {
+      if (Array.isArray(rawData.items)) {
+        list = rawData.items as Record<string, unknown>[];
+      } else if (Array.isArray(rawData.data)) {
+        list = rawData.data as Record<string, unknown>[];
+      } else if (rawData.data && typeof rawData.data === 'object') {
+        const inner = rawData.data as Record<string, unknown>;
+        if (Array.isArray(inner.items)) list = inner.items as Record<string, unknown>[];
+        else if (Array.isArray(inner.workers)) list = inner.workers as Record<string, unknown>[];
+      }
+    }
+
+    const matchedList = (
+      await Promise.all(
+        list.map(async (item) => {
+          const id = String(item.id || item.workerId || '');
+          let phone = getWorkerPhone(id);
+          if (!phone || phone.includes('*')) {
+            phone = await fetchWorkerUnmaskedPhone(id);
+          }
+          const rawMobile = String(item.mobile || item.phone || '');
+          if (matchesPhoneDigits(phone, searchDigits) || matchesPhoneDigits(rawMobile, searchDigits)) {
+            return item;
+          }
+          return null;
+        })
+      )
+    ).filter(Boolean) as Record<string, unknown>[];
+
+    let result = matchedList.map((item) => mapBackendWorkerToWorker(item));
+    if (filter?.locality && filter.locality !== 'ALL') {
+      result = result.filter((w) => w.locality.toLowerCase().includes(filter.locality!.toLowerCase()));
+    }
+    return result;
+  }
+
   async getWorkers(filter?: WorkerFilterCriteria): Promise<Worker[]> {
     try {
       let verifiedParam: boolean | undefined = undefined;
@@ -1435,8 +1494,12 @@ export class RealWorkerRepository implements IWorkerRepository {
       };
 
       if (trimmedSearch) {
-        if (isPotentialMobileNumber(trimmedSearch)) {
-          params.mobile = trimmedSearch;
+        const canonicalMobile = extractCanonicalMobileDigits(trimmedSearch);
+        const partialMobile = !canonicalMobile ? extractSearchMobileDigits(trimmedSearch) : null;
+        if (canonicalMobile) {
+          params.mobile = canonicalMobile;
+        } else if (partialMobile) {
+          return this.searchWorkersByPartialMobile(partialMobile, filter, verifiedParam);
         } else {
           // Documented backend query parameter for partial name search
           params.name = trimmedSearch;
@@ -1686,8 +1749,22 @@ export class RealWorkerRepository implements IWorkerRepository {
       };
 
       if (trimmedSearch) {
-        if (isPotentialMobileNumber(trimmedSearch)) {
-          params.mobile = trimmedSearch;
+        const canonicalMobile = extractCanonicalMobileDigits(trimmedSearch);
+        const partialMobile = !canonicalMobile ? extractSearchMobileDigits(trimmedSearch) : null;
+        if (canonicalMobile) {
+          params.mobile = canonicalMobile;
+        } else if (partialMobile) {
+          const allMatched = await this.searchWorkersByPartialMobile(partialMobile, filter, verifiedParam);
+          const total = allMatched.length;
+          const startIndex = (page - 1) * limit;
+          const items = allMatched.slice(startIndex, startIndex + limit);
+          return {
+            items,
+            total,
+            page,
+            limit,
+            hasMore: startIndex + limit < total,
+          };
         } else {
           // Documented backend query parameter for partial name search
           params.name = trimmedSearch;
@@ -2299,8 +2376,10 @@ export class MockWorkerRepository implements IWorkerRepository {
     let result = [...MOCK_WORKERS];
 
     if (filter?.searchTerm) {
-      const term = filter.searchTerm.toLowerCase();
+      const term = filter.searchTerm.toLowerCase().trim();
+      const mobileDigits = extractSearchMobileDigits(term);
       const cleanDigits = term.replace(/\D/g, '');
+      const targetDigits = mobileDigits || cleanDigits;
       result = result.filter(
         (w) =>
           w.name.toLowerCase().includes(term) ||
@@ -2310,8 +2389,9 @@ export class MockWorkerRepository implements IWorkerRepository {
           w.locality.toLowerCase().includes(term) ||
           (w.phoneMasked && w.phoneMasked.toLowerCase().includes(term)) ||
           (w.phone && w.phone.toLowerCase().includes(term)) ||
-          (cleanDigits.length >= 5 && w.phone && w.phone.replace(/\D/g, '').includes(cleanDigits)) ||
-          (cleanDigits.length >= 5 && w.phoneMasked && w.phoneMasked.replace(/\D/g, '').includes(cleanDigits))
+          (targetDigits.length >= 2 && matchesPhoneDigits(w.phone, targetDigits)) ||
+          (targetDigits.length >= 2 && matchesPhoneDigits(w.phoneMasked, targetDigits)) ||
+          (targetDigits.length >= 2 && matchesPhoneDigits(getWorkerPhone(w.id), targetDigits))
       );
     }
 

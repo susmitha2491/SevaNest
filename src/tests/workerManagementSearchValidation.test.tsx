@@ -99,26 +99,29 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       let capturedParams: Record<string, unknown> = {};
 
       vi.spyOn(httpClient, 'get').mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
-        capturedUrl = url;
-        capturedParams = (config?.params as Record<string, unknown>) || {};
-        return {
-          data: {
-            items: [
-              {
-                id: 'W-10483',
-                name: 'Ramesh Yadav',
-                category: 'Driver',
-                locality: 'Gachibowli',
-                experienceYears: 7,
-                ratingAverage: 4.5,
-                status: 'ACTIVE',
-                isFullyVerified: false,
-                verificationStatus: 'IN_REVIEW',
-              },
-            ],
-            meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
-          },
-        };
+        if (url === '/admin/workers') {
+          capturedUrl = url;
+          capturedParams = (config?.params as Record<string, unknown>) || {};
+          return {
+            data: {
+              items: [
+                {
+                  id: 'W-10483',
+                  name: 'Ramesh Yadav',
+                  category: 'Driver',
+                  locality: 'Gachibowli',
+                  experienceYears: 7,
+                  ratingAverage: 4.5,
+                  status: 'ACTIVE',
+                  isFullyVerified: false,
+                  verificationStatus: 'IN_REVIEW',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+            },
+          };
+        }
+        return { data: {} };
       });
 
       const result = await realRepo.getWorkersPage({ searchTerm: 'va' }, 1, 20);
@@ -146,26 +149,29 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       let capturedParams: Record<string, unknown> = {};
 
       vi.spyOn(httpClient, 'get').mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
-        capturedUrl = url;
-        capturedParams = (config?.params as Record<string, unknown>) || {};
-        return {
-          data: {
-            items: [
-              {
-                id: 'W-10482',
-                name: 'Sunita Devi',
-                category: 'House Maid',
-                locality: 'Kondapur',
-                experienceYears: 5,
-                ratingAverage: 4.8,
-                status: 'ACTIVE',
-                isFullyVerified: true,
-                verificationStatus: 'VERIFIED',
-              },
-            ],
-            meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
-          },
-        };
+        if (url === '/admin/workers') {
+          capturedUrl = url;
+          capturedParams = (config?.params as Record<string, unknown>) || {};
+          return {
+            data: {
+              items: [
+                {
+                  id: 'W-10482',
+                  name: 'Sunita Devi',
+                  category: 'House Maid',
+                  locality: 'Kondapur',
+                  experienceYears: 5,
+                  ratingAverage: 4.8,
+                  status: 'ACTIVE',
+                  isFullyVerified: true,
+                  verificationStatus: 'VERIFIED',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+            },
+          };
+        }
+        return { data: {} };
       });
 
       const result = await realRepo.getWorkersPage({ searchTerm: 'Sunita Devi' }, 1, 20);
@@ -186,27 +192,30 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       let capturedParams: Record<string, unknown> = {};
 
       vi.spyOn(httpClient, 'get').mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
-        capturedUrl = url;
-        capturedParams = (config?.params as Record<string, unknown>) || {};
-        return {
-          data: {
-            items: [
-              {
-                id: 'W-10482',
-                name: 'Sunita Devi',
-                category: 'House Maid',
-                locality: 'Kondapur',
-                experienceYears: 5,
-                ratingAverage: 4.8,
-                status: 'ACTIVE',
-                isFullyVerified: true,
-                verificationStatus: 'VERIFIED',
-                phone: '+91 98765 43210',
-              },
-            ],
-            meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
-          },
-        };
+        if (url === '/admin/workers') {
+          capturedUrl = url;
+          capturedParams = (config?.params as Record<string, unknown>) || {};
+          return {
+            data: {
+              items: [
+                {
+                  id: 'W-10482',
+                  name: 'Sunita Devi',
+                  category: 'House Maid',
+                  locality: 'Kondapur',
+                  experienceYears: 5,
+                  ratingAverage: 4.8,
+                  status: 'ACTIVE',
+                  isFullyVerified: true,
+                  verificationStatus: 'VERIFIED',
+                  phone: '+91 98765 43210',
+                },
+              ],
+              meta: { total: 1, page: 1, limit: 20, totalPages: 1 },
+            },
+          };
+        }
+        return { data: {} };
       });
 
       const result = await realRepo.getWorkersPage({ searchTerm: '9876543210' }, 1, 20);
@@ -265,17 +274,20 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       let capturedParams: Record<string, unknown> = {};
 
       vi.spyOn(httpClient, 'get').mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
-        capturedUrl = url;
-        capturedParams = (config?.params as Record<string, unknown>) || {};
-        return {
-          data: {
-            items: [
-              { id: 'W-10482', name: 'Sunita Devi' },
-              { id: 'W-10483', name: 'Ramesh Yadav' },
-            ],
-            meta: { total: 2, page: 1, limit: 20, totalPages: 1 },
-          },
-        };
+        if (url === '/admin/workers') {
+          capturedUrl = url;
+          capturedParams = (config?.params as Record<string, unknown>) || {};
+          return {
+            data: {
+              items: [
+                { id: 'W-10482', name: 'Sunita Devi' },
+                { id: 'W-10483', name: 'Ramesh Yadav' },
+              ],
+              meta: { total: 2, page: 1, limit: 20, totalPages: 1 },
+            },
+          };
+        }
+        return { data: {} };
       });
 
       const result = await realRepo.getWorkersPage({ searchTerm: '' }, 1, 20);
@@ -294,14 +306,17 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       const realRepo = new RealWorkerRepository();
       let capturedParams: Record<string, unknown> = {};
 
-      vi.spyOn(httpClient, 'get').mockImplementation(async (_url: string, config?: AxiosRequestConfig) => {
-        capturedParams = (config?.params as Record<string, unknown>) || {};
-        return {
-          data: {
-            items: [{ id: 'W-10484', name: 'Kavita Singh' }],
-            meta: { total: 25, page: 2, limit: 20, totalPages: 2 },
-          },
-        };
+      vi.spyOn(httpClient, 'get').mockImplementation(async (url: string, config?: AxiosRequestConfig) => {
+        if (url === '/admin/workers') {
+          capturedParams = (config?.params as Record<string, unknown>) || {};
+          return {
+            data: {
+              items: [{ id: 'W-10484', name: 'Kavita Singh' }],
+              meta: { total: 25, page: 2, limit: 20, totalPages: 2 },
+            },
+          };
+        }
+        return { data: {} };
       });
 
       const page2 = await realRepo.getWorkersPage({ searchTerm: 'va' }, 2, 20);
@@ -351,7 +366,7 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
       expect(screen.getByText('Ramesh Yadav')).toBeInTheDocument();
 
-      const searchInput = screen.getByPlaceholderText(/Search by worker name, ID, category, or locality/i);
+      const searchInput = screen.getByPlaceholderText(/Search by worker name/i);
       await user.clear(searchInput);
       await user.type(searchInput, 'va');
 
@@ -378,7 +393,7 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      const searchInput = screen.getByPlaceholderText(/Search by worker name, ID, category, or locality/i);
+      const searchInput = screen.getByPlaceholderText(/Search by worker name/i);
       await user.clear(searchInput);
       await user.type(searchInput, 'Devi');
 
@@ -392,7 +407,7 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      const searchInput = screen.getByPlaceholderText(/Search by worker name, ID, category, or locality/i);
+      const searchInput = screen.getByPlaceholderText(/Search by worker name/i);
       await user.clear(searchInput);
       await user.type(searchInput, '9876543210');
 
@@ -406,7 +421,7 @@ describe('Worker Management Search — HTTP 400 Validation Fix & Contract Safety
 
       expect(await screen.findByText('Sunita Devi')).toBeInTheDocument();
 
-      const searchInput = screen.getByPlaceholderText(/Search by worker name, ID, category, or locality/i);
+      const searchInput = screen.getByPlaceholderText(/Search by worker name/i);
       await user.clear(searchInput);
       await user.type(searchInput, 'W-10482');
 

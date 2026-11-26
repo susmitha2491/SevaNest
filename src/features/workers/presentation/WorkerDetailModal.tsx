@@ -43,6 +43,8 @@ import {
 import { ValidationError, ConcurrencyConflictError } from '../../../core/errors/DomainError';
 import { evaluateVerificationWorkflow } from '../../verification/domain/verificationWorkflow';
 import { formatDocumentVaultError } from '../../verification/domain/documentVaultErrorFormatter';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 import { formatDocumentSize, isSuspiciousMinimalDocument } from '../../verification/domain/documentUtils';
 import {
   hasPendingReVerification,
@@ -158,7 +160,6 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
   const [activeStep, setActiveStep] = useState<WorkerModalWorkflowStep>(normalizedInitialStep);
 
   // Sensitive PII reveal
-  const [isPhoneRevealed, setIsPhoneRevealed] = useState(false);
   const [isPhotoLoadError, setIsPhotoLoadError] = useState(false);
   const [revealedEmergencyContact, setRevealedEmergencyContact] = useState<{ name: string; mobile: string } | null>(null);
   const [isEmergencyContactRevealed, setIsEmergencyContactRevealed] = useState(false);
@@ -2231,47 +2232,21 @@ export const WorkerDetailModal: React.FC<WorkerDetailModalProps> = ({
                       Contact Number & Email
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <strong style={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
-                        {worker.phoneMasked && !worker.phoneMasked.includes('*')
-                          ? worker.phone || worker.mobile || worker.phoneMasked
-                          : (isPhoneRevealed
-                              ? worker.phone || worker.mobile || (worker.phoneMasked ? `${worker.phoneMasked} (Full number not supplied by backend)` : 'Not available')
-                              : worker.phoneMasked || '+91 ••••• •••••')}
-                      </strong>
-                      {worker.phoneMasked && worker.phoneMasked.includes('*') && (
-                        canRevealPii ? (
-                          <button
-                            type="button"
-                            onClick={() => setIsPhoneRevealed((prev) => !prev)}
-                            style={{
-                              padding: '2px 8px',
-                              fontSize: '11px',
-                              borderRadius: 'var(--radius-sm)',
-                              border: '1px solid var(--color-border)',
-                              backgroundColor: 'var(--color-bg-subtle)',
-                              color: 'var(--color-brand-600)',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              fontWeight: 600,
-                            }}
-                            aria-label={isPhoneRevealed ? 'Hide contact number' : 'Reveal contact number'}
-                          >
-                            {isPhoneRevealed ? <EyeOff size={11} /> : <Eye size={11} />}
-                            <span>{isPhoneRevealed ? 'Hide' : 'Reveal'}</span>
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontStyle: 'italic' }}>
-                            (Restricted)
-                          </span>
-                        )
-                      )}
+                      <MaskedPhoneText
+                        phone={worker.phoneMasked || worker.phone || worker.mobile}
+                        unmaskedPhone={worker.phone || worker.mobile}
+                        entityId={worker.id}
+                        entityType="worker"
+                        canReveal={canRevealPii}
+                        allowReveal={true}
+                        textStyle={{ fontFamily: 'monospace', fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)', fontWeight: 700 }}
+                        initialRevealed={Boolean(worker.phone && !worker.phone.includes('*'))}
+                      />
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                       {worker.phoneMasked && !worker.phoneMasked.includes('*')
                         ? 'Registered primary mobile'
-                        : (isPhoneRevealed ? '✓ Authorized contact reveal active' : 'Secure communication channel')}
+                        : 'Secure communication channel'}
                     </div>
                     <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
                       Email:{' '}

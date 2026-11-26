@@ -22,6 +22,8 @@ import { bookingRepository } from '../data/bookingRepository';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 interface ReplacementFulfillmentModalProps {
   booking: BookingDetail | null;
@@ -299,8 +301,14 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
                   : 'Replacement Review'}
               </span>
             </div>
-            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word' }}>
-              Booking: <strong>{booking.id}</strong> • Customer: <strong>{booking.customerName}</strong> ({booking.customerLocality} • {booking.customerPhoneMasked})
+            <p style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', margin: '2px 0 0', wordBreak: 'break-word', display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+              <span>Booking: <strong>{booking.id}</strong> • Customer: <strong>{booking.customerName}</strong> ({booking.customerLocality} •</span>
+              <MaskedPhoneText
+                phone={booking.customerPhoneMasked}
+                entityId={booking.customerId}
+                entityType="customer"
+              />
+              <span>)</span>
             </p>
           </div>
           <button
@@ -365,8 +373,13 @@ export const ReplacementFulfillmentModal: React.FC<ReplacementFulfillmentModalPr
               <div>
                 <strong>Reason Category:</strong> {(effectiveReplacement.reasonCode && REPLACEMENT_REASONS[effectiveReplacement.reasonCode]) || effectiveReplacement.reasonCode || effectiveReplacement.reasonCategory || 'Dispute'}
               </div>
-              <div>
-                <strong>Customer Contact:</strong> {booking.customerPhoneMasked}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <strong>Customer Contact:</strong>
+                <MaskedPhoneText
+                  phone={booking.customerPhoneMasked}
+                  entityId={booking.customerId}
+                  entityType="customer"
+                />
               </div>
               {effectiveReplacement.neededFrom && (
                 <div>

@@ -30,6 +30,8 @@ import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 export interface SupportTicketsPageProps {
   viewMode?: 'all' | 'my-assigned' | 'escalated' | 'resolved';
@@ -768,8 +770,13 @@ export const SupportTicketsPage: React.FC<SupportTicketsPageProps> = ({
                     {/* Complainant */}
                     <td style={{ padding: 'var(--space-4)' }}>
                       <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{tkt.complainantName}</div>
-                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                        Role: <strong>{tkt.complainantType}</strong> • {tkt.complainantPhoneMasked}
+                      <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                        <span>Role: <strong>{tkt.complainantType}</strong> •</span>
+                        <MaskedPhoneText
+                          phone={tkt.complainantPhoneMasked}
+                          entityId={tkt.complainantId}
+                          entityType={tkt.complainantType === 'WORKER' ? 'worker' : 'customer'}
+                        />
                       </div>
                     </td>
 

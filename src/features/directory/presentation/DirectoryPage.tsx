@@ -28,6 +28,8 @@ import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 import { SearchInput } from '../../../components/common/SearchInput';
 
 const WORKER_CATEGORY_OPTIONS = [
@@ -592,7 +594,12 @@ export const DirectoryPage: React.FC = () => {
                             </div>
                             {(worker.phone || worker.mobile || worker.phoneMasked) && (
                               <div style={{ fontSize: '10px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
-                                {worker.phone || worker.mobile || worker.phoneMasked}
+                                <MaskedPhoneText
+                                  phone={worker.phone || worker.mobile || worker.phoneMasked}
+                                  unmaskedPhone={worker.phone || worker.mobile}
+                                  entityId={worker.id}
+                                  entityType="worker"
+                                />
                               </div>
                             )}
                           </td>
@@ -937,7 +944,12 @@ export const DirectoryPage: React.FC = () => {
                           <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', fontSize: '12px', whiteSpace: 'nowrap' }}>{customer.name}</div>
                           {(customer.unmaskedPhone || customer.phone || customer.maskedPhone) && (
                             <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '1px', whiteSpace: 'nowrap' }}>
-                              {customer.unmaskedPhone || customer.phone || customer.maskedPhone}
+                              <MaskedPhoneText
+                                phone={customer.maskedPhone || customer.phone}
+                                unmaskedPhone={customer.unmaskedPhone || (customer.phone && !customer.phone.includes('*') ? customer.phone : undefined)}
+                                entityId={customer.id}
+                                entityType="customer"
+                              />
                             </div>
                           )}
                         </td>

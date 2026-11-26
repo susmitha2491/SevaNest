@@ -38,6 +38,8 @@ import {
 } from '../domain/recheckHelper';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { formatDateTimeIST } from '../../../shared/formatters/dateTime';
@@ -2423,11 +2425,18 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                           <Phone size={13} color="var(--color-primary)" />
                           <span style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-secondary)' }}>
-                            Mobile Number (Unmasked)
+                            Mobile Number (Masked)
                           </span>
                         </div>
-                        <div style={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-primary)', letterSpacing: '0.02em' }}>
-                          {displayMobileNumber}
+                        <div style={{ marginTop: '2px' }}>
+                          <MaskedPhoneText
+                            phone={dossier?.phone || dossier?.phoneMasked}
+                            unmaskedPhone={dossier?.phone}
+                            entityId={dossier?.workerId || dossierId}
+                            entityType="worker"
+                            permissionKey="verification.review"
+                            textStyle={{ fontSize: '15px', fontWeight: 700, color: 'var(--color-text-primary)', letterSpacing: '0.02em' }}
+                          />
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--color-text-secondary)', marginTop: '2px' }}>
                           {dossier.phone ? 'Full unmasked mobile number' : 'Number status as provided by backend'}

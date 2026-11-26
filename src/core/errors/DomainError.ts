@@ -7,12 +7,14 @@ export abstract class DomainError extends Error {
   public abstract readonly code: string;
   public readonly statusCode?: number;
   public readonly correlationId?: string;
+  public readonly errorCode?: string;
 
-  constructor(message: string, correlationId?: string, statusCode?: number) {
+  constructor(message: string, correlationId?: string, statusCode?: number, errorCode?: string) {
     super(message);
     this.name = this.constructor.name;
     this.correlationId = correlationId;
     this.statusCode = statusCode;
+    this.errorCode = errorCode;
     Object.setPrototypeOf(this, new.target.prototype);
   }
 }

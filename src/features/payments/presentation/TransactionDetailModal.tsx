@@ -25,6 +25,8 @@ import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 interface TransactionDetailModalProps {
   transaction: PaymentTransaction | null;
@@ -138,13 +140,6 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
 
   if (!isOpen || !transaction) return null;
 
-  const displayContact =
-    (resolvedContact && !resolvedContact.includes('*') ? resolvedContact : undefined) ||
-    (transaction.customerPhone && !transaction.customerPhone.includes('*') ? transaction.customerPhone : undefined) ||
-    (transaction.customerPhoneMasked && !transaction.customerPhoneMasked.includes('*') ? transaction.customerPhoneMasked : undefined) ||
-    resolvedContact ||
-    transaction.customerPhoneMasked ||
-    'Contact Details Unavailable';
 
   const isRefundPending = transaction.status === 'REFUND_PENDING' || transaction.refundStatus === 'REFUND_PENDING';
   const isRefunded = transaction.status === 'REFUNDED' || transaction.refundStatus === 'REFUNDED';
@@ -413,11 +408,19 @@ export const TransactionDetailModal: React.FC<TransactionDetailModalProps> = ({
                 >
                   {transaction.customerName}
                 </div>
-                <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px' }}>
-                  Contact:{' '}
-                  <strong style={{ color: 'var(--color-brand-600)' }}>
-                    {transaction.customerName === 'Customer Details Unavailable' ? '—' : displayContact}
-                  </strong>
+                <div style={{ color: 'var(--color-text-secondary)', marginTop: '2px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span>Contact:</span>
+                  {transaction.customerName === 'Customer Details Unavailable' ? (
+                    <strong style={{ color: 'var(--color-brand-600)' }}>—</strong>
+                  ) : (
+                    <MaskedPhoneText
+                      phone={transaction.customerPhoneMasked || transaction.customerPhone}
+                      unmaskedPhone={resolvedContact && !resolvedContact.includes('*') ? resolvedContact : (transaction.customerPhone && !transaction.customerPhone.includes('*') ? transaction.customerPhone : undefined)}
+                      entityId={transaction.customerId}
+                      entityType="customer"
+                      textStyle={{ color: 'var(--color-brand-600)', fontWeight: 700 }}
+                    />
+                  )}
                 </div>
                 {transaction.customerName !== 'Customer Details Unavailable' && transaction.customerId && !transaction.customerId.startsWith('C-NA') && (
                   <div style={{ fontFamily: 'monospace', fontSize: '11px', color: 'var(--color-text-tertiary)', marginTop: '2px' }}>

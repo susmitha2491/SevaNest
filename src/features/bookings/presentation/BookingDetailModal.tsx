@@ -36,7 +36,8 @@ import { workerRepository } from '../../workers/data/workerRepository';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { formatCurrencyINR } from '../../../shared/formatters/currency';
-import { formatPhoneNumber } from '../../../core/utils/phoneDirectory';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 import { formatDateTimeIST, formatDateIST } from '../../../shared/formatters/dateTime';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { PERMISSIONS, hasPermission } from '../../../core/rbac/permissions';
@@ -290,37 +291,44 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
   const rawCustomerPhone =
     customerData?.unmaskedPhone ||
     customerData?.phone ||
+    customerData?.maskedPhone ||
     booking.customerPhone ||
     booking.customerPhoneMasked ||
-    (isCustomerAvailable ? '+91 98480 12345' : 'Phone not on file');
-  const resolvedCustomerPhone = formatPhoneNumber(rawCustomerPhone);
+    '';
 
   const resolvedCustomerEmail =
     customerData?.unmaskedEmail ||
     customerData?.email ||
     booking.customerEmail ||
-    (isCustomerAvailable && resolvedCustomerName !== 'Customer Details Unavailable'
-      ? `${resolvedCustomerName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@client.sevanest.in`
-      : 'Email not on file');
+    'Email not on file';
 
   const resolvedCustomerAddress =
     customerData?.fullAddress ||
-    (booking.customerLocality
-      ? `Villa 14, Silicon Springs, ${booking.customerLocality}, Hyderabad`
-      : 'Address record pending registration');
+    (customerData?.locality
+      ? `${customerData.locality}, Hyderabad`
+      : (booking.trial?.customerAddress
+        ? booking.trial.customerAddress
+        : (booking.customerLocality
+          ? `${booking.customerLocality}, Hyderabad`
+          : 'Address not on file')));
 
   const hasWorker = Boolean(
-    (booking.assignedWorkerName && booking.assignedWorkerName !== 'Unassigned Candidate') ||
-    booking.assignedWorkerId
+    booking.assignedWorkerId ||
+    (booking.assignedWorkerName &&
+      booking.assignedWorkerName !== 'Unassigned Candidate' &&
+      booking.assignedWorkerName !== 'Unassigned / Needs Match')
   );
 
   // Resolve genuine Worker Name (never raw UUID)
   const resolvedWorkerName =
     workerData?.name ||
-    (booking.assignedWorkerName && !isUUID(booking.assignedWorkerName) && booking.assignedWorkerName !== 'Unassigned Candidate'
+    (booking.assignedWorkerName &&
+      !isUUID(booking.assignedWorkerName) &&
+      booking.assignedWorkerName !== 'Unassigned Candidate' &&
+      booking.assignedWorkerName !== 'Unassigned / Needs Match'
       ? booking.assignedWorkerName
       : null) ||
-    (hasWorker ? 'Assigned Domestic Specialist' : 'Unassigned Candidate');
+    (hasWorker ? 'Assigned Domestic Specialist' : 'Unassigned / Needs Match');
 
   // Resolved Worker Contact Details (unmasked for authorized Operations Admins)
   const rawWorkerPhone =
@@ -328,8 +336,16 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
     workerData?.mobile ||
     booking.assignedWorkerPhone ||
     booking.assignedWorkerPhoneMasked ||
-    (hasWorker ? '+91 99881 54321' : 'Phone not on file');
-  const resolvedWorkerPhone = formatPhoneNumber(rawWorkerPhone);
+    '';
+
+  // Resolved Worker Verification Status
+  const resolvedWorkerVerificationStatus = hasWorker
+    ? (workerData?.isFullyVerified
+      ? 'Fully Verified Candidate'
+      : (workerData?.verificationStatus === 'VERIFIED'
+        ? 'Verified'
+        : (workerData?.verificationStatus || 'Verified Candidate')))
+    : 'Unassigned / Needs Match';
 
   // Date and Time formatting helpers (IST - Asia/Kolkata)
   const formatReadableDate = (val?: string | null) => {
@@ -931,7 +947,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
               <div style={{ fontSize: '11px', color: hasWorker ? '#16a34a' : '#64748b', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {hasWorker ? (
                   <>
-                    <ShieldCheck size={12} /> Verified Placement
+                    <ShieldCheck size={12} /> {resolvedWorkerVerificationStatus}
                   </>
                 ) : (
                   'Pending Candidate Match'
@@ -1100,6 +1116,136 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                 </div>
               </div>
 
+              {/* Customer and Worker Contact Summary Grid */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: '8px',
+                }}
+              >
+                {/* Customer Contact Card */}
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    padding: '10px 12px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <User size={14} color="#0284c7" />
+                      <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                        Customer / Booker Details
+                      </h4>
+                    </div>
+                    <span style={{ fontSize: '10px', color: '#0284c7', fontWeight: 600, backgroundColor: '#eff6ff', padding: '1px 6px', borderRadius: '4px' }}>
+                      {booking.customerId ? `ID: ${booking.customerId}` : 'Customer'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
+                    <div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>CUSTOMER NAME</div>
+                      <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '1px' }}>Customer: {resolvedCustomerName}</div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Phone size={10} color="#0284c7" /> MOBILE NUMBER
+                      </div>
+                      <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '1px' }}>
+                        <MaskedPhoneText
+                          phone={rawCustomerPhone}
+                          unmaskedPhone={customerData?.unmaskedPhone || (rawCustomerPhone && !rawCustomerPhone.includes('*') ? rawCustomerPhone : undefined)}
+                          entityId={booking.customerId}
+                          entityType="customer"
+                          fallbackText="Phone not on file"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <MapPin size={10} color="#0284c7" /> LOCALITY & ADDRESS
+                      </div>
+                      <div style={{ fontWeight: 500, color: '#1e293b', marginTop: '1px', lineHeight: 1.3 }}>
+                        {resolvedCustomerAddress}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assigned Worker Contact Card */}
+                <div
+                  style={{
+                    backgroundColor: '#ffffff',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    padding: '10px 12px',
+                    boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.02)',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Briefcase size={14} color={hasWorker ? '#059669' : '#d97706'} />
+                      <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
+                        Assigned Worker Details
+                      </h4>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: '10px',
+                        fontWeight: 600,
+                        padding: '1px 6px',
+                        borderRadius: '4px',
+                        backgroundColor: hasWorker ? '#ecfdf5' : '#fffbeb',
+                        color: hasWorker ? '#047857' : '#b45309',
+                      }}
+                    >
+                      {hasWorker ? resolvedWorkerVerificationStatus : 'Unassigned / Needs Match'}
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', fontSize: '12px' }}>
+                    <div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600 }}>WORKER NAME</div>
+                      <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#d97706', marginTop: '1px' }}>
+                        {hasWorker ? `Worker: ${resolvedWorkerName}` : 'Unassigned / Needs Match'}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <Phone size={10} color={hasWorker ? '#059669' : '#64748b'} /> MOBILE NUMBER
+                      </div>
+                      <div style={{ fontWeight: 700, color: hasWorker ? '#0f172a' : '#64748b', marginTop: '1px' }}>
+                        {hasWorker ? (
+                          <MaskedPhoneText
+                            phone={rawWorkerPhone}
+                            unmaskedPhone={workerData?.phone || (rawWorkerPhone && !rawWorkerPhone.includes('*') ? rawWorkerPhone : undefined)}
+                            entityId={booking.assignedWorkerId}
+                            entityType="worker"
+                            fallbackText="Phone not on file"
+                          />
+                        ) : (
+                          'Unassigned / Needs Match'
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <div style={{ color: '#64748b', fontSize: '10px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '3px' }}>
+                        <ShieldCheck size={10} color={hasWorker ? '#059669' : '#64748b'} /> VERIFICATION STATUS
+                      </div>
+                      <div style={{ fontWeight: 500, color: hasWorker ? '#047857' : '#b45309', marginTop: '1px' }}>
+                        {hasWorker ? (
+                          <span>● {resolvedWorkerVerificationStatus}</span>
+                        ) : (
+                          <span>● Unassigned / Needs Match — Awaiting Candidate Match</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* 3-Column Specifications Grid */}
               <div
                 style={{
@@ -1170,7 +1316,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', borderBottom: '1px solid #f1f5f9', paddingBottom: '4px' }}>
                     <IndianRupee size={14} color="#059669" />
                     <h4 style={{ fontSize: '11px', fontWeight: 700, color: '#475569', textTransform: 'uppercase', margin: 0 }}>
-                      Financial & Budget Cap
+                      Financial & Budget Cap (Shift & Budget)
                     </h4>
                   </div>
 
@@ -1420,7 +1566,13 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                       <Phone size={12} color="#0284c7" /> PHONE NUMBER
                     </div>
                     <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '4px', fontSize: '14px' }}>
-                      {resolvedCustomerPhone}
+                      <MaskedPhoneText
+                        phone={rawCustomerPhone}
+                        unmaskedPhone={customerData?.unmaskedPhone || (rawCustomerPhone && !rawCustomerPhone.includes('*') ? rawCustomerPhone : undefined)}
+                        entityId={booking.customerId}
+                        entityType="customer"
+                        fallbackText="Phone not on file"
+                      />
                     </div>
                     <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '2px' }}>
                       ✓ Direct Authorized Contact
@@ -1584,7 +1736,17 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                         <Phone size={12} color="#0d9488" /> DIRECT PHONE
                       </div>
                       <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '4px', fontSize: '14px' }}>
-                        {resolvedWorkerPhone}
+                        {hasWorker ? (
+                          <MaskedPhoneText
+                            phone={rawWorkerPhone}
+                            unmaskedPhone={workerData?.phone || (rawWorkerPhone && !rawWorkerPhone.includes('*') ? rawWorkerPhone : undefined)}
+                            entityId={booking.assignedWorkerId}
+                            entityType="worker"
+                            fallbackText="Phone not on file"
+                          />
+                        ) : (
+                          'Unassigned / Needs Match'
+                        )}
                       </div>
                       <div style={{ fontSize: '11px', color: '#16a34a', marginTop: '2px' }}>
                         ✓ Candidate Mobile Verified
@@ -1596,7 +1758,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                         <Mail size={12} color="#0d9488" /> EMAIL CONTACT
                       </div>
                       <div style={{ fontWeight: 600, color: '#0f172a', marginTop: '4px' }}>
-                        {workerData?.email || `${resolvedWorkerName.toLowerCase().replace(/[^a-z0-9]/g, '.')}@staff.sevanest.in`}
+                        {workerData?.email || 'Email on file with operations'}
                       </div>
                       <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
                         Operational Messaging Active
@@ -1610,7 +1772,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                       <div style={{ fontWeight: 600, color: '#1e293b', marginTop: '4px' }}>
                         {workerData?.address?.line
                           ? `${workerData.address.line}, ${workerData.locality || booking.customerLocality}, Hyderabad`
-                          : `Plot 84, Vetted Workers Quarter, ${booking.customerLocality}, Hyderabad`}
+                          : (workerData?.locality ? `${workerData.locality}, Hyderabad` : (booking.customerLocality ? `${booking.customerLocality}, Hyderabad` : 'Address on file with operations'))}
                       </div>
                       <div style={{ fontSize: '12px', color: '#0d9488', marginTop: '2px' }}>
                         Base Hub: <strong>{workerData?.locality || booking.customerLocality}</strong>
@@ -1620,7 +1782,7 @@ export const BookingDetailModal: React.FC<BookingDetailModalProps> = ({
                     <div>
                       <div style={{ color: '#64748b', fontSize: '11px', fontWeight: 600 }}>EXPERIENCE & RATING</div>
                       <div style={{ fontWeight: 700, color: '#0f172a', marginTop: '4px' }}>
-                        {workerData?.experienceYears || 5} Years Experience • {workerData?.ratingAverage || 4.8} ★
+                        {workerData?.experienceYears !== undefined ? `${workerData.experienceYears} Years Experience` : 'Experience on file'} • {workerData?.ratingAverage !== undefined ? `${workerData.ratingAverage} ★` : 'Rating on file'}
                       </div>
                     </div>
 

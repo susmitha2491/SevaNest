@@ -19,6 +19,10 @@ import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+import { extractSearchMobileDigits, getCustomerPhone, matchesPhoneDigits } from '../../../core/utils/phoneDirectory';
+
+
 
 type CustomerSortField = 'registeredDate' | 'name' | 'id' | 'totalBookings';
 
@@ -204,13 +208,44 @@ export const CustomersListPage: React.FC = () => {
     let result = [...allCustomers];
 
     if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      result = result.filter(
-        (c) =>
+      const term = searchTerm.toLowerCase().trim();
+      const mobileSearch = extractSearchMobileDigits(term);
+      const cleanDigits = term.replace(/\D/g, '');
+
+      result = result.filter((c) => {
+        // Name, ID, or locality match
+        if (
           c.name.toLowerCase().includes(term) ||
           c.id.toLowerCase().includes(term) ||
           c.locality.toLowerCase().includes(term)
-      );
+        ) {
+          return true;
+        }
+
+        // Phone search match: support +91, spaces, hyphens, and exact national digits
+        const targetDigits = mobileSearch || cleanDigits;
+        if (targetDigits.length >= 2) {
+          const phoneCandidates = [
+            c.unmaskedPhone,
+            c.phone,
+            getCustomerPhone(c.id),
+            c.maskedPhone,
+          ].filter(Boolean) as string[];
+
+          for (const rawPhone of phoneCandidates) {
+            if (matchesPhoneDigits(rawPhone, targetDigits)) {
+              return true;
+            }
+          }
+
+          // Retain records returned from server-side query when searching by phone
+          if (allCustomers.length > 0 && mobileSearch) {
+            return true;
+          }
+        }
+
+        return false;
+      });
     }
 
     if (statusFilter !== 'ALL') {
@@ -585,7 +620,7 @@ export const CustomersListPage: React.FC = () => {
         <SearchInput
           value={searchTerm}
           onChange={(val) => setSearchTerm(val)}
-          placeholder="Search by customer name, ID, or locality..."
+          placeholder="Search by customer name, ID, mobile number, or locality..."
           ariaLabel="Search customers"
           containerStyle={{ flex: '1 1 280px', minWidth: 'min(100%, 240px)' }}
         />
@@ -855,9 +890,15 @@ export const CustomersListPage: React.FC = () => {
                     <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {formatRegistrationDateIST(customer.registeredDate)}</div>
                   </td>
                   <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                    <span style={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}>
-                      {customer.unmaskedPhone || customer.phone || customer.maskedPhone}
-                    </span>
+                    <MaskedPhoneText
+                      phone={customer.maskedPhone || customer.phone}
+                      unmaskedPhone={customer.unmaskedPhone || (customer.phone && !customer.phone.includes('*') ? customer.phone : undefined)}
+                      entityId={customer.id}
+                      entityType="customer"
+                      allowReveal={true}
+                      textStyle={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}
+                      initialRevealed={Boolean(customer.unmaskedPhone)}
+                    />
                   </td>
                   <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                     {customer.locality}

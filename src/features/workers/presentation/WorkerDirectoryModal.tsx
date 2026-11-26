@@ -27,6 +27,8 @@ import { VerificationBadge } from '../../../shared/components/VerificationBadge/
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
 import { LoadingSpinner } from '../../../shared/components/LoadingSpinner/LoadingSpinner';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 interface WorkerDirectoryModalProps {
   workerId: string;
@@ -634,11 +636,16 @@ export const WorkerDirectoryModal: React.FC<WorkerDirectoryModalProps> = ({ work
                           </span>
                         </div>
 
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <span style={{ color: 'var(--color-text-secondary, #64748b)' }}>Registered Mobile</span>
-                          <span style={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-text-primary, #0f172a)' }}>
-                            {worker.phone || worker.mobile || worker.phoneMasked || 'Available in Admin'}
-                          </span>
+                          <MaskedPhoneText
+                            phone={worker.phone || worker.mobile || worker.phoneMasked}
+                            unmaskedPhone={worker.phone || worker.mobile}
+                            entityId={worker.id}
+                            entityType="worker"
+                            fallbackText="Available in Admin"
+                            textStyle={{ fontWeight: 600, fontFamily: 'monospace', color: 'var(--color-text-primary, #0f172a)' }}
+                          />
                         </div>
 
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>

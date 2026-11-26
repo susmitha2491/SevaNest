@@ -31,6 +31,8 @@ import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { RequiredIndicator } from '../../../components/common/RequiredIndicator';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 export interface BookingsListPageProps {
   defaultStatus?: string;
@@ -134,6 +136,8 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
       }),
     enabled: canView,
     staleTime: 30000,
+    refetchInterval: 30000,
+    refetchIntervalInBackground: false,
     placeholderData: keepPreviousData,
   });
 
@@ -211,19 +215,48 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
       {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
-        <div>
-          <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)' }}>
-            {defaultStatus === 'REPLACEMENT_REQUESTED' ? 'Replacement Management' : 'Booking & Service Management'}
-          </h1>
-          <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)' }}>
-            {defaultStatus === 'REPLACEMENT_REQUESTED'
-              ? 'Operational replacement coordination: review eligibility, rematch qualified domestic workers, and oversee trial fulfillment.'
-              : 'Operational orchestration for demand matching, trial coordination, replacement fulfillment, and service status.'}
-          </p>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'flex-start',
+          gap: 'var(--space-4)',
+          width: '100%',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', flex: 1, minWidth: 0 }}>
+          <div>
+            <h1 style={{ fontSize: 'var(--font-size-3xl)', fontWeight: 700, color: 'var(--color-navy)', margin: 0 }}>
+              {defaultStatus === 'REPLACEMENT_REQUESTED' ? 'Replacement Management' : 'Booking & Service Management'}
+            </h1>
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--space-1)', marginBottom: 0 }}>
+              {defaultStatus === 'REPLACEMENT_REQUESTED'
+                ? 'Operational replacement coordination: review eligibility, rematch qualified domestic workers, and oversee trial fulfillment.'
+                : 'Operational orchestration for demand matching, trial coordination, replacement fulfillment, and service status.'}
+            </p>
+          </div>
+
+          <div>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 'var(--space-2)',
+                padding: '4px 10px',
+                backgroundColor: 'var(--color-status-info-bg)',
+                border: '1px solid var(--color-status-info-border)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 'var(--font-size-xs)',
+                color: 'var(--color-status-info-text)',
+              }}
+            >
+              <Info size={15} />
+              <span>Strict Policy: Only fully-verified candidates matched to bookings</span>
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => refetch()}
@@ -243,6 +276,7 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
               cursor: isFetching ? 'not-allowed' : 'pointer',
               opacity: isFetching ? 0.7 : 1,
               boxShadow: 'var(--shadow-sm)',
+              whiteSpace: 'nowrap',
             }}
           >
             <RefreshCw
@@ -252,23 +286,6 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
             />
             <span>{isFetching ? 'Refreshing...' : 'Refresh'}</span>
           </button>
-
-          <div
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              padding: 'var(--space-2) var(--space-3)',
-              backgroundColor: 'var(--color-status-info-bg)',
-              border: '1px solid var(--color-status-info-border)',
-              borderRadius: 'var(--radius-md)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-status-info-text)',
-            }}
-          >
-            <Info size={16} />
-            <span>Strict Policy: Only fully-verified candidates matched to bookings</span>
-          </div>
         </div>
       </div>
 
@@ -286,7 +303,17 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
         }}
       >
         {/* Status Quick-Filter Tabs */}
-        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '16px', borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)', scrollbarWidth: 'thin' }}>
+        <div
+          aria-label="Filter bookings by status"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '6px 8px',
+            alignItems: 'center',
+            paddingBottom: '14px',
+            borderBottom: '1px solid var(--color-border-subtle, #f1f5f9)',
+          }}
+        >
           {[
             { key: 'ALL', label: 'All Bookings' },
             { key: 'REQUESTED', label: 'New Requests' },
@@ -298,29 +325,36 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
             { key: 'COMPLETED', label: 'Completed' },
             { key: 'REPLACEMENT_REQUESTED', label: 'Replacements' },
             { key: 'CANCELLED', label: 'Cancelled' },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => {
-                setSelectedStatus(tab.key);
-                setCurrentPage(1);
-              }}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 'var(--radius-full, 9999px)',
-                border: selectedStatus === tab.key ? '1px solid var(--color-brand-600)' : '1px solid var(--color-border, #cbd5e1)',
-                backgroundColor: selectedStatus === tab.key ? 'var(--color-brand-600)' : 'var(--color-surface, #ffffff)',
-                color: selectedStatus === tab.key ? '#ffffff' : 'var(--color-text-secondary, #475569)',
-                fontSize: 'var(--font-size-xs, 12px)',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 150ms ease',
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+          ].map((tab) => {
+            const isSelected = selectedStatus === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => {
+                  setSelectedStatus(tab.key);
+                  setCurrentPage(1);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  padding: '5px 12px',
+                  borderRadius: 'var(--radius-full, 9999px)',
+                  border: isSelected ? '1px solid var(--color-brand-600, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                  backgroundColor: isSelected ? 'var(--color-brand-600, #2563eb)' : 'var(--color-surface, #ffffff)',
+                  color: isSelected ? '#ffffff' : 'var(--color-text-secondary, #475569)',
+                  fontSize: 'var(--font-size-xs, 12px)',
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  transition: 'all 150ms ease',
+                  boxShadow: isSelected ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
         </div>
 
         {/* Search and Secondary Dropdowns */}
@@ -544,8 +578,13 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
                       {/* Customer */}
                       <td style={{ padding: 'var(--space-4)' }}>
                         <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{booking.customerName}</div>
-                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
-                          {booking.customerLocality} • {booking.customerPhoneMasked}
+                        <div style={{ fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                          <span>{booking.customerLocality} •</span>
+                          <MaskedPhoneText
+                            phone={booking.customerPhoneMasked}
+                            entityId={booking.customerId}
+                            entityType="customer"
+                          />
                         </div>
                       </td>
 

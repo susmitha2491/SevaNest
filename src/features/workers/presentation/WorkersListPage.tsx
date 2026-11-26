@@ -23,6 +23,8 @@ import { WorkerDetailModal } from './WorkerDetailModal';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 type VerificationFilterValue = 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE';
 type WorkerSortOption = 'recently_added' | 'name_asc';
@@ -944,7 +946,13 @@ export const WorkersListPage: React.FC = () => {
                         </div>
                         {mobileText && (
                           <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                            {mobileText}
+                            <MaskedPhoneText
+                              phone={mobileText}
+                              unmaskedPhone={worker.phone && !worker.phone.includes('*') ? worker.phone : undefined}
+                              entityId={worker.id}
+                              entityType="worker"
+                              allowReveal={true}
+                            />
                           </div>
                         )}
                       </td>

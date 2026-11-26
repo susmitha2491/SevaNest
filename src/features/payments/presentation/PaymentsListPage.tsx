@@ -30,6 +30,8 @@ import { RefundProcessingModal } from './RefundProcessingModal';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
+import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+
 
 export const PaymentsListPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -849,7 +851,13 @@ export const PaymentsListPage: React.FC = () => {
                           </td>
                           <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                             <div style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>{txn.customerName}</div>
-                            <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px' }}>{txn.customerPhoneMasked}</div>
+                            <div style={{ color: 'var(--color-text-secondary)', fontSize: '11px' }}>
+                              <MaskedPhoneText
+                                phone={txn.customerPhoneMasked}
+                                entityId={txn.customerId}
+                                entityType="customer"
+                              />
+                            </div>
                           </td>
                           <td style={{ padding: 'var(--space-3) var(--space-4)' }}>
                             <span style={{ fontWeight: 500 }}>{txn.feeType.replace(/_/g, ' ')}</span>

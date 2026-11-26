@@ -14,3 +14,5 @@ export * from './feedback/NoAccessView';
 export * from './feedback/NotFoundView';
 export * from './feedback/StatusBadge';
 export * from './feedback/VerificationBadge';
+export * from '../shared/components/MaskedPhoneText';
+

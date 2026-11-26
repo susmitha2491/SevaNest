@@ -60,6 +60,47 @@ describe('Booking & Service Management Workflows', () => {
     expect(screen.getByText('Priya Reddy')).toBeInTheDocument();
   });
 
+  it('places title, description, and strict policy badge on the left, and Refresh button at the far right', async () => {
+    renderWithProviders(<BookingsListPage />);
+
+    const heading = await screen.findByRole('heading', { name: /Booking & Service Management/i });
+    const refreshBtn = screen.getByRole('button', { name: /^Refresh$/i });
+    const policyBadge = screen.getByText(/Strict Policy: Only fully-verified candidates matched to bookings/i);
+
+    const headerContainer = heading.closest('div[style*="justify-content: space-between"]');
+    expect(headerContainer).not.toBeNull();
+
+    const refreshContainer = refreshBtn.parentElement;
+    expect(refreshContainer).toHaveStyle({ flexShrink: '0' });
+
+    const leftSection = heading.closest('div[style*="flex: 1"]');
+    expect(leftSection).not.toBeNull();
+    expect(leftSection).toContainElement(policyBadge);
+    expect(leftSection).not.toContainElement(refreshBtn);
+  });
+
+  it('configures automatic polling every 30 seconds and pauses when tab is inactive', async () => {
+    const testQueryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 } },
+    });
+    render(
+      <QueryClientProvider client={testQueryClient}>
+        <MemoryRouter>
+          <BookingsListPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    await screen.findByRole('heading', { name: /Booking & Service Management/i });
+
+    const queries = testQueryClient.getQueryCache().findAll({ queryKey: ['bookings', 'list'] });
+    expect(queries.length).toBeGreaterThan(0);
+    const bookingQuery = queries[0];
+    const options = (bookingQuery as unknown as { options: { refetchInterval: number; refetchIntervalInBackground: boolean } }).options;
+    expect(options.refetchInterval).toBe(30000);
+    expect(options.refetchIntervalInBackground).toBe(false);
+  });
+
   it('opens booking detail modal when View button is clicked', async () => {
     const user = userEvent.setup();
     renderWithProviders(<BookingsListPage />);

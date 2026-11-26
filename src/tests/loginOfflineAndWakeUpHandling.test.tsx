@@ -323,7 +323,7 @@ describe('Login Offline Detection, Error Classification & Render Wake-Up Handlin
     // 401 wipes password
     await waitFor(() => {
       expect(passInput.value).toBe('');
-      expect(screen.getByText(/Invalid administrative credentials/i)).toBeInTheDocument();
+      expect(screen.getByText('Invalid email id or password')).toBeInTheDocument();
     });
 
     // Now test that offline error PRESERVES password
@@ -416,8 +416,8 @@ describe('Login Offline Detection, Error Classification & Render Wake-Up Handlin
       fireEvent.click(submitBtn);
     });
 
-    // Displays rate limit error
-    expect(screen.getByText(/Too many requests/i)).toBeInTheDocument();
+    // Displays sanitized unavailable error per Section 5 contract
+    expect(screen.getByText(/Authentication service is temporarily unavailable/i)).toBeInTheDocument();
     // Does NOT display Render wake-up banner
     expect(screen.queryByText(/Backend server is waking up on Render/i)).toBeNull();
     // Retry and submit buttons are disabled with cooldown message

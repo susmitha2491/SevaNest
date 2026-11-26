@@ -243,8 +243,10 @@ describe('Authentication Module Audit & Security Validation', () => {
         expect(router.state.location.pathname).toBe('/auth/login');
       });
 
-      // Without stored refresh token, state is cleanly cleared to prevent stale redirects
-      expect(router.state.location.state).toBeNull();
+      // Preserves requested deep link in state
+      expect(router.state.location.state).toEqual({
+        from: expect.objectContaining({ pathname: '/bookings' }),
+      });
     });
   });
 
