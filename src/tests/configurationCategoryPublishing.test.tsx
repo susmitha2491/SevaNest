@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -121,6 +121,67 @@ describe('Category Publishing & HTTP 428 Concurrency Governance', () => {
     await user.click(confirmPublishBtn);
 
     expect(await screen.findByText(/Service category details and engagements successfully published and verified/i)).toBeInTheDocument();
+  });
+
+  it('renders compact single-view Edit Category modal with 2-column layout, engagement grid, and subtle info note', async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<ConfigurationMastersPage />);
+
+    expect(await screen.findByText(/Service Categories & Workforce Skills Taxonomy/i)).toBeInTheDocument();
+
+    const editBtns = screen.getAllByRole('button', { name: /Edit/i });
+    await user.click(editBtns[0]);
+
+    // Modal dialog is present
+    const modalDialog = await screen.findByRole('dialog');
+    expect(modalDialog).toBeInTheDocument();
+
+    // Header renders "Edit Service Category" and category name
+    expect(within(modalDialog).getByRole('heading', { name: /Edit Category:/i })).toBeInTheDocument();
+    expect(within(modalDialog).getByText('Edit Service Category')).toBeInTheDocument();
+
+    // Basic Information fields
+    expect(within(modalDialog).getByText('Basic Information')).toBeInTheDocument();
+    expect(within(modalDialog).getByLabelText(/Category Name/i)).toBeInTheDocument();
+    expect(within(modalDialog).getByLabelText(/Display Tagline \/ Description/i)).toBeInTheDocument();
+    expect(within(modalDialog).getByLabelText(/Catalog Status/i)).toBeInTheDocument();
+    expect(within(modalDialog).getByLabelText(/Min Experience \(Months\)/i)).toBeInTheDocument();
+
+    // Allowed Engagement Types (8 options)
+    expect(within(modalDialog).getByText('Allowed Engagement Types')).toBeInTheDocument();
+    const engagementLabels = ['Full-time', 'Part-time', 'Live-in', 'Daily', 'Hourly', 'Shift', 'One-time', 'Monthly'];
+    for (const label of engagementLabels) {
+      expect(within(modalDialog).getByLabelText(label)).toBeInTheDocument();
+    }
+
+    // Toggle an engagement type
+    const liveInCheckbox = within(modalDialog).getByLabelText('Live-in');
+    const prevChecked = (liveInCheckbox as HTMLInputElement).checked;
+    await user.click(liveInCheckbox);
+    expect((liveInCheckbox as HTMLInputElement).checked).toBe(!prevChecked);
+
+    // Modify minimum experience
+    const minExpInput = within(modalDialog).getByLabelText(/Min Experience \(Months\)/i);
+    await user.clear(minExpInput);
+    await user.type(minExpInput, '24');
+    expect(minExpInput).toHaveValue(24);
+
+    // Skills Taxonomy section inside modal
+    expect(within(modalDialog).getByText('Skills Taxonomy')).toBeInTheDocument();
+    expect(within(modalDialog).getByPlaceholderText(/Add new skill tag\.\.\./i)).toBeInTheDocument();
+    expect(within(modalDialog).getByRole('button', { name: /Add Skill/i })).toBeInTheDocument();
+
+    // Subtle Info Note
+    expect(within(modalDialog).getByText(/Category details and engagements are synchronized with backend APIs/i)).toBeInTheDocument();
+
+    // Footer with Cancel and Save Category Draft
+    const cancelBtn = within(modalDialog).getByRole('button', { name: /^Cancel$/i });
+    expect(cancelBtn).toBeInTheDocument();
+    expect(within(modalDialog).getByRole('button', { name: /Save Category Draft/i })).toBeInTheDocument();
+
+    // Cancel closes the modal
+    await user.click(cancelBtn);
+    expect(screen.queryByRole('heading', { name: /Edit Category:/i })).not.toBeInTheDocument();
   });
 
   describe('RealConfigurationRepository If-Match & HTTP 428 Contract Handling', () => {

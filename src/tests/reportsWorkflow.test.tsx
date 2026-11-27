@@ -14,7 +14,7 @@ import {
   generateCleanCsv,
   getReportCanonicalFilename,
 } from '../features/reports/utils/reportExportGenerator';
-import { createReportRepository, RealReportRepository } from '../features/reports/data/reportRepository';
+import { createReportRepository, RealReportRepository, reportRepository } from '../features/reports/data/reportRepository';
 import { clearReportEnrichmentCache } from '../features/reports/data/reportDetailEnricher';
 import { ReportItem } from '../features/reports/domain/types';
 import { httpClient } from '../core/api/httpClient';
@@ -717,6 +717,94 @@ describe('Operational Reports & Analytics Workflows', () => {
       expect(ticketReport?.detailDataset?.rows[0]['Resolution Time']).toBe('1.0 hrs');
 
       getSpy.mockRestore();
+    });
+
+    it('BUG-12: Refresh button in catalog view reloads report catalog with live status feedback', async () => {
+      const user = userEvent.setup();
+      const getReportsSpy = vi.spyOn(reportRepository, 'getReports');
+
+      renderWithProviders(<ReportsDashboardPage />);
+      expect(await screen.findByRole('heading', { name: /Reports & Analytics/i })).toBeInTheDocument();
+
+      const refreshBtn = screen.getByRole('button', { name: /^Refresh$/i });
+      expect(refreshBtn).toBeInTheDocument();
+
+      const initialCallCount = getReportsSpy.mock.calls.length;
+      await user.click(refreshBtn);
+
+      expect(getReportsSpy.mock.calls.length).toBeGreaterThan(initialCallCount);
+      expect(await screen.findByText(/Refreshed/i)).toBeInTheDocument();
+      getReportsSpy.mockRestore();
+    });
+
+    it('BUG-12: Refresh button in single report view reloads both selected report dataset and catalog metrics', async () => {
+      const user = userEvent.setup();
+      const getReportsSpy = vi.spyOn(reportRepository, 'getReports');
+      const getReportByIdSpy = vi.spyOn(reportRepository, 'getReportById');
+
+      renderWithProviders(<ReportsDashboardPage />);
+
+      // Open first report
+      const viewButtons = await screen.findAllByRole('button', { name: /View Report/i });
+      await user.click(viewButtons[0]);
+
+      expect(await screen.findByText(/AUTHORITATIVE SPECIFICATION & METRIC DEFINITION/i)).toBeInTheDocument();
+      const initialDetailCount = getReportByIdSpy.mock.calls.length;
+      const initialCatalogCount = getReportsSpy.mock.calls.length;
+
+      // Click Refresh in detail view
+      const refreshBtn = await screen.findByRole('button', { name: /^Refresh$/i });
+      await user.click(refreshBtn);
+
+      expect(getReportByIdSpy.mock.calls.length).toBeGreaterThan(initialDetailCount);
+      expect(getReportsSpy.mock.calls.length).toBeGreaterThan(initialCatalogCount);
+      expect(await screen.findByText(/Refreshed/i)).toBeInTheDocument();
+
+      getReportsSpy.mockRestore();
+      getReportByIdSpy.mockRestore();
+    });
+
+    it('BUG-12: Displays meaningful error feedback when report refresh fails', async () => {
+      renderWithProviders(<ReportsDashboardPage />);
+      expect(await screen.findByRole('heading', { name: /Reports & Analytics/i })).toBeInTheDocument();
+
+      const getReportsSpy = vi.spyOn(reportRepository, 'getReports').mockRejectedValue(
+        new Error('Network gateway timeout on report service')
+      );
+
+      const refreshBtn = screen.getByRole('button', { name: /^Refresh$/i });
+      await userEvent.setup().click(refreshBtn);
+
+      expect(await screen.findByText(/Refresh failed: Network gateway timeout on report service/i)).toBeInTheDocument();
+      getReportsSpy.mockRestore();
+    });
+
+    it('BUG-12: Prevents duplicate uncontrolled API calls on repeated rapid clicks', async () => {
+      renderWithProviders(<ReportsDashboardPage />);
+      expect(await screen.findByRole('heading', { name: /Reports & Analytics/i })).toBeInTheDocument();
+
+      let resolveFetch!: (data: ReportItem[]) => void;
+      const delayedPromise = new Promise<ReportItem[]>((resolve) => {
+        resolveFetch = resolve;
+      });
+
+      const getReportsSpy = vi.spyOn(reportRepository, 'getReports').mockImplementation(() => delayedPromise);
+
+      const refreshBtn = screen.getByRole('button', { name: /^Refresh$/i });
+
+      // Click once using fireEvent to inspect pending state synchronously
+      const user = userEvent.setup();
+      const clickPromise = user.click(refreshBtn);
+
+      // Subsequent click while in progress
+      await user.click(refreshBtn);
+
+      // Expect exactly 1 refresh call initiated
+      expect(getReportsSpy).toHaveBeenCalledTimes(1);
+
+      resolveFetch([]);
+      await clickPromise;
+      getReportsSpy.mockRestore();
     });
   });
 });

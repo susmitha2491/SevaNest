@@ -16,7 +16,7 @@ import {
   UpdateWorkerAvailabilityPayload,
 } from '../domain/types';
 import { httpClient } from '../../../core/api/httpClient';
-import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName, getWorkerLocality, setWorkerLocality, extractSearchMobileDigits, extractCanonicalMobileDigits, matchesPhoneDigits, fetchWorkerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
+import { formatPhoneNumber, getWorkerPhone, setWorkerPhone, setWorkerName, getWorkerLocality, setWorkerLocality, extractSearchMobileDigits, extractCanonicalMobileDigits, matchesPhoneDigits, fetchWorkerUnmaskedPhone, preloadWorkerPhones } from '../../../core/utils/phoneDirectory';
 import { env } from '../../../core/config/env';
 import { useAuthStore } from '../../../core/auth/authStore';
 import { hasPermission, PERMISSIONS } from '../../../core/rbac/permissions';
@@ -737,8 +737,12 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   const isSubmittedApp = String(item.applicationStatus || '').toUpperCase() === 'SUBMITTED';
   const isUnderReviewApp =
     String(item.applicationStatus || '').toUpperCase() === 'UNDER_REVIEW' ||
+    String(item.applicationStatus || '').toUpperCase() === 'ACTION_REQUIRED' ||
+    String(item.status || '').toUpperCase() === 'UNDER_REVIEW' ||
+    rawOnboardingStatus === 'IN_REVIEW' ||
     levelUpper === 'IN_PROGRESS' ||
     rawVerificationStatus === 'IN_REVIEW' ||
+    rawVerificationStatus === 'UNDER_REVIEW' ||
     rawVerificationStatus === 'PENDING_REVIEW';
   const isSignedOff = Boolean(item.signedOffAt);
   const isActivated = Boolean(item.activatedAt) || String(item.applicationStatus || '').toUpperCase() === 'ACTIVE';
@@ -766,6 +770,29 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     calculatedStatus = (item.applicationStatus as Worker['status']) || 'UNDER_REVIEW';
   }
 
+  let derivedVerificationStatus: Worker['verificationStatus'];
+  if (isVerified) {
+    derivedVerificationStatus = 'VERIFIED';
+  } else if (isTerminalRejected) {
+    derivedVerificationStatus = 'REJECTED';
+  } else if (rawVerificationStatus === 'RECHECK_DUE' || item.recheckDueDate) {
+    derivedVerificationStatus = 'RECHECK_DUE';
+  } else if (
+    rawVerificationStatus === 'IN_REVIEW' ||
+    rawVerificationStatus === 'UNDER_REVIEW' ||
+    rawVerificationStatus === 'IN_PROGRESS' ||
+    rawVerificationStatus === 'PENDING_REVIEW' ||
+    isUnderReviewApp
+  ) {
+    derivedVerificationStatus = 'IN_REVIEW';
+  } else if (rawVerificationStatus === 'PENDING' || rawVerificationStatus === 'SUBMITTED' || rawVerificationStatus === 'NOT_STARTED') {
+    derivedVerificationStatus = 'PENDING';
+  } else if (item.verificationStatus) {
+    derivedVerificationStatus = item.verificationStatus as Worker['verificationStatus'];
+  } else {
+    derivedVerificationStatus = 'PENDING';
+  }
+
   return {
     id: rawId,
     userId: item.userId ? String(item.userId) : undefined,
@@ -791,7 +818,7 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
     mobile: rawPhone,
     email: rawEmail,
     onboardingStatus: (item.onboardingStatus as Worker['onboardingStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'APPLIED'),
-    verificationStatus: (item.verificationStatus as Worker['verificationStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'PENDING'),
+    verificationStatus: derivedVerificationStatus,
     applicationStatus: (item.applicationStatus as Worker['applicationStatus']) || (isRejected ? 'REJECTED' : isVerified ? 'VERIFIED' : 'SUBMITTED'),
     verificationLevel: String(item.verificationLevel || level || 'NOT_STARTED'),
     level,
@@ -1426,17 +1453,25 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
     }
 
+    await preloadWorkerPhones().catch(() => {});
+
     const matchedList = (
       await Promise.all(
         list.map(async (item) => {
           const id = String(item.id || item.workerId || '');
+          const rawMobile = String(item.mobile || item.phone || '');
+          if (matchesPhoneDigits(rawMobile, searchDigits)) {
+            return item;
+          }
           let phone = getWorkerPhone(id);
+          if (phone && matchesPhoneDigits(phone, searchDigits)) {
+            return item;
+          }
           if (!phone || phone.includes('*')) {
             phone = await fetchWorkerUnmaskedPhone(id);
-          }
-          const rawMobile = String(item.mobile || item.phone || '');
-          if (matchesPhoneDigits(phone, searchDigits) || matchesPhoneDigits(rawMobile, searchDigits)) {
-            return item;
+            if (matchesPhoneDigits(phone, searchDigits)) {
+              return item;
+            }
           }
           return null;
         })
@@ -1539,6 +1574,9 @@ export class RealWorkerRepository implements IWorkerRepository {
       } else if (filter?.limit !== undefined) {
         params.limit = filter.limit;
       }
+      if (filter?.onboardingStatus) {
+        params.onboardingStatus = filter.onboardingStatus;
+      }
 
       const response = await httpClient.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
         '/admin/workers',
@@ -1588,33 +1626,6 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
-      const uncachedWorkerIds = list
-        .map((item) => String(item.id || item.workerId || ''))
-        .filter((id) => id && (!getWorkerPhone(id) || !getWorkerLocality(id)));
-      if (uncachedWorkerIds.length > 0) {
-        await Promise.all(
-          uncachedWorkerIds.map(async (id) => {
-            try {
-              const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${id}`);
-              const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
-              const mobile = String(detail?.mobile || detail?.phone || '');
-              if (mobile && !mobile.includes('*')) {
-                const formatted = formatPhoneNumber(mobile);
-                setWorkerPhone(id, formatted);
-                if (detail.userId) setWorkerPhone(String(detail.userId), formatted);
-              }
-              const area = (detail?.address as { area?: string } | undefined)?.area || (detail?.locality as string | undefined);
-              if (area && area.toLowerCase() !== 'hyderabad') {
-                setWorkerLocality(id, area);
-                if (detail.userId) setWorkerLocality(String(detail.userId), area);
-              }
-            } catch {
-              // Ignore failure
-            }
-          })
-        );
-      }
-
       const mapped = list.map((item) => {
         const id = String(item.id || item.workerId || '');
         const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
@@ -1633,7 +1644,7 @@ export class RealWorkerRepository implements IWorkerRepository {
         filteredResult = filteredResult.filter((w) => w.locality.toLowerCase().includes(filter.locality!.toLowerCase()));
       }
 
-      return verifiedParam === true
+      const baseResult = verifiedParam === true
         ? filteredResult.filter((w) => {
             const isVerified = Boolean(
               w.isFullyVerified ||
@@ -1655,6 +1666,34 @@ export class RealWorkerRepository implements IWorkerRepository {
             return isVerified && isNotRejected && isNotDraft && isNotUnderReview;
           })
         : filteredResult.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
+
+      if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        const vStatus = filter.verificationStatus;
+        if (vStatus === 'PENDING') {
+          return baseResult.filter(
+            (w) =>
+              w.verificationStatus === 'PENDING' &&
+              !w.isFullyVerified &&
+              w.verificationLevel !== 'IN_PROGRESS' &&
+              w.applicationStatus !== 'UNDER_REVIEW' &&
+              w.applicationStatus !== 'ACTION_REQUIRED'
+          );
+        } else if (vStatus === 'IN_REVIEW') {
+          return baseResult.filter(
+            (w) =>
+              (w.verificationStatus === 'IN_REVIEW' ||
+               w.verificationLevel === 'IN_PROGRESS' ||
+               w.applicationStatus === 'UNDER_REVIEW' ||
+               w.applicationStatus === 'ACTION_REQUIRED') &&
+              !w.isFullyVerified
+          );
+        } else if (vStatus === 'REJECTED') {
+          return baseResult.filter((w) => w.verificationStatus === 'REJECTED' || w.applicationStatus === 'REJECTED');
+        } else if (vStatus === 'RECHECK_DUE') {
+          return baseResult.filter((w) => w.verificationStatus === 'RECHECK_DUE');
+        }
+      }
+      return baseResult;
     } catch (err) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1808,6 +1847,9 @@ export class RealWorkerRepository implements IWorkerRepository {
           };
         }
       }
+      if (filter?.onboardingStatus) {
+        params.onboardingStatus = filter.onboardingStatus;
+      }
 
       const response = await httpClient.get<{
         items?: Array<Record<string, unknown>>;
@@ -1877,33 +1919,6 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
-      const uncachedPageWorkerIds = list
-        .map((item) => String(item.id || item.workerId || ''))
-        .filter((id) => id && (!getWorkerPhone(id) || !getWorkerLocality(id)));
-      if (uncachedPageWorkerIds.length > 0) {
-        await Promise.all(
-          uncachedPageWorkerIds.map(async (id) => {
-            try {
-              const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${id}`);
-              const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
-              const mobile = String(detail?.mobile || detail?.phone || '');
-              if (mobile && !mobile.includes('*')) {
-                const formatted = formatPhoneNumber(mobile);
-                setWorkerPhone(id, formatted);
-                if (detail.userId) setWorkerPhone(String(detail.userId), formatted);
-              }
-              const area = (detail?.address as { area?: string } | undefined)?.area || (detail?.locality as string | undefined);
-              if (area && area.toLowerCase() !== 'hyderabad') {
-                setWorkerLocality(id, area);
-                if (detail.userId) setWorkerLocality(String(detail.userId), area);
-              }
-            } catch {
-              // Ignore failure
-            }
-          })
-        );
-      }
-
       const mappedItems = list.map((item) => {
         const id = String(item.id || item.workerId || '');
         const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
@@ -1938,6 +1953,32 @@ export class RealWorkerRepository implements IWorkerRepository {
         : mappedItems.filter((w) => w.onboardingStatus !== 'DRAFT' && w.applicationStatus !== 'DRAFT');
 
       let pageItems = finalItems;
+      if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+        const vStatus = filter.verificationStatus;
+        if (vStatus === 'PENDING') {
+          pageItems = pageItems.filter(
+            (w) =>
+              w.verificationStatus === 'PENDING' &&
+              !w.isFullyVerified &&
+              w.verificationLevel !== 'IN_PROGRESS' &&
+              w.applicationStatus !== 'UNDER_REVIEW' &&
+              w.applicationStatus !== 'ACTION_REQUIRED'
+          );
+        } else if (vStatus === 'IN_REVIEW') {
+          pageItems = pageItems.filter(
+            (w) =>
+              (w.verificationStatus === 'IN_REVIEW' ||
+               w.verificationLevel === 'IN_PROGRESS' ||
+               w.applicationStatus === 'UNDER_REVIEW' ||
+               w.applicationStatus === 'ACTION_REQUIRED') &&
+              !w.isFullyVerified
+          );
+        } else if (vStatus === 'REJECTED') {
+          pageItems = pageItems.filter((w) => w.verificationStatus === 'REJECTED' || w.applicationStatus === 'REJECTED');
+        } else if (vStatus === 'RECHECK_DUE') {
+          pageItems = pageItems.filter((w) => w.verificationStatus === 'RECHECK_DUE');
+        }
+      }
       if (filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED') {
         pageItems = pageItems.filter((w) => w.status === 'BLACKLISTED');
       }
@@ -1946,7 +1987,7 @@ export class RealWorkerRepository implements IWorkerRepository {
       }
 
       const effectiveTotal =
-        filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED' || (filter?.locality && !params.areaId)
+        filter?.status === 'BLACKLISTED' || (filter?.accountStatus as string) === 'BLACKLISTED' || (filter?.locality && !params.areaId) || (filter?.verificationStatus && filter.verificationStatus !== 'ALL')
           ? pageItems.length
           : (verifiedParam === true ? (total > pageItems.length && list.length === total ? pageItems.length : total) : total);
 
@@ -2428,11 +2469,42 @@ export class MockWorkerRepository implements IWorkerRepository {
       result = result.filter((w) => w.status === filter.status);
     }
 
-    if (filter?.verified !== undefined) {
+    if (filter?.onboardingStatus) {
+      result = result.filter(
+        (w) =>
+          w.onboardingStatus === filter.onboardingStatus ||
+          (filter.onboardingStatus === 'SUBMITTED' && w.onboardingStatus !== 'DRAFT')
+      );
+    }
+
+    if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
+      if (filter.verificationStatus === 'VERIFIED') {
+        result = result.filter((w) => w.isFullyVerified || w.verificationStatus === 'VERIFIED');
+      } else if (filter.verificationStatus === 'PENDING') {
+        result = result.filter(
+          (w) =>
+            w.verificationStatus === 'PENDING' &&
+            !w.isFullyVerified &&
+            w.verificationLevel !== 'IN_PROGRESS' &&
+            w.applicationStatus !== 'UNDER_REVIEW' &&
+            w.applicationStatus !== 'ACTION_REQUIRED'
+        );
+      } else if (filter.verificationStatus === 'IN_REVIEW') {
+        result = result.filter(
+          (w) =>
+            (w.verificationStatus === 'IN_REVIEW' ||
+             w.verificationLevel === 'IN_PROGRESS' ||
+             w.applicationStatus === 'UNDER_REVIEW' ||
+             w.applicationStatus === 'ACTION_REQUIRED') &&
+            !w.isFullyVerified
+        );
+      } else if (filter.verificationStatus === 'REJECTED') {
+        result = result.filter((w) => w.verificationStatus === 'REJECTED' || w.status === 'REJECTED');
+      } else if (filter.verificationStatus === 'RECHECK_DUE') {
+        result = result.filter((w) => w.verificationStatus === 'RECHECK_DUE');
+      }
+    } else if (filter?.verified !== undefined) {
       result = result.filter((w) => w.isFullyVerified === filter.verified);
-    } else if (filter?.verificationStatus && filter.verificationStatus !== 'ALL') {
-      const wantVerified = filter.verificationStatus === 'VERIFIED';
-      result = result.filter((w) => w.isFullyVerified === wantVerified);
     }
 
     return result.map(({ bio: _bio, languages: _l, serviceRadiusKm: _sr, verification: _v, recentEngagements: _re, internalNotes: _in, activeEngagementsCount: _ae, completedBookingsCount: _cb, replacementsIncurred: _ri, documents: _d, skills: _sk, ...summary }) => summary);

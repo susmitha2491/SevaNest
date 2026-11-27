@@ -200,6 +200,9 @@ describe('Super Admin Manual Testing Report Bug Fixes Verification', () => {
 
     const refreshButton = await screen.findByRole('button', { name: /Refresh/i });
     expect(refreshButton).toBeInTheDocument();
+
+    await user.click(refreshButton);
+    expect(await screen.findByText(/Refreshed/i)).toBeInTheDocument();
   });
 
   // BUG-013: Platform Configuration Fee schedule currency input formatting and spinner suppression

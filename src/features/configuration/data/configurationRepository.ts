@@ -21,6 +21,11 @@ import {
   ConcurrencyConflictError,
   ServerFailureError,
 } from '../../../core/errors/DomainError';
+import {
+  getAreaPincodes,
+  setAreaPincodes,
+  normalizePincodes,
+} from '../../../core/utils/areaPincodeDirectory';
 
 export function getRoleDisplayName(role: AdminRole): string {
   switch (role) {
@@ -524,15 +529,16 @@ export class MockConfigurationRepository implements IConfigurationRepository {
     return newCat;
   }
 
-  async createOperationalArea(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
+  async createOperationalArea(dto: { name: string; city: string; pincodes?: string[]; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
     if (!dto.name?.trim() || !dto.city?.trim()) {
       throw new ValidationError('Locality name and city are mandatory.');
     }
+    const cleanPins = normalizePincodes(dto.pincodes);
     const newArea: OperationalAreaItem = {
       id: `AREA-${Date.now()}`,
       cityName: dto.city.trim(),
       clusterName: dto.name.trim(),
-      pincodes: ['500001'],
+      pincodes: cleanPins,
       status: 'ACTIVE',
       activeWorkersCount: 0,
     };
@@ -944,17 +950,46 @@ export class RealConfigurationRepository implements IConfigurationRepository {
         else if (Array.isArray(rec.data)) items = rec.data;
       }
       if (items.length > 0) {
-        return items.map((area, idx) => {
-          const a = area as Record<string, unknown>;
-          return {
-            id: String(a.id || `AREA-${idx + 1}`),
-            cityName: String(a.city || a.cityName || 'Hyderabad'),
-            clusterName: String(a.name || a.clusterName || 'General Area'),
-            pincodes: Array.isArray(a.pincodes) ? a.pincodes.map(String) : ['500001'],
-            status: a.isEnabled === false ? 'PLANNED' : 'ACTIVE',
-            activeWorkersCount: typeof a.activeWorkersCount === 'number' ? a.activeWorkersCount : 0,
-          };
-        });
+        const areasWithCounts = await Promise.all(
+          items.map(async (area, idx) => {
+            const a = area as Record<string, unknown>;
+            const areaId = String(a.id || `AREA-${idx + 1}`);
+            let activeWorkersCount = typeof a.activeWorkersCount === 'number' ? a.activeWorkersCount : 0;
+
+            if (a.id) {
+              try {
+                const wRes = await httpClient.get<{
+                  items?: unknown[];
+                  data?: unknown[];
+                  meta?: { total?: number };
+                }>('/admin/workers', {
+                  params: { areaId: a.id, verified: true, limit: 1 },
+                });
+                const meta = wRes.data?.meta || (wRes.data as { meta?: { total?: number } })?.meta;
+                const total = Number(meta?.total ?? 0);
+                if (Number.isFinite(total)) {
+                  activeWorkersCount = total;
+                }
+              } catch {
+                // If count query fails, preserve existing count or 0 safely
+              }
+            }
+
+            const clusterName = String(a.name || a.clusterName || 'General Area');
+            const pincodes = getAreaPincodes(areaId, clusterName, a.pincodes);
+
+            return {
+              id: areaId,
+              cityName: String(a.city || a.cityName || 'Hyderabad'),
+              clusterName,
+              pincodes,
+              status: (a.isEnabled === false ? 'PLANNED' : 'ACTIVE') as OperationalAreaItem['status'],
+              activeWorkersCount,
+              etag: typeof a.etag === 'string' ? a.etag : undefined,
+            };
+          })
+        );
+        return areasWithCounts;
       }
       return [];
     } catch (err: unknown) {
@@ -964,13 +999,18 @@ export class RealConfigurationRepository implements IConfigurationRepository {
 
   async saveOperationalArea(area: OperationalAreaItem, remarks: string): Promise<OperationalAreaItem> {
     try {
-      // Backend contract: PATCH /admin/service-areas/{areaId} with UpdateServiceAreaDto: { name, city, isEnabled }
+      const validPincodes = normalizePincodes(area.pincodes);
+      // Persist the exact PIN codes locally so subsequent query invalidations retain them
+      setAreaPincodes(area.id, area.clusterName, validPincodes);
+
+      // Backend contract: PATCH /admin/service-areas/{areaId} with UpdateServiceAreaDto: { name, city, isEnabled, pincodes }
       const response = await httpClient.patch(
         `/admin/service-areas/${encodeURIComponent(area.id)}`,
         {
-          name: area.clusterName,
-          city: area.cityName,
+          name: area.clusterName.trim(),
+          city: area.cityName.trim(),
           isEnabled: area.status !== 'PLANNED',
+          pincodes: validPincodes,
         },
         {
           headers: {
@@ -987,11 +1027,12 @@ export class RealConfigurationRepository implements IConfigurationRepository {
           id: String(a.id || area.id),
           clusterName: String(a.name || a.clusterName || area.clusterName),
           cityName: String(a.city || a.cityName || area.cityName),
+          pincodes: validPincodes,
           status: a.isEnabled === false ? 'PLANNED' : 'ACTIVE',
           etag: newEtag || area.etag,
         };
       }
-      return { ...area, etag: newEtag || area.etag };
+      return { ...area, pincodes: validPincodes, etag: newEtag || area.etag };
     } catch (err: unknown) {
       throw mapHttpErrorToDomainError(err);
     }
@@ -1151,21 +1192,31 @@ export class RealConfigurationRepository implements IConfigurationRepository {
     }
   }
 
-  async createOperationalArea(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
+  async createOperationalArea(dto: { name: string; city: string; pincodes?: string[]; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem> {
     try {
+      const trimmedName = dto.name.trim();
+      const trimmedCity = dto.city.trim();
+      const validPincodes = normalizePincodes(dto.pincodes);
+
       const response = await httpClient.post('/admin/service-areas', {
-        name: dto.name.trim(),
-        city: dto.city.trim(),
+        name: trimmedName,
+        city: trimmedCity,
+        pincodes: validPincodes,
         centerLatitude: dto.centerLatitude ?? null,
         centerLongitude: dto.centerLongitude ?? null,
         radiusMeters: dto.radiusMeters ?? null,
       });
       const a = (response.data?.data || response.data) as Record<string, unknown>;
+      const id = String(a.id || `AREA-${Date.now()}`);
+
+      // Persist the exact PIN codes locally so subsequent query invalidations retain them
+      setAreaPincodes(id, trimmedName, validPincodes);
+
       return {
-        id: String(a.id || `AREA-${Date.now()}`),
-        cityName: String(a.city || dto.city),
-        clusterName: String(a.name || dto.name),
-        pincodes: ['500001'],
+        id,
+        cityName: String(a.city || trimmedCity),
+        clusterName: String(a.name || trimmedName),
+        pincodes: validPincodes,
         status: 'ACTIVE',
         activeWorkersCount: 0,
       };

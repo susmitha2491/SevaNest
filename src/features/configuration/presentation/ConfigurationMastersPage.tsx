@@ -33,6 +33,7 @@ import {
   CreditCard,
   LifeBuoy,
   BarChart3,
+  Info,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../../shared/components/ConfirmDialog/ConfirmDialog';
 import { useBodyScrollLock } from '../../../shared/hooks/useBodyScrollLock';
@@ -50,7 +51,8 @@ import {
   PermissionCatalogItem,
 } from '../domain/types';
 import { configurationRepository } from '../data/configurationRepository';
-import { workerRepository } from '../../workers/data/workerRepository';
+import { workerRepository, resolveAreaId } from '../../workers/data/workerRepository';
+import { validatePincodeFormat, getAreaPincodes } from '../../../core/utils/areaPincodeDirectory';
 import { adminUserRepository } from '../../adminUsers/data/adminUserRepository';
 import { authRepository } from '../../auth/data/authRepository';
 import { AdminAccountItem } from '../../adminUsers/domain/types';
@@ -463,30 +465,41 @@ export const ConfigurationMastersPage: React.FC = () => {
     },
   });
 
-  // Create Area State & Mutation
-  const [isCreateAreaModalOpen, setIsCreateAreaModalOpen] = useState(false);
-  const [createAreaDraft, setCreateAreaDraft] = useState<{ name: string; city: string; radiusMeters?: number; pincodesText?: string }>({
-    name: '',
-    city: 'Hyderabad',
-    radiusMeters: 5000,
-    pincodesText: '',
+  // Operational Area Modal State & Mutation
+  const [isAreaModalOpen, setIsAreaModalOpen] = useState(false);
+  const [areaModalMode, setAreaModalMode] = useState<'create' | 'edit'>('create');
+  const [areaDraft, setAreaDraft] = useState<OperationalAreaItem>({
+    id: '',
+    cityName: 'Hyderabad',
+    clusterName: '',
+    pincodes: [],
+    status: 'ACTIVE',
+    activeWorkersCount: 0,
   });
+  const [newPincodeInput, setNewPincodeInput] = useState('');
+  const [pincodeError, setPincodeError] = useState<string | null>(null);
+  const [areaModalError, setAreaModalError] = useState<string | null>(null);
+
   const createAreaMutation = useMutation({
-    mutationFn: (dto: { name: string; city: string; radiusMeters?: number; pincodesText?: string }) =>
+    mutationFn: (dto: { name: string; city: string; pincodes?: string[] }) =>
       configurationRepository.createOperationalArea!({
         name: dto.name,
         city: dto.city,
-        radiusMeters: dto.radiusMeters,
+        pincodes: dto.pincodes,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'areas'] });
-      setIsCreateAreaModalOpen(false);
-      setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000, pincodesText: '' });
+      queryClient.invalidateQueries({ queryKey: ['workers', 'for-cluster-density'] });
+      setIsAreaModalOpen(false);
+      setAreaModalError(null);
+      setPincodeError(null);
       setSuccessToast('Operational area cluster provisioned successfully.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
     onError: (err: unknown) => {
-      setErrorToast(err instanceof Error ? err.message : 'Failed to create operational area.');
+      const msg = err instanceof Error ? err.message : 'Failed to create operational area.';
+      setAreaModalError(msg);
+      setErrorToast(msg);
       setTimeout(() => setErrorToast(null), 5000);
     },
   });
@@ -523,10 +536,6 @@ export const ConfigurationMastersPage: React.FC = () => {
   const [isCategoryPublishOpen, setIsCategoryPublishOpen] = useState(false);
 
   // Operational Area State
-  const [isAreaModalOpen, setIsAreaModalOpen] = useState(false);
-  const [areaDraft, setAreaDraft] = useState<OperationalAreaItem | null>(null);
-  const [newPincodeInput, setNewPincodeInput] = useState('');
-  const [areaModalError, setAreaModalError] = useState<string | null>(null);
   const [isAreaPublishOpen, setIsAreaPublishOpen] = useState(false);
 
   // Template State
@@ -575,7 +584,6 @@ export const ConfigurationMastersPage: React.FC = () => {
 
   const isAnyModalOpen = Boolean(
     isCreateCategoryModalOpen ||
-    isCreateAreaModalOpen ||
     isCreateTemplateModalOpen ||
     isCategoryModalOpen ||
     isAreaModalOpen ||
@@ -603,7 +611,7 @@ export const ConfigurationMastersPage: React.FC = () => {
 
   const { data: workersForDensity } = useQuery({
     queryKey: ['workers', 'for-cluster-density'],
-    queryFn: () => workerRepository.getWorkers({ status: 'ACTIVE' }),
+    queryFn: () => workerRepository.getWorkers({ status: 'ACTIVE', verified: true }),
     enabled: canManageAreas,
     staleTime: 60 * 1000,
   });
@@ -615,12 +623,33 @@ export const ConfigurationMastersPage: React.FC = () => {
     return operationalAreas.map((area) => {
       const areaClusterName = area.clusterName.toLowerCase().trim();
       const areaId = area.id.toLowerCase().trim();
+      const areaResolvedId = resolveAreaId(area.id) || resolveAreaId(area.clusterName);
 
       const matchedCount = workersForDensity.filter((w) => {
-        const workerLoc = (w.locality || '').toLowerCase().trim();
+        const isVerifiedAndActive =
+          Boolean(w.isFullyVerified) &&
+          (w.status === 'ACTIVE' || w.accountStatus === 'ACTIVE') &&
+          w.verificationStatus !== 'REJECTED' &&
+          w.verificationStatus !== 'PENDING' &&
+          w.verificationStatus !== 'IN_REVIEW';
+        if (!isVerifiedAndActive) return false;
+
         const workerAreaId = ((w as unknown as { areaId?: string }).areaId || '').toLowerCase().trim();
-        if (workerAreaId && (workerAreaId === areaId || workerAreaId === area.id)) return true;
-        if (workerLoc && (workerLoc === areaClusterName || areaClusterName.includes(workerLoc) || workerLoc.includes(areaClusterName))) return true;
+        if (workerAreaId && (workerAreaId === areaId || (areaResolvedId && workerAreaId === areaResolvedId.toLowerCase()))) {
+          return true;
+        }
+
+        const workerLoc = (w.locality || '').toLowerCase().trim();
+        const workerResolvedId = resolveAreaId(w.locality);
+        if (workerResolvedId && areaResolvedId && workerResolvedId.toLowerCase() === areaResolvedId.toLowerCase()) {
+          return true;
+        }
+        if (workerResolvedId && workerResolvedId.toLowerCase() === areaId) {
+          return true;
+        }
+        if (workerLoc && (workerLoc === areaClusterName || areaClusterName.includes(workerLoc) || workerLoc.includes(areaClusterName))) {
+          return true;
+        }
         return false;
       }).length;
 
@@ -728,17 +757,121 @@ export const ConfigurationMastersPage: React.FC = () => {
       configurationRepository.saveOperationalArea(area, remarks),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['config', 'areas'] });
+      queryClient.invalidateQueries({ queryKey: ['workers', 'for-cluster-density'] });
       setIsAreaPublishOpen(false);
       setIsAreaModalOpen(false);
+      setAreaModalError(null);
+      setPincodeError(null);
       setSuccessToast('Operational cluster configuration updated successfully.');
       setTimeout(() => setSuccessToast(null), 4000);
     },
     onError: (err: unknown) => {
       setIsAreaPublishOpen(false);
-      setErrorToast(err instanceof Error ? err.message : 'Failed to update operational area.');
+      const msg = err instanceof Error ? err.message : 'Failed to update operational area.';
+      setAreaModalError(msg);
+      setErrorToast(msg);
       setTimeout(() => setErrorToast(null), 5000);
     },
   });
+
+  const isSubmittingArea = createAreaMutation.isPending || saveAreaMutation.isPending;
+
+  const handleAddPincode = () => {
+    const trimmed = newPincodeInput.trim();
+    if (!trimmed) {
+      setPincodeError('Please enter a 6-digit PIN code.');
+      return;
+    }
+    const validation = validatePincodeFormat(trimmed);
+    if (!validation.isValid) {
+      setPincodeError(validation.error || 'PIN code must be a valid 6-digit number.');
+      return;
+    }
+    if (areaDraft.pincodes.includes(trimmed)) {
+      setPincodeError(`PIN code ${trimmed} is already added.`);
+      return;
+    }
+    setAreaDraft((prev) => ({
+      ...prev,
+      pincodes: [...prev.pincodes, trimmed],
+    }));
+    setNewPincodeInput('');
+    setPincodeError(null);
+    if (areaModalError && areaModalError.includes('PIN')) {
+      setAreaModalError(null);
+    }
+  };
+
+  const handleRemovePincode = (pincodeToRemove: string) => {
+    setAreaDraft((prev) => ({
+      ...prev,
+      pincodes: prev.pincodes.filter((pin) => pin !== pincodeToRemove),
+    }));
+    if (areaModalError && areaModalError.includes('PIN')) {
+      setAreaModalError(null);
+    }
+  };
+
+  const handleSaveArea = () => {
+    const trimmedCluster = areaDraft.clusterName.trim();
+    const trimmedCity = areaDraft.cityName.trim();
+
+    if (!trimmedCluster) {
+      setAreaModalError('Cluster / Locality Name is required.');
+      return;
+    }
+    if (trimmedCluster.length < 2) {
+      setAreaModalError('Cluster / Locality Name must be at least 2 characters.');
+      return;
+    }
+    if (!trimmedCity) {
+      setAreaModalError('City Name is required.');
+      return;
+    }
+    if (trimmedCity.length < 2) {
+      setAreaModalError('City Name must be at least 2 characters.');
+      return;
+    }
+
+    let finalPincodes = [...areaDraft.pincodes];
+    const pendingPin = newPincodeInput.trim();
+    if (pendingPin && validatePincodeFormat(pendingPin).isValid && !finalPincodes.includes(pendingPin)) {
+      finalPincodes.push(pendingPin);
+      setAreaDraft((prev) => ({ ...prev, pincodes: finalPincodes }));
+      setNewPincodeInput('');
+      setPincodeError(null);
+    }
+
+    if (finalPincodes.length === 0) {
+      finalPincodes = getAreaPincodes(areaDraft.id, trimmedCluster);
+    }
+
+    if (finalPincodes.length === 0) {
+      setAreaModalError('At least one valid PIN code is required.');
+      return;
+    }
+
+    setAreaModalError(null);
+    setPincodeError(null);
+
+    if (areaModalMode === 'edit' && areaDraft.id) {
+      saveAreaMutation.mutate({
+        area: {
+          ...areaDraft,
+          clusterName: trimmedCluster,
+          cityName: trimmedCity,
+          pincodes: finalPincodes,
+        },
+        remarks: 'Operational area cluster update',
+      });
+    } else {
+      createAreaMutation.mutate({
+        name: trimmedCluster,
+        city: trimmedCity,
+        pincodes: finalPincodes,
+      });
+    }
+  };
 
   const saveTemplateMutation = useMutation({
     mutationFn: ({ template, rationale }: { template: NotificationTemplateItem; rationale: string }) =>
@@ -937,6 +1070,7 @@ export const ConfigurationMastersPage: React.FC = () => {
           type="button"
           onClick={() => {
             queryClient.invalidateQueries({ queryKey: ['config'] });
+            queryClient.invalidateQueries({ queryKey: ['workers', 'for-cluster-density'] });
             queryClient.invalidateQueries({ queryKey: ['adminUsers'] });
             queryClient.invalidateQueries({ queryKey: ['activeSessions'] });
           }}
@@ -1470,8 +1604,19 @@ export const ConfigurationMastersPage: React.FC = () => {
             </div>
             <button
               onClick={() => {
-                setCreateAreaDraft({ name: '', city: 'Hyderabad', radiusMeters: 5000 });
-                setIsCreateAreaModalOpen(true);
+                setAreaModalMode('create');
+                setAreaDraft({
+                  id: '',
+                  clusterName: '',
+                  cityName: 'Hyderabad',
+                  pincodes: [],
+                  status: 'ACTIVE',
+                  activeWorkersCount: 0,
+                });
+                setNewPincodeInput('');
+                setPincodeError(null);
+                setAreaModalError(null);
+                setIsAreaModalOpen(true);
               }}
               style={{
                 padding: '8px 14px',
@@ -1536,7 +1681,19 @@ export const ConfigurationMastersPage: React.FC = () => {
                       if (target?.closest && target.closest('button, a, input, select, textarea') && target !== e.currentTarget) {
                         return;
                       }
-                      setAreaDraft(JSON.parse(JSON.stringify(area)));
+                      setAreaModalMode('edit');
+                      setAreaDraft({
+                        id: area.id,
+                        clusterName: area.clusterName,
+                        cityName: area.cityName,
+                        pincodes: Array.isArray(area.pincodes) ? [...area.pincodes] : [],
+                        status: area.status,
+                        activeWorkersCount: area.activeWorkersCount || 0,
+                        etag: area.etag,
+                      });
+                      setNewPincodeInput('');
+                      setPincodeError(null);
+                      setAreaModalError(null);
                       setIsAreaModalOpen(true);
                     }}
                     onKeyDown={(e) => {
@@ -1546,7 +1703,19 @@ export const ConfigurationMastersPage: React.FC = () => {
                           return;
                         }
                         e.preventDefault();
-                        setAreaDraft(JSON.parse(JSON.stringify(area)));
+                        setAreaModalMode('edit');
+                        setAreaDraft({
+                          id: area.id,
+                          clusterName: area.clusterName,
+                          cityName: area.cityName,
+                          pincodes: Array.isArray(area.pincodes) ? [...area.pincodes] : [],
+                          status: area.status,
+                          activeWorkersCount: area.activeWorkersCount || 0,
+                          etag: area.etag,
+                        });
+                        setNewPincodeInput('');
+                        setPincodeError(null);
+                        setAreaModalError(null);
                         setIsAreaModalOpen(true);
                       }
                     }}
@@ -1588,7 +1757,19 @@ export const ConfigurationMastersPage: React.FC = () => {
                     <td style={{ padding: 'var(--space-4)', textAlign: 'right' }}>
                       <button
                         onClick={() => {
-                          setAreaDraft(JSON.parse(JSON.stringify(area)));
+                          setAreaModalMode('edit');
+                          setAreaDraft({
+                            id: area.id,
+                            clusterName: area.clusterName,
+                            cityName: area.cityName,
+                            pincodes: Array.isArray(area.pincodes) ? [...area.pincodes] : [],
+                            status: area.status,
+                            activeWorkersCount: area.activeWorkersCount || 0,
+                            etag: area.etag,
+                          });
+                          setNewPincodeInput('');
+                          setPincodeError(null);
+                          setAreaModalError(null);
                           setIsAreaModalOpen(true);
                         }}
                         style={{
@@ -3208,32 +3389,66 @@ export const ConfigurationMastersPage: React.FC = () => {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-            padding: 'var(--space-4)',
+            padding: 'var(--space-3) var(--space-4)',
             overscrollBehavior: 'contain',
           }}
           role="dialog"
           aria-modal="true"
         >
           <div
-            className="modal-content modal-scrollable-body"
+            className="modal-content"
             style={{
               backgroundColor: 'var(--color-surface)',
               borderRadius: 'var(--radius-lg)',
-              maxWidth: '560px',
+              maxWidth: '860px',
               width: '100%',
-              padding: 'var(--space-6)',
               display: 'flex',
               flexDirection: 'column',
-              gap: 'var(--space-4)',
-              maxHeight: 'min(90vh, calc(100vh - 32px))',
-              overflowY: 'auto',
-              overscrollBehavior: 'contain',
+              boxShadow: 'var(--shadow-xl, 0 20px 25px -5px rgba(0, 0, 0, 0.15))',
+              border: '1px solid var(--color-border)',
+              overflow: 'hidden',
+              margin: 'auto',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
-                  Edit Category: {categoryDraft.name}
+            {/* Header */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 20px',
+                borderBottom: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flexWrap: 'wrap' }}>
+                <h2
+                  aria-label={`Edit Category: ${categoryDraft.name}`}
+                  style={{
+                    fontSize: 'var(--font-size-md, 15px)',
+                    fontWeight: 700,
+                    color: 'var(--color-text-primary)',
+                    margin: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span>Edit Service Category</span>
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 600,
+                      color: 'var(--color-brand-700)',
+                      backgroundColor: 'var(--color-brand-50, #eff6ff)',
+                      border: '1px solid var(--color-brand-200, #bfdbfe)',
+                      padding: '2px 8px',
+                      borderRadius: 'var(--radius-full)',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {categoryDraft.name}
+                  </span>
                 </h2>
               </div>
               <button
@@ -3242,174 +3457,372 @@ export const ConfigurationMastersPage: React.FC = () => {
                 title="Close modal"
                 onClick={() => setIsCategoryModalOpen(false)}
                 className="modal-close-btn"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-muted)',
+                  padding: '4px',
+                  borderRadius: 'var(--radius-sm)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                Category Name <RequiredIndicator />
-              </label>
-              <input
-                type="text"
-                value={categoryDraft.name}
-                onChange={(e) => setCategoryDraft({ ...categoryDraft, name: e.target.value })}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Display Tagline / Description</label>
-              <input
-                type="text"
-                value={categoryDraft.tagline}
-                onChange={(e) => setCategoryDraft({ ...categoryDraft, tagline: e.target.value })}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Catalog Status</label>
-              <select
-                value={categoryDraft.status}
-                onChange={(e) => setCategoryDraft({ ...categoryDraft, status: e.target.value as 'ACTIVE' | 'ARCHIVED' })}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)', backgroundColor: 'var(--color-surface)' }}
-              >
-                <option value="ACTIVE">Active (Available for customer booking)</option>
-                <option value="ARCHIVED">Archived / Disabled</option>
-              </select>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Minimum Experience Required (Months)</label>
-              <input
-                type="number"
-                min={0}
-                value={categoryDraft.minExperienceMonths}
-                onChange={(e) => setCategoryDraft({ ...categoryDraft, minExperienceMonths: Number(e.target.value) })}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Allowed Engagement Types</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '8px' }}>
-                {[
-                  { value: 'FULL_TIME', label: 'Full-time' },
-                  { value: 'PART_TIME', label: 'Part-time' },
-                  { value: 'LIVE_IN', label: 'Live-in' },
-                  { value: 'DAILY', label: 'Daily' },
-                  { value: 'HOURLY', label: 'Hourly' },
-                  { value: 'SHIFT', label: 'Shift' },
-                  { value: 'ONE_TIME', label: 'One-time' },
-                  { value: 'MONTHLY', label: 'Monthly' },
-                ].map((opt) => {
-                  const currentEngs = Array.isArray(categoryDraft.allowedEngagementTypes) ? categoryDraft.allowedEngagementTypes : [];
-                  const isChecked = currentEngs.some(
-                    (e) => e.toUpperCase().replace(/[-\s]/g, '_') === opt.value
-                  );
-                  return (
-                    <label
-                      key={opt.value}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        fontSize: 'var(--font-size-xs)',
-                        cursor: 'pointer',
-                        padding: '4px 6px',
-                        borderRadius: 'var(--radius-sm)',
-                        backgroundColor: isChecked ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
-                        border: isChecked ? '1px solid var(--color-brand-200, #bfdbfe)' : '1px solid transparent',
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={(e) => {
-                          const updated = e.target.checked
-                            ? [...currentEngs, opt.value]
-                            : currentEngs.filter((item) => item.toUpperCase().replace(/[-\s]/g, '_') !== opt.value);
-                          setCategoryDraft({ ...categoryDraft, allowedEngagementTypes: updated });
-                        }}
-                      />
-                      <span>{opt.label}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
+            {/* Form Body: Compact 2-Column Balanced Grid */}
             <div
               style={{
-                fontSize: '11px',
-                color: 'var(--color-brand-700, #1d4ed8)',
-                backgroundColor: 'var(--color-brand-50, #eff6ff)',
-                border: '1px solid var(--color-brand-200, #bfdbfe)',
-                borderRadius: 'var(--radius-md)',
-                padding: '8px 12px',
-                lineHeight: 1.4,
+                padding: '16px 20px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+                gap: '16px',
+                maxHeight: 'calc(100vh - 140px)',
+                overflowY: 'auto',
               }}
             >
-              ℹ️ Category name, tagline, and allowed engagements are synchronized with backend APIs and cross-app services. Skills taxonomy is governed by SevaNest Service Standards.
-            </div>
+              {/* Left Column: Basic Information & Experience */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                  Basic Information
+                </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Skills Taxonomy</label>
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
-                <input
-                  type="text"
-                  placeholder="Add new skill tag..."
-                  value={newSkillInput}
-                  onChange={(e) => setNewSkillInput(e.target.value)}
-                  style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
-                />
-                <button
-                  onClick={() => {
-                    if (newSkillInput.trim()) {
-                      setCategoryDraft({
-                        ...categoryDraft,
-                        skillsTaxonomy: [...categoryDraft.skillsTaxonomy, newSkillInput.trim()],
-                      });
-                      setNewSkillInput('');
-                    }
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <label htmlFor="category-name-input" style={{ fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                    Category Name <RequiredIndicator />
+                  </label>
+                  <input
+                    id="category-name-input"
+                    type="text"
+                    value={categoryDraft.name}
+                    onChange={(e) => setCategoryDraft({ ...categoryDraft, name: e.target.value })}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-xs, 12px)',
+                      backgroundColor: 'var(--color-surface)',
+                      color: 'var(--color-text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <label htmlFor="category-tagline-input" style={{ fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                    Display Tagline / Description
+                  </label>
+                  <input
+                    id="category-tagline-input"
+                    type="text"
+                    value={categoryDraft.tagline}
+                    onChange={(e) => setCategoryDraft({ ...categoryDraft, tagline: e.target.value })}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      fontSize: 'var(--font-size-xs, 12px)',
+                      backgroundColor: 'var(--color-surface)',
+                      color: 'var(--color-text-primary)',
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <label htmlFor="category-status-select" style={{ fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                      Catalog Status
+                    </label>
+                    <select
+                      id="category-status-select"
+                      value={categoryDraft.status}
+                      onChange={(e) => setCategoryDraft({ ...categoryDraft, status: e.target.value as 'ACTIVE' | 'ARCHIVED' })}
+                      style={{
+                        padding: '6px 8px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs, 12px)',
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)',
+                      }}
+                    >
+                      <option value="ACTIVE">Active (Available)</option>
+                      <option value="ARCHIVED">Archived / Disabled</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                    <label htmlFor="category-min-experience-input" style={{ fontSize: 'var(--font-size-xs, 12px)', fontWeight: 600, color: 'var(--color-text-secondary)' }}>
+                      Min Experience (Months)
+                    </label>
+                    <input
+                      id="category-min-experience-input"
+                      type="number"
+                      min={0}
+                      value={categoryDraft.minExperienceMonths}
+                      onChange={(e) => setCategoryDraft({ ...categoryDraft, minExperienceMonths: Number(e.target.value) })}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs, 12px)',
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Subtle Information Note */}
+                <div
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-brand-700, #1d4ed8)',
+                    backgroundColor: 'var(--color-brand-50, #eff6ff)',
+                    border: '1px solid var(--color-brand-200, #bfdbfe)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '6px 8px',
+                    lineHeight: 1.35,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginTop: 'auto',
                   }}
-                  style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
                 >
-                  Add Skill
-                </button>
+                  <Info size={14} style={{ flexShrink: 0, color: 'var(--color-brand-600)' }} />
+                  <span>
+                    Category details and engagements are synchronized with backend APIs. Skills taxonomy is governed by SevaNest Standards.
+                  </span>
+                </div>
               </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: 'var(--space-2)' }}>
-                {categoryDraft.skillsTaxonomy.map((skill, idx) => (
-                  <span
-                    key={skill}
-                    style={{ fontSize: '11px', padding: '2px 8px', borderRadius: 'var(--radius-full)', backgroundColor: 'var(--color-brand-50)', color: 'var(--color-brand-700)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+              {/* Right Column: Allowed Engagement Types & Skills Taxonomy */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Allowed Engagement Types */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                    Allowed Engagement Types
+                  </div>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(4, 1fr)',
+                      gap: '4px 6px',
+                      backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                      padding: '6px 8px',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                    }}
                   >
-                    {skill}
+                    {[
+                      { value: 'FULL_TIME', label: 'Full-time' },
+                      { value: 'PART_TIME', label: 'Part-time' },
+                      { value: 'LIVE_IN', label: 'Live-in' },
+                      { value: 'DAILY', label: 'Daily' },
+                      { value: 'HOURLY', label: 'Hourly' },
+                      { value: 'SHIFT', label: 'Shift' },
+                      { value: 'ONE_TIME', label: 'One-time' },
+                      { value: 'MONTHLY', label: 'Monthly' },
+                    ].map((opt) => {
+                      const currentEngs = Array.isArray(categoryDraft.allowedEngagementTypes) ? categoryDraft.allowedEngagementTypes : [];
+                      const isChecked = currentEngs.some(
+                        (e) => e.toUpperCase().replace(/[-\s]/g, '_') === opt.value
+                      );
+                      return (
+                        <label
+                          key={opt.value}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: 'var(--radius-sm)',
+                            backgroundColor: isChecked ? 'var(--color-brand-50, #eff6ff)' : 'transparent',
+                            border: isChecked ? '1px solid var(--color-brand-200, #bfdbfe)' : '1px solid transparent',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              const updated = e.target.checked
+                                ? [...currentEngs, opt.value]
+                                : currentEngs.filter((item) => item.toUpperCase().replace(/[-\s]/g, '_') !== opt.value);
+                              setCategoryDraft({ ...categoryDraft, allowedEngagementTypes: updated });
+                            }}
+                            style={{ margin: 0, cursor: 'pointer' }}
+                          />
+                          <span style={{ color: isChecked ? 'var(--color-brand-900, #1e3a8a)' : 'var(--color-text-primary)' }}>
+                            {opt.label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Skills Taxonomy */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)' }}>
+                      Skills Taxonomy
+                    </div>
+                    <span style={{ fontSize: '10px', color: 'var(--color-text-muted)', fontWeight: 600 }}>
+                      {categoryDraft.skillsTaxonomy.length} skills defined
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <input
+                      type="text"
+                      placeholder="Add new skill tag..."
+                      value={newSkillInput}
+                      onChange={(e) => setNewSkillInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (newSkillInput.trim()) {
+                            setCategoryDraft({
+                              ...categoryDraft,
+                              skillsTaxonomy: [...categoryDraft.skillsTaxonomy, newSkillInput.trim()],
+                            });
+                            setNewSkillInput('');
+                          }
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '6px 10px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--color-border)',
+                        fontSize: 'var(--font-size-xs, 12px)',
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-primary)',
+                      }}
+                    />
                     <button
                       type="button"
-                      aria-label={`Remove ${skill} skill`}
                       onClick={() => {
-                        const updated = categoryDraft.skillsTaxonomy.filter((_, i) => i !== idx);
-                        setCategoryDraft({ ...categoryDraft, skillsTaxonomy: updated });
+                        if (newSkillInput.trim()) {
+                          setCategoryDraft({
+                            ...categoryDraft,
+                            skillsTaxonomy: [...categoryDraft.skillsTaxonomy, newSkillInput.trim()],
+                          });
+                          setNewSkillInput('');
+                        }
                       }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-error-dark)', fontSize: '12px' }}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: 'var(--radius-md)',
+                        backgroundColor: 'var(--color-brand-600)',
+                        color: '#ffffff',
+                        fontSize: 'var(--font-size-xs, 12px)',
+                        fontWeight: 600,
+                        border: 'none',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
-                      ×
+                      Add Skill
                     </button>
-                  </span>
-                ))}
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                      maxHeight: '76px',
+                      overflowY: 'auto',
+                      padding: '4px 6px',
+                      backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                      borderRadius: 'var(--radius-md)',
+                      border: '1px solid var(--color-border)',
+                      minHeight: '32px',
+                      alignContent: 'flex-start',
+                    }}
+                  >
+                    {categoryDraft.skillsTaxonomy.length === 0 ? (
+                      <span style={{ fontSize: '11px', color: 'var(--color-text-muted)', padding: '2px 4px' }}>
+                        No skills assigned yet.
+                      </span>
+                    ) : (
+                      categoryDraft.skillsTaxonomy.map((skill, idx) => (
+                        <span
+                          key={`${skill}-${idx}`}
+                          style={{
+                            fontSize: '11px',
+                            padding: '2px 7px',
+                            borderRadius: 'var(--radius-full)',
+                            backgroundColor: 'var(--color-brand-50, #eff6ff)',
+                            color: 'var(--color-brand-700, #1d4ed8)',
+                            border: '1px solid var(--color-brand-200, #bfdbfe)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                          }}
+                        >
+                          {skill}
+                          <button
+                            type="button"
+                            aria-label={`Remove ${skill} skill`}
+                            onClick={() => {
+                              const updated = categoryDraft.skillsTaxonomy.filter((_, i) => i !== idx);
+                              setCategoryDraft({ ...categoryDraft, skillsTaxonomy: updated });
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: 'var(--color-error-dark, #dc2626)',
+                              fontSize: '13px',
+                              lineHeight: 1,
+                              padding: '0 2px',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
+            {/* Footer */}
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '12px 20px',
+                borderTop: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+              }}
+            >
               <button
                 type="button"
                 onClick={() => setIsCategoryModalOpen(false)}
                 disabled={saveCategoryMutation.isPending}
-                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+                style={{
+                  padding: '7px 14px',
+                  borderRadius: 'var(--radius-md)',
+                  border: '1px solid var(--color-border)',
+                  backgroundColor: 'var(--color-surface)',
+                  fontSize: 'var(--font-size-xs, 12px)',
+                  fontWeight: 600,
+                  color: 'var(--color-text-secondary)',
+                  cursor: 'pointer',
+                }}
               >
                 Cancel
               </button>
@@ -3418,10 +3831,21 @@ export const ConfigurationMastersPage: React.FC = () => {
                 disabled={saveCategoryMutation.isPending}
                 onClick={() => {
                   if (categoryDraft) {
-                    saveCategoryMutation.mutate({ category: categoryDraft, rationale: 'Category taxonomy and engagement update' });
+                    setIsCategoryPublishOpen(true);
                   }
                 }}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: saveCategoryMutation.isPending ? 'not-allowed' : 'pointer', opacity: saveCategoryMutation.isPending ? 0.7 : 1 }}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: 'var(--color-brand-600)',
+                  color: '#ffffff',
+                  fontSize: 'var(--font-size-xs, 12px)',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: saveCategoryMutation.isPending ? 'not-allowed' : 'pointer',
+                  opacity: saveCategoryMutation.isPending ? 0.7 : 1,
+                  boxShadow: 'var(--shadow-sm)',
+                }}
               >
                 {saveCategoryMutation.isPending ? 'Saving...' : 'Save Category Draft'}
               </button>
@@ -3430,14 +3854,14 @@ export const ConfigurationMastersPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Edit Operational Area */}
+      {/* MODAL: Operational Area & Cluster (Create & Edit) */}
       {isAreaModalOpen && areaDraft && (
         <div
           className="modal-backdrop"
           style={{
             position: 'fixed',
             inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -3449,26 +3873,33 @@ export const ConfigurationMastersPage: React.FC = () => {
           aria-modal="true"
         >
           <div
-            className="modal-content modal-scrollable-body"
+            className="modal-content"
             style={{
-              backgroundColor: 'var(--color-surface)',
-              borderRadius: 'var(--radius-lg)',
+              backgroundColor: 'var(--color-surface, #ffffff)',
+              borderRadius: 'var(--radius-lg, 12px)',
               maxWidth: '520px',
               width: '100%',
-              padding: 'var(--space-6)',
+              padding: '24px',
               display: 'flex',
               flexDirection: 'column',
-              gap: 'var(--space-4)',
-              maxHeight: 'min(90vh, calc(100vh - 32px))',
-              overflowY: 'auto',
-              overscrollBehavior: 'contain',
+              gap: '16px',
+              boxShadow: 'var(--shadow-xl)',
+              border: '1px solid var(--color-border)',
             }}
           >
+            {/* Modal Header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
               <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                <h2 style={{ fontSize: 'var(--font-size-lg)', fontWeight: 700, color: 'var(--color-text-primary)', margin: 0, wordBreak: 'break-word' }}>
-                  {areaDraft.id ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Add New Operational Area'}
+                <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0, wordBreak: 'break-word' }}>
+                  {areaModalMode === 'edit'
+                    ? (areaDraft.clusterName ? `Edit Operational Area: ${areaDraft.clusterName}` : 'Edit Operational Area')
+                    : 'Add New Operational Area'}
                 </h2>
+                <p style={{ margin: '4px 0 0', fontSize: '12px', color: 'var(--color-text-secondary, #64748b)' }}>
+                  {areaModalMode === 'edit'
+                    ? 'Update cluster locality, city, and covered postal PIN codes.'
+                    : 'Configure a new launch cluster and covered postal PIN codes.'}
+                </p>
               </div>
               <button
                 type="button"
@@ -3477,13 +3908,26 @@ export const ConfigurationMastersPage: React.FC = () => {
                 onClick={() => {
                   setIsAreaModalOpen(false);
                   setAreaModalError(null);
+                  setPincodeError(null);
                 }}
                 className="modal-close-btn"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '4px',
+                  cursor: 'pointer',
+                  color: 'var(--color-text-tertiary, #94a3b8)',
+                  borderRadius: 'var(--radius-md)',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
                 <X size={18} />
               </button>
             </div>
 
+            {/* Error Alert */}
             {areaModalError && (
               <div
                 role="alert"
@@ -3491,125 +3935,255 @@ export const ConfigurationMastersPage: React.FC = () => {
                   backgroundColor: 'var(--color-error-bg, #fef2f2)',
                   border: '1px solid var(--color-error-border, #fecaca)',
                   borderRadius: 'var(--radius-md, 6px)',
-                  padding: '8px 12px',
-                  fontSize: 'var(--font-size-xs, 12px)',
+                  padding: '10px 12px',
+                  fontSize: '12px',
                   color: 'var(--color-error-text, #991b1b)',
                   fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
                 }}
               >
-                {areaModalError}
+                <AlertCircle size={15} style={{ flexShrink: 0 }} />
+                <span>{areaModalError}</span>
               </div>
             )}
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+            {/* Field 1: Cluster / Locality Name */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label htmlFor="area-cluster-name" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                 Cluster / Locality Name <RequiredIndicator />
               </label>
               <input
+                id="area-cluster-name"
                 type="text"
+                placeholder="e.g. Kondapur Hub"
                 value={areaDraft.clusterName}
+                disabled={isSubmittingArea}
                 onChange={(e) => {
-                  setAreaDraft({ ...areaDraft, clusterName: e.target.value });
+                  setAreaDraft((prev) => ({ ...prev, clusterName: e.target.value }));
                   if (areaModalError) setAreaModalError(null);
                 }}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  border: '1px solid var(--color-border, #cbd5e1)',
+                  fontSize: '14px',
+                  backgroundColor: isSubmittingArea ? 'var(--color-bg-subtle, #f8fafc)' : 'var(--color-surface, #ffffff)',
+                  outline: 'none',
+                }}
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
+            {/* Field 2: City Name */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <label htmlFor="area-city-name" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
                 City Name <RequiredIndicator />
               </label>
               <input
+                id="area-city-name"
                 type="text"
+                placeholder="e.g. Hyderabad"
                 value={areaDraft.cityName}
+                disabled={isSubmittingArea}
                 onChange={(e) => {
-                  setAreaDraft({ ...areaDraft, cityName: e.target.value });
+                  setAreaDraft((prev) => ({ ...prev, cityName: e.target.value }));
                   if (areaModalError) setAreaModalError(null);
                 }}
-                style={{ padding: '8px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  border: '1px solid var(--color-border, #cbd5e1)',
+                  fontSize: '14px',
+                  backgroundColor: isSubmittingArea ? 'var(--color-bg-subtle, #f8fafc)' : 'var(--color-surface, #ffffff)',
+                  outline: 'none',
+                }}
               />
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Covered Pin Codes</label>
-              <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            {/* Field 3: Covered PIN Codes */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <label htmlFor="area-pincode-input" style={{ fontSize: '12px', fontWeight: 600, color: 'var(--color-text-primary)' }}>
+                  Covered Pin Codes
+                </label>
+                <span style={{ fontSize: '11px', color: 'var(--color-text-secondary, #64748b)' }}>
+                  6 digits each
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <input
+                  id="area-pincode-input"
                   type="text"
                   placeholder="e.g. 500081"
+                  maxLength={6}
                   value={newPincodeInput}
-                  onChange={(e) => setNewPincodeInput(e.target.value)}
-                  style={{ flex: 1, padding: '6px 10px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-xs)' }}
+                  disabled={isSubmittingArea}
+                  onChange={(e) => {
+                    const cleaned = e.target.value.replace(/\D/g, '').slice(0, 6);
+                    setNewPincodeInput(cleaned);
+                    if (pincodeError) setPincodeError(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleAddPincode();
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: '8px 12px',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    border: pincodeError ? '1px solid var(--color-error-border, #f87171)' : '1px solid var(--color-border, #cbd5e1)',
+                    fontSize: '13px',
+                    fontFamily: 'monospace',
+                    outline: 'none',
+                  }}
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (newPincodeInput.trim()) {
-                      setAreaDraft({
-                        ...areaDraft,
-                        pincodes: [...areaDraft.pincodes, newPincodeInput.trim()],
-                      });
-                      setNewPincodeInput('');
-                    }
+                  onClick={handleAddPincode}
+                  disabled={isSubmittingArea || !newPincodeInput.trim()}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 'var(--radius-md, 6px)',
+                    backgroundColor: 'var(--color-brand-600, #0d9488)',
+                    color: '#ffffff',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    border: 'none',
+                    cursor: isSubmittingArea || !newPincodeInput.trim() ? 'not-allowed' : 'pointer',
+                    opacity: isSubmittingArea || !newPincodeInput.trim() ? 0.6 : 1,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
                   }}
-                  style={{ padding: '6px 12px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
                 >
-                  Add Pincode
+                  <Plus size={13} /> Add Pincode
                 </button>
               </div>
 
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: 'var(--space-2)' }}>
-                {areaDraft.pincodes.map((pin, idx) => (
-                  <span
-                    key={pin}
-                    style={{ fontSize: '11px', padding: '2px 8px', borderRadius: 'var(--radius-sm)', backgroundColor: 'var(--color-bg-subtle)', color: 'var(--color-text-secondary)', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                  >
-                    {pin}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const updated = areaDraft.pincodes.filter((_, i) => i !== idx);
-                        setAreaDraft({ ...areaDraft, pincodes: updated });
-                      }}
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-error-dark)' }}
-                    >
-                      ×
-                    </button>
+              {pincodeError && (
+                <div style={{ fontSize: '11px', color: 'var(--color-error-text, #dc2626)', fontWeight: 600 }}>
+                  {pincodeError}
+                </div>
+              )}
+
+              {/* Pincode chips container */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '6px',
+                  padding: '8px 10px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  backgroundColor: 'var(--color-bg-subtle, #f8fafc)',
+                  border: '1px solid var(--color-border, #e2e8f0)',
+                  minHeight: '40px',
+                  alignItems: 'center',
+                  marginTop: '2px',
+                }}
+              >
+                {areaDraft.pincodes.length === 0 ? (
+                  <span style={{ fontSize: '12px', color: 'var(--color-text-tertiary, #94a3b8)', fontStyle: 'italic' }}>
+                    No PIN codes added yet. Enter a 6-digit PIN code and click Add Pincode.
                   </span>
-                ))}
+                ) : (
+                  areaDraft.pincodes.map((pin) => (
+                    <span
+                      key={pin}
+                      style={{
+                        fontSize: '12px',
+                        padding: '3px 8px',
+                        borderRadius: 'var(--radius-sm, 4px)',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid var(--color-border, #cbd5e1)',
+                        color: 'var(--color-text-primary, #0f172a)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontFamily: 'monospace',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {pin}
+                      <button
+                        type="button"
+                        aria-label={`Remove PIN code ${pin}`}
+                        title={`Remove PIN code ${pin}`}
+                        disabled={isSubmittingArea}
+                        onClick={() => handleRemovePincode(pin)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          padding: 0,
+                          cursor: isSubmittingArea ? 'not-allowed' : 'pointer',
+                          color: 'var(--color-error-dark, #dc2626)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          lineHeight: 1,
+                        }}
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ))
+                )}
               </div>
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-4)' }}>
+            {/* Modal Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px', paddingTop: '12px', borderTop: '1px solid var(--color-border, #e2e8f0)' }}>
               <button
                 type="button"
                 onClick={() => {
                   setIsAreaModalOpen(false);
                   setAreaModalError(null);
+                  setPincodeError(null);
                 }}
-                disabled={saveAreaMutation.isPending}
-                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'var(--color-surface)', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
+                disabled={isSubmittingArea}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  border: '1px solid var(--color-border, #cbd5e1)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--color-text-secondary, #475569)',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isSubmittingArea ? 'not-allowed' : 'pointer',
+                }}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={saveAreaMutation.isPending}
-                onClick={() => {
-                  if (!areaDraft.clusterName.trim()) {
-                    setAreaModalError('Cluster / Locality name is required.');
-                    return;
-                  }
-                  if (!areaDraft.cityName.trim()) {
-                    setAreaModalError('City name is required.');
-                    return;
-                  }
-                  setAreaModalError(null);
-                  saveAreaMutation.mutate({ area: areaDraft, remarks: 'Operational area cluster update' });
+                aria-label="Save Area"
+                disabled={isSubmittingArea}
+                onClick={handleSaveArea}
+                style={{
+                  padding: '8px 20px',
+                  borderRadius: 'var(--radius-md, 6px)',
+                  backgroundColor: 'var(--color-brand-600, #0d9488)',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: isSubmittingArea ? 'not-allowed' : 'pointer',
+                  opacity: isSubmittingArea ? 0.7 : 1,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
                 }}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: saveAreaMutation.isPending ? 'not-allowed' : 'pointer', opacity: saveAreaMutation.isPending ? 0.7 : 1 }}
               >
-                {saveAreaMutation.isPending ? 'Saving...' : 'Save Area'}
+                {isSubmittingArea ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Area'
+                )}
               </button>
             </div>
           </div>
@@ -4494,132 +5068,6 @@ export const ConfigurationMastersPage: React.FC = () => {
                 style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
               >
                 {createCategoryMutation.isPending ? 'Provisioning...' : 'Provision Category'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: Create Operational Area */}
-      {isCreateAreaModalOpen && (
-        <div
-          className="modal-backdrop"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: 'var(--space-4)',
-            overscrollBehavior: 'contain',
-          }}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="modal-content modal-scrollable-body"
-            style={{
-              backgroundColor: 'var(--color-surface, #ffffff)',
-              borderRadius: 'var(--radius-lg, 8px)',
-              maxWidth: '500px',
-              width: '100%',
-              padding: 'var(--space-6, 24px)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 'var(--space-4, 16px)',
-              maxHeight: 'min(90vh, calc(100vh - 32px))',
-              overflowY: 'auto',
-              overscrollBehavior: 'contain',
-              boxShadow: 'var(--shadow-xl)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '12px' }}>
-              <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                <h2 style={{ fontSize: 'var(--font-size-lg, 18px)', fontWeight: 700, color: 'var(--color-text-primary, #0f172a)', margin: 0, wordBreak: 'break-word' }}>
-                  Add New Operational Area
-                </h2>
-                <p style={{ margin: '2px 0 0', fontSize: 'var(--font-size-xs, 12px)', color: 'var(--color-text-secondary, #64748b)', wordBreak: 'break-word' }}>
-                  Define a new geographical cluster for service delivery.
-                </p>
-              </div>
-              <button
-                type="button"
-                aria-label="Close modal"
-                title="Close modal"
-                onClick={() => setIsCreateAreaModalOpen(false)}
-                className="modal-close-btn"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                Cluster / Locality Name <RequiredIndicator />
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Kondapur Hub"
-                value={createAreaDraft.name}
-                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, name: e.target.value })}
-                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                City Name <RequiredIndicator />
-              </label>
-              <input
-                type="text"
-                placeholder="Hyderabad"
-                value={createAreaDraft.city}
-                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, city: e.target.value })}
-                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>
-                Covered Pin Codes
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. 500081, 500084"
-                value={createAreaDraft.pincodesText || ''}
-                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, pincodesText: e.target.value })}
-                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-              <label style={{ fontSize: 'var(--font-size-xs)', fontWeight: 600 }}>Coverage Radius (Meters)</label>
-              <input
-                type="number"
-                min={500}
-                value={createAreaDraft.radiusMeters}
-                onChange={(e) => setCreateAreaDraft({ ...createAreaDraft, radiusMeters: Number(e.target.value) })}
-                style={{ padding: '8px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', fontSize: 'var(--font-size-sm)' }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-2)', marginTop: 'var(--space-3)' }}>
-              <button
-                type="button"
-                onClick={() => setIsCreateAreaModalOpen(false)}
-                style={{ padding: '8px 14px', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', backgroundColor: 'transparent', fontSize: 'var(--font-size-xs)', cursor: 'pointer' }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!createAreaDraft.name.trim() || !createAreaDraft.city.trim() || createAreaMutation.isPending}
-                onClick={() => createAreaMutation.mutate(createAreaDraft)}
-                style={{ padding: '8px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--color-brand-600, #0d9488)', color: '#ffffff', fontSize: 'var(--font-size-xs)', fontWeight: 600, border: 'none', cursor: 'pointer' }}
-              >
-                {createAreaMutation.isPending ? 'Provisioning...' : 'Provision Area'}
               </button>
             </div>
           </div>

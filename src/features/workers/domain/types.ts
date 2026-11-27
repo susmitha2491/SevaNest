@@ -154,8 +154,9 @@ export interface WorkerFilterCriteria {
   searchTerm?: string;
   category?: string;
   locality?: string;
-  verificationStatus?: 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED';
+  verificationStatus?: 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE';
   verified?: boolean;
+  onboardingStatus?: 'DRAFT' | 'SUBMITTED' | string;
   activated?: boolean;
   accountStatus?: 'ACTIVE' | 'SUSPENDED';
   status?: 'ALL' | 'ACTIVE' | 'SUSPENDED' | 'BLACKLISTED';

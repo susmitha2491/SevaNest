@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Activity,
   AlertCircle,
@@ -22,6 +22,7 @@ import {
   reportRepository,
   buildStandardDateRange,
   getTodayISTDateString,
+  clearReportEnrichmentCache,
 } from '../data/reportRepository';
 import { ReportCategory, ReportInterval, ReportItem, ReportPeriod } from '../domain/types';
 import { useAuthStore } from '../../../core/auth/authStore';
@@ -382,15 +383,44 @@ export const ReportsDashboardPage: React.FC = () => {
     enabled: Boolean(selectedReportId && canViewReports && !dateRangeValidationError),
   });
 
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshToast, setRefreshToast] = useState(false);
 
-  const handleRefreshReport = async () => {
+  const isAnyFetching = isCatalogFetching || (selectedReportId ? isDetailFetching : false);
+  const isRefreshDisabled = isRefreshing || isAnyFetching || (selectedReportId ? Boolean(dateRangeValidationError) : false);
+
+  const handleRefresh = async () => {
+    if (isRefreshDisabled) return;
+
     try {
-      await Promise.all([refetchDetail(), refetchCatalog()]);
-      setRefreshToast(true);
-      setTimeout(() => setRefreshToast(false), 3000);
-    } catch (err) {
-      console.warn('Report refresh note:', err);
+      setIsRefreshing(true);
+      clearReportEnrichmentCache();
+
+      await queryClient.invalidateQueries({ queryKey: ['reports'], refetchType: 'none' });
+
+      const refetchPromises: Promise<{ isError?: boolean; error?: unknown }>[] = [refetchCatalog()];
+      if (selectedReportId) {
+        refetchPromises.push(refetchDetail());
+      }
+
+      const results = await Promise.all(refetchPromises);
+      const failed = results.find((r) => r?.isError);
+
+      if (failed && failed.error) {
+        const msg = failed.error instanceof Error ? failed.error.message : 'Failed to reload report data from backend';
+        setActionFeedback(`Refresh failed: ${msg}`);
+        setTimeout(() => setActionFeedback(null), 5000);
+      } else {
+        setRefreshToast(true);
+        setTimeout(() => setRefreshToast(false), 3000);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'An unexpected error occurred during refresh.';
+      setActionFeedback(`Refresh failed: ${msg}`);
+      setTimeout(() => setActionFeedback(null), 5000);
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -815,8 +845,8 @@ export const ReportsDashboardPage: React.FC = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
               <button
                 type="button"
-                onClick={handleRefreshReport}
-                disabled={isDetailFetching || isCatalogFetching || Boolean(dateRangeValidationError)}
+                onClick={handleRefresh}
+                disabled={isRefreshDisabled}
                 aria-label="Refresh"
                 style={{
                   padding: '7px 12px',
@@ -826,15 +856,15 @@ export const ReportsDashboardPage: React.FC = () => {
                   color: 'var(--color-text-secondary)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
-                  cursor: isDetailFetching || isCatalogFetching ? 'not-allowed' : 'pointer',
+                  cursor: isRefreshDisabled ? 'not-allowed' : 'pointer',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
                 }}
                 title="Refresh report data and catalog metrics"
               >
-                <RefreshCw size={13} className={isDetailFetching || isCatalogFetching ? 'animate-spin' : ''} />
-                <span>{isDetailFetching || isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
+                <RefreshCw size={13} className={isRefreshing || isDetailFetching || isCatalogFetching ? 'animate-spin' : ''} />
+                <span>{isRefreshing || isDetailFetching || isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
               </button>
               {refreshToast && (
                 <span
@@ -1187,8 +1217,8 @@ export const ReportsDashboardPage: React.FC = () => {
               )}
               <button
                 type="button"
-                onClick={() => refetchCatalog()}
-                disabled={isCatalogFetching}
+                onClick={handleRefresh}
+                disabled={isRefreshing || isCatalogFetching}
                 aria-label="Refresh"
                 style={{
                   display: 'inline-flex',
@@ -1201,12 +1231,29 @@ export const ReportsDashboardPage: React.FC = () => {
                   color: 'var(--color-text-primary)',
                   fontSize: 'var(--font-size-xs)',
                   fontWeight: 600,
-                  cursor: isCatalogFetching ? 'not-allowed' : 'pointer',
+                  cursor: isRefreshing || isCatalogFetching ? 'not-allowed' : 'pointer',
                 }}
+                title="Refresh report catalog and metrics"
               >
-                <RefreshCw size={13} className={isCatalogFetching ? 'animate-spin' : ''} />
-                <span>{isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
+                <RefreshCw size={13} className={isRefreshing || isCatalogFetching ? 'animate-spin' : ''} />
+                <span>{isRefreshing || isCatalogFetching ? 'Refreshing...' : 'Refresh'}</span>
               </button>
+              {refreshToast && (
+                <span
+                  role="status"
+                  aria-live="polite"
+                  style={{
+                    fontSize: '11px',
+                    color: 'var(--color-status-success-text, #065f46)',
+                    fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                  }}
+                >
+                  <CheckCircle2 size={12} /> Refreshed
+                </span>
+              )}
             </div>
           </div>
 

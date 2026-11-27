@@ -115,7 +115,7 @@ export interface IConfigurationRepository {
   createCategory?(dto: { code: string; name: string; description?: string }): Promise<ServiceCategoryItem>;
   saveCategoryDraft(category: ServiceCategoryItem, rationale: string): Promise<ServiceCategoryItem>;
   getOperationalAreas(): Promise<OperationalAreaItem[]>;
-  createOperationalArea?(dto: { name: string; city: string; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem>;
+  createOperationalArea?(dto: { name: string; city: string; pincodes?: string[]; centerLatitude?: number; centerLongitude?: number; radiusMeters?: number }): Promise<OperationalAreaItem>;
   saveOperationalArea(area: OperationalAreaItem, remarks: string): Promise<OperationalAreaItem>;
   getFeePlans(): Promise<FeePlanItem[]>;
   publishFeeSchedule(fees: FeePlanItem[], rationale: string): Promise<FeePlanItem[]>;

@@ -158,7 +158,7 @@ describe('Worker Management (/workers) — Simplified Table, Filters, Sorting & 
 
     // Zoya Khan row: name + mobile, primary skill + +2 skills, Verified, 0 yrs, Active, View Profile
     const zoyaRow = screen.getByText('Zoya Khan').closest('tr')!;
-    expect(within(zoyaRow).getByText('+91 98111 00001')).toBeInTheDocument();
+    expect(within(zoyaRow).getByText(/\+91\*{5,6}0001/)).toBeInTheDocument();
     expect(within(zoyaRow).getByText('House Maid')).toBeInTheDocument();
     expect(within(zoyaRow).getByText('+2 skills')).toBeInTheDocument();
     expect(within(zoyaRow).getByText('Verified')).toBeInTheDocument();

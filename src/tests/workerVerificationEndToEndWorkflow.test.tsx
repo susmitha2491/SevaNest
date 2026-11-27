@@ -100,7 +100,7 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       expect(screen.getByText(/Worker ID:/i)).toBeInTheDocument();
       expect(screen.getAllByText('W-10482').length).toBeGreaterThan(0);
       expect(screen.getAllByText('APP-10482').length).toBeGreaterThan(0);
-      expect(screen.getByText('+91 98765 43210')).toBeInTheDocument();
+      expect(screen.getByText(/\+91\*{5,6}3210/)).toBeInTheDocument();
 
       // Residential address / locality
       expect(screen.getAllByText(/Kondapur/i).length).toBeGreaterThan(0);
@@ -256,8 +256,11 @@ describe('Worker Onboarding End-to-End Verification & Directory Workflow', () =>
       const pendingTab = await screen.findByRole('button', { name: /^Pending Verification$/i }, { timeout: 10000 });
       await user.click(pendingTab);
 
-      // Ramesh Yadav is pending verification
-      expect(await screen.findByText('Ramesh Yadav')).toBeInTheDocument();
+      // Meena Bai is pending verification
+      expect(await screen.findByText('Meena Bai')).toBeInTheDocument();
+
+      // Ramesh Yadav is IN_REVIEW and must NOT appear in pending verification tab
+      expect(screen.queryByText('Ramesh Yadav')).not.toBeInTheDocument();
 
       // Sunita Devi is verified and must NOT appear in pending tab
       expect(screen.queryByText('Sunita Devi')).not.toBeInTheDocument();

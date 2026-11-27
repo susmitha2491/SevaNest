@@ -174,7 +174,7 @@ describe('Configuration Role-Based Access Governance & Workflows', () => {
       const nameInput = screen.getByPlaceholderText(/e\.g\. Kondapur Hub/i);
       await user.type(nameInput, 'Hitec City Core');
 
-      const submitBtn = screen.getByRole('button', { name: /Provision Area/i });
+      const submitBtn = screen.getByRole('button', { name: /Save Area|Provision Area/i });
       await user.click(submitBtn);
 
       expect(await screen.findByText(/Operational area cluster provisioned successfully/i)).toBeInTheDocument();

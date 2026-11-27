@@ -79,7 +79,8 @@ function getVerificationBadgeSpec(worker: Worker) {
   const isInReview =
     worker.verificationStatus === 'IN_REVIEW' ||
     worker.verificationLevel === 'IN_PROGRESS' ||
-    worker.applicationStatus === 'UNDER_REVIEW';
+    worker.applicationStatus === 'UNDER_REVIEW' ||
+    worker.applicationStatus === 'ACTION_REQUIRED';
 
   if (isRejected) {
     return {
@@ -267,13 +268,14 @@ export const WorkersListPage: React.FC = () => {
       let verifiedParam: boolean | undefined = undefined;
       if (verificationFilter === 'VERIFIED') {
         verifiedParam = true;
-      } else if (verificationFilter === 'PENDING') {
+      } else if (verificationFilter === 'PENDING' || verificationFilter === 'IN_REVIEW') {
         verifiedParam = false;
       }
 
       const criteria: WorkerFilterCriteria = {
         searchTerm: debouncedSearchTerm,
         category: categoryFilter !== 'ALL' ? categoryFilter : undefined,
+        verificationStatus: verificationFilter !== 'ALL' ? verificationFilter : undefined,
         verified: verifiedParam,
       };
 
@@ -343,10 +345,22 @@ export const WorkersListPage: React.FC = () => {
             w.applicationStatus !== 'SUBMITTED'
         );
       } else if (verificationFilter === 'PENDING') {
-        result = result.filter((w) => !w.isFullyVerified);
+        result = result.filter(
+          (w) =>
+            w.verificationStatus === 'PENDING' &&
+            !w.isFullyVerified &&
+            w.verificationLevel !== 'IN_PROGRESS' &&
+            w.applicationStatus !== 'UNDER_REVIEW' &&
+            w.applicationStatus !== 'ACTION_REQUIRED'
+        );
       } else if (verificationFilter === 'IN_REVIEW') {
         result = result.filter(
-          (w) => w.verificationStatus === 'IN_REVIEW' || w.applicationStatus === 'UNDER_REVIEW'
+          (w) =>
+            (w.verificationStatus === 'IN_REVIEW' ||
+             w.verificationLevel === 'IN_PROGRESS' ||
+             w.applicationStatus === 'UNDER_REVIEW' ||
+             w.applicationStatus === 'ACTION_REQUIRED') &&
+            !w.isFullyVerified
         );
       } else if (verificationFilter === 'REJECTED') {
         result = result.filter(
@@ -406,7 +420,7 @@ export const WorkersListPage: React.FC = () => {
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
     if (scrollHeight - scrollTop - clientHeight < 150) {
-      if (hasNextPage && !isFetchingNextPage) {
+      if (hasNextPage && !isFetchingNextPage && !isFetching) {
         fetchNextPage();
       }
     }
@@ -414,11 +428,11 @@ export const WorkersListPage: React.FC = () => {
 
   // IntersectionObserver for continuous background loading
   useEffect(() => {
-    if (!sentinelRef.current || !hasNextPage || isFetchingNextPage) return;
+    if (!sentinelRef.current || !hasNextPage || isFetchingNextPage || isFetching) return;
     if (typeof IntersectionObserver === 'undefined') return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage) {
+        if (entries[0]?.isIntersecting && hasNextPage && !isFetchingNextPage && !isFetching) {
           fetchNextPage();
         }
       },
@@ -429,7 +443,15 @@ export const WorkersListPage: React.FC = () => {
     );
     observer.observe(sentinelRef.current);
     return () => observer.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetchingNextPage, isFetching, fetchNextPage]);
+
+  // When filtered workers in the current loaded batch is empty but further server pages exist,
+  // automatically advance to next page so matching records in subsequent pages are loaded.
+  useEffect(() => {
+    if (filteredAndSortedWorkers.length === 0 && hasNextPage && !isFetchingNextPage && !isFetching && !isLoading) {
+      fetchNextPage();
+    }
+  }, [filteredAndSortedWorkers.length, hasNextPage, isFetchingNextPage, isFetching, isLoading, fetchNextPage]);
 
   if (!canView) {
     return <NoAccessView moduleName="Domestic Worker Management" requiredPermission={PERMISSIONS.WORKER_VIEW} />;
@@ -1070,7 +1092,7 @@ export const WorkersListPage: React.FC = () => {
           </table>
 
           {/* Sentinel element for infinite scroll */}
-          <div ref={sentinelRef} style={{ height: '1px' }} />
+          {hasNextPage && <div ref={sentinelRef} style={{ height: '1px' }} />}
 
           {/* Loading indicator when fetching additional records */}
           {isFetchingNextPage && (

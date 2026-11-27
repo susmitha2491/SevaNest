@@ -15,7 +15,9 @@ import {
   generateCleanCsv,
   getReportCanonicalFilename,
 } from '../utils/reportExportGenerator';
-import { enrichReportWithBackendRecords } from './reportDetailEnricher';
+import { enrichReportWithBackendRecords, clearReportEnrichmentCache } from './reportDetailEnricher';
+
+export { clearReportEnrichmentCache };
 
 export interface ReportMetaDefinition {
   slug: string;
