@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   UserPlus,
@@ -39,9 +39,12 @@ export interface BookingsListPageProps {
 }
 
 export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatus }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const user = useAuthStore((s) => s.user);
+  const isFromDashboard = Boolean(location.state?.fromDashboard || searchParams.get('from') === 'dashboard');
 
   // Filter & Search states
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
@@ -214,6 +217,33 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {isFromDashboard && (
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: 'fit-content',
+            marginBottom: 'var(--space-1)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+          aria-label="Back to Dashboard"
+        >
+          <ChevronLeft size={14} />
+          <span>Back to Dashboard</span>
+        </button>
+      )}
+
       {/* Page Header */}
       <div
         style={{
@@ -1041,3 +1071,5 @@ export const BookingsListPage: React.FC<BookingsListPageProps> = ({ defaultStatu
     </div>
   );
 };
+
+export default BookingsListPage;

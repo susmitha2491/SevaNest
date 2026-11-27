@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   Eye,
@@ -34,8 +34,11 @@ import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
 
 
 export const PaymentsListPage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
+  const isFromDashboard = Boolean(location.state?.fromDashboard || searchParams.get('from') === 'dashboard');
 
   // Primary Module Tab state: 'transactions' | 'refunds' | 'fee-records'
   const [activeTab, setActiveTab] = useState<'transactions' | 'refunds' | 'fee-records'>(() => {
@@ -346,6 +349,33 @@ export const PaymentsListPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {isFromDashboard && (
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: 'fit-content',
+            marginBottom: 'var(--space-1)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+          aria-label="Back to Dashboard"
+        >
+          <ChevronLeft size={14} />
+          <span>Back to Dashboard</span>
+        </button>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 'var(--space-4)' }}>
         <div>
@@ -1182,3 +1212,5 @@ export const PaymentsListPage: React.FC = () => {
     </div>
   );
 };
+
+export default PaymentsListPage;

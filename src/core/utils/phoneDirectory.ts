@@ -111,50 +111,91 @@ export function getCustomerPhone(idOrUserId?: string): string | undefined {
   return customerPhoneMap.get(idOrUserId);
 }
 
+const inFlightCustomerFetches = new Map<string, Promise<string | undefined>>();
+const inFlightWorkerFetches = new Map<string, Promise<string | undefined>>();
+
 export async function fetchCustomerUnmaskedPhone(idOrUserId: string): Promise<string | undefined> {
-  if (!idOrUserId || idOrUserId === 'C-NA' || idOrUserId.startsWith('C-')) return undefined;
+  if (!idOrUserId || idOrUserId === 'C-NA') return undefined;
   const existing = customerPhoneMap.get(idOrUserId);
   if (existing && !existing.includes('*')) {
     return existing;
   }
-  try {
-    const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/customers/${idOrUserId}`);
-    const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
-    const detailName = String(detail?.name || detail?.fullName || (detail?.user as Record<string, unknown>)?.fullName || (detail?.user as Record<string, unknown>)?.name || '');
-    if (detailName) {
-      setCustomerName(idOrUserId, detailName);
-      if (detail.id) setCustomerName(String(detail.id), detailName);
-      if (detail.userId) setCustomerName(String(detail.userId), detailName);
-    }
-    const mobile = String(detail?.mobile || detail?.phone || '');
-    if (mobile && !mobile.includes('*')) {
-      const formatted = formatPhoneNumber(mobile);
-      customerPhoneMap.set(idOrUserId, formatted);
-      if (detail.id) customerPhoneMap.set(String(detail.id), formatted);
-      if (detail.userId) customerPhoneMap.set(String(detail.userId), formatted);
-      return formatted;
-    }
-  } catch {
-    // If direct customer lookup failed (e.g. 404 because idOrUserId is a user ID), resolve via customer list
+  if (inFlightCustomerFetches.has(idOrUserId)) {
+    return inFlightCustomerFetches.get(idOrUserId)!;
+  }
+
+  const fetchPromise = (async (): Promise<string | undefined> => {
     try {
-      const res = await httpClient.get<unknown>('/admin/customers');
-      const rawData = res.data as Record<string, unknown> | Array<Record<string, unknown>>;
-      const list = Array.isArray(rawData)
-        ? rawData
-        : Array.isArray((rawData as { data?: unknown[] })?.data)
-        ? ((rawData as { data: Record<string, unknown>[] }).data)
-        : Array.isArray((rawData as { items?: unknown[] })?.items)
-        ? ((rawData as { items: Record<string, unknown>[] }).items)
-        : [];
-      const match = list.find((c) => String(c.id) === idOrUserId || String(c.userId) === idOrUserId);
-      if (match && match.id && String(match.id) !== idOrUserId) {
-        return await fetchCustomerUnmaskedPhone(String(match.id));
+      const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/customers/${encodeURIComponent(idOrUserId)}`);
+      const raw = (detailRes.data || {}) as Record<string, unknown>;
+      const target = (raw.customer || (raw.data && typeof raw.data === 'object' && (raw.data as Record<string, unknown>).customer) || raw.data || raw) as Record<string, unknown>;
+      const userObj = (target.user && typeof target.user === 'object' ? target.user : {}) as Record<string, unknown>;
+      const profileObj = (target.profile && typeof target.profile === 'object' ? target.profile : {}) as Record<string, unknown>;
+
+      const detailName = String(
+        target.name ||
+        target.fullName ||
+        profileObj.fullName ||
+        profileObj.name ||
+        userObj.fullName ||
+        userObj.name ||
+        ''
+      ).trim();
+      if (detailName && detailName.toLowerCase() !== 'customer' && detailName.toLowerCase() !== 'user') {
+        setCustomerName(idOrUserId, detailName);
+        if (target.id) setCustomerName(String(target.id), detailName);
+        if (target.userId) setCustomerName(String(target.userId), detailName);
+        if (userObj.id) setCustomerName(String(userObj.id), detailName);
+      }
+
+      const mobile = String(
+        target.unmaskedPhone ||
+        target.mobile ||
+        target.phone ||
+        target.phoneNumber ||
+        profileObj.mobile ||
+        profileObj.phone ||
+        userObj.mobile ||
+        userObj.phone ||
+        ''
+      ).trim();
+
+      if (mobile && !mobile.includes('*')) {
+        const formatted = formatPhoneNumber(mobile);
+        customerPhoneMap.set(idOrUserId, formatted);
+        if (target.id) customerPhoneMap.set(String(target.id), formatted);
+        if (target.userId) customerPhoneMap.set(String(target.userId), formatted);
+        if (userObj.id) customerPhoneMap.set(String(userObj.id), formatted);
+        return formatted;
       }
     } catch {
-      // Ignore
+      // If direct customer lookup failed (e.g. 404 because idOrUserId is a user ID), resolve via customer list
+      try {
+        const res = await httpClient.get<unknown>('/admin/customers');
+        const rawData = res.data as Record<string, unknown> | Array<Record<string, unknown>>;
+        const list = Array.isArray(rawData)
+          ? rawData
+          : Array.isArray((rawData as { data?: unknown[] })?.data)
+          ? ((rawData as { data: Record<string, unknown>[] }).data)
+          : Array.isArray((rawData as { items?: unknown[] })?.items)
+          ? ((rawData as { items: Record<string, unknown>[] }).items)
+          : [];
+        const match = list.find((c) => String(c.id) === idOrUserId || String(c.userId) === idOrUserId);
+        if (match && match.id && String(match.id) !== idOrUserId) {
+          return await fetchCustomerUnmaskedPhone(String(match.id));
+        }
+      } catch {
+        // Ignore
+      }
+    } finally {
+      inFlightCustomerFetches.delete(idOrUserId);
     }
-  }
-  return existing && !existing.includes('*') ? existing : undefined;
+    const fallback = customerPhoneMap.get(idOrUserId);
+    return fallback && !fallback.includes('*') ? fallback : undefined;
+  })();
+
+  inFlightCustomerFetches.set(idOrUserId, fetchPromise);
+  return fetchPromise;
 }
 
 export function setCustomerEmail(idOrUserId: string, email: string): void {
@@ -314,39 +355,79 @@ export async function preloadWorkerPhones(): Promise<void> {
 }
 
 export async function fetchWorkerUnmaskedPhone(idOrUserId: string): Promise<string | undefined> {
-  if (!idOrUserId || idOrUserId === 'W-NA' || idOrUserId.startsWith('W-')) return undefined;
+  if (!idOrUserId || idOrUserId === 'W-NA') return undefined;
   const existing = workerPhoneMap.get(idOrUserId);
   if (existing && !existing.includes('*')) {
     return existing;
   }
-  try {
-    const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${idOrUserId}`);
-    const detail = (detailRes.data?.data || detailRes.data) as Record<string, unknown>;
-    const detailName = String(detail?.name || detail?.fullName || (detail?.user as Record<string, unknown>)?.fullName || (detail?.user as Record<string, unknown>)?.name || '');
-    if (detailName) {
-      setWorkerName(idOrUserId, detailName);
-      if (detail.id) setWorkerName(String(detail.id), detailName);
-      if (detail.userId) setWorkerName(String(detail.userId), detailName);
-    }
-    const mobile = String(detail?.mobile || detail?.phone || '');
-    if (mobile && !mobile.includes('*')) {
-      const formatted = formatPhoneNumber(mobile);
-      workerPhoneMap.set(idOrUserId, formatted);
-      if (detail.id) workerPhoneMap.set(String(detail.id), formatted);
-      if (detail.userId) workerPhoneMap.set(String(detail.userId), formatted);
-      return formatted;
-    }
-  } catch {
-    // If direct lookup fails, try preloading
-    try {
-      await preloadWorkerPhones();
-      const loaded = workerPhoneMap.get(idOrUserId);
-      if (loaded && !loaded.includes('*')) return loaded;
-    } catch {
-      // Ignore
-    }
+  if (inFlightWorkerFetches.has(idOrUserId)) {
+    return inFlightWorkerFetches.get(idOrUserId)!;
   }
-  return existing && !existing.includes('*') ? existing : undefined;
+
+  const fetchPromise = (async (): Promise<string | undefined> => {
+    try {
+      const detailRes = await httpClient.get<Record<string, unknown>>(`/admin/workers/${encodeURIComponent(idOrUserId)}`);
+      const raw = (detailRes.data || {}) as Record<string, unknown>;
+      const target = (raw.worker || (raw.data && typeof raw.data === 'object' && (raw.data as Record<string, unknown>).worker) || raw.data || raw) as Record<string, unknown>;
+      const userObj = (target.user && typeof target.user === 'object' ? target.user : {}) as Record<string, unknown>;
+      const profileObj = (target.profile && typeof target.profile === 'object' ? target.profile : {}) as Record<string, unknown>;
+
+      const detailName = String(
+        target.name ||
+        target.fullName ||
+        profileObj.fullName ||
+        profileObj.name ||
+        userObj.fullName ||
+        userObj.name ||
+        ''
+      ).trim();
+      if (detailName && detailName.toLowerCase() !== 'worker' && detailName.toLowerCase() !== 'user') {
+        setWorkerName(idOrUserId, detailName);
+        if (target.id) setWorkerName(String(target.id), detailName);
+        if (target.workerId) setWorkerName(String(target.workerId), detailName);
+        if (target.userId) setWorkerName(String(target.userId), detailName);
+        if (userObj.id) setWorkerName(String(userObj.id), detailName);
+      }
+
+      const mobile = String(
+        target.unmaskedPhone ||
+        target.mobile ||
+        target.phone ||
+        target.phoneNumber ||
+        profileObj.mobile ||
+        profileObj.phone ||
+        userObj.mobile ||
+        userObj.phone ||
+        ''
+      ).trim();
+
+      if (mobile && !mobile.includes('*')) {
+        const formatted = formatPhoneNumber(mobile);
+        workerPhoneMap.set(idOrUserId, formatted);
+        if (target.id) workerPhoneMap.set(String(target.id), formatted);
+        if (target.workerId) workerPhoneMap.set(String(target.workerId), formatted);
+        if (target.userId) workerPhoneMap.set(String(target.userId), formatted);
+        if (userObj.id) workerPhoneMap.set(String(userObj.id), formatted);
+        return formatted;
+      }
+    } catch {
+      // If direct lookup fails, try preloading
+      try {
+        await preloadWorkerPhones();
+        const loaded = workerPhoneMap.get(idOrUserId);
+        if (loaded && !loaded.includes('*')) return loaded;
+      } catch {
+        // Ignore
+      }
+    } finally {
+      inFlightWorkerFetches.delete(idOrUserId);
+    }
+    const fallback = workerPhoneMap.get(idOrUserId);
+    return fallback && !fallback.includes('*') ? fallback : undefined;
+  })();
+
+  inFlightWorkerFetches.set(idOrUserId, fetchPromise);
+  return fetchPromise;
 }
 
 export async function resolveWorkerName(idOrUserId?: string): Promise<string | undefined> {

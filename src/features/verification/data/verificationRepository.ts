@@ -3220,10 +3220,10 @@ export class RealVerificationRepository implements IVerificationRepository {
     ) {
       throw new ValidationError('Invalid checkId: worker ID or dossier ID cannot be substituted for checkId.');
     }
-    const cleanRemarks =
-      typeof instructions === 'string' && instructions.trim() !== ''
-        ? instructions.trim().slice(0, 1000)
-        : 'Re-verification requested by admin';
+    const cleanRemarks = instructions?.trim();
+    if (!cleanRemarks) {
+      throw new ValidationError('Mandatory reason / instructions are required to request re-verification.');
+    }
     try {
       const response = await httpClient.post<
         AdminWorkerVerificationResponse | { success?: boolean; data?: AdminWorkerVerificationResponse }

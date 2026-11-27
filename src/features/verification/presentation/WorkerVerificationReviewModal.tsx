@@ -50,6 +50,7 @@ import {
   REJECTION_CATEGORIES,
   VerificationDossier,
   VerificationCheck,
+  VerificationCheckEvent,
   VerificationDocumentMetadata,
   isTerminalRejectionCode,
 } from '../domain/types';
@@ -140,7 +141,11 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
   const canDecide = !isReadOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE);
 
-  const canApproveWorker = !isReadOnly && hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF);
+  const canApproveWorker =
+    !isReadOnly &&
+    (hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_SIGNOFF) ||
+      hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_DECIDE) ||
+      user?.role === 'VERIFICATION_EXECUTIVE');
 
   const canRejectApplication =
     !isReadOnly &&
@@ -1039,11 +1044,52 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
       if (isReadOnly) {
         throw new ValidationError('Mutations are prohibited in Review History. Historical records are strictly read-only.');
       }
+      if (requestRecheckMutation.isPending) {
+        throw new ValidationError('A re-verification request is already in progress.');
+      }
+      const targetType = checkTypes?.[0];
+      const check = targetType ? dossier?.checks?.[targetType] : undefined;
+      if (check && hasPendingReVerification(check)) {
+        throw new ValidationError('Re-verification is already pending for this document.');
+      }
       return await verificationRepository.requestReVerification(checkId, checkTypes, instructions);
     },
     onSuccess: async (res, vars) => {
       setIsRecheckDialogOpen(false);
       setRecheckError(null);
+
+      // Immediately synchronize local dossier query cache with backend re-verification state
+      queryClient.setQueryData(
+        ['verification', 'dossier', dossierId],
+        (old: VerificationDossier | null | undefined): VerificationDossier | null | undefined => {
+          if (!old) return old;
+          const targetType = vars.checkTypes?.[0] || recheckCheckType;
+          const existingCheck = old.checks?.[targetType];
+          const newHistoryItem: VerificationCheckEvent = {
+            fromStatus: 'APPROVED',
+            toStatus: 'IN_REVIEW',
+            actorUserId: user?.id || 'admin-reviewer',
+            actorName: user?.name || 'Verification Executive',
+            remarks: vars.instructions,
+            createdAt: new Date().toISOString(),
+          };
+          const updatedChecks = { ...old.checks };
+          if (existingCheck) {
+            updatedChecks[targetType] = {
+              ...existingCheck,
+              status: 'IN_REVIEW',
+              rejectionRemarks: vars.instructions,
+              history: [...(existingCheck.history || []), newHistoryItem],
+            };
+          }
+          return {
+            ...old,
+            status: 'IN_REVIEW',
+            checks: updatedChecks,
+          };
+        }
+      );
+
       invalidateRelated();
       await refetchDossier();
       const updatedCheck =
@@ -1075,8 +1121,30 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
     onSuccess: (data) => {
       setIsConfirmFinalApproveOpen(false);
       setFinalApprovalError(null);
-      invalidateRelated();
       const workerName = dossier?.workerName || 'Worker';
+      const targetWorkerId = dossier?.workerId || dossierId;
+
+      // Update query cache optimistically and authoritatively
+      queryClient.setQueryData(['verification', 'dossier', dossierId], (prev: VerificationDossier | undefined) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          status: 'APPROVED',
+          level: 'VERIFIED',
+          applicationStatus: data.status || 'ACTIVE',
+          accountStatus: 'ACTIVE',
+          activatedAt: new Date().toISOString(),
+          signedOffAt: new Date().toISOString(),
+        };
+      });
+
+      invalidateRelated();
+      queryClient.invalidateQueries({ queryKey: ['verification', 'dossier', dossierId] });
+      queryClient.invalidateQueries({ queryKey: ['verification-dossier', dossierId] });
+      queryClient.invalidateQueries({ queryKey: ['verification', 'queue'] });
+      queryClient.invalidateQueries({ queryKey: ['verification'] });
+      queryClient.invalidateQueries({ queryKey: ['workers'] });
+      refetchDossier();
 
       if (data.activated !== false) {
         window.dispatchEvent(
@@ -1089,7 +1157,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         );
         setOnboardedResult({
           workerName,
-          workerId: dossier?.workerId || dossierId,
+          workerId: targetWorkerId,
           verificationStatus: 'APPROVED',
           activationStatus: data.status || 'ACTIVE',
         });
@@ -1106,7 +1174,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
         );
         setOnboardedResult({
           workerName,
-          workerId: dossier?.workerId || dossierId,
+          workerId: targetWorkerId,
           verificationStatus: 'APPROVED',
           activationStatus: 'ACTIVATION_PENDING',
         });
@@ -2841,7 +2909,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
 
                   {/* Document Selection Grid */}
                   {submittedDocs.length > 0 ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 'var(--space-4)', minWidth: 0, overflow: 'hidden' }}>
                       {submittedDocs.map((docItem) => {
                         const relatedCheck = docItem.checkType ? dossier.checks?.[docItem.checkType] : undefined;
                         const isRecheckPending = hasPendingReVerification(relatedCheck);
@@ -2870,12 +2938,23 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                               gap: 'var(--space-3)',
                               boxShadow: 'var(--shadow-sm)',
                               transition: 'all 0.15s ease',
+                              minWidth: 0,
+                              overflow: 'hidden',
                             }}
                           >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
-                                <FileText size={18} color="var(--color-primary)" />
-                                <strong style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-primary)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0, flex: 1 }}>
+                                <FileText size={18} color="var(--color-primary)" style={{ flexShrink: 0 }} />
+                                <strong
+                                  style={{
+                                    fontSize: 'var(--font-size-sm)',
+                                    color: 'var(--color-text-primary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  title={docItem.documentTypeName || 'Submitted Document'}
+                                >
                                   {docItem.documentTypeName || 'Submitted Document'}
                                 </strong>
                               </div>
@@ -2891,12 +2970,15 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                     color: 'var(--color-status-warning-text, #92400e)',
                                     border: '1px solid var(--color-status-warning-border, #fde68a)',
                                     whiteSpace: 'nowrap',
+                                    flexShrink: 0,
                                   }}
                                 >
                                   Re-verification Pending
                                 </span>
                               ) : (
-                                <StatusBadge status={docStatus} />
+                                <div style={{ flexShrink: 0 }}>
+                                  <StatusBadge status={docStatus} />
+                                </div>
                               )}
                             </div>
 
@@ -2906,33 +2988,36 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 color: 'var(--color-text-secondary)',
                                 display: 'flex',
                                 flexDirection: 'column',
-                                gap: '3px',
+                                gap: '4px',
                                 backgroundColor: 'var(--color-bg-subtle)',
                                 padding: 'var(--space-2) var(--space-3)',
                                 borderRadius: 'var(--radius-sm)',
+                                minWidth: 0,
+                                overflowWrap: 'anywhere',
+                                wordBreak: 'break-word',
                               }}
                             >
-                              <div>
+                              <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                                 <span>Check: </span>
                                 <strong style={{ color: 'var(--color-text-primary)' }}>
                                   {docItem.checkTitle || docItem.checkType || 'KYC Attachment'}
                                 </strong>
                               </div>
-                              <div>
+                              <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-all' }}>
                                 <span>Doc ID: </span>
                                 <span style={{ fontFamily: 'monospace', color: 'var(--color-text-primary)' }}>
                                   {docItem.documentId || docItem.id || 'Pending'}
                                 </span>
                               </div>
                               {docItem.docNumberMasked && (
-                                <div>
+                                <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-all' }}>
                                   <span>Doc Number: </span>
                                   <strong style={{ color: 'var(--color-text-primary)' }}>
                                     {docItem.docNumberMasked}
                                   </strong>
                                 </div>
                               )}
-                              <div>
+                              <div style={{ minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                                 <span>Format: </span>
                                 <span>
                                   {docItem.contentType || docItem.mimeType || 'application/pdf'}
@@ -2942,9 +3027,21 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                                 </span>
                               </div>
                               {isRecheckPending && pendingRecheckReason && (
-                                <div>
-                                  <span>Re-verification Reason: </span>
-                                  <strong style={{ color: 'var(--color-status-warning-text, #92400e)' }}>
+                                <div
+                                  data-testid={`recheck-reason-${docItem.documentId || docItem.id}`}
+                                  style={{
+                                    marginTop: '2px',
+                                    paddingTop: '4px',
+                                    borderTop: '1px dashed var(--color-border)',
+                                    minWidth: 0,
+                                    overflowWrap: 'anywhere',
+                                    wordBreak: 'break-word',
+                                    whiteSpace: 'pre-wrap',
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  <span style={{ fontWeight: 600, color: 'var(--color-text-primary)' }}>Re-verification Reason: </span>
+                                  <strong style={{ color: 'var(--color-status-warning-text, #92400e)', fontWeight: 600 }}>
                                     {pendingRecheckReason}
                                   </strong>
                                 </div>
@@ -4561,7 +4658,11 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
                         {!isApplicationRejected && (
                           <button
                             type="button"
-                            onClick={() => setIsConfirmFinalApproveOpen(true)}
+                            data-testid="approve-verification-worker-btn"
+                            onClick={() => {
+                              if (finalApproveMutation.isPending) return;
+                              setIsConfirmFinalApproveOpen(true);
+                            }}
                             disabled={
                               !allMandatoryPassed ||
                               !canApproveWorker ||
@@ -5728,6 +5829,7 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           errorMessage={recheckError}
           isLoading={requestRecheckMutation.isPending}
           onConfirm={(remarks) => {
+            if (requestRecheckMutation.isPending) return;
             if (recheckCheckId && remarks?.trim()) {
               setRecheckError(null);
               requestRecheckMutation.mutate({
@@ -5752,15 +5854,18 @@ export const WorkerVerificationReviewModal: React.FC<WorkerVerificationReviewMod
           isLoading={finalApproveMutation.isPending}
           errorMessage={finalApprovalError}
           onConfirm={() => {
-            if (dossier?.workerId) {
+            if (finalApproveMutation.isPending) return;
+            const targetWorkerId = (dossier?.workerId || dossier?.id || dossierId || '').trim();
+            if (targetWorkerId) {
               setFinalApprovalError(null);
               finalApproveMutation.mutate({
-                workerId: dossier.workerId,
+                workerId: targetWorkerId,
                 notes: finalApprovalNotes || 'All 6 KYC verification checks approved under standard protocol',
               });
             }
           }}
           onCancel={() => {
+            if (finalApproveMutation.isPending) return;
             setIsConfirmFinalApproveOpen(false);
             setFinalApprovalNotes('');
             setFinalApprovalError(null);

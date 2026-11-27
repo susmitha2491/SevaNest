@@ -45,7 +45,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
     signedOffAt: '2026-01-06T12:00:00Z',
     activatedAt: '2026-01-06T12:30:00Z',
     matchingEligible: true,
-    phoneMasked: '+91 98765 *****',
+    phoneMasked: '+91 98765 43210',
     phone: '+91 98765 43210',
     email: 'sunita.devi@sevanest.worker',
     onboardingStatus: 'VERIFIED',
@@ -179,7 +179,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Automatic Transmission', 'Manual Transmission', 'Highway Driving', 'City Navigation'],
     isFullyVerified: false,
     status: 'UNDER_REVIEW',
-    phoneMasked: '+91 98450 *****',
+    phoneMasked: '+91 98450 12345',
     phone: '+91 98450 12345',
     email: 'ramesh.yadav@sevanest.worker',
     onboardingStatus: 'IN_REVIEW',
@@ -318,7 +318,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['North Indian Cuisine', 'Vegetarian Cooking', 'Breakfast Prep', 'Kitchen Cleanliness'],
     isFullyVerified: false,
     status: 'SUBMITTED',
-    phoneMasked: '+91 99881 *****',
+    phoneMasked: '+91 99881 23456',
+    phone: '+91 99881 23456',
     onboardingStatus: 'APPLIED',
     verificationStatus: 'PENDING',
     createdAt: '2026-01-12T14:00:00Z',
@@ -384,7 +385,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Infant Care', 'Toddler Safety', 'Meal Preparation', 'Storytelling'],
     isFullyVerified: true,
     status: 'ACTIVE',
-    phoneMasked: '+91 97112 *****',
+    phoneMasked: '+91 97112 34567',
+    phone: '+91 97112 34567',
     onboardingStatus: 'VERIFIED',
     verificationStatus: 'VERIFIED',
     createdAt: '2026-01-02T11:00:00Z',
@@ -452,7 +454,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Highway Driving', 'Night Driving', 'City Navigation'],
     isFullyVerified: false,
     status: 'SUSPENDED',
-    phoneMasked: '+91 91234 *****',
+    phoneMasked: '+91 91234 56789',
+    phone: '+91 91234 56789',
     onboardingStatus: 'REJECTED',
     verificationStatus: 'REJECTED',
     createdAt: '2025-11-20T10:00:00Z',
@@ -519,7 +522,8 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Deep Cleaning', 'Floor Scrubbing', 'Balcony Cleaning', 'Bathroom Sanitization'],
     isFullyVerified: true,
     status: 'ACTIVE',
-    phoneMasked: '+91 94400 *****',
+    phoneMasked: '+91 94400 12345',
+    phone: '+91 94400 12345',
     onboardingStatus: 'VERIFIED',
     verificationStatus: 'RECHECK_DUE',
     createdAt: '2025-10-15T09:00:00Z',
@@ -584,7 +588,7 @@ const MOCK_WORKERS: WorkerDetail[] = [
     skills: ['Housekeeping'],
     isFullyVerified: false,
     status: 'ACTIVE',
-    phoneMasked: '+91 98111 *****',
+    phoneMasked: '+91 98111 22334',
     phone: '+91 98111 22334',
     email: 'pooja.sharma@sevanest.worker',
     onboardingStatus: 'APPLIED',
@@ -675,7 +679,23 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   }
   const cachedLocality = getWorkerLocality(rawId) || (item.userId ? getWorkerLocality(String(item.userId)) : undefined);
   const cachedPhone = getWorkerPhone(rawId) || getWorkerPhone(String(item.userId || ''));
-  const rawPhoneCandidate = item.phone ? String(item.phone) : item.mobile ? String(item.mobile) : undefined;
+  const userObj = (item.user && typeof item.user === 'object' ? item.user : {}) as Record<string, unknown>;
+  const profileObj = (item.profile && typeof item.profile === 'object' ? item.profile : {}) as Record<string, unknown>;
+  const rawPhoneCandidate = item.phone
+    ? String(item.phone)
+    : item.mobile
+    ? String(item.mobile)
+    : item.phoneNumber
+    ? String(item.phoneNumber)
+    : userObj.phone
+    ? String(userObj.phone)
+    : userObj.mobile
+    ? String(userObj.mobile)
+    : profileObj.phone
+    ? String(profileObj.phone)
+    : profileObj.mobile
+    ? String(profileObj.mobile)
+    : undefined;
   const rawCleanPhone = cachedPhone || (rawPhoneCandidate && !rawPhoneCandidate.includes('*') ? formatPhoneNumber(rawPhoneCandidate) : undefined);
   if (rawCleanPhone) {
     setWorkerPhone(rawId, rawCleanPhone);
@@ -689,13 +709,13 @@ export function mapBackendWorkerToWorker(item: Record<string, unknown>): Worker 
   }
 
   let phoneMasked: string | undefined = undefined;
-  if (cachedPhone) {
-    phoneMasked = cachedPhone;
-  } else if (item.phoneMasked) {
-    phoneMasked = String(item.phoneMasked);
-  } else if (rawCleanPhone) {
+  if (rawCleanPhone) {
     phoneMasked = rawCleanPhone;
-  } else if (item.mobile || item.phone) {
+  } else if (cachedPhone) {
+    phoneMasked = cachedPhone;
+  } else if (item.phoneMasked && !String(item.phoneMasked).includes('*')) {
+    phoneMasked = String(item.phoneMasked);
+  } else if ((item.mobile || item.phone) && !String(item.mobile || item.phone).includes('*')) {
     phoneMasked = formatPhoneNumber(String(item.mobile || item.phone));
   }
 
@@ -1919,6 +1939,30 @@ export class RealWorkerRepository implements IWorkerRepository {
         }
       }
 
+      // Enrich any workers on the current page that don't have an unmasked phone cached yet
+      const uncachedWorkers = list.filter((item) => {
+        const id = String(item.id || item.workerId || '');
+        const phone = getWorkerPhone(id);
+        return id && (!phone || phone.includes('*'));
+      });
+
+      if (uncachedWorkers.length > 0) {
+        const batchSize = 5;
+        for (let i = 0; i < uncachedWorkers.length; i += batchSize) {
+          const batch = uncachedWorkers.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (item) => {
+              const id = String(item.id || item.workerId || '');
+              try {
+                await fetchWorkerUnmaskedPhone(id);
+              } catch {
+                // Ignore individual failure
+              }
+            })
+          );
+        }
+      }
+
       const mappedItems = list.map((item) => {
         const id = String(item.id || item.workerId || '');
         const isVerifiedByBackend = verifiedParam === true || verifiedIds.has(id);
@@ -2507,7 +2551,11 @@ export class MockWorkerRepository implements IWorkerRepository {
       result = result.filter((w) => w.isFullyVerified === filter.verified);
     }
 
-    return result.map(({ bio: _bio, languages: _l, serviceRadiusKm: _sr, verification: _v, recentEngagements: _re, internalNotes: _in, activeEngagementsCount: _ae, completedBookingsCount: _cb, replacementsIncurred: _ri, documents: _d, skills: _sk, ...summary }) => summary);
+    return result.map(({ bio: _bio, languages: _l, serviceRadiusKm: _sr, verification: _v, recentEngagements: _re, internalNotes: _in, activeEngagementsCount: _ae, completedBookingsCount: _cb, replacementsIncurred: _ri, documents: _d, skills: _sk, ...summary }) => ({
+      ...summary,
+      phone: summary.phone || (summary.phoneMasked && !summary.phoneMasked.includes('*') ? summary.phoneMasked : undefined),
+      phoneMasked: (summary.phoneMasked && !summary.phoneMasked.includes('*') ? summary.phoneMasked : undefined) || summary.phone,
+    }));
   }
 
   async getWorkersPage(

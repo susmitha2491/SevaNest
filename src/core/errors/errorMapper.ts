@@ -227,25 +227,35 @@ export function mapHttpErrorToDomainError(error: unknown): DomainError {
           payload?.code
         );
       case 429: {
-        if (isCfChallenge) {
-          return new RateLimitExceededError(
-            'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
-            correlationId,
-            'CLOUDFLARE_CHALLENGE'
-          );
-        }
-        const retryHeader = readHeaderValue(headers, 'retry-after');
+        const retryHeader =
+          readHeaderValue(headers, 'retry-after') ||
+          readHeaderValue(headers, 'x-ratelimit-reset');
         const detailRetry = Array.isArray(payload?.details)
           ? payload.details.find((d) => d?.field === 'retryAfterSeconds')?.messages?.[0]
           : undefined;
         const retrySecRaw = retryHeader || detailRetry;
         const retrySec = retrySecRaw && /^\d+$/.test(retrySecRaw.trim()) ? Number(retrySecRaw.trim()) : null;
-        const baseMessage = serverMessage || 'Rate limit exceeded.';
+
+        if (isCfChallenge) {
+          return new RateLimitExceededError(
+            'Blocked by Cloudflare security challenge at the backend gateway. Please wait a moment and try again.',
+            correlationId,
+            'CLOUDFLARE_CHALLENGE',
+            retrySec ?? 60
+          );
+        }
+
+        const baseMessage = serverMessage || 'Too many requests. Rate limit exceeded.';
         const fullMessage =
-          retrySec && retrySec > 0 && !/retry (available )?in \d+/i.test(baseMessage)
+          retrySec && retrySec > 0 && !/retry (available )?in \d+/i.test(baseMessage) && !/try again in \d+/i.test(baseMessage)
             ? `${baseMessage} Try again in ${retrySec}s.`
             : baseMessage;
-        return new RateLimitExceededError(fullMessage, correlationId, payload?.code || 'RATE_LIMIT_EXCEEDED');
+        return new RateLimitExceededError(
+          fullMessage,
+          correlationId,
+          payload?.code || 'RATE_LIMIT_EXCEEDED',
+          retrySec ?? undefined
+        );
       }
       case 500:
       case 502:

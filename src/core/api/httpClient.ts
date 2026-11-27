@@ -55,6 +55,24 @@ httpClient.interceptors.request.use(
       config.headers['X-Correlation-ID'] = correlationId;
     }
 
+    // Attach client session identifier to assist upstream reverse proxies in distinguishing admin browser sessions
+    if (!config.headers['X-Client-Device-Id']) {
+      try {
+        let devId = typeof window !== 'undefined' && window.sessionStorage
+          ? window.sessionStorage.getItem('sevanest_client_id')
+          : null;
+        if (!devId && typeof window !== 'undefined' && window.sessionStorage) {
+          devId = `dev-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 9)}`;
+          window.sessionStorage.setItem('sevanest_client_id', devId);
+        }
+        if (devId) {
+          config.headers['X-Client-Device-Id'] = devId;
+        }
+      } catch {
+        // Ignore storage access restrictions in restricted sandbox environments
+      }
+    }
+
     // 2. Apply context-aware tiered timeout policy
     config.timeout = resolveRequestTimeout(config);
 

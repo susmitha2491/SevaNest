@@ -2,11 +2,17 @@ import { VerificationCheck, VerificationCheckType } from './types';
 
 export function getLatestReVerificationEvent(check?: VerificationCheck) {
   if (!check?.history || check.history.length === 0) return undefined;
-  const lastEvent = check.history[check.history.length - 1];
-  if (lastEvent.fromStatus === 'APPROVED' && lastEvent.toStatus === 'IN_REVIEW') {
-    return lastEvent;
-  }
-  return undefined;
+  const recheckEvents = check.history.filter(
+    (ev) => ev.fromStatus === 'APPROVED' && ev.toStatus === 'IN_REVIEW'
+  );
+  if (recheckEvents.length === 0) return undefined;
+  if (recheckEvents.length === 1) return recheckEvents[0];
+  return [...recheckEvents].sort((a, b) => {
+    if (a.createdAt && b.createdAt) {
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+    return 0;
+  })[0];
 }
 
 /**
@@ -32,15 +38,19 @@ export function getPendingReVerificationReason(check?: VerificationCheck): strin
   if (check?.rejectionRemarks && check.rejectionRemarks.trim() !== '') {
     return check.rejectionRemarks.trim();
   }
+  if (check?.notes && check.notes.length > 0) {
+    const lastNote = check.notes[check.notes.length - 1];
+    if (lastNote && lastNote.trim()) return lastNote.trim();
+  }
   return undefined;
 }
 
 /**
  * Backend POST /admin/verification/checks/{checkId}/recheck strictly transitions APPROVED -> IN_REVIEW.
  */
-export function canRequestReVerification(check?: VerificationCheck): boolean {
+export function canRequestReVerification(check?: VerificationCheck, fallbackCheckId?: string): boolean {
   if (!check) return false;
-  const checkId = (check.id || check.checkId || '').trim();
+  const checkId = (check.id || check.checkId || fallbackCheckId || '').trim();
   if (!checkId) return false;
   return check.status === 'APPROVED' && !hasPendingReVerification(check);
 }

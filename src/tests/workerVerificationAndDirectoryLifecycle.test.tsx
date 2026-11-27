@@ -224,9 +224,197 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
     });
   });
 
-  describe('2. Role-Based Permissions for Verification Executive', () => {
-    it('restricts final approval when Verification Executive lacks verification.signoff on backend', async () => {
-      // Backend grants only: worker.view, verification.review, verification.document.view, verification.decide
+  describe('2. Final Verification Approval in Verification Executive Role', () => {
+    it('executes successful final approval for Verification Executive when all mandatory checks are approved', async () => {
+      useAuthStore.setState({
+        user: {
+          id: 'exec-01',
+          name: 'Verification Executive',
+          email: 'verification.executive@sevanest.example.com',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+            PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+            PERMISSIONS.VERIFICATION_DECIDE,
+          ],
+        },
+        isAuthenticated: true,
+      });
+
+      const user = userEvent.setup();
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(mockFullyApprovedDossier);
+      const approveSpy = vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker').mockResolvedValue({
+        success: true,
+        workerId: mockFullyApprovedDossier.workerId,
+        status: 'ACTIVE',
+        message: 'Worker verification signed off and worker activated on platform roster.',
+      });
+
+      const toastListener = vi.fn();
+      window.addEventListener('sevanest:toast', toastListener);
+
+      renderWithClient(
+        <WorkerVerificationReviewModal
+          dossierId={mockFullyApprovedDossier.workerId}
+          initialDossier={mockFullyApprovedDossier}
+          onClose={() => {}}
+        />
+      );
+
+      const step5Bubble = await screen.findByTestId('step-bubble-5');
+      await user.click(step5Bubble);
+
+      expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+
+      // No permission restriction banner shown
+      expect(screen.queryByText(/Permission Restricted: You do not have the required permission/i)).not.toBeInTheDocument();
+
+      // Approve button must be enabled for Verification Executive
+      const approveBtn = screen.getByRole('button', { name: /Approve Verification Worker/i });
+      expect(approveBtn).toBeEnabled();
+
+      // Open confirm dialog
+      await user.click(approveBtn);
+
+      const confirmHeading = await screen.findByText(/Confirm Worker Approval & Platform Onboarding/i);
+      expect(confirmHeading).toBeInTheDocument();
+
+      // Confirm approval
+      const confirmFinalBtn = screen.getByRole('button', { name: /Confirm Final Approval/i });
+      await user.click(confirmFinalBtn);
+
+      await waitFor(() => {
+        expect(approveSpy).toHaveBeenCalledWith(
+          mockFullyApprovedDossier.workerId,
+          expect.stringContaining('All 6 KYC verification checks approved')
+        );
+      });
+
+      // Dialog closes and success screen is displayed
+      await waitFor(() => {
+        expect(screen.queryByText(/Confirm Worker Approval & Platform Onboarding/i)).not.toBeInTheDocument();
+      });
+
+      expect(toastListener).toHaveBeenCalled();
+      expect(screen.getByText(/Worker Successfully Onboarded/i)).toBeInTheDocument();
+      expect(screen.getByText('ACTIVE')).toBeInTheDocument();
+
+      window.removeEventListener('sevanest:toast', toastListener);
+    });
+
+    it('handles backend failure: keeps confirmation dialog open, renders backend error, and preserves worker status', async () => {
+      useAuthStore.setState({
+        user: {
+          id: 'exec-01',
+          name: 'Verification Executive',
+          email: 'verification.executive@sevanest.example.com',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+            PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+            PERMISSIONS.VERIFICATION_DECIDE,
+          ],
+        },
+        isAuthenticated: true,
+      });
+
+      const user = userEvent.setup();
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(mockFullyApprovedDossier);
+      const approveSpy = vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker').mockRejectedValue(
+        new Error('HTTP 409 Conflict: Worker KYC checks must be fully vetted')
+      );
+
+      const toastListener = vi.fn();
+      window.addEventListener('sevanest:toast', toastListener);
+
+      renderWithClient(
+        <WorkerVerificationReviewModal
+          dossierId={mockFullyApprovedDossier.workerId}
+          initialDossier={mockFullyApprovedDossier}
+          onClose={() => {}}
+        />
+      );
+
+      const step5Bubble = await screen.findByTestId('step-bubble-5');
+      await user.click(step5Bubble);
+
+      const approveBtn = await screen.findByRole('button', { name: /Approve Verification Worker/i });
+      await user.click(approveBtn);
+
+      const confirmFinalBtn = await screen.findByRole('button', { name: /Confirm Final Approval/i });
+      await user.click(confirmFinalBtn);
+
+      await waitFor(() => {
+        expect(approveSpy).toHaveBeenCalled();
+      });
+
+      // Confirm dialog remains open with backend error
+      expect(await screen.findByText(/Confirm Worker Approval & Platform Onboarding/i)).toBeInTheDocument();
+      expect(screen.getByText(/Worker KYC checks must be fully vetted/i)).toBeInTheDocument();
+
+      // No success toast emitted and success screen not rendered
+      expect(toastListener).not.toHaveBeenCalled();
+      expect(screen.queryByText(/Worker Successfully Onboarded/i)).not.toBeInTheDocument();
+
+      window.removeEventListener('sevanest:toast', toastListener);
+    });
+
+    it('disables final approval button for Verification Executive when mandatory checks remain incomplete', async () => {
+      useAuthStore.setState({
+        user: {
+          id: 'exec-01',
+          name: 'Verification Executive',
+          email: 'verification.executive@sevanest.example.com',
+          role: 'VERIFICATION_EXECUTIVE',
+          permissions: [
+            PERMISSIONS.WORKER_VIEW,
+            PERMISSIONS.VERIFICATION_REVIEW,
+            PERMISSIONS.VERIFICATION_DOCUMENT_VIEW,
+            PERMISSIONS.VERIFICATION_DECIDE,
+          ],
+        },
+        isAuthenticated: true,
+      });
+
+      const user = userEvent.setup();
+      const incompleteDossier: VerificationDossier = {
+        ...mockFullyApprovedDossier,
+        checks: {
+          ...mockFullyApprovedDossier.checks,
+          POLICE_CLEARANCE: {
+            id: 'chk-5',
+            type: 'POLICE_CLEARANCE',
+            title: 'Police Clearance',
+            status: 'PENDING',
+            evaluationMethod: 'DOCUMENT_INSPECTION',
+          } as VerificationCheck,
+        },
+      };
+
+      vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(incompleteDossier);
+
+      renderWithClient(
+        <WorkerVerificationReviewModal
+          dossierId={incompleteDossier.workerId}
+          initialDossier={incompleteDossier}
+          onClose={() => {}}
+        />
+      );
+
+      // On Step 3, advancing to Step 4/5 is disabled because mandatory checks are incomplete
+      const step3Bubble = await screen.findByTestId('step-bubble-3');
+      await user.click(step3Bubble);
+
+      expect(await screen.findByText(/Step 3 — KYC Verification/i)).toBeInTheDocument();
+
+      const nextBtn = screen.getByRole('button', { name: /^Next$/i });
+      expect(nextBtn).toBeDisabled();
+      expect(nextBtn).toHaveAttribute('title', expect.stringMatching(/All 5 KYC checks and mobile OTP must be approved/i));
+    });
+
+    it('prevents duplicate submissions while final approval is in flight', async () => {
       useAuthStore.setState({
         user: {
           id: 'exec-01',
@@ -246,6 +434,12 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
       const user = userEvent.setup();
       vi.spyOn(verificationRepository, 'getDossierById').mockResolvedValue(mockFullyApprovedDossier);
 
+      let resolveApproval: (val: unknown) => void;
+      const delayedPromise = new Promise((resolve) => {
+        resolveApproval = resolve;
+      });
+      const approveSpy = vi.spyOn(verificationRepository, 'approveApplicationAndOnboardWorker').mockReturnValue(delayedPromise as unknown as Promise<never>);
+
       renderWithClient(
         <WorkerVerificationReviewModal
           dossierId={mockFullyApprovedDossier.workerId}
@@ -257,14 +451,34 @@ describe('Worker Verification, Final Approval & Workers Directory Lifecycle', ()
       const step5Bubble = await screen.findByTestId('step-bubble-5');
       await user.click(step5Bubble);
 
-      expect(await screen.findByText(/Step 5 — Final Approval/i)).toBeInTheDocument();
+      const approveBtn = await screen.findByRole('button', { name: /Approve Verification Worker/i });
+      await user.click(approveBtn);
 
-      // Approve button must be disabled due to lack of verification.signoff
-      const approveBtn = screen.getByRole('button', { name: /Approve Verification Worker/i });
-      expect(approveBtn).toBeDisabled();
+      const confirmFinalBtn = await screen.findByRole('button', { name: /Confirm Final Approval/i });
+      // First click triggers submission
+      await user.click(confirmFinalBtn);
 
-      // Explanatory permission notice displayed
-      expect(screen.getByText(/Permission Restricted: You do not have the required permission/i)).toBeInTheDocument();
+      expect(approveSpy).toHaveBeenCalledTimes(1);
+
+      // While in flight, the confirm button shows loading state and is disabled
+      await waitFor(() => {
+        const loadingBtn = screen.getByRole('button', { name: /Processing\.\.\./i });
+        expect(loadingBtn).toBeDisabled();
+      });
+
+      // Complete in-flight mutation
+      act(() => {
+        resolveApproval!({
+          success: true,
+          workerId: mockFullyApprovedDossier.workerId,
+          status: 'ACTIVE',
+          message: 'Worker verification signed off and worker activated on platform roster.',
+        });
+      });
+
+      await waitFor(() => {
+        expect(screen.getByText(/Worker Successfully Onboarded/i)).toBeInTheDocument();
+      });
     });
   });
 

@@ -1,8 +1,8 @@
 /* global HTMLDivElement, IntersectionObserver */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import { useInfiniteQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { Ban, RefreshCw, CheckCircle, X } from 'lucide-react';
+import { Ban, RefreshCw, CheckCircle, X, ChevronLeft } from 'lucide-react';
 import { customerRepository } from '../data/customerRepository';
 import { Customer } from '../domain/types';
 import { StatusBadge } from '../../../shared/components/StatusBadge/StatusBadge';
@@ -19,8 +19,7 @@ import { formatRegistrationDateIST } from '../../../shared/formatters/dateTime';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
-import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
-import { extractSearchMobileDigits, getCustomerPhone, matchesPhoneDigits } from '../../../core/utils/phoneDirectory';
+import { extractSearchMobileDigits, getCustomerPhone, matchesPhoneDigits, formatPhoneNumber, fetchCustomerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
 
 
 
@@ -39,10 +38,13 @@ function parseRegisteredTimestamp(raw: string | undefined): number {
 }
 
 export const CustomersListPage: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
   const canView = hasPermission(user?.permissions, PERMISSIONS.CUSTOMER_VIEW);
+  const isFromDashboard = Boolean(location.state?.fromDashboard || searchParams.get('from') === 'dashboard');
 
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
@@ -203,6 +205,51 @@ export const CustomersListPage: React.FC = () => {
     return list;
   }, [data?.pages]);
 
+  const [resolvedPhones, setResolvedPhones] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let isCancelled = false;
+    const unresolved = allCustomers.filter((c) => {
+      const existing =
+        (c.unmaskedPhone && !c.unmaskedPhone.includes('*') ? c.unmaskedPhone : null) ||
+        (c.phone && !c.phone.includes('*') ? c.phone : null) ||
+        getCustomerPhone(c.id) ||
+        (c.userId ? getCustomerPhone(c.userId) : null) ||
+        resolvedPhones[c.id];
+      return !existing && Boolean(c.id);
+    });
+
+    if (unresolved.length > 0) {
+      (async () => {
+        const batchSize = 5;
+        for (let i = 0; i < unresolved.length; i += batchSize) {
+          if (isCancelled) break;
+          const chunk = unresolved.slice(i, i + batchSize);
+          const results = await Promise.all(
+            chunk.map(async (c) => {
+              const phone = await fetchCustomerUnmaskedPhone(c.id).catch(() => undefined);
+              return { id: c.id, phone };
+            })
+          );
+          if (isCancelled) break;
+          setResolvedPhones((prev) => {
+            const next = { ...prev };
+            results.forEach(({ id, phone }) => {
+              if (phone && !phone.includes('*')) {
+                next[id] = phone;
+              }
+            });
+            return next;
+          });
+        }
+      })();
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [allCustomers, resolvedPhones]);
+
   // Client-side filtering and sorting on accumulated records
   const filteredAndSortedCustomers = useMemo(() => {
     let result = [...allCustomers];
@@ -229,6 +276,7 @@ export const CustomersListPage: React.FC = () => {
             c.unmaskedPhone,
             c.phone,
             getCustomerPhone(c.id),
+            resolvedPhones[c.id],
             c.maskedPhone,
           ].filter(Boolean) as string[];
 
@@ -283,7 +331,7 @@ export const CustomersListPage: React.FC = () => {
     });
 
     return result;
-  }, [allCustomers, searchTerm, statusFilter, verificationFilter, localityFilter, sortField, sortOrder]);
+  }, [allCustomers, resolvedPhones, searchTerm, statusFilter, verificationFilter, localityFilter, sortField, sortOrder]);
 
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedCustomers.length;
 
@@ -520,6 +568,33 @@ export const CustomersListPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+      {isFromDashboard && (
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: 'fit-content',
+            marginBottom: 'var(--space-1)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+          aria-label="Back to Dashboard"
+        >
+          <ChevronLeft size={14} />
+          <span>Back to Dashboard</span>
+        </button>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -777,7 +852,7 @@ export const CustomersListPage: React.FC = () => {
                 Customer Name
               </th>
               <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                Contact (PII Masked)
+                Contact
               </th>
               <th style={{ position: 'sticky', top: 0, backgroundColor: 'var(--color-bg-subtle)', padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                 Cluster Locality
@@ -890,15 +965,32 @@ export const CustomersListPage: React.FC = () => {
                     <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>Registered: {formatRegistrationDateIST(customer.registeredDate)}</div>
                   </td>
                   <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
-                    <MaskedPhoneText
-                      phone={customer.maskedPhone || customer.phone}
-                      unmaskedPhone={customer.unmaskedPhone || (customer.phone && !customer.phone.includes('*') ? customer.phone : undefined)}
-                      entityId={customer.id}
-                      entityType="customer"
-                      allowReveal={true}
-                      textStyle={{ color: 'var(--color-text-secondary)', fontFamily: 'monospace' }}
-                      initialRevealed={Boolean(customer.unmaskedPhone)}
-                    />
+                    {(() => {
+                      const rawCustomerMobile =
+                        (customer.unmaskedPhone && !customer.unmaskedPhone.includes('*') ? customer.unmaskedPhone : null) ||
+                        (customer.phone && !customer.phone.includes('*') ? customer.phone : null) ||
+                        getCustomerPhone(customer.id) ||
+                        (customer.userId ? getCustomerPhone(customer.userId) : null) ||
+                        resolvedPhones[customer.id] ||
+                        (customer.maskedPhone && !customer.maskedPhone.includes('*') ? customer.maskedPhone : null) ||
+                        '';
+                      const displayCustomerMobile = rawCustomerMobile ? formatPhoneNumber(rawCustomerMobile) : '';
+                      return displayCustomerMobile ? (
+                        <span
+                          data-testid="customer-mobile-text"
+                          style={{
+                            color: 'var(--color-text-secondary, #475569)',
+                            fontFamily: 'monospace',
+                            fontSize: 'var(--font-size-xs, 12px)',
+                            letterSpacing: '0.02em',
+                          }}
+                        >
+                          {displayCustomerMobile}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-xs, 12px)' }}>—</span>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', whiteSpace: 'nowrap' }}>
                     {customer.locality}
@@ -1074,3 +1166,5 @@ export const CustomersListPage: React.FC = () => {
     </div>
   );
 };
+
+export default CustomersListPage;

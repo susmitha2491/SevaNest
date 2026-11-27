@@ -1,6 +1,6 @@
 /* global HTMLDivElement, IntersectionObserver, Node */
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, keepPreviousData } from '@tanstack/react-query';
 import {
   RefreshCw,
@@ -12,6 +12,7 @@ import {
   AlertCircle,
   ArrowUpDown,
   Check,
+  ChevronLeft,
 } from 'lucide-react';
 import { workerRepository, resolveCategoryId } from '../data/workerRepository';
 import { Worker, WorkerFilterCriteria } from '../domain/types';
@@ -23,7 +24,7 @@ import { WorkerDetailModal } from './WorkerDetailModal';
 import { useDebounce } from '../../../shared/hooks/useDebounce';
 import { CustomSelect } from '../../../components/common/CustomSelect';
 import { SearchInput } from '../../../components/common/SearchInput';
-import { MaskedPhoneText } from '../../../shared/components/MaskedPhoneText';
+import { formatPhoneNumber, getWorkerPhone, fetchWorkerUnmaskedPhone } from '../../../core/utils/phoneDirectory';
 
 
 type VerificationFilterValue = 'ALL' | 'VERIFIED' | 'PENDING' | 'IN_REVIEW' | 'REJECTED' | 'RECHECK_DUE';
@@ -135,9 +136,12 @@ function getVerificationBadgeSpec(worker: Worker) {
 
 export const WorkersListPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((s) => s.user);
   const canView = hasPermission(user?.permissions, PERMISSIONS.WORKER_VIEW);
+  const canAccessVerification = hasPermission(user?.permissions, PERMISSIONS.VERIFICATION_REVIEW);
+  const isFromDashboard = Boolean(location.state?.fromDashboard || searchParams.get('from') === 'dashboard');
   const [searchTerm, setSearchTerm] = useState(() => searchParams.get('search') || '');
   const debouncedSearchTerm = useDebounce(searchTerm, 400);
   const lastSyncedSearchRef = useRef<string>(searchTerm);
@@ -389,6 +393,52 @@ export const WorkersListPage: React.FC = () => {
     return result;
   }, [allWorkers, categoryFilter, verificationFilter, sortOption]);
 
+  const [resolvedWorkerPhones, setResolvedWorkerPhones] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let isCancelled = false;
+    const unresolved = allWorkers.filter((w) => {
+      const existing =
+        (w.phone && !w.phone.includes('*') ? w.phone : null) ||
+        (w.mobile && !w.mobile.includes('*') ? w.mobile : null) ||
+        getWorkerPhone(w.id) ||
+        (w.userId ? getWorkerPhone(w.userId) : null) ||
+        (w.phoneMasked && !w.phoneMasked.includes('*') ? w.phoneMasked : null) ||
+        resolvedWorkerPhones[w.id];
+      return !existing && Boolean(w.id);
+    });
+
+    if (unresolved.length > 0) {
+      (async () => {
+        const batchSize = 5;
+        for (let i = 0; i < unresolved.length; i += batchSize) {
+          if (isCancelled) break;
+          const chunk = unresolved.slice(i, i + batchSize);
+          const results = await Promise.all(
+            chunk.map(async (w) => {
+              const phone = await fetchWorkerUnmaskedPhone(w.id).catch(() => undefined);
+              return { id: w.id, phone };
+            })
+          );
+          if (isCancelled) break;
+          setResolvedWorkerPhones((prev) => {
+            const next = { ...prev };
+            results.forEach(({ id, phone }) => {
+              if (phone && !phone.includes('*')) {
+                next[id] = phone;
+              }
+            });
+            return next;
+          });
+        }
+      })();
+    }
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [allWorkers, resolvedWorkerPhones]);
+
   const totalCount = data?.pages[0]?.total ?? filteredAndSortedWorkers.length;
 
   const categories = useMemo(() => {
@@ -482,6 +532,33 @@ export const WorkersListPage: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      {isFromDashboard && (
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard')}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '5px 12px',
+            borderRadius: 'var(--radius-md)',
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+            color: 'var(--color-text-secondary)',
+            fontSize: 'var(--font-size-xs)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: 'fit-content',
+            marginBottom: 'var(--space-1)',
+            boxShadow: 'var(--shadow-sm)',
+          }}
+          aria-label="Back to Dashboard"
+        >
+          <ChevronLeft size={14} />
+          <span>Back to Dashboard</span>
+        </button>
+      )}
+
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-2)' }}>
         <div>
@@ -609,27 +686,29 @@ export const WorkersListPage: React.FC = () => {
               Pending verification workers are excluded from booking matches until Verification Executive review completes.
             </span>
           </div>
-          <button
-            type="button"
-            onClick={() => navigate('/verification')}
-            style={{
-              padding: '4px 10px',
-              backgroundColor: 'var(--color-brand-600, var(--color-primary))',
-              color: '#ffffff',
-              borderRadius: 'var(--radius-sm)',
-              border: 'none',
-              fontWeight: 600,
-              fontSize: '11px',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <span>Open Verification Queue</span>
-            <ExternalLink size={12} />
-          </button>
+          {canAccessVerification && (
+            <button
+              type="button"
+              onClick={() => navigate('/verification')}
+              style={{
+                padding: '4px 10px',
+                backgroundColor: 'var(--color-brand-600, var(--color-primary))',
+                color: '#ffffff',
+                borderRadius: 'var(--radius-sm)',
+                border: 'none',
+                fontWeight: 600,
+                fontSize: '11px',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span>Open Verification Queue</span>
+              <ExternalLink size={12} />
+            </button>
+          )}
         </div>
       )}
 
@@ -918,7 +997,15 @@ export const WorkersListPage: React.FC = () => {
                 </tr>
               ) : (
                 filteredAndSortedWorkers.map((worker: Worker) => {
-                  const mobileText = worker.phoneMasked || worker.phone || worker.mobile;
+                  const rawMobile =
+                    (worker.phone && !worker.phone.includes('*') ? worker.phone : null) ||
+                    (worker.mobile && !worker.mobile.includes('*') ? worker.mobile : null) ||
+                    getWorkerPhone(worker.id) ||
+                    (worker.userId ? getWorkerPhone(worker.userId) : null) ||
+                    resolvedWorkerPhones[worker.id] ||
+                    (worker.phoneMasked && !worker.phoneMasked.includes('*') ? worker.phoneMasked : null) ||
+                    '';
+                  const displayMobile = rawMobile ? formatPhoneNumber(rawMobile) : '';
                   const { primarySkill, extraCount } = getPrimarySkillDisplay(worker);
                   const badge = getVerificationBadgeSpec(worker);
                   const BadgeIcon = badge.Icon;
@@ -966,15 +1053,18 @@ export const WorkersListPage: React.FC = () => {
                         <div style={{ fontWeight: 600, color: 'var(--color-text-primary)', lineHeight: 1.3 }}>
                           {detailModalId === worker.id ? `${worker.name} (Viewing)` : worker.name}
                         </div>
-                        {mobileText && (
-                          <div style={{ fontSize: '11px', color: 'var(--color-text-muted)', marginTop: '2px' }}>
-                            <MaskedPhoneText
-                              phone={mobileText}
-                              unmaskedPhone={worker.phone && !worker.phone.includes('*') ? worker.phone : undefined}
-                              entityId={worker.id}
-                              entityType="worker"
-                              allowReveal={true}
-                            />
+                        {displayMobile && (
+                          <div
+                            data-testid="worker-mobile-text"
+                            style={{
+                              fontSize: '11px',
+                              color: 'var(--color-text-secondary, #475569)',
+                              marginTop: '2px',
+                              fontFamily: 'monospace',
+                              letterSpacing: '0.02em',
+                            }}
+                          >
+                            <span>{displayMobile}</span>
                           </div>
                         )}
                       </td>
@@ -1147,3 +1237,5 @@ export const WorkersListPage: React.FC = () => {
     </div>
   );
 };
+
+export default WorkersListPage;

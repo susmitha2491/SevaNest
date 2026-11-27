@@ -413,9 +413,10 @@ export class RealAuthRepository implements IAuthRepository {
     }
 
     const isTestMode = import.meta.env.MODE === 'test' || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test');
+    // Ensure one user login submission produces strictly one login request; do not auto-retry unless explicitly requested
     const maxWakeRetries = (credentials as { _maxWakeRetries?: number })._maxWakeRetries !== undefined
       ? (credentials as { _maxWakeRetries?: number })._maxWakeRetries!
-      : (isTestMode ? 0 : 6);
+      : 0;
     let wakeAttempts = 0;
 
     while (true) {

@@ -313,7 +313,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               value={operationsOverview.newCustomersToday}
               subtitle={`IST date: ${operationsOverview.reportingDateIST}`}
               icon={UserPlus}
-              onClick={canViewCustomers ? () => navigate('/customers') : undefined}
+              onClick={canViewCustomers ? () => navigate('/customers?from=dashboard', { state: { fromDashboard: true } }) : undefined}
             />
           )}
 
@@ -323,7 +323,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               value={operationsOverview.newWorkersToday}
               subtitle={`IST date: ${operationsOverview.reportingDateIST}`}
               icon={Briefcase}
-              onClick={canViewWorkers ? () => navigate('/workers') : undefined}
+              onClick={canViewWorkers ? () => navigate('/workers?from=dashboard', { state: { fromDashboard: true } }) : undefined}
             />
           )}
 
@@ -333,7 +333,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               value={totalBookingsVal}
               subtitle={`${pendingBookingsCount ?? 0} pending · ${activeBookingsCount ?? 0} active · ${completedBookingsCount ?? 0} completed`}
               icon={CalendarCheck}
-              onClick={canViewBookings ? () => navigate('/bookings') : undefined}
+              onClick={canViewBookings ? () => navigate('/bookings?from=dashboard', { state: { fromDashboard: true } }) : undefined}
             />
           )}
 
@@ -347,7 +347,7 @@ export const OperationsAdminDashboard: React.FC = () => {
                   : `${registeredWorkersVal ?? 0} total registered`
               }
               icon={UserCheck}
-              onClick={canViewWorkers ? () => navigate('/workers') : undefined}
+              onClick={canViewWorkers ? () => navigate('/workers?from=dashboard', { state: { fromDashboard: true } }) : undefined}
             />
           )}
 
@@ -357,7 +357,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               value={alertsSection.open}
               subtitle={`${alertsSection.critical} critical · ${alertsSection.warning} warning`}
               icon={AlertTriangle}
-              onClick={() => setIsAlertsDrawerOpen(true)}
+              onClick={() => navigate('/alerts?from=dashboard', { state: { fromDashboard: true } })}
             />
           )}
 
@@ -367,7 +367,7 @@ export const OperationsAdminDashboard: React.FC = () => {
               value={primaryCollection.monthToDateFormatted}
               subtitle={`Today: ${primaryCollection.todayFormatted}`}
               icon={CreditCard}
-              onClick={() => navigate('/payments')}
+              onClick={() => navigate('/payments?from=dashboard', { state: { fromDashboard: true } })}
             />
           )}
         </div>
@@ -385,7 +385,7 @@ export const OperationsAdminDashboard: React.FC = () => {
             </p>
           </div>
           {canViewBookings && (
-            <button type="button" onClick={() => navigate('/bookings')} style={headerActionBtnStyle}>
+            <button type="button" onClick={() => navigate('/bookings?from=dashboard', { state: { fromDashboard: true } })} style={headerActionBtnStyle}>
               <span>Open Bookings</span>
               <ArrowRight size={12} />
             </button>
@@ -403,7 +403,7 @@ export const OperationsAdminDashboard: React.FC = () => {
                 key={row.status}
                 type="button"
                 disabled={!canViewBookings}
-                onClick={() => canViewBookings && navigate(`/bookings?status=${encodeURIComponent(row.status === 'NEW_REQUEST' ? 'REQUESTED' : row.status === 'ACTIVE' ? 'SERVICE_ACTIVE' : row.status)}`)}
+                onClick={() => canViewBookings && navigate(`/bookings?status=${encodeURIComponent(row.status === 'NEW_REQUEST' ? 'REQUESTED' : row.status === 'ACTIVE' ? 'SERVICE_ACTIVE' : row.status)}&from=dashboard`, { state: { fromDashboard: true } })}
                 style={{
                   textAlign: 'left',
                   padding: '10px 12px',
@@ -443,7 +443,7 @@ export const OperationsAdminDashboard: React.FC = () => {
                   Registered households and verification progress
                 </p>
               </div>
-              <button type="button" onClick={() => navigate('/customers')} style={headerActionBtnStyle}>
+              <button type="button" onClick={() => navigate('/customers?from=dashboard', { state: { fromDashboard: true } })} style={headerActionBtnStyle}>
                 <span>Open Customers</span>
                 <ArrowRight size={12} />
               </button>
@@ -484,7 +484,7 @@ export const OperationsAdminDashboard: React.FC = () => {
                   Registration, activation, and active deployment readiness
                 </p>
               </div>
-              <button type="button" onClick={() => navigate('/workers')} style={headerActionBtnStyle}>
+              <button type="button" onClick={() => navigate('/workers?from=dashboard', { state: { fromDashboard: true } })} style={headerActionBtnStyle}>
                 <span>Open Workers</span>
                 <ArrowRight size={12} />
               </button>
@@ -527,7 +527,7 @@ export const OperationsAdminDashboard: React.FC = () => {
                 Latest open SLA and operational exceptions requiring triage
               </p>
             </div>
-            <button type="button" onClick={() => setIsAlertsDrawerOpen(true)} style={headerActionBtnStyle}>
+            <button type="button" onClick={() => navigate('/alerts?from=dashboard', { state: { fromDashboard: true } })} style={headerActionBtnStyle}>
               <span>Triage All Alerts</span>
               <ArrowRight size={12} />
             </button>

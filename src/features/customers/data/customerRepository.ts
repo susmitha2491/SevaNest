@@ -10,7 +10,9 @@ const MOCK_CUSTOMERS: CustomerDetail[] = [
   {
     id: 'C-1092',
     name: 'Anand Sharma',
-    maskedPhone: '+91 98**** **12',
+    phone: '+91 98450 12312',
+    unmaskedPhone: '+91 98450 12312',
+    maskedPhone: '+91 98450 12312',
     maskedEmail: 'a****@gmail.com',
     locality: 'Kondapur',
     status: 'ACTIVE',
@@ -42,7 +44,9 @@ const MOCK_CUSTOMERS: CustomerDetail[] = [
   {
     id: 'C-2091',
     name: 'Priya Reddy',
-    maskedPhone: '+91 97**** **44',
+    phone: '+91 97450 23444',
+    unmaskedPhone: '+91 97450 23444',
+    maskedPhone: '+91 97450 23444',
     maskedEmail: 'p****@yahoo.com',
     locality: 'Gachibowli',
     status: 'ACTIVE',
@@ -63,7 +67,9 @@ const MOCK_CUSTOMERS: CustomerDetail[] = [
   {
     id: 'C-3810',
     name: 'Rajesh Kumar',
-    maskedPhone: '+91 99**** **89',
+    phone: '+91 99450 34589',
+    unmaskedPhone: '+91 99450 34589',
+    maskedPhone: '+91 99450 34589',
     maskedEmail: 'r****@outlook.com',
     locality: 'Madhapur',
     status: 'SUSPENDED',
@@ -85,7 +91,9 @@ const MOCK_CUSTOMERS: CustomerDetail[] = [
   {
     id: 'C-4102',
     name: 'Sneha Patel',
-    maskedPhone: '+91 96**** **31',
+    phone: '+91 96450 45631',
+    unmaskedPhone: '+91 96450 45631',
+    maskedPhone: '+91 96450 45631',
     maskedEmail: 's****@gmail.com',
     locality: 'HITEC City',
     status: 'ACTIVE',
@@ -208,7 +216,17 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
   const name = String(item.name || item.fullName || profileObj.fullName || userObj.fullName || combinedName || 'Customer User');
 
   const userId = String(item.userId || userObj.id || '') || undefined;
-  const rawPhone = extractPhoneString(item.unmaskedPhone || item.phone || item.mobile || profileObj.phone || userObj.phone || '');
+  const rawPhone = extractPhoneString(
+    item.unmaskedPhone ||
+    item.phone ||
+    item.mobile ||
+    item.phoneNumber ||
+    profileObj.phone ||
+    profileObj.mobile ||
+    userObj.phone ||
+    userObj.mobile ||
+    ''
+  );
   const cachedPhone = getCustomerPhone(id) || (userId ? getCustomerPhone(userId) : undefined);
   const rawCleanPhone = cachedPhone || (rawPhone && !rawPhone.includes('*') ? formatPhoneNumber(rawPhone) : undefined);
   if (rawCleanPhone) {
@@ -278,8 +296,8 @@ export function mapBackendCustomerToCustomer(item: Record<string, unknown>): Cus
     rawVerifStatus === 'VERIFIED'
       ? 'VERIFIED'
       : rawVerifStatus === 'REJECTED'
-      ? 'REJECTED'
-      : 'PENDING';
+        ? 'REJECTED'
+        : 'PENDING';
 
   const preferredLanguage = String(item.preferredLanguage || profileObj.preferredLanguage || profileObj.language || '') || undefined;
 
@@ -332,8 +350,8 @@ export function mapBackendCustomerDetailToCustomerDetail(
   const defaultAddr = addresses.find((a) => a.isDefault) || addresses[0];
   const formattedAddr = defaultAddr
     ? [defaultAddr.line, defaultAddr.line2, defaultAddr.area, defaultAddr.city, defaultAddr.pincode]
-        .filter(Boolean)
-        .join(', ')
+      .filter(Boolean)
+      .join(', ')
     : '';
 
   const fullAddress = String(
@@ -348,15 +366,15 @@ export function mapBackendCustomerDetailToCustomerDetail(
   const rawBookings = fetchedBookings !== undefined
     ? fetchedBookings
     : Array.isArray(data.bookings)
-    ? (data.bookings as CustomerBookingSummary[])
-    : Array.isArray(data.recentBookings)
-    ? (data.recentBookings as CustomerBookingSummary[])
-    : [];
+      ? (data.bookings as CustomerBookingSummary[])
+      : Array.isArray(data.recentBookings)
+        ? (data.recentBookings as CustomerBookingSummary[])
+        : [];
 
   const rawComplaints = fetchedComplaints !== undefined
     ? fetchedComplaints
     : Array.isArray(data.complaints)
-    ? (data.complaints as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
+      ? (data.complaints as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
         ticketId: String(c.id || c.ticketId || ''),
         disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
         serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
@@ -364,22 +382,22 @@ export function mapBackendCustomerDetailToCustomerDetail(
         createdAt: String(c.createdAt || 'Recent'),
         description: c.description ? String(c.description) : undefined,
       }))
-    : Array.isArray(data.tickets)
-    ? (data.tickets as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
-        ticketId: String(c.id || c.ticketId || ''),
-        disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
-        serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
-        status: String(c.status || 'OPEN'),
-        createdAt: String(c.createdAt || 'Recent'),
-        description: c.description ? String(c.description) : undefined,
-      }))
-    : [];
+      : Array.isArray(data.tickets)
+        ? (data.tickets as Record<string, unknown>[]).map((c: Record<string, unknown>) => ({
+          ticketId: String(c.id || c.ticketId || ''),
+          disputeCategory: String(c.disputeCategory || c.category || 'General Support'),
+          serviceCategory: c.serviceCategory ? String(c.serviceCategory) : undefined,
+          status: String(c.status || 'OPEN'),
+          createdAt: String(c.createdAt || 'Recent'),
+          description: c.description ? String(c.description) : undefined,
+        }))
+        : [];
 
   const rawNotes: Array<string | CustomerNote> = fetchedNotes !== undefined
     ? fetchedNotes
     : Array.isArray(data.notes)
-    ? (data.notes as Array<string | CustomerNote>)
-    : [];
+      ? (data.notes as Array<string | CustomerNote>)
+      : [];
 
   const activeBookings = rawBookings.filter((b) =>
     ['CONFIRMED', 'ACTIVE', 'INTERVIEW_TRIAL_SCHEDULED', 'MATCHED'].includes(String(b.status).toUpperCase())
@@ -730,6 +748,30 @@ export class RealCustomerRepository implements ICustomerRepository {
       const totalPages = meta?.totalPages ? Number(meta.totalPages) : (total > 0 ? Math.ceil(total / currentLimit) : 1);
       const hasMore = currentPage < totalPages && list.length > 0;
 
+      // Enrich any customers on the current page that don't have an unmasked phone cached yet
+      const uncachedItems = list.filter((item) => {
+        const id = String(item.id || item.customerId || '');
+        const phone = getCustomerPhone(id);
+        return id && (!phone || phone.includes('*'));
+      });
+
+      if (uncachedItems.length > 0) {
+        const batchSize = 5;
+        for (let i = 0; i < uncachedItems.length; i += batchSize) {
+          const batch = uncachedItems.slice(i, i + batchSize);
+          await Promise.all(
+            batch.map(async (item) => {
+              const id = String(item.id || item.customerId || '');
+              try {
+                await fetchCustomerUnmaskedPhone(id);
+              } catch {
+                // Ignore individual failure
+              }
+            })
+          );
+        }
+      }
+
       return {
         items: list.map(mapBackendCustomerToCustomer),
         total,
@@ -776,15 +818,15 @@ export class RealCustomerRepository implements ICustomerRepository {
         ),
         targetUserId
           ? httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
-              '/admin/bookings',
-              { params: { customerUserId: targetUserId, limit: 100 } }
-            )
+            '/admin/bookings',
+            { params: { customerUserId: targetUserId, limit: 100 } }
+          )
           : Promise.resolve(null),
         targetUserId
           ? httpClient.get<{ data?: unknown; items?: unknown } | unknown[]>(
-              '/admin/support/tickets',
-              { params: { creatorUserId: targetUserId, limit: 100 } }
-            )
+            '/admin/support/tickets',
+            { params: { creatorUserId: targetUserId, limit: 100 } }
+          )
           : Promise.resolve(null),
       ]);
 
@@ -861,10 +903,10 @@ export class RealCustomerRepository implements ICustomerRepository {
       const rawList = Array.isArray(data)
         ? data
         : Array.isArray((data as Record<string, unknown>)?.data)
-        ? (data as Record<string, unknown>).data
-        : Array.isArray((data as Record<string, unknown>)?.items)
-        ? (data as Record<string, unknown>).items
-        : [];
+          ? (data as Record<string, unknown>).data
+          : Array.isArray((data as Record<string, unknown>)?.items)
+            ? (data as Record<string, unknown>).items
+            : [];
       return (rawList as Record<string, unknown>[]).map((item) => ({
         id: String(item.id || ''),
         authorId: String(item.authorId || item.author || 'Administrative Staff'),
@@ -1018,7 +1060,11 @@ export class MockCustomerRepository implements ICustomerRepository {
       result = result.filter((c) => c.locality === filter.locality);
     }
 
-    return result.map(({ bookings: _b, notes: _n, fullAddress: _fa, unmaskedPhone: _up, unmaskedEmail: _ue, totalSpendINR: _ts, activeBookings: _ab, openGrievances: _og, complaints: _c, ...summary }) => summary);
+    return result.map(({ bookings: _b, notes: _n, fullAddress: _fa, totalSpendINR: _ts, activeBookings: _ab, openGrievances: _og, complaints: _c, ...summary }) => ({
+      ...summary,
+      phone: summary.phone || summary.unmaskedPhone,
+      unmaskedPhone: summary.unmaskedPhone || summary.phone,
+    }));
   }
 
   async getCustomersPage(

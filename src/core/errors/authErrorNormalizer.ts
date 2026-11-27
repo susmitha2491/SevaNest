@@ -15,6 +15,7 @@ export const AUTH_ERROR_MESSAGES = {
   CLOUDFLARE_CHALLENGE: 'Unable to connect to the authentication service. Please try again later.',
   BACKEND_UNAVAILABLE: 'Authentication service is temporarily unavailable. Please try again later.',
   UNEXPECTED_ERROR: 'Unable to sign in. Please try again.',
+  RATE_LIMIT_EXCEEDED: 'Too many login attempts. Please wait before trying again.',
 } as const;
 
 export interface NormalizedAuthError {
@@ -80,10 +81,14 @@ export function isCloudflareChallengeResponse(error: unknown): boolean {
 export function normalizeAuthError(error: unknown): NormalizedAuthError {
   // 1. Cloudflare / Bot Protection Challenge
   if (isCloudflareChallengeResponse(error)) {
+    const cfCooldown =
+      error instanceof RateLimitExceededError && error.retryAfterSeconds
+        ? error.retryAfterSeconds
+        : 10;
     return {
       userMessage: AUTH_ERROR_MESSAGES.CLOUDFLARE_CHALLENGE,
       isRetryable: true,
-      cooldownSeconds: 10,
+      cooldownSeconds: cfCooldown,
       isCredentialError: false,
       errorCode: 'CLOUDFLARE_CHALLENGE',
     };
@@ -188,14 +193,47 @@ export function normalizeAuthError(error: unknown): NormalizedAuthError {
     };
   }
 
-  // 4. Rate Limiting (standard non-Cloudflare 429)
-  if (status === 429 || error instanceof RateLimitExceededError || code === 'RATE_LIMIT_EXCEEDED') {
+  // 4. Rate Limiting (standard non-Cloudflare 429, RateLimitExceededError, or ADMIN_LOGIN_LOCKED)
+  if (
+    status === 429 ||
+    error instanceof RateLimitExceededError ||
+    code === 'RATE_LIMIT_EXCEEDED' ||
+    code === 'ADMIN_LOGIN_LOCKED'
+  ) {
+    let parsedCooldown =
+      error instanceof RateLimitExceededError && error.retryAfterSeconds
+        ? error.retryAfterSeconds
+        : undefined;
+
+    if (!parsedCooldown && axios.isAxiosError(error)) {
+      const respHeaders = error.response?.headers;
+      const hRetry =
+        readHeaderValue(respHeaders, 'retry-after') ||
+        readHeaderValue(respHeaders, 'x-ratelimit-reset');
+      if (hRetry && /^\d+$/.test(hRetry.trim())) {
+        parsedCooldown = Number(hRetry.trim());
+      }
+    }
+
+    if (!parsedCooldown) {
+      const match = rawMessage.match(/(?:try again in|retry available in)\s+(\d+)\s*s/i);
+      if (match && match[1]) {
+        parsedCooldown = Number(match[1]);
+      }
+    }
+
+    const effectiveCooldown = parsedCooldown && parsedCooldown > 0 ? parsedCooldown : 60;
+    const rateLimitMessage =
+      parsedCooldown && parsedCooldown > 0
+        ? `Too many login attempts. Authentication service is temporarily unavailable. Try again in ${effectiveCooldown}s.`
+        : 'Too many login attempts. Authentication service is temporarily unavailable. Please wait a moment before trying again.';
+
     return {
-      userMessage: AUTH_ERROR_MESSAGES.BACKEND_UNAVAILABLE,
+      userMessage: rateLimitMessage,
       isRetryable: true,
-      cooldownSeconds: 10,
+      cooldownSeconds: effectiveCooldown,
       isCredentialError: false,
-      errorCode: 'RATE_LIMIT_EXCEEDED',
+      errorCode: code || 'RATE_LIMIT_EXCEEDED',
     };
   }
 

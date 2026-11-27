@@ -58,6 +58,11 @@ const ConfigurationMastersPage = React.lazy(() =>
 const AuditTrailPage = React.lazy(() =>
   import('../../features/audit/presentation/AuditTrailPage').then((m) => ({ default: m.AuditTrailPage || m.default }))
 );
+const OperationalAlertsPage = React.lazy(() =>
+  import('../../features/dashboard/presentation/OperationalAlertsPage').then((m) => ({
+    default: m.OperationalAlertsPage || m.default,
+  }))
+);
 
 export const routes: RouteObject[] = [
   // Public / Authentication Routes
@@ -93,6 +98,16 @@ export const routes: RouteObject[] = [
           <ProtectedRoute permission={PERMISSIONS.DASHBOARD_VIEW}>
             <LazyRoute label="Loading command center...">
               <DashboardPage />
+            </LazyRoute>
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: 'alerts',
+        element: (
+          <ProtectedRoute permission={PERMISSIONS.ALERT_VIEW}>
+            <LazyRoute label="Loading operational alerts triage queue...">
+              <OperationalAlertsPage />
             </LazyRoute>
           </ProtectedRoute>
         ),

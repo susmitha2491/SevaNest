@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ExternalLink,
   RefreshCw,
+  RotateCcw,
   ShieldAlert,
   X,
 } from 'lucide-react';
@@ -244,6 +245,35 @@ export const OperationalAlertsDrawer: React.FC<OperationalAlertsDrawerProps> = (
             ariaLabel="Filter alerts by severity"
             minWidth="150px"
           />
+          {(statusFilter !== 'OPEN' || severityFilter !== 'ALL') && (
+            <button
+              type="button"
+              data-testid="alerts-drawer-reset-filters-btn"
+              onClick={() => {
+                setStatusFilter('OPEN');
+                setSeverityFilter('ALL');
+                setPage(1);
+              }}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                padding: '6px 12px',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--color-border)',
+                backgroundColor: 'var(--color-bg-subtle)',
+                color: 'var(--color-text-secondary)',
+                fontSize: 'var(--font-size-xs)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+              title="Reset alerts filters to default (Status: Open, Severity: All)"
+            >
+              <RotateCcw size={12} />
+              <span>Reset Filters</span>
+            </button>
+          )}
         </div>
 
         {/* Feedback Banners */}

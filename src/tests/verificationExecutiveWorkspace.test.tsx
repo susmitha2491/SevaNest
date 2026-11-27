@@ -130,12 +130,46 @@ describe('Verification Executive Workspace & Role-Specific Sidebar', () => {
       fireEvent.click(screen.getByRole('link', { name: /^All Applications$/i }));
       expect(await screen.findByRole('heading', { name: /Worker Verification & Trust Operations/i })).toBeInTheDocument();
 
-      // Clicking parent Verification toggles collapse/expand
+      // Verification sub-modules are permanently visible in the sidebar and clicking parent does NOT collapse them
       fireEvent.click(screen.getByRole('link', { name: /^Verification$/i }));
-      expect(screen.queryByRole('link', { name: /^All Applications$/i })).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
+    });
 
-      // Clicking parent Verification again expands submenus
-      fireEvent.click(screen.getByRole('link', { name: /^Verification$/i }));
+    it('keeps Verification sub-modules permanently visible without toggle arrow across routes', async () => {
+      const { router } = renderApp('/dashboard');
+
+      expect(await screen.findByRole('link', { name: /^Dashboard$/i }, { timeout: 4000 })).toBeInTheDocument();
+
+      // Sub-modules are visible even when on /dashboard
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
+
+      // No expand/collapse toggle arrow beside Verification
+      const verifLink = screen.getByRole('link', { name: /^Verification$/i });
+      expect(verifLink).not.toHaveAttribute('aria-expanded');
+
+      // Navigate to /workers
+      fireEvent.click(screen.getByRole('link', { name: /^Workers Management$/i }));
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/workers');
+      });
+
+      // Sub-modules remain permanently visible on /workers
+      expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Rechecks & Expiry$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Corrections Required$/i })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /^Review History$/i })).toBeInTheDocument();
+
+      // Clicking Verification navigates to /verification and sub-modules still visible
+      fireEvent.click(verifLink);
+      await waitFor(() => {
+        expect(router.state.location.pathname).toBe('/verification');
+      });
       expect(screen.getByRole('link', { name: /^All Applications$/i })).toBeInTheDocument();
     });
 

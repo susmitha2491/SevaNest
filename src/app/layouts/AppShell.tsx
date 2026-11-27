@@ -172,8 +172,8 @@ export const AppShell: React.FC = () => {
                 src="/SevaNest_logo-removebg-preview.png"
                 alt="SevaNest logo"
                 style={{
-                  height: '28px',
-                  maxWidth: '125px',
+                  height: '38px',
+                  maxWidth: '165px',
                   width: 'auto',
                   objectFit: 'contain',
                   display: 'block',
@@ -186,8 +186,8 @@ export const AppShell: React.FC = () => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                height: '28px',
-                width: '28px',
+                height: '34px',
+                width: '34px',
                 flexShrink: 0,
                 overflow: 'hidden',
               }}
@@ -196,8 +196,8 @@ export const AppShell: React.FC = () => {
                 src="/SevaNest_logo-removebg-preview.png"
                 alt="SevaNest logo"
                 style={{
-                  height: '28px',
-                  maxWidth: '28px',
+                  height: '34px',
+                  maxWidth: '34px',
                   width: 'auto',
                   objectFit: 'contain',
                   display: 'block',
@@ -249,8 +249,10 @@ export const AppShell: React.FC = () => {
             {accessibleModules.map((mod) => {
               const Icon = mod.icon;
               const hasSubItems = Boolean(mod.subItems && mod.subItems.length > 0);
+              const isVerificationExecutive = user?.role === 'VERIFICATION_EXECUTIVE';
+              const isPermanentlyExpanded = isVerificationExecutive && mod.id === 'verification';
               const isParentExpanded = Boolean(
-                expandedModules[mod.id] ?? location.pathname.startsWith(mod.path)
+                isPermanentlyExpanded || (expandedModules[mod.id] ?? location.pathname.startsWith(mod.path))
               );
               const isSubmenuRouteActive = hasSubItems && location.pathname.startsWith(mod.path);
 
@@ -278,6 +280,10 @@ export const AppShell: React.FC = () => {
                     className={({ isActive }) => (!hasSubItems && (isActive || isItemActive) ? 'active' : '')}
                     onClick={(e) => {
                       if (hasSubItems) {
+                        if (isPermanentlyExpanded) {
+                          setMobileMenuOpen(false);
+                          return;
+                        }
                         // If user is already on a verification page, toggle expand/collapse without re-navigating
                         if (location.pathname.startsWith(mod.path)) {
                           e.preventDefault();
@@ -332,7 +338,7 @@ export const AppShell: React.FC = () => {
                         boxSizing: 'border-box',
                       };
                     }}
-                    aria-expanded={hasSubItems ? isParentExpanded : undefined}
+                    aria-expanded={hasSubItems && !isPermanentlyExpanded ? isParentExpanded : undefined}
                     title={!sidebarOpen ? mod.name : undefined}
                   >
                     {Icon && <Icon size={16} style={{ flexShrink: 0 }} />}
@@ -349,7 +355,7 @@ export const AppShell: React.FC = () => {
                         {mod.name}
                       </span>
                     )}
-                    {sidebarOpen && hasSubItems && (
+                    {sidebarOpen && hasSubItems && !isPermanentlyExpanded && (
                       <span
                         style={{
                           display: 'inline-flex',
@@ -576,8 +582,8 @@ export const AppShell: React.FC = () => {
                 src="/SevaNest_logo-removebg-preview.png"
                 alt="SevaNest logo"
                 style={{
-                  height: '24px',
-                  maxWidth: '115px',
+                  height: '34px',
+                  maxWidth: '150px',
                   width: 'auto',
                   objectFit: 'contain',
                   display: 'block',

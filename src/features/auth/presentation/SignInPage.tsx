@@ -52,7 +52,16 @@ export const SignInPage: React.FC = () => {
       : null;
     const timeoutId = controller ? setTimeout(() => controller.abort(), 15000) : null;
     const probeUrl = `${(env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')}/app-config`;
-    fetch(probeUrl, { method: 'GET', cache: 'no-store', signal: controller?.signal }).catch(() => {});
+    fetch(probeUrl, { method: 'GET', cache: 'no-store', signal: controller?.signal })
+      .then((res) => {
+        if (res.status === 503) {
+          // Backend is sleeping/waking up on Render
+          setWakeUpStatus({ attempt: 1, maxRetries: 1 });
+        } else if (res.ok) {
+          setWakeUpStatus(null);
+        }
+      })
+      .catch(() => {});
     return () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (controller) controller.abort();
@@ -165,12 +174,12 @@ export const SignInPage: React.FC = () => {
     });
 
     const handleSelectRole = (role: QuickLoginRole) => {
+      if (isSubmittingRef.current || isSubmitting || retryCooldown > 0) return;
       // Populate form fields with role email and credentials without auto-submitting
       setValue('email', role.email, { shouldValidate: true, shouldDirty: true });
       setValue('password', role.password, { shouldValidate: true, shouldDirty: true });
       setAuthError(null);
       setIsRetryableError(false);
-      setRetryCooldown(0);
       setSelectedRoleId(role.id);
     };
 
@@ -434,7 +443,7 @@ export const SignInPage: React.FC = () => {
                 <QuickLoginSection
                     selectedRoleId={selectedRoleId}
                     onSelectRole={handleSelectRole}
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || retryCooldown > 0}
                 />
             )}
         </div>
